@@ -1,6 +1,7 @@
 {
   "routes": [
     { "handle": "filesystem" },
+    { "src": "/api/health", "dest": "/api/health" },
     { "src": "/api/(.*)", "dest": "/api/[...path]" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
