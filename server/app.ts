@@ -393,28 +393,74 @@ export function createApp() {
     const toEmail = to || dossier.formData?.assures?.[0]?.email;
     if (!toEmail) return res.status(400).json({ error: "Missing recipient email" });
 
-    const result = await sendEmail({ to: toEmail, subject, html });
-    if ("error" in result) {
-      const error = (result as any).error;
-      addEvent(dossier, {
-        type: "EMAIL_FAILED",
-        actor: { kind: "ADMIN", label: "Admin" },
-        meta: { to: toEmail, subject, error },
-      });
-      writeDB(db, dossier);
-      return res.status(500).json({ error });
+    const authHeader = req.headers.authorization;
+    const googleToken =
+      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+
+    let providerId: string | null = null;
+    let channel: "gmail" | "smtp" | "simulated" = "simulated";
+
+    if (googleToken) {
+      const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
+      const gmailResult = await sendEmailReplyWithGmailAPI(googleToken, toEmail, subject, html);
+      if (gmailResult.ok) {
+        providerId = gmailResult.messageId || null;
+        channel = "gmail";
+      } else {
+        addEvent(dossier, {
+          type: "EMAIL_FAILED",
+          actor: { kind: "ADMIN", label: "Admin" },
+          meta: { to: toEmail, subject, error: gmailResult.error, channel: "gmail" },
+        });
+        writeDB(db, dossier);
+        return res.status(500).json({
+          error: `Échec Gmail : ${gmailResult.error}. Reconnectez-vous à Google (Déconnexion puis connexion).`,
+        });
+      }
+    } else {
+      const result = await sendEmail({ to: toEmail, subject, html });
+      if ("error" in result) {
+        const error = (result as any).error;
+        addEvent(dossier, {
+          type: "EMAIL_FAILED",
+          actor: { kind: "ADMIN", label: "Admin" },
+          meta: { to: toEmail, subject, error },
+        });
+        writeDB(db, dossier);
+        return res.status(500).json({ error });
+      }
+      providerId = (result as any).providerId || null;
+      channel = providerId === "SIMULATED" ? "simulated" : "smtp";
+      if (channel === "simulated") {
+        return res.status(400).json({
+          error:
+            "Email non envoyé : connectez-vous avec Google dans l'admin (Gmail) ou configurez SMTP sur Railway.",
+        });
+      }
     }
+
+    if (!dossier.communications) dossier.communications = [];
+    dossier.communications.push({
+      id: `msg_out_${Date.now()}`,
+      direction: "outbound",
+      to: toEmail,
+      subject,
+      text: html,
+      date: new Date().toISOString(),
+    });
 
     addEvent(dossier, {
       type: "EMAIL_SENT",
       actor: { kind: "ADMIN", label: "Admin" },
-      meta: { to: toEmail, subject, providerId: (result as any).providerId },
+      meta: { to: toEmail, subject, providerId, channel },
+      message: `Email envoyé au client (${channel}).`,
     });
     writeDB(db, dossier);
     return res.json({
       success: true,
-      providerId: (result as any).providerId || null,
-      simulated: (result as any).providerId === "SIMULATED",
+      providerId,
+      channel,
+      simulated: false,
     });
   });
 
@@ -524,9 +570,13 @@ export function createApp() {
     try {
       const { syncGmailInbox } = await import("./mailAutomation");
       const db = await readDBAsync();
-      const updatedDb = await syncGmailInbox(accessToken, db, processIncomingClientEmail);
-      writeDB(updatedDb);
-      res.json({ success: true });
+      const result = await syncGmailInbox(accessToken, db, processIncomingClientEmail);
+      writeDB(result.db);
+      res.json({
+        success: true,
+        inbound: result.inboundCount,
+        processed: result.processed,
+      });
     } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: err.message });

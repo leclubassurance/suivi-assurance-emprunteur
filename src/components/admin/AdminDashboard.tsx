@@ -4,12 +4,14 @@ import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download,
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
+import { computeDocumentChecklist } from "../../lib/documentChecklist";
+import { QUALITE_OPTIONS, STATUT_PRO_OPTIONS, PROFESSION_RISQUE_OPTIONS, DEPLACEMENTS_PRO_OPTIONS } from "../../constants";
 
 export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onLogout: () => void; }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [search, setSearch] = useState("");
   const [selectedDossier, setSelectedDossier] = useState<Dossier | null>(null);
-  const [activeTab, setActiveTab] = useState<"SUIVI" | "CRM" | "INFORMATIONS" | "DOCUMENTS" | "ENVOI_MAIL">("SUIVI");
+  const [activeTab, setActiveTab] = useState<"SUIVI" | "MESSAGES" | "INFORMATIONS" | "DOCUMENTS" | "ENVOI_MAIL">("SUIVI");
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
   const [autoSyncGmail, setAutoSyncGmail] = useState(true);
   
@@ -37,20 +39,30 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       const res = await fetch(getApiUrl("/api/dossiers"));
       if (res.ok) {
         const data = await res.json();
-        // Filtrer selon le rôle
-        const filteredData = user.role === 'CONSEILLER' 
+        const filteredData = user.role === 'CONSEILLER'
           ? data.filter((d: Dossier) => d.formData?.assures?.[0]?.email === user.email || (d as any).uid === user.uid)
           : data;
         setDossiers(filteredData);
-        setSelectedDossier(prev => {
+        setSelectedDossier((prev) => {
           if (!prev) return null;
-          return data.find((d: Dossier) => d.id === prev.id) || prev;
+          return filteredData.find((d: Dossier) => d.id === prev.id) || prev;
         });
       }
     } catch (err) {
       showToast("Erreur de chargement", "error");
     }
   };
+
+  const authHeaders = async (json = true): Promise<HeadersInit> => {
+    const token = await getAccessToken();
+    const headers: Record<string, string> = {};
+    if (json) headers["Content-Type"] = "application/json";
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  };
+
+  const labelFromOptions = (value: string, options: { value: string; label: string }[]) =>
+    options.find((o) => o.value === value)?.label || value || "-";
 
   useEffect(() => {
     loadDossiers();
@@ -90,12 +102,15 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       showToast("Synchronisation Gmail (IA) en cours...", "info");
       const res = await fetch(getApiUrl("/api/admin/sync-emails"), {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: await authHeaders(),
         body: JSON.stringify({}),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast("Emails synchronisés", "success");
+        showToast(
+          `Sync Gmail : ${data.processed || 0} message(s) analysé(s), ${data.inbound || 0} reçu(s) client`,
+          "success",
+        );
         loadDossiers();
       } else {
         showToast(data.error || "Erreur sync Gmail", "error");
@@ -116,12 +131,16 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       showToast("Envoi des documents vers Drive...", "info");
       const res = await fetch(getApiUrl(`/api/dossiers/${selectedDossier.id}/retry-workspace`), {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: await authHeaders(),
         body: JSON.stringify({}),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast("Docs Drive mis à jour", "success");
+        if (data.success) {
+          showToast(data.warning ? `Drive OK (avec avertissement)` : "Dossier Drive créé", "success");
+        } else {
+          showToast(data.error || "Erreur Drive", "error");
+        }
         loadDossiers();
       } else {
         showToast(data.error || "Erreur Drive", "error");
@@ -151,48 +170,6 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     } catch {
       showToast("Erreur réseau", "error");
     }
-  };
-
-  const normalizeDocName = (value: unknown) => {
-    return String(value || "")
-      .toLowerCase()
-      .normalize("NFD")
-      // remove accents/diacritics
-      .replace(/[\u0300-\u036f]/g, "");
-  };
-
-  const computeChecklist = (d: Dossier) => {
-    const docs: any[] = d.formData?.documents || [];
-    const names = docs.map((x) => normalizeDocName(x?.name));
-
-    const hasCNI = names.some(
-      (n) =>
-        n.includes("cni") ||
-        n.includes("identit") ||
-        n.includes("piece") && n.includes("identit") ||
-        n.includes("passeport") ||
-        n.includes("carte") && n.includes("identit"),
-    );
-    const hasRib = names.some((n) => n.includes("rib") || n.includes("iban") || n.includes("releve") && n.includes("identite"));
-    const hasOffrePret = names.some(
-      (n) =>
-        (n.includes("offre") && (n.includes("pret") || n.includes("credit") || n.includes("banque"))) ||
-        (n.includes("contrat") && (n.includes("pret") || n.includes("credit"))) ||
-        n.includes("offrepret"),
-    );
-    const hasAmortissement = names.some(
-      (n) =>
-        n.includes("amort") ||
-        (n.includes("tableau") && (n.includes("amort") || n.includes("pret") || n.includes("credit"))) ||
-        n.includes("echeancier") ||
-        n.includes("plan") && n.includes("amort"),
-    );
-    return [
-      { key: "cni", label: "Pièce d'identité (CNI/Passeport)", ok: hasCNI },
-      { key: "rib", label: "RIB", ok: hasRib },
-      { key: "offre", label: "Offre de prêt (si disponible)", ok: hasOffrePret },
-      { key: "amort", label: "Tableau d'amortissement (si disponible)", ok: hasAmortissement },
-    ];
   };
 
   const taskTypeLabel = (type: string) => {
@@ -235,7 +212,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   const getAlerts = (d: Dossier) => {
     const alerts: { title: string; detail: string }[] = [];
-    const checklist = computeChecklist(d);
+    const checklist = computeDocumentChecklist(d.formData?.documents || []);
     const missing = checklist.filter(i => !i.ok && (i.key === "cni" || i.key === "rib"));
     if (missing.length) {
       alerts.push({ title: "Pièces bloquantes manquantes", detail: missing.map(m => m.label).join(" · ") });
@@ -279,15 +256,16 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     try {
       const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/send-email`), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: replySubject, html: replyBody })
+        headers: await authHeaders(),
+        body: JSON.stringify({ subject: replySubject, html: replyBody }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast("Email envoyé !", "success");
+        showToast(data.channel === "gmail" ? "Email envoyé via Gmail" : "Email envoyé", "success");
         setReplyBody("");
         loadDossiers();
       } else {
-        showToast("Erreur d'envoi", "error");
+        showToast(data.error || "Erreur d'envoi", "error");
       }
     } catch (e) {
       showToast("Erreur réseau", "error");
@@ -309,16 +287,16 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       showToast("Envoi de l'email en cours...", "info");
       const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/send-email`), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: emailSubject, html: emailHtml })
+        headers: await authHeaders(),
+        body: JSON.stringify({ subject: emailSubject, html: emailHtml }),
       });
+      const errData = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast("Email envoyé de manière sécurisée !", "success");
+        showToast(errData.channel === "gmail" ? "Email client envoyé via Gmail" : "Email client envoyé", "success");
         setEmailHtml("");
         setPreviewActive(false);
         loadDossiers();
       } else {
-        const errData = await res.json().catch(() => ({}));
         showToast(errData.error || "Erreur d'envoi", "error");
       }
     } catch (e) {
@@ -435,13 +413,21 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
               {/* Tabs Navigation */}
               <div className="flex border-b border-slate-200">
-                {["SUIVI", "CRM", "INFORMATIONS", "DOCUMENTS", "ENVOI_MAIL"].map(tab => (
+                {(["SUIVI", "MESSAGES", "INFORMATIONS", "DOCUMENTS", "ENVOI_MAIL"] as const).map(tab => (
                   <button
                     key={tab}
-                    onClick={() => setActiveTab(tab as any)}
+                    onClick={() => setActiveTab(tab)}
                     className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${activeTab === tab ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
                   >
-                    {tab === "SUIVI" ? "Suivi" : tab === "ENVOI_MAIL" ? "Envoi Mail" : tab.charAt(0) + tab.slice(1).toLowerCase()}
+                    {tab === "SUIVI"
+                      ? "Suivi"
+                      : tab === "MESSAGES"
+                        ? "Échanges"
+                        : tab === "ENVOI_MAIL"
+                          ? "Envoi Mail"
+                          : tab === "INFORMATIONS"
+                            ? "Informations"
+                            : "Documents"}
                   </button>
                 ))}
                 <button
@@ -518,12 +504,12 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                                           showToast("Envoi IA en cours...", "info");
                                           const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/send-email`), {
                                             method: "POST",
-                                            headers: { "Content-Type": "application/json" },
+                                            headers: await authHeaders(),
                                             body: JSON.stringify({ subject: a.subject, html: a.html }),
                                           });
                                           const data = await res.json().catch(() => ({}));
                                           if (res.ok) {
-                                            showToast("Email envoyé", "success");
+                                            showToast("Email envoyé via Gmail", "success");
                                             loadDossiers();
                                           } else {
                                             showToast(data.error || "Erreur d'envoi IA", "error");
@@ -550,7 +536,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       </div>
                     )}
                     <div className="space-y-2 mb-6">
-                      {computeChecklist(selectedDossier).map(item => (
+                      {computeDocumentChecklist(selectedDossier.formData?.documents || []).map(item => (
                         <div key={item.key} className={`flex items-center justify-between p-3 rounded-xl border ${item.ok ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
                           <div className="text-sm font-semibold text-slate-800">{item.label}</div>
                           <div className={`text-xs font-black px-2 py-1 rounded-full ${item.ok ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"}`}>
@@ -689,7 +675,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                 </div>
               )}
 
-              {activeTab === "CRM" && (
+              {activeTab === "MESSAGES" && (
                 <>
                   {/* Alertes / Suivi Intel */}
                   <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
@@ -707,10 +693,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
                   {/* CRM Messages */}
                   <div className="bg-white border rounded-2xl p-6 shadow-sm">
-                    <h3 className="font-bold flex gap-2 items-center mb-6 text-slate-800">
-                      <Mail className="w-5 h-5 text-indigo-600"/> Historique des échanges & Messagerie
+                    <h3 className="font-bold flex gap-2 items-center mb-2 text-slate-800">
+                      <Mail className="w-5 h-5 text-indigo-600"/> Historique des échanges
                     </h3>
-                    
+                    <p className="text-xs text-slate-500 mb-4">
+                      Cliquez sur <strong>Sync Gmail (IA)</strong> dans l’onglet Suivi pour importer les emails reçus et envoyés (30 derniers jours).
+                      Si la sync échoue, déconnectez-vous puis reconnectez-vous à Google pour autoriser la lecture Gmail.
+                    </p>
+
                     <div className="space-y-4 mb-6 max-h-[400px] overflow-y-auto pr-2">
                       {(selectedDossier as any).communications?.map((c: any) => (
                         <div key={c.id} className={`p-5 rounded-2xl border ${c.direction === 'inbound' ? 'bg-slate-50 border-slate-200 mr-12' : 'bg-indigo-50 border-indigo-100 ml-12'}`}>
@@ -798,28 +788,50 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     <CheckCircle className="w-5 h-5 text-indigo-600"/> Données du Formulaire
                   </h3>
                   <div className="space-y-6">
-                    {/* Assurés */}
+                    <div className="bg-slate-50 border rounded-xl p-4 text-sm">
+                      <span className="text-slate-500 block text-xs font-bold uppercase">Objet de financement</span>
+                      <span className="text-slate-900 font-semibold">{selectedDossier.formData?.objetFinancement || "-"}</span>
+                    </div>
+
                     {selectedDossier.formData?.assures?.map((assure: any, idx: number) => (
                       <div key={idx} className="bg-slate-50 border rounded-xl p-5">
-                        <h4 className="font-bold text-slate-800 mb-4 border-b pb-2">Assuré(e) {idx + 1} : {assure.prenom} {assure.nom}</h4>
+                        <h4 className="font-bold text-slate-800 mb-4 border-b pb-2">
+                          Assuré(e) {idx + 1} : {assure.civilite} {assure.prenom} {assure.nom}
+                        </h4>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                          <div><span className="text-slate-500 block text-xs">Email</span>{assure.email || '-'}</div>
-                          <div><span className="text-slate-500 block text-xs">Téléphone</span>{assure.telephone || '-'}</div>
-                          <div><span className="text-slate-500 block text-xs">Date Naissance</span>{assure.dateNaissance || '-'}</div>
-                          <div><span className="text-slate-500 block text-xs">Profession</span>{assure.profession || '-'}</div>
-                          <div><span className="text-slate-500 block text-xs">Fumeur</span>{assure.fumeur ? 'Oui' : 'Non'}</div>
+                          <div><span className="text-slate-500 block text-xs">Qualité</span>{labelFromOptions(assure.qualite, QUALITE_OPTIONS)}</div>
+                          <div><span className="text-slate-500 block text-xs">Email</span>{assure.email || "-"}</div>
+                          <div><span className="text-slate-500 block text-xs">Téléphone</span>{assure.telephone || "-"}</div>
+                          <div><span className="text-slate-500 block text-xs">Date de naissance</span>{assure.dateNaissance || "-"}</div>
+                          <div><span className="text-slate-500 block text-xs">Pays de résidence</span>{assure.paysResidence || "-"}</div>
+                          <div><span className="text-slate-500 block text-xs">Code postal</span>{assure.cpResidence || "-"}</div>
+                          <div><span className="text-slate-500 block text-xs">Statut professionnel</span>{labelFromOptions(assure.statutPro, STATUT_PRO_OPTIONS)}</div>
+                          <div><span className="text-slate-500 block text-xs">Profession</span>{assure.profession || "-"}</div>
+                          <div><span className="text-slate-500 block text-xs">Profession à risque</span>{labelFromOptions(assure.professionRisque, PROFESSION_RISQUE_OPTIONS)}</div>
+                          <div><span className="text-slate-500 block text-xs">Profession manuelle</span>{assure.professionManuelle ? "Oui" : "Non"}</div>
+                          <div><span className="text-slate-500 block text-xs">Travaux en hauteur</span>{assure.travauxHauteur ? "Oui" : "Non"}</div>
+                          <div><span className="text-slate-500 block text-xs">Déplacements pro</span>{labelFromOptions(assure.deplacementsPro, DEPLACEMENTS_PRO_OPTIONS)}</div>
+                          <div><span className="text-slate-500 block text-xs">Sports à risque</span>{assure.sportsRisque ? "Oui" : "Non"}</div>
+                          <div className="md:col-span-2"><span className="text-slate-500 block text-xs">Sports déclarés</span>{(assure.selectedSports || []).join(", ") || "-"}</div>
+                          <div><span className="text-slate-500 block text-xs">Fumeur</span>{assure.fumeur ? "Oui" : "Non"}</div>
                         </div>
                       </div>
                     ))}
-                    
-                    {/* Prêts */}
+
                     {selectedDossier.formData?.prets?.map((pret: any, idx: number) => (
                       <div key={idx} className="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
                         <h4 className="font-bold text-indigo-900 mb-4 border-b border-indigo-200 pb-2">Prêt {idx + 1}</h4>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                          <div><span className="text-indigo-700 block text-xs">Capital Restant</span>{pret.capitalRestant ? `${pret.capitalRestant} €` : '-'}</div>
-                          <div><span className="text-indigo-700 block text-xs">Durée Restante</span>{pret.dureeRestante ? `${pret.dureeRestante} mois` : '-'}</div>
-                          <div><span className="text-indigo-700 block text-xs">Taux</span>{pret.taux ? `${pret.taux} %` : '-'}</div>
+                          <div><span className="text-indigo-700 block text-xs">Nature du prêt</span>{pret.naturePret || "-"}</div>
+                          <div><span className="text-indigo-700 block text-xs">Capital restant dû</span>{pret.capitalRestant ? `${pret.capitalRestant} €` : "-"}</div>
+                          <div><span className="text-indigo-700 block text-xs">Banque prêteuse</span>{pret.banquePreteuse || "-"}</div>
+                          <div><span className="text-indigo-700 block text-xs">1ère échéance</span>{pret.datePremiereEcheance || "-"}</div>
+                          <div><span className="text-indigo-700 block text-xs">Taux</span>{pret.taux ? `${pret.taux} %` : "-"}</div>
+                          <div><span className="text-indigo-700 block text-xs">Type de taux</span>{pret.typeTaux || "-"}</div>
+                          <div><span className="text-indigo-700 block text-xs">Périodicité</span>{pret.periodicite || "-"}</div>
+                          <div><span className="text-indigo-700 block text-xs">Durée restante</span>{pret.dureeRestante ? `${pret.dureeRestante} mois` : "-"}</div>
+                          <div><span className="text-indigo-700 block text-xs">Différé amortissement</span>{pret.differeAmortissement ?? "-"}</div>
+                          <div className="md:col-span-2"><span className="text-indigo-700 block text-xs">Modalité de remboursement</span>{pret.modaliteRemboursement || "-"}</div>
                         </div>
                       </div>
                     ))}
@@ -882,7 +894,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       <Mail className="w-5 h-5 text-indigo-600"/> Envoi du Mail Client
                     </h3>
                     <p className="text-xs text-slate-500 mt-1">
-                      Collez le code HTML d'une étude d'assurance générée pour l'envoyer directement au client depuis votre Gmail.
+                      Collez le HTML de l’étude. L’envoi se fait via votre compte Gmail connecté (assurance@leclubimmobilier.fr).
                     </p>
                   </div>
 

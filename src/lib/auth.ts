@@ -39,6 +39,8 @@ if (isFirebaseValid) {
     // Request Workspace scopes explicitly requested by User
     provider.addScope("https://www.googleapis.com/auth/drive.file");
     provider.addScope("https://www.googleapis.com/auth/gmail.send");
+    provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
+    provider.addScope("https://www.googleapis.com/auth/gmail.modify");
     provider.addScope("https://www.googleapis.com/auth/spreadsheets");
   } catch (err) {
     console.error("Firebase Auth initialization failed:", err);
