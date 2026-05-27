@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { gmail_v1 } from 'googleapis';
+import { classifyFileName, type DocumentCategory } from '../shared/documentClassifier';
 
 export function getUploadsBaseDir() {
   if (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT) {
@@ -16,6 +17,7 @@ export type SavedGmailAttachment = {
   type: string;
   localPath: string;
   source: string;
+  category?: string;
   gmailMessageId?: string;
 };
 
@@ -66,6 +68,18 @@ function isContainerMime(mimeType: string) {
   );
 }
 
+function guessFilename(mimeType: string, index: number) {
+  const ext =
+    mimeType.includes('pdf')
+      ? 'pdf'
+      : mimeType.includes('png')
+        ? 'png'
+        : mimeType.includes('jpeg') || mimeType.includes('jpg')
+          ? 'jpg'
+          : 'bin';
+  return `piece-jointe-${index + 1}.${ext}`;
+}
+
 /** Parcourt tout l'arbre MIME Gmail (y compris PJ inline dans body.data). */
 export function collectAttachmentParts(
   part: gmail_v1.Schema$MessagePart | undefined,
@@ -74,9 +88,14 @@ export function collectAttachmentParts(
   if (!part) return out;
 
   const mimeType = part.mimeType || 'application/octet-stream';
-  const filename = getPartFilename(part);
+  let filename = getPartFilename(part);
+  const hasBinary = Boolean(part.body?.attachmentId || part.body?.data);
 
-  if (filename && !isContainerMime(mimeType)) {
+  if (!filename && hasBinary && !isContainerMime(mimeType)) {
+    filename = guessFilename(mimeType, out.length);
+  }
+
+  if (filename && !isContainerMime(mimeType) && hasBinary) {
     if (part.body?.attachmentId) {
       out.push({ filename, mimeType, attachmentId: part.body.attachmentId });
     } else if (part.body?.data) {
@@ -127,16 +146,19 @@ export async function downloadGmailAttachments(
       } else if (part.inlineBase64) {
         buf = decodeGmailBase64(part.inlineBase64);
       }
-      if (!buf || buf.length < 20) {
-        errors.push(`${part.filename}: fichier vide ou trop petit`);
+      if (!buf || buf.length < 80) {
+        errors.push(`${part.filename}: fichier vide ou trop petit (${buf?.length || 0} o)`);
         continue;
       }
 
+      const category: DocumentCategory | null = classifyFileName(part.filename);
+      const idPrefix = category && category !== 'autre' ? category : 'pj';
       const safeName = part.filename.replace(/[^a-zA-Z0-9._-]/g, '_') || 'piece-jointe.bin';
       const localPath = path.join(dir, `${Date.now()}_${safeName}`);
       fs.writeFileSync(localPath, buf);
       saved.push({
-        id: `doc_gmail_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: `${idPrefix}-gmail_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        category: category || undefined,
         name: part.filename,
         size: buf.length,
         type: part.mimeType,
@@ -154,19 +176,38 @@ export async function downloadGmailAttachments(
   return { saved, found: parts.length, errors };
 }
 
+function docFingerprint(doc: { name?: string; size?: number; category?: string }) {
+  return `${String(doc.category || '')}|${String(doc.name || '').toLowerCase()}|${doc.size || 0}`;
+}
+
 export function mergeDocumentsIntoDossier(dossier: any, newDocs: SavedGmailAttachment[]) {
   if (!newDocs.length) return [] as SavedGmailAttachment[];
   if (!dossier.formData) dossier.formData = {};
   if (!dossier.formData.documents) dossier.formData.documents = [];
-  const existing = new Set(
+
+  const existingNames = new Set(
     dossier.formData.documents.map((d: any) => String(d.name || '').toLowerCase()),
   );
+  const existingFp = new Set(
+    dossier.formData.documents.map((d: any) => docFingerprint(d)),
+  );
+
   const added: SavedGmailAttachment[] = [];
   for (const doc of newDocs) {
-    const key = String(doc.name || '').toLowerCase();
-    if (!key || existing.has(key)) continue;
+    const nameKey = String(doc.name || '').toLowerCase();
+    const fp = docFingerprint(doc);
+    if (!nameKey) continue;
+
+    const dupByCategory =
+      doc.category &&
+      ['cni', 'rib', 'offre', 'tableau', 'fiche'].includes(doc.category) &&
+      dossier.formData.documents.some((d: any) => d.category === doc.category);
+
+    if (existingNames.has(nameKey) || existingFp.has(fp) || dupByCategory) continue;
+
     dossier.formData.documents.push(doc);
-    existing.add(key);
+    existingNames.add(nameKey);
+    existingFp.add(fp);
     added.push(doc);
   }
   return added;

@@ -120,12 +120,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       );
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        const errHint =
+          data.errors?.length > 0 ? ` Erreurs : ${data.errors.slice(0, 2).join(" | ")}` : "";
         const msg =
           data.added?.length > 0
             ? `${data.added.length} fichier(s) ajouté(s) : ${data.added.join(", ")}`
             : data.attachmentPartsFound > 0
-              ? `${data.attachmentPartsFound} PJ détectée(s) mais déjà présentes ou non lisibles`
-              : `Aucune PJ trouvée (${data.scanned || 0} mail(s) scanné(s))`;
+              ? `${data.attachmentPartsFound} PJ détectée(s) — déjà en dossier ou non lisibles.${errHint}`
+              : `Aucune PJ (${data.scanned || 0} mail(s) scanné(s)).${errHint}`;
         showToast(msg, data.added?.length ? "success" : "info");
         loadDossiers();
       } else {
@@ -280,7 +282,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       case "NOTE_ADDED":
         return "Note ajoutée";
       case "DOCUMENT_UPLOADED":
-        return "Document ajouté";
+        return "Document reçu";
       case "EMAIL_SENT":
         return "Email envoyé";
       case "EMAIL_FAILED":
@@ -290,10 +292,38 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       case "REMINDER_SENT":
         return "Relance envoyée";
       case "AI_DECISION":
-        return "IA: suggestions";
+        return "Camille (IA)";
       default:
         return type;
     }
+  };
+
+  const formatEventMeta = (type: string, meta: any) => {
+    if (!meta) return null;
+    if (type === "EMAIL_SENT" || type === "EMAIL_FAILED") {
+      const parts = [
+        meta.template ? `Modèle : ${meta.template}` : null,
+        meta.to ? `À : ${meta.to}` : null,
+        meta.subject ? `Objet : ${meta.subject}` : null,
+        meta.channel ? `Canal : ${meta.channel}` : null,
+        meta.error ? `Erreur : ${meta.error}` : null,
+      ].filter(Boolean);
+      return parts.join(" · ");
+    }
+    if (type === "STATUS_CHANGED") {
+      return meta.from && meta.to ? `${meta.from} → ${meta.to}` : null;
+    }
+    if (type === "DOCUMENT_UPLOADED") {
+      return meta.source ? `Source : ${meta.source}` : null;
+    }
+    if (type === "REMINDER_SCHEDULED") {
+      const stage = meta.payload?.stage;
+      return stage ? `Étape ${stage}` : null;
+    }
+    if (type === "AI_DECISION") {
+      return meta.reason ? String(meta.reason) : null;
+    }
+    return null;
   };
 
   const getAlerts = (d: Dossier) => {
@@ -670,11 +700,18 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     )}
                     <div className="space-y-2 mb-6">
                       {computeDocumentChecklist(selectedDossier.formData?.documents || []).map(item => (
-                        <div key={item.key} className={`flex items-center justify-between p-3 rounded-xl border ${item.ok ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
-                          <div className="text-sm font-semibold text-slate-800">{item.label}</div>
-                          <div className={`text-xs font-black px-2 py-1 rounded-full ${item.ok ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"}`}>
-                            {item.ok ? "OK" : "MANQUANT"}
+                        <div key={item.key} className={`p-3 rounded-xl border ${item.ok ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-semibold text-slate-800">{item.label}</div>
+                            <div className={`text-xs font-black px-2 py-1 rounded-full shrink-0 ${item.ok ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"}`}>
+                              {item.ok ? "OK" : "MANQUANT"}
+                            </div>
                           </div>
+                          {item.ok && item.matchedFiles && item.matchedFiles.length > 0 && (
+                            <p className="mt-1.5 text-[11px] text-emerald-800/90 truncate" title={item.matchedFiles.join(", ")}>
+                              Fichier : {item.matchedFiles.join(", ")}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -797,7 +834,10 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                             {evt.message && (
                               <div className="mt-2 text-sm text-slate-800">{evt.message}</div>
                             )}
-                            {evt.meta && (
+                            {formatEventMeta(evt.type, evt.meta) && (
+                              <p className="mt-2 text-xs text-slate-600">{formatEventMeta(evt.type, evt.meta)}</p>
+                            )}
+                            {evt.meta && !formatEventMeta(evt.type, evt.meta) && evt.type !== "REMINDER_SCHEDULED" && (
                               <pre className="mt-2 text-[11px] bg-slate-50 border border-slate-200 rounded-lg p-3 overflow-x-auto text-slate-700">
                                 {JSON.stringify(evt.meta, null, 2)}
                               </pre>

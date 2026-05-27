@@ -1,4 +1,5 @@
 import { sanitizeLegacyDriveWorkspaceState } from "./driveConfig";
+import { inferDocumentCategory } from "../shared/documentClassifier";
 
 export type DossierStatus =
   | "NOUVEAU"
@@ -104,7 +105,14 @@ export function ensureDossierShape(d: any): Dossier {
     notes: Array.isArray(d.notes) ? d.notes : [],
     processedGmailIds: Array.isArray(d.processedGmailIds) ? d.processedGmailIds : [],
   };
-  return sanitizeLegacyDriveWorkspaceState(dossier) as Dossier;
+  const shaped = sanitizeLegacyDriveWorkspaceState(dossier) as Dossier;
+  if (Array.isArray(shaped.formData?.documents)) {
+    shaped.formData.documents = shaped.formData.documents.map((doc: any) => {
+      const category = inferDocumentCategory(doc);
+      return category ? { ...doc, category } : doc;
+    });
+  }
+  return shaped;
 }
 
 export function addEvent(dossier: Dossier, event: Omit<DossierEvent, "id" | "at"> & { id?: string; at?: string }) {

@@ -91,7 +91,7 @@ export async function resyncDossierGmailAttachments(
   let attachmentPartsFound = 0;
 
   for (const clientEmail of emails) {
-    const q = `from:${clientEmail} newer_than:60d`;
+    const q = `from:${clientEmail} newer_than:90d`;
     const listRes = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
     for (const msgMeta of listRes.data.messages || []) {
       if (!msgMeta.id) continue;
@@ -123,9 +123,9 @@ export async function resyncDossierGmailAttachments(
         });
       }
 
-      const subject =
-        payload?.headers?.find((h) => h.name?.toLowerCase() === 'subject')?.value || '';
-      const text = decodeBody(payload);
+      const headers = msgRes.data.payload?.headers || [];
+      const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value || '';
+      const text = decodeBody(msgRes.data.payload);
       upsertCommunication(dossier, {
         id: `msg_${msgMeta.id}`,
         gmailId: msgMeta.id,

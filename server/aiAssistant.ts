@@ -2,6 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import path from "path";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
+import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
 
 // Initialisation de Gemini avec httpOptions pour la télémétrie conforme au skill
 const ai = new GoogleGenAI({ 
@@ -45,19 +46,22 @@ async function generateContentWithRetry(params: any, retries = 3, delay = 1000):
 }
 
 const PERSONA_PROMPT = `
-Tu es Camille, l'assistante de Charles, experte en assurance emprunteur chez "Le Club Immobilier".
-Tu es en charge du suivi des dossiers clients après qu'un devis ait été généré et déposé dans leur dossier.
-Ton rôle est de répondre aux questions des clients avec professionnalisme, clarté, et bienveillance.
-Dans tes messages aux clients, tu te présenteras et signeras toujours en tant que "Camille, l'assistante de Charles".
+Tu es Camille, l'assistante de Charles, experte en assurance emprunteur au "Le Club Immobilier Français".
+Tu réponds aux emails clients de façon courte, humaine et professionnelle (5 à 12 lignes max dans messageToClient).
 
-RÈGLE ABSOLUE :
-Si le client pose une question complexe, demande une négociation commerciale, indique un problème médical lourd, ou pose une question dont tu n'as pas la réponse exacte dans tes connaissances générales d'assurance, tu DOIS escalader la demande à Rémi, qui prendra le relais.
+RÈGLES :
+- Ne jamais redemander une pièce déjà reçue (voir checklist et pièces jointes de CET email).
+- Offre de prêt et tableau d'amortissement : NE PAS les redemander si déjà reçus (dossier initial).
+- Seules pièces bloquantes pour finaliser : CNI/passeport + RIB.
+- Si le client envoie CNI/RIB en PJ : remercier, confirmer réception, indiquer la suite (analyse par Charles).
+- Pas de promesse de tarif, pas de nom d'assureur, pas de numéro de téléphone.
+- Escalade (action ESCALATE) si : médical complexe, contestation, menace, demande juridique, négociation commerciale, ou incertitude forte.
 
-Tu dois toujours répondre avec un objet JSON strictement formaté comme suit :
+Réponds UNIQUEMENT en JSON :
 {
   "action": "REPLY" | "ESCALATE",
-  "messageToClient": "Le texte de ta réponse au client. Sois chaleureuse et n'oublie pas la signature (si action = REPLY, sinon null)",
-  "reasonForEscalation": "L'explication de pourquoi tu as besoin de l'aide de Rémi (si action = ESCALATE, sinon null)"
+  "messageToClient": "Texte du mail en français, tutoiement/vouvoiement selon le client (vouvoiement par défaut). Sans signature (ajoutée automatiquement).",
+  "reasonForEscalation": "string ou null"
 }
 `;
 
@@ -73,47 +77,40 @@ export async function processIncomingClientEmail(
   }
 
   try {
-    const documents = dossier.formData?.documents || [];
-    const documentNames = documents.map((d: any) => d.name).join(", ");
-    const newAttachments = (options?.newAttachmentNames || []).filter(Boolean);
-    const newAttachmentsLine = newAttachments.length
-      ? newAttachments.join(", ")
-      : "Aucune pièce jointe détectée dans cet email";
-    const checklist = computeDocumentChecklist(documents);
-    const missingBlocking = checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib")).map((c) => c.label);
-    const missingOptional = checklist.filter((c) => !c.ok && (c.key === "offre" || c.key === "amort")).map((c) => c.label);
+    const prenom = dossier.formData?.assures?.[0]?.prenom || "";
+    const ctx = buildCamilleContextBlock(dossier, options?.newAttachmentNames || []);
+    const missingBlocking = ctx.missingBlocking.map((c) => c.label);
+    const newAttachmentsLine =
+      ctx.newAttachmentNames.length > 0
+        ? ctx.newAttachmentNames.join(", ")
+        : "Aucune pièce jointe dans cet email";
 
     const response = await generateContentWithRetry({
       model: "gemini-2.5-flash",
       contents: [
         { role: "user", parts: [{ text: PERSONA_PROMPT }] },
         { role: "user", parts: [{ text: `
-Voici les informations concernant le dossier du client (Dossier ID: ${dossier.id}) :
-- Nom du client : ${dossier.formData?.assures?.[0]?.prenom || ''} ${dossier.formData?.assures?.[0]?.nom || ''}
-- Documents actuellement présents dans son dossier : ${documentNames || "Aucun document"}
-- Checklist pièces : ${checklist.map((c) => `${c.label}: ${c.ok ? "OK" : "MANQUANT"}`).join(" | ")}
-- Pièces bloquantes manquantes : ${missingBlocking.join(", ") || "Aucune"}
-- Pièces optionnelles manquantes : ${missingOptional.join(", ") || "Aucune"}
+Dossier : ${dossier.id}
+Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""} <${clientEmail}>
 
-🚨 GUIDE POUR CAMILLE :
-Analyse l'email du client. S'il valide l'offre (ex: "ok pour le changement", "je valide", etc.) ou demande ce qu'il manque :
-Pour finaliser un dossier d'assurance, il nous faut ABSOLUMENT :
-1. Une pièce d'identité en cours de validité (carte d'identité recto/verso, passeport)
-2. Un Relevé d'Identité Bancaire (RIB)
+État des pièces (source de vérité — ne pas contredire) :
+${ctx.documentSummary}
 
-Pièces jointes reçues DANS CET EMAIL (noms de fichiers) : ${newAttachmentsLine}
-Si des pièces jointes viennent d'être reçues (CNI, RIB, etc.), remercie le client et confirme que nous les avons bien reçues — ne redemande PAS un document déjà envoyé en pièce jointe dans cet email.
+Pièces bloquantes encore manquantes : ${missingBlocking.join(", ") || "Aucune — dossier complet côté CNI/RIB"}
+Offre de prêt + tableau déjà reçus : ${ctx.loanDocsOk ? "OUI" : "NON (ne pas relancer le client là-dessus sauf s'il demande)"}
 
-Tu DOIS IMPÉRATIVEMENT vérifier si ces pièces (Pièce d'identité, RIB) figurent dans la liste des documents du dossier (y compris pièces jointes de cet email) par leur nom (ex: "rib", "identite", "cni", "passeport", "rib.pdf").
-S'il manque l'une ou ces deux pièces, tu DOIS le remercier de son accord (s'il l'a donné) ET lui indiquer CLAIREMENT et GENTIMENT qu'il nous manque sa pièce d'identité et/ou son RIB (en précisant lesquels) à envoyer en pièce jointe pour finaliser son dossier. Ne lui dis pas que son dossier est complet s'il manque ces documents !
+Pièces jointes reçues DANS CET EMAIL : ${newAttachmentsLine}
 
-Email reçu du client :
-"${emailText}"
+Email du client :
+"""
+${emailText.slice(0, 8000)}
+"""
 
-Que décides-tu de faire ?` }] }
+Décide REPLY ou ESCALATE.` }] }
       ],
       config: {
         responseMimeType: "application/json",
+        temperature: 0.35,
       }
     });
 
@@ -133,7 +130,14 @@ Que décides-tu de faire ?` }] }
       return { status: "escalated", reason: decision.reasonForEscalation };
     } else if (decision.action === "REPLY") {
       console.log(`[AI] Réponse autonome pour le dossier ${dossier.id}`);
-      return { status: "replied", text: decision.messageToClient };
+      const plain = String(decision.messageToClient || "").trim();
+      if (!plain) {
+        return { status: "escalated", reason: "Réponse IA vide" };
+      }
+      return {
+        status: "replied",
+        text: wrapCamilleHtmlReply(plain, prenom),
+      };
     }
   } catch (error) {
     console.error("Erreur lors de l'analyse IA de l'email:", error);

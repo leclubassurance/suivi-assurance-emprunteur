@@ -25,6 +25,7 @@ import { runSchedulerOnce, startScheduler } from "./scheduler";
 import { sendEmail } from "./emailProvider";
 import { auditAiDecision, proposeNextActions } from "./nextActionEngine";
 import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig";
+import { mergeFormDocumentsWithUploads } from "./documentMerge";
 import {
   hasServiceAccountConfigured,
   hasServiceAccountReady,
@@ -169,13 +170,10 @@ export function createApp() {
       const formData = JSON.parse((req.body as any).formData);
       const db = await readDBAsync();
 
-      const documents = ((req.files as Express.Multer.File[]) || []).map((f) => ({
-        id: "doc_" + Date.now() + Math.random().toString(36).substr(2, 9),
-        name: f.originalname,
-        size: f.size,
-        type: f.mimetype,
-        localPath: f.path,
-      }));
+      const documents = mergeFormDocumentsWithUploads(
+        Array.isArray(formData.documents) ? formData.documents : [],
+        (req.files as Express.Multer.File[]) || [],
+      );
 
       const newDossier = ensureDossierShape({
         id:
