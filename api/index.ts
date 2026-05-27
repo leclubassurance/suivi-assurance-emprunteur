@@ -20,7 +20,8 @@ export default async function handler(req: any, res: any) {
     console.error("HANDLER_FAILED", err?.stack || err?.message || err);
     res.statusCode = 500;
     res.setHeader("content-type", "text/plain; charset=utf-8");
-    res.end("FUNCTION_INVOCATION_FAILED");
+    const detail = err?.stack || err?.message || String(err);
+    res.end(`FUNCTION_INVOCATION_FAILED\n\n${detail}`);
   }
 }
 
