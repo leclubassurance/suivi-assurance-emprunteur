@@ -1,8 +1,29 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from "firebase/auth";
-import firebaseConfig from "../../firebase-applet-config.json";
+import type { FirebaseOptions } from "firebase/app";
 
-const isFirebaseValid = firebaseConfig && firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("dummy");
+function getFirebaseConfigFromEnv(): FirebaseOptions | null {
+  // Vercel/Vite expose only VITE_* variables to the browser.
+  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY as string | undefined;
+  const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined;
+  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined;
+
+  if (!apiKey || !authDomain || !projectId) return null;
+  if (apiKey.includes("dummy")) return null;
+
+  return {
+    apiKey,
+    authDomain,
+    projectId,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string | undefined,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID as string | undefined,
+  };
+}
+
+const firebaseConfig = getFirebaseConfigFromEnv();
+const isFirebaseValid = Boolean(firebaseConfig);
 
 let auth: any = null;
 let provider: any = null;
