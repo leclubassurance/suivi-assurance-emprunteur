@@ -668,6 +668,7 @@ export function createApp() {
         inbound: result.inboundCount,
         processed: result.processed,
         aiReplies: result.aiReplies,
+        attachmentsSaved: result.attachmentsSaved ?? 0,
       });
     } catch (err: any) {
       console.error(err);

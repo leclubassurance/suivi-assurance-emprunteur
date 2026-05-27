@@ -61,7 +61,12 @@ Tu dois toujours répondre avec un objet JSON strictement formaté comme suit :
 }
 `;
 
-export async function processIncomingClientEmail(dossier: any, emailText: string, clientEmail: string) {
+export async function processIncomingClientEmail(
+  dossier: any,
+  emailText: string,
+  clientEmail: string,
+  options?: { newAttachmentNames?: string[] },
+) {
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
     console.warn("[AI] GEMINI_API_KEY manquante sur Railway — pas de réponse automatique.");
     return { status: "escalated", reason: "Clé Gemini non configurée sur le serveur." };
@@ -70,6 +75,10 @@ export async function processIncomingClientEmail(dossier: any, emailText: string
   try {
     const documents = dossier.formData?.documents || [];
     const documentNames = documents.map((d: any) => d.name).join(", ");
+    const newAttachments = (options?.newAttachmentNames || []).filter(Boolean);
+    const newAttachmentsLine = newAttachments.length
+      ? newAttachments.join(", ")
+      : "Aucune pièce jointe détectée dans cet email";
     const checklist = computeDocumentChecklist(documents);
     const missingBlocking = checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib")).map((c) => c.label);
     const missingOptional = checklist.filter((c) => !c.ok && (c.key === "offre" || c.key === "amort")).map((c) => c.label);
@@ -92,7 +101,10 @@ Pour finaliser un dossier d'assurance, il nous faut ABSOLUMENT :
 1. Une pièce d'identité en cours de validité (carte d'identité recto/verso, passeport)
 2. Un Relevé d'Identité Bancaire (RIB)
 
-Tu DOIS IMPÉRATIVEMENT vérifier si ces pièces (Pièce d'identité, RIB) figurent dans la liste des documents ci-dessus par leur nom (ex: "rib", "identite", "cni", "passeport", "rib.pdf").
+Pièces jointes reçues DANS CET EMAIL (noms de fichiers) : ${newAttachmentsLine}
+Si des pièces jointes viennent d'être reçues (CNI, RIB, etc.), remercie le client et confirme que nous les avons bien reçues — ne redemande PAS un document déjà envoyé en pièce jointe dans cet email.
+
+Tu DOIS IMPÉRATIVEMENT vérifier si ces pièces (Pièce d'identité, RIB) figurent dans la liste des documents du dossier (y compris pièces jointes de cet email) par leur nom (ex: "rib", "identite", "cni", "passeport", "rib.pdf").
 S'il manque l'une ou ces deux pièces, tu DOIS le remercier de son accord (s'il l'a donné) ET lui indiquer CLAIREMENT et GENTIMENT qu'il nous manque sa pièce d'identité et/ou son RIB (en précisant lesquels) à envoyer en pièce jointe pour finaliser son dossier. Ne lui dis pas que son dossier est complet s'il manque ces documents !
 
 Email reçu du client :

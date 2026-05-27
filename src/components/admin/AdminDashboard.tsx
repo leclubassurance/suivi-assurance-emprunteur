@@ -121,7 +121,9 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(
-          `Sync Gmail : ${data.processed || 0} message(s), ${data.inbound || 0} reçu(s) client${data.aiReplies ? `, ${data.aiReplies} réponse(s) IA` : ""}`,
+          `Sync Gmail : ${data.processed || 0} message(s), ${data.inbound || 0} reçu(s) client` +
+            (data.attachmentsSaved ? `, ${data.attachmentsSaved} PJ enregistrée(s)` : "") +
+            (data.aiReplies ? `, ${data.aiReplies} réponse(s) IA` : ""),
           "success",
         );
         loadDossiers();
@@ -813,6 +815,11 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                             </div>
                           </div>
                           <div className="font-medium text-sm mb-2 text-slate-900">{c.subject}</div>
+                          {c.attachments?.length > 0 && (
+                            <div className="text-xs font-semibold text-emerald-700 mb-2 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                              Pièces jointes enregistrées : {c.attachments.map((a: any) => a.name).join(" · ")}
+                            </div>
+                          )}
                           {/<[a-z][\s\S]*>/i.test(c.text) ? (
                             <div 
                               className="text-sm text-slate-700 overflow-x-auto p-4 bg-white rounded border"
