@@ -8,9 +8,16 @@ export function getPrimaryClientEmail(dossier: Dossier): string | null {
 
 export function detectMissingDocs(dossier: Dossier): string[] {
   const docs: any[] = dossier.formData?.documents || [];
-  const names = docs.map(d => String(d?.name || "").toLowerCase());
-  const hasCNI = names.some(n => n.includes("cni") || n.includes("identit") || n.includes("passeport") || n.includes("carte"));
-  const hasRib = names.some(n => n.includes("rib") || n.includes("iban"));
+  const normalize = (v: unknown) =>
+    String(v || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  const names = docs.map((d) => normalize(d?.name));
+  const hasCNI = names.some(
+    (n) => n.includes("cni") || n.includes("identit") || n.includes("passeport") || (n.includes("carte") && n.includes("identit")),
+  );
+  const hasRib = names.some((n) => n.includes("rib") || n.includes("iban"));
   const missing: string[] = [];
   if (!hasCNI) missing.push("Pièce d'identité (CNI recto/verso ou passeport)");
   if (!hasRib) missing.push("RIB");

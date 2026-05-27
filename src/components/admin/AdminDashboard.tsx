@@ -153,19 +153,84 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const normalizeDocName = (value: unknown) => {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      // remove accents/diacritics
+      .replace(/[\u0300-\u036f]/g, "");
+  };
+
   const computeChecklist = (d: Dossier) => {
     const docs: any[] = d.formData?.documents || [];
-    const names = docs.map(x => String(x?.name || "").toLowerCase());
-    const hasCNI = names.some(n => n.includes("cni") || n.includes("identit") || n.includes("passeport") || n.includes("carte"));
-    const hasRib = names.some(n => n.includes("rib") || n.includes("iban"));
-    const hasOffrePret = names.some(n => n.includes("offre") && n.includes("pret"));
-    const hasAmortissement = names.some(n => n.includes("amort") || n.includes("tableau"));
+    const names = docs.map((x) => normalizeDocName(x?.name));
+
+    const hasCNI = names.some(
+      (n) =>
+        n.includes("cni") ||
+        n.includes("identit") ||
+        n.includes("piece") && n.includes("identit") ||
+        n.includes("passeport") ||
+        n.includes("carte") && n.includes("identit"),
+    );
+    const hasRib = names.some((n) => n.includes("rib") || n.includes("iban") || n.includes("releve") && n.includes("identite"));
+    const hasOffrePret = names.some(
+      (n) =>
+        (n.includes("offre") && (n.includes("pret") || n.includes("credit") || n.includes("banque"))) ||
+        (n.includes("contrat") && (n.includes("pret") || n.includes("credit"))) ||
+        n.includes("offrepret"),
+    );
+    const hasAmortissement = names.some(
+      (n) =>
+        n.includes("amort") ||
+        (n.includes("tableau") && (n.includes("amort") || n.includes("pret") || n.includes("credit"))) ||
+        n.includes("echeancier") ||
+        n.includes("plan") && n.includes("amort"),
+    );
     return [
       { key: "cni", label: "Pièce d'identité (CNI/Passeport)", ok: hasCNI },
       { key: "rib", label: "RIB", ok: hasRib },
       { key: "offre", label: "Offre de prêt (si disponible)", ok: hasOffrePret },
       { key: "amort", label: "Tableau d'amortissement (si disponible)", ok: hasAmortissement },
     ];
+  };
+
+  const taskTypeLabel = (type: string) => {
+    switch (type) {
+      case "FOLLOWUP_MISSING_DOCS":
+        return "Relance pièces manquantes";
+      case "FOLLOWUP_NO_REPLY":
+        return "Relance sans réponse";
+      case "INTERNAL_ALERT":
+        return "Alerte interne";
+      default:
+        return type;
+    }
+  };
+
+  const eventTypeLabel = (type: string) => {
+    switch (type) {
+      case "DOSSIER_CREATED":
+        return "Dossier créé";
+      case "STATUS_CHANGED":
+        return "Statut modifié";
+      case "NOTE_ADDED":
+        return "Note ajoutée";
+      case "DOCUMENT_UPLOADED":
+        return "Document ajouté";
+      case "EMAIL_SENT":
+        return "Email envoyé";
+      case "EMAIL_FAILED":
+        return "Email en échec";
+      case "REMINDER_SCHEDULED":
+        return "Relance planifiée";
+      case "REMINDER_SENT":
+        return "Relance envoyée";
+      case "AI_DECISION":
+        return "IA: suggestions";
+      default:
+        return type;
+    }
   };
 
   const getAlerts = (d: Dossier) => {
@@ -445,11 +510,43 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                                 <div className="mt-2 text-xs text-slate-600">
                                   <div><span className="font-bold">À:</span> {a.to}</div>
                                   <div><span className="font-bold">Objet:</span> {a.subject}</div>
+                                  <div className="mt-3 flex justify-end">
+                                    <button
+                                      className="text-xs font-black bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition"
+                                      onClick={async () => {
+                                        try {
+                                          showToast("Envoi IA en cours...", "info");
+                                          const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/send-email`), {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ subject: a.subject, html: a.html }),
+                                          });
+                                          const data = await res.json().catch(() => ({}));
+                                          if (res.ok) {
+                                            showToast("Email envoyé", "success");
+                                            loadDossiers();
+                                          } else {
+                                            showToast(data.error || "Erreur d'envoi IA", "error");
+                                          }
+                                        } catch {
+                                          showToast("Erreur réseau", "error");
+                                        }
+                                      }}
+                                      title="Appliquer la suggestion (envoi email)"
+                                    >
+                                      Appliquer (envoyer)
+                                    </button>
+                                  </div>
                                 </div>
                               )}
                             </div>
                           ))}
                         </div>
+                      </div>
+                    )}
+                    {aiSuggestions && aiSuggestions.length === 0 && (
+                      <div className="mb-6 bg-slate-50 border border-slate-200 rounded-2xl p-5 text-sm text-slate-600">
+                        Aucune suggestion IA pour ce dossier pour le moment.
                       </div>
                     )}
                     <div className="space-y-2 mb-6">
@@ -461,6 +558,40 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                           </div>
                         </div>
                       ))}
+                    </div>
+                    <div className="mb-6 text-xs text-slate-600">
+                      <div className="font-black text-slate-700 mb-1">Export Drive</div>
+                      {(selectedDossier as any).workspaceStatus ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`px-2 py-1 rounded-full font-black ${
+                            (selectedDossier as any).workspaceStatus === "SUCCESS"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : (selectedDossier as any).workspaceStatus === "FAILED"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {(selectedDossier as any).workspaceStatus}
+                          </span>
+                          {(selectedDossier as any).workspaceFolderId && (
+                            <a
+                              className="underline font-bold text-indigo-700"
+                              href={`https://drive.google.com/drive/folders/${(selectedDossier as any).workspaceFolderId}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Ouvrir le dossier
+                            </a>
+                          )}
+                          {(selectedDossier as any).workspaceError && (
+                            <span className="text-red-700">{(selectedDossier as any).workspaceError}</span>
+                          )}
+                          {(selectedDossier as any).workspaceWarning && (
+                            <span className="text-amber-700">{(selectedDossier as any).workspaceWarning}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-slate-500 italic">Pas encore exporté. Cliquez sur “Drive”.</div>
+                      )}
                     </div>
                     <div className="space-y-3">
                       <textarea
@@ -504,8 +635,16 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       {(selectedDossier.tasks || []).slice().reverse().map((t: any) => (
                         <div key={t.id} className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 border-slate-200">
                           <div>
-                            <div className="text-xs font-black text-slate-600">{t.type}</div>
-                            <div className="text-xs text-slate-500">{t.dueAt ? new Date(t.dueAt).toLocaleString() : ""} · {t.status}</div>
+                            <div className="text-xs font-black text-slate-800">{taskTypeLabel(t.type)}</div>
+                            <div className="text-xs text-slate-500">
+                              {t.dueAt ? new Date(t.dueAt).toLocaleString() : ""} ·{" "}
+                              <span className={`font-black ${
+                                t.status === "PENDING" ? "text-amber-700" : t.status === "DONE" ? "text-emerald-700" : "text-slate-500"
+                              }`}>
+                                {t.status}
+                              </span>
+                              {t.lastError ? <span className="text-red-700"> · {t.lastError}</span> : null}
+                            </div>
                           </div>
                           <div className="text-xs font-bold text-slate-600">{t.attempts || 0} essai(s)</div>
                         </div>
@@ -523,7 +662,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                           <div className="flex-1 border border-slate-200 rounded-xl p-4 bg-white">
                             <div className="flex justify-between items-start gap-3">
                               <div className="text-xs font-black uppercase tracking-widest text-slate-500">
-                                {evt.type}
+                                {eventTypeLabel(evt.type)}
                               </div>
                               <div className="text-xs text-slate-400 font-medium">
                                 {evt.at ? new Date(evt.at).toLocaleString() : ""}
