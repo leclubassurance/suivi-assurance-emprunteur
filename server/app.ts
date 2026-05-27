@@ -24,7 +24,11 @@ import { runSchedulerOnce, startScheduler } from "./scheduler";
 import { sendEmail } from "./emailProvider";
 import { auditAiDecision, proposeNextActions } from "./nextActionEngine";
 import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig";
-import { hasServiceAccountConfigured, getServiceAccountClientEmail } from "./serviceAccount";
+import {
+  hasServiceAccountConfigured,
+  hasServiceAccountReady,
+  loadServiceAccountDetails,
+} from "./serviceAccount";
 
 function getRuntimeDataDir() {
   // Vercel serverless + Railway : disque éphémère → /tmp
@@ -138,6 +142,7 @@ export function createApp() {
   app.get("/api/health", async (_req, res) => {
     await ensureBackgroundServicesStarted();
     const resolved = resolveDriveParentFolderId();
+    const sa = loadServiceAccountDetails();
     res.json({
       status: "ok",
       build: "railway-express-2026-05-27",
@@ -145,8 +150,11 @@ export function createApp() {
       effectiveDriveParentId: resolved.parentId,
       rawDriveParentEnv: resolved.rawEnv,
       driveParentAutoCorrected: resolved.autoCorrected,
-      hasServiceAccount: hasServiceAccountConfigured(),
-      serviceAccountEmail: getServiceAccountClientEmail(),
+      hasServiceAccountEnv: hasServiceAccountConfigured(),
+      hasServiceAccountReady: hasServiceAccountReady(),
+      serviceAccountEmail: sa.clientEmail,
+      serviceAccountSource: sa.source,
+      serviceAccountParseError: sa.parseError,
     });
   });
 
@@ -287,8 +295,8 @@ export function createApp() {
       }
 
       // Export auto : compte de service si configuré (formulaire client sans admin connecté)
-      const { hasServiceAccountConfigured } = await import("./serviceAccount");
-      const driveTokenForAutoExport = hasServiceAccountConfigured() ? null : latestAccessToken;
+      const { hasServiceAccountReady } = await import("./serviceAccount");
+      const driveTokenForAutoExport = hasServiceAccountReady() ? null : latestAccessToken;
 
       exportDossierToGoogleWorkspace(newDossier, driveTokenForAutoExport)
         .then(async (result) => {
@@ -536,14 +544,25 @@ export function createApp() {
 
   /** Teste le compte de service (export auto formulaire client, sans admin connecté). */
   app.get("/api/admin/drive-auto-check", async (_req, res) => {
-    const { hasServiceAccountConfigured, getServiceAccountClientEmail } = await import(
+    const { hasServiceAccountConfigured, loadServiceAccountDetails } = await import(
       "./serviceAccount",
     );
+    const sa = loadServiceAccountDetails();
     if (!hasServiceAccountConfigured()) {
       return res.status(400).json({
         ok: false,
         error:
-          "Compte de service absent. Ajoutez GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 sur Railway (voir docs/CONFIGURATION_DRIVE_AUTO.md).",
+          "Compte de service absent. Ajoutez GOOGLE_SERVICE_ACCOUNT_JSON ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 sur Railway.",
+      });
+    }
+    if (!sa.credentials) {
+      return res.status(400).json({
+        ok: false,
+        error: sa.parseError || "JSON compte de service invalide sur Railway.",
+        hint:
+          "Collez le fichier .json en une ligne dans GOOGLE_SERVICE_ACCOUNT_JSON, " +
+          "ou utilisez GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (base64 -i fichier.json | tr -d '\\n'). " +
+          "Ne collez pas le résultat de curl dans une variable.",
       });
     }
     try {
@@ -554,9 +573,11 @@ export function createApp() {
       res.json({
         ok: Boolean(diag.parentOk),
         mode: "service_account",
-        serviceAccountEmail: getServiceAccountClientEmail(),
-        shareHint:
-          "Partagez le dossier « Dossiers Clients Assurance » avec cet email (rôle Éditeur) dans Google Drive.",
+        serviceAccountEmail: sa.clientEmail,
+        serviceAccountSource: sa.source,
+        shareHint: sa.clientEmail
+          ? `Partagez « Dossiers Clients Assurance » avec ${sa.clientEmail} (Éditeur) dans Google Drive.`
+          : "client_email introuvable dans le JSON du compte de service.",
         ...diag,
       });
     } catch (err: any) {

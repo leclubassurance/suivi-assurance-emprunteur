@@ -89,15 +89,20 @@ export interface DriveDiagnosticsResult {
 export async function getDriveDiagnostics(accessToken: string, parentId?: string): Promise<DriveDiagnosticsResult> {
   const client = await createDriveClient(accessToken);
   if (!client) {
+    const { loadServiceAccountDetails } = await import("./serviceAccount");
+    const sa = loadServiceAccountDetails();
+    const saHint = sa.parseError
+      ? sa.parseError
+      : sa.credentials
+        ? "Compte de service présent mais auth Drive impossible."
+        : "Ajoutez GOOGLE_SERVICE_ACCOUNT_JSON (JSON une ligne) ou GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 sur Railway.";
     return {
       email: null,
-      emailError:
-        "Connexion Google invalide (mode démo) ou compte de service absent. " +
-        "Connectez-vous avec Firebase sur l'admin, ou ajoutez GOOGLE_SERVICE_ACCOUNT_JSON sur Railway.",
+      emailError: saHint,
       configuredParentId: parentId || null,
       parent: null,
       parentOk: false,
-      summary: "Drive non configuré (OAuth ou compte de service requis).",
+      summary: saHint,
       driveConfigVersion: DRIVE_CONFIG_VERSION,
     };
   }
