@@ -9,3 +9,4 @@ coverage/
 data/
 firebase-applet-config.json
 service-account*.json
+.cursor/
