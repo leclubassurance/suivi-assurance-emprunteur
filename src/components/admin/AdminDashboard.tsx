@@ -75,7 +75,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     if (!autoSyncGmail) return;
     const interval = setInterval(() => {
       handleSyncGmail().catch(() => undefined);
-    }, 30000);
+    }, 120000);
     return () => clearInterval(interval);
   }, [autoSyncGmail]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -108,7 +108,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(
-          `Sync Gmail : ${data.processed || 0} message(s) analysé(s), ${data.inbound || 0} reçu(s) client`,
+          `Sync Gmail : ${data.processed || 0} message(s), ${data.inbound || 0} reçu(s) client${data.aiReplies ? `, ${data.aiReplies} réponse(s) IA` : ""}`,
           "success",
         );
         loadDossiers();
@@ -460,6 +460,15 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     <h3 className="font-bold mb-4 text-slate-800 flex items-center gap-2">
                       <ListTodo className="w-4 h-4 text-indigo-600" /> Checklist & notes
                     </h3>
+                    <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
+                      <div className="font-black mb-1">Assistante IA (Camille)</div>
+                      <p>
+                        Répond automatiquement aux emails clients (pièces manquantes, questions simples).
+                        Sur Railway : <code className="bg-white px-1 rounded">GEMINI_API_KEY</code> +{" "}
+                        <code className="bg-white px-1 rounded">AI_AUTO_REPLY_ENABLED=true</code>.
+                        Déconnectez/reconnectez Google après mise à jour.
+                      </p>
+                    </div>
                     <div className="flex gap-3 flex-wrap mb-4">
                       <button
                         onClick={handleSyncGmail}
@@ -473,7 +482,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                         checked={autoSyncGmail}
                         onChange={(e) => setAutoSyncGmail(e.target.checked)}
                       />
-                      Auto (30s)
+                      Auto (2 min)
                     </label>
                       <button
                         onClick={handleExportDrive}

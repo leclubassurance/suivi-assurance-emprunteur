@@ -576,6 +576,7 @@ export function createApp() {
         success: true,
         inbound: result.inboundCount,
         processed: result.processed,
+        aiReplies: result.aiReplies,
       });
     } catch (err: any) {
       console.error(err);

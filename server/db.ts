@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { refreshFromFirebase, syncDossierToFirebase } from "./firebaseSync";
+import { syncDossierToFirebase } from "./firebaseSync";
 import { Dossier, ensureDossierShape } from "./dossierModel";
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -22,9 +22,15 @@ export function readDBSync(): DBShape {
   return { dossiers };
 }
 
+/** Source de vérité = fichier local Railway (évite d'écraser communications à chaque GET). */
 export async function readDB(): Promise<DBShape> {
-  await refreshFromFirebase().catch(() => undefined);
   return readDBSync();
+}
+
+function syncAllToFirebase(db: DBShape) {
+  for (const dossier of db.dossiers) {
+    syncDossierToFirebase(dossier).catch(() => undefined);
+  }
 }
 
 export function writeDB(db: DBShape, modifiedDossier?: Dossier) {
@@ -32,6 +38,7 @@ export function writeDB(db: DBShape, modifiedDossier?: Dossier) {
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
   if (modifiedDossier) {
     syncDossierToFirebase(modifiedDossier).catch(() => undefined);
+  } else {
+    syncAllToFirebase(db);
   }
 }
-

@@ -24,17 +24,21 @@ export async function deleteDossierFromGoogleWorkspace(folderId: string, accessT
   }
 }
 
-async function parentFolderAccessible(drive: any, parentId: string) {
-  try {
-    await drive.files.get({
-      fileId: parentId,
-      fields: 'id,name,mimeType',
-      supportsAllDrives: true,
-    });
-    return true;
-  } catch {
-    return false;
-  }
+function isParentNotFoundError(err: any) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return msg.includes('not found') || msg.includes('file not found') || err?.code === 404;
+}
+
+async function createFolder(drive: any, folderName: string, parentId?: string) {
+  return drive.files.create({
+    requestBody: {
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      ...(parentId ? { parents: [parentId] } : {}),
+    },
+    fields: 'id',
+    supportsAllDrives: true,
+  });
 }
 
 export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: string): Promise<WorkspaceExportResult> {
@@ -53,33 +57,33 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
   try {
     const primaryAssure = dossier.formData?.assures?.[0] || {};
     const clientNom = primaryAssure?.nom ? `${primaryAssure.prenom}_${primaryAssure.nom}` : dossier.id;
+    const folderName = `Dossier_Assurance_${clientNom}`;
 
     const configuredParent = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID?.trim();
-    let parentId: string | undefined = configuredParent || undefined;
     let warning: string | undefined;
+    let folderRes;
 
-    if (parentId) {
-      const ok = await parentFolderAccessible(drive, parentId);
-      if (!ok) {
-        warning =
-          `Dossier parent Drive introuvable (${parentId}). Le dossier client a été créé à la racine de votre Drive. Vérifiez GOOGLE_DRIVE_PARENT_FOLDER_ID ou partagez le dossier parent avec votre compte Google.`;
-        parentId = undefined;
+    if (configuredParent) {
+      try {
+        folderRes = await createFolder(drive, folderName, configuredParent);
+      } catch (err: any) {
+        if (isParentNotFoundError(err)) {
+          console.warn(`[Drive] Parent folder inaccessible (${configuredParent}), fallback to root.`);
+          folderRes = await createFolder(drive, folderName);
+          warning =
+            `Le dossier parent (${configuredParent}) est inaccessible. Dossier créé à la racine de votre Drive. Partagez le dossier parent avec assurance@leclubimmobilier.fr ou retirez GOOGLE_DRIVE_PARENT_FOLDER_ID sur Railway.`;
+        } else {
+          throw err;
+        }
       }
+    } else {
+      folderRes = await createFolder(drive, folderName);
     }
 
-    const folderRes = await drive.files.create({
-      requestBody: {
-        name: `Dossier_Assurance_${clientNom}`,
-        mimeType: 'application/vnd.google-apps.folder',
-        ...(parentId ? { parents: [parentId] } : {}),
-      },
-      fields: 'id',
-      supportsAllDrives: true,
-    });
     const folderId = folderRes.data.id!;
 
     let uploaded = 0;
-    if (dossier.formData?.documents && dossier.formData.documents.length > 0) {
+    if (dossier.formData?.documents?.length > 0) {
       for (const doc of dossier.formData.documents) {
         if (!doc.localPath || !fs.existsSync(doc.localPath)) continue;
         await drive.files.create({
@@ -98,12 +102,14 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
     }
 
     if (uploaded === 0 && dossier.formData?.documents?.length > 0) {
-      warning = (warning ? warning + " " : "") + "Aucun fichier local trouvé sur le serveur (chemins uploads manquants).";
+      warning =
+        (warning ? warning + ' ' : '') +
+        'Aucun fichier trouvé sur le serveur (uploads Railway). Réessayez Drive après un nouvel envoi du formulaire.';
     }
 
     return { success: true, status: warning ? 'WARNING' : 'SUCCESS', folderId, warning };
   } catch (err: any) {
-    console.error("Google Automation Error:", err);
+    console.error('Google Automation Error:', err);
     return { success: false, status: 'FAILED', error: err.message };
   }
 }

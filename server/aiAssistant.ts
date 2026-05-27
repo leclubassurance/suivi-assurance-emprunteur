@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import path from "path";
+import { computeDocumentChecklist } from "../shared/documentChecklist";
 
 // Initialisation de Gemini avec httpOptions pour la télémétrie conforme au skill
 const ai = new GoogleGenAI({ 
@@ -61,9 +62,17 @@ Tu dois toujours répondre avec un objet JSON strictement formaté comme suit :
 `;
 
 export async function processIncomingClientEmail(dossier: any, emailText: string, clientEmail: string) {
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
+    console.warn("[AI] GEMINI_API_KEY manquante sur Railway — pas de réponse automatique.");
+    return { status: "escalated", reason: "Clé Gemini non configurée sur le serveur." };
+  }
+
   try {
     const documents = dossier.formData?.documents || [];
     const documentNames = documents.map((d: any) => d.name).join(", ");
+    const checklist = computeDocumentChecklist(documents);
+    const missingBlocking = checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib")).map((c) => c.label);
+    const missingOptional = checklist.filter((c) => !c.ok && (c.key === "offre" || c.key === "amort")).map((c) => c.label);
 
     const response = await generateContentWithRetry({
       model: "gemini-2.5-flash",
@@ -73,6 +82,9 @@ export async function processIncomingClientEmail(dossier: any, emailText: string
 Voici les informations concernant le dossier du client (Dossier ID: ${dossier.id}) :
 - Nom du client : ${dossier.formData?.assures?.[0]?.prenom || ''} ${dossier.formData?.assures?.[0]?.nom || ''}
 - Documents actuellement présents dans son dossier : ${documentNames || "Aucun document"}
+- Checklist pièces : ${checklist.map((c) => `${c.label}: ${c.ok ? "OK" : "MANQUANT"}`).join(" | ")}
+- Pièces bloquantes manquantes : ${missingBlocking.join(", ") || "Aucune"}
+- Pièces optionnelles manquantes : ${missingOptional.join(", ") || "Aucune"}
 
 🚨 GUIDE POUR CAMILLE :
 Analyse l'email du client. S'il valide l'offre (ex: "ok pour le changement", "je valide", etc.) ou demande ce qu'il manque :

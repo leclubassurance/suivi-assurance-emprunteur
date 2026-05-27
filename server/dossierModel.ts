@@ -74,6 +74,7 @@ export interface Dossier {
   tasks?: ReminderTask[];
   emails?: EmailMessage[];
   notes?: { id: string; at: string; author: string; text: string }[];
+  processedGmailIds?: string[];
 }
 
 export function newId(prefix: string) {
@@ -99,6 +100,7 @@ export function ensureDossierShape(d: any): Dossier {
     tasks: Array.isArray(d.tasks) ? d.tasks : [],
     emails: Array.isArray(d.emails) ? d.emails : [],
     notes: Array.isArray(d.notes) ? d.notes : [],
+    processedGmailIds: Array.isArray(d.processedGmailIds) ? d.processedGmailIds : [],
   };
   return dossier;
 }
