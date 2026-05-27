@@ -27,8 +27,11 @@ import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig"
 import { hasServiceAccountConfigured, getServiceAccountClientEmail } from "./serviceAccount";
 
 function getRuntimeDataDir() {
-  // Vercel serverless has a writable /tmp only.
-  return process.env.VERCEL ? "/tmp/data" : path.join(process.cwd(), "data");
+  // Vercel serverless + Railway : disque éphémère → /tmp
+  if (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT) {
+    return "/tmp/data";
+  }
+  return path.join(process.cwd(), "data");
 }
 
 let schedulerStarted = false;
