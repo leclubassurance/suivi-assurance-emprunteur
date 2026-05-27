@@ -88,8 +88,10 @@ Sans cette étape, l’API renverra « File not found » ou « Insufficient perm
 Remplacez par le **vrai chemin** du fichier téléchargé (souvent dans Téléchargements) :
 
 ```bash
-base64 -i ~/Downloads/VOTRE-FICHIER-CLE.json | tr -d '\n' | pbcopy
+node scripts/prepare-railway-google-sa.mjs ~/Downloads/VOTRE-FICHIER-CLE.json
 ```
+
+Copiez **uniquement** la longue ligne `eyJ...` affichée sous « GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 » (c’est le JSON minifié puis encodé, pas `base64 -i` sur le fichier brut si celui-ci est multiligne).
 
 Astuce : tapez `base64 -i ~/Downloads/` puis **Tab** pour auto-compléter le nom du fichier `.json`.
 
