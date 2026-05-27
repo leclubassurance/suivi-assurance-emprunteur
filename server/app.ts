@@ -53,13 +53,21 @@ export function createApp() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  const apiLimiter = rateLimit({
+  // Rate limiting:
+  // - allow frequent admin polling on GET /api/dossiers
+  // - protect public POST /api/dossiers (form submissions)
+  const listDossiersLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 20,
+    max: 600, // ~1 req / 1.5s per IP for 15 min
     message: { error: "Trop de requêtes, veuillez réessayer plus tard." },
     validate: false,
   });
-  app.use("/api/dossiers", apiLimiter);
+  const createDossierLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 60, // protect against spam while allowing retries
+    message: { error: "Trop de requêtes, veuillez réessayer plus tard." },
+    validate: false,
+  });
 
   const DATA_DIR = getRuntimeDataDir();
   const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
@@ -127,7 +135,7 @@ export function createApp() {
     res.json({ status: "ok" });
   });
 
-  app.post("/api/dossiers", upload.array("documents"), async (req, res) => {
+  app.post("/api/dossiers", createDossierLimiter, upload.array("documents"), async (req, res) => {
     await ensureBackgroundServicesStarted();
     try {
       const formData = JSON.parse((req.body as any).formData);
@@ -302,7 +310,7 @@ export function createApp() {
     }
   });
 
-  app.get("/api/dossiers", async (_req, res) => {
+  app.get("/api/dossiers", listDossiersLimiter, async (_req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();
     const sorted = db.dossiers.sort(

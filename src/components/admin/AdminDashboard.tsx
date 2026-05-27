@@ -54,7 +54,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   useEffect(() => {
     loadDossiers();
-    const interval = setInterval(loadDossiers, 15000);
+    const interval = setInterval(loadDossiers, 60000);
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
