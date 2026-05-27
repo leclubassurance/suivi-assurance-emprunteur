@@ -29,7 +29,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     parentOk: boolean;
     email?: string | null;
     parentName?: string;
+    rawEnvParentId?: string | null;
+    effectiveParentId?: string | null;
+    autoCorrected?: boolean;
   } | null>(null);
+
+  const LEGACY_DRIVE_PARENT_ID = "0ALC2kSJGmwXjUk9PVA";
+  const isStaleLegacyDriveError = (err?: string) =>
+    Boolean(err?.includes(LEGACY_DRIVE_PARENT_ID));
 
   useEffect(() => {
     if (selectedDossier) {
@@ -148,6 +155,9 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
         parentOk: Boolean(data.parentOk),
         email: data.email,
         parentName: data.parent?.name,
+        rawEnvParentId: data.rawEnvParentId,
+        effectiveParentId: data.effectiveParentId,
+        autoCorrected: data.autoCorrectedParent,
       });
       showToast(data.summary || "Diagnostic terminé", data.parentOk ? "success" : "error");
     } catch {
@@ -553,6 +563,11 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                           {driveDiagnostic.parentOk ? "Drive prêt" : "Drive à corriger"}
                         </div>
                         <p>{driveDiagnostic.summary}</p>
+                        {driveDiagnostic.autoCorrected && (
+                          <p className="mt-2 font-semibold text-amber-800">
+                            Railway : {driveDiagnostic.rawEnvParentId} → corrigé en {driveDiagnostic.effectiveParentId}
+                          </p>
+                        )}
                         {driveDiagnostic.parentOk && driveDiagnostic.parentName && (
                           <p className="mt-2 font-semibold">
                             Dossier cible : {driveDiagnostic.parentName}
@@ -647,7 +662,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                             </a>
                           )}
                           {(selectedDossier as any).workspaceError && (
-                            <span className="text-red-700">{(selectedDossier as any).workspaceError}</span>
+                            <span className="text-red-700">
+                              {(selectedDossier as any).workspaceError}
+                              {isStaleLegacyDriveError((selectedDossier as any).workspaceError) && (
+                                <span className="block mt-1 text-amber-800 font-semibold">
+                                  Message obsolète (ancien dossier Drive). Cliquez sur « Drive » pour réexporter, ou « Tester Drive » pour vérifier la config Railway.
+                                </span>
+                              )}
+                            </span>
                           )}
                           {(selectedDossier as any).workspaceWarning && (
                             <span className="text-amber-700">{(selectedDossier as any).workspaceWarning}</span>

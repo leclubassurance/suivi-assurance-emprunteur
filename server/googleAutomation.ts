@@ -1,5 +1,57 @@
 import { google } from 'googleapis';
 import fs from 'fs';
+import {
+  DRIVE_CONFIG_VERSION,
+  resolveDriveParentFolderId,
+} from './driveConfig';
+import { loadServiceAccountCredentials } from './serviceAccount';
+
+export { DRIVE_CONFIG_VERSION };
+
+function isMockAccessToken(token?: string | null) {
+  return !token || token.startsWith('mock-gdrive');
+}
+
+export async function createDriveClient(accessToken?: string | null) {
+  if (!isMockAccessToken(accessToken)) {
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken! });
+    const drive = google.drive({ version: 'v3', auth });
+    const connectedEmail = await getConnectedEmail(drive);
+    return { drive, connectedEmail, authMode: 'oauth' as const };
+  }
+
+  const credentials = loadServiceAccountCredentials();
+  if (!credentials) return null;
+
+  try {
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    });
+    const drive = google.drive({ version: 'v3', auth });
+    return {
+      drive,
+      connectedEmail: (credentials.client_email as string) || null,
+      authMode: 'service_account' as const,
+    };
+  } catch (err) {
+    console.error('[Drive] Compte de service : échec auth Drive', err);
+    return null;
+  }
+}
+
+/** Token OAuth admin ou, à défaut, auth compte de service (export auto sans admin connecté). */
+export async function resolveDriveAccessToken(userOAuthToken?: string | null) {
+  if (!isMockAccessToken(userOAuthToken)) {
+    return { token: userOAuthToken!, mode: 'oauth' as const };
+  }
+  const client = await createDriveClient(null);
+  if (client?.authMode === 'service_account') {
+    return { token: '', mode: 'service_account' as const, client };
+  }
+  return { token: null, mode: 'none' as const };
+}
 
 export interface WorkspaceExportResult {
   success: boolean;
@@ -10,12 +62,17 @@ export interface WorkspaceExportResult {
   error?: string;
   connectedEmail?: string;
   parentFolderName?: string;
+  authMode?: 'oauth' | 'service_account';
 }
 
 export interface DriveDiagnosticsResult {
   email: string | null;
   emailError?: string;
   configuredParentId: string | null;
+  rawEnvParentId?: string | null;
+  effectiveParentId?: string | null;
+  autoCorrectedParent?: boolean;
+  correctionNote?: string;
   parent: {
     id?: string;
     name?: string;
@@ -25,12 +82,26 @@ export interface DriveDiagnosticsResult {
   } | null;
   parentOk: boolean;
   summary: string;
+  driveConfigVersion?: number;
+  authMode?: 'oauth' | 'service_account';
 }
 
 export async function getDriveDiagnostics(accessToken: string, parentId?: string): Promise<DriveDiagnosticsResult> {
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-  const drive = google.drive({ version: 'v3', auth });
+  const client = await createDriveClient(accessToken);
+  if (!client) {
+    return {
+      email: null,
+      emailError:
+        "Connexion Google invalide (mode démo) ou compte de service absent. " +
+        "Connectez-vous avec Firebase sur l'admin, ou ajoutez GOOGLE_SERVICE_ACCOUNT_JSON sur Railway.",
+      configuredParentId: parentId || null,
+      parent: null,
+      parentOk: false,
+      summary: "Drive non configuré (OAuth ou compte de service requis).",
+      driveConfigVersion: DRIVE_CONFIG_VERSION,
+    };
+  }
+  const { drive } = client;
 
   let email: string | null = null;
   let emailError: string | undefined;
@@ -39,9 +110,13 @@ export async function getDriveDiagnostics(accessToken: string, parentId?: string
     const about = await drive.about.get({ fields: 'user(emailAddress,displayName)' });
     email = about.data.user?.emailAddress || null;
   } catch (err: any) {
-    emailError =
-      err?.message ||
-      "Impossible de lire le compte Google. Déconnectez-vous puis reconnectez-vous dans l'admin (autorisation Drive).";
+    if (client.authMode === 'service_account' && client.connectedEmail) {
+      email = client.connectedEmail;
+    } else {
+      emailError =
+        err?.message ||
+        "Impossible de lire le compte Google. Déconnectez-vous puis reconnectez-vous dans l'admin (autorisation Drive).";
+    }
   }
 
   let parent: DriveDiagnosticsResult['parent'] = null;
@@ -89,13 +164,21 @@ export async function getDriveDiagnostics(accessToken: string, parentId?: string
       `ou reconnectez Google avec assurance@leclubimmobilier.fr.`;
   }
 
+  const resolved = resolveDriveParentFolderId();
+
   return {
     email,
     emailError,
     configuredParentId: parentId || null,
+    rawEnvParentId: resolved.rawEnv,
+    effectiveParentId: resolved.parentId || null,
+    autoCorrectedParent: resolved.autoCorrected,
+    correctionNote: resolved.correctionNote,
     parent,
     parentOk,
-    summary,
+    summary: resolved.correctionNote ? `${resolved.correctionNote} ${summary}` : summary,
+    driveConfigVersion: DRIVE_CONFIG_VERSION,
+    authMode: client.authMode,
   };
 }
 
@@ -147,27 +230,38 @@ async function createFolder(drive: any, folderName: string, parentId?: string) {
   });
 }
 
-export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: string): Promise<WorkspaceExportResult> {
-  if (!accessToken) {
+export async function exportDossierToGoogleWorkspace(
+  dossier: any,
+  accessToken?: string | null,
+): Promise<WorkspaceExportResult> {
+  const client = await createDriveClient(accessToken);
+  if (!client) {
     return {
       success: false,
       status: 'FAILED',
-      error: "Token OAuth Google manquant. Déconnectez-vous puis reconnectez-vous dans l'admin.",
+      error:
+        "Aucun accès Google Drive. Reconnectez-vous dans l'admin (compte assurance@leclubimmobilier.fr) " +
+        "ou configurez GOOGLE_SERVICE_ACCOUNT_JSON sur Railway et partagez le dossier parent avec l'email du compte de service.",
     };
   }
 
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-  const drive = google.drive({ version: 'v3', auth });
-  const connectedEmail = await getConnectedEmail(drive);
+  const { drive } = client;
+  const connectedEmail =
+    client.authMode === 'oauth'
+      ? await getConnectedEmail(drive)
+      : client.connectedEmail;
 
   try {
     const primaryAssure = dossier.formData?.assures?.[0] || {};
     const clientNom = primaryAssure?.nom ? `${primaryAssure.prenom}_${primaryAssure.nom}` : dossier.id;
     const folderName = `Dossier_Assurance_${clientNom}`;
 
-    const configuredParent = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID?.trim();
+    const resolved = resolveDriveParentFolderId();
+    const configuredParent = resolved.parentId; // toujours défini (dossier recommandé par défaut)
     let warning: string | undefined;
+    if (resolved.correctionNote) {
+      warning = resolved.correctionNote;
+    }
     let parentFolderName: string | undefined;
     let folderRes;
 
@@ -180,30 +274,28 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
       return res;
     };
 
-    if (configuredParent) {
-      parentFolderName = await getParentFolderName(drive, configuredParent);
+    parentFolderName = await getParentFolderName(drive, configuredParent);
+    try {
+      folderRes = await createFolder(drive, folderName, configuredParent);
+    } catch (parentErr: any) {
+      console.warn('[Drive] Échec dossier parent, repli racine:', parentErr?.message || parentErr);
       try {
-        folderRes = await createFolder(drive, folderName, configuredParent);
-      } catch (parentErr: any) {
-        console.warn('[Drive] Échec dossier parent, repli racine:', parentErr?.message || parentErr);
-        try {
-          folderRes = await createAtRoot(
-            `Impossible d'écrire dans « ${parentFolderName || configuredParent} » (${parentErr?.message || 'erreur'}).`,
-          );
-        } catch (rootErr: any) {
-          return {
-            success: false,
-            status: 'FAILED',
-            connectedEmail: connectedEmail || undefined,
-            error:
-              `Impossible d'écrire sur Drive (${rootErr?.message || rootErr}). ` +
-              `Compte connecté : ${connectedEmail || 'inconnu — reconnectez Google'}. ` +
-              `Parent configuré : ${configuredParent}.`,
-          };
-        }
+        folderRes = await createAtRoot(
+          `Impossible d'écrire dans « ${parentFolderName || configuredParent} » (${parentErr?.message || 'erreur'}). ` +
+            (client.authMode === 'service_account'
+              ? `Partagez le dossier parent avec ${connectedEmail}.`
+              : `Connectez-vous avec le compte propriétaire du dossier parent.`),
+        );
+      } catch (rootErr: any) {
+        return {
+          success: false,
+          status: 'FAILED',
+          connectedEmail: connectedEmail || undefined,
+          error:
+            `Impossible d'écrire sur Drive (${rootErr?.message || rootErr}). ` +
+            `Compte : ${connectedEmail || 'inconnu'}. Parent : ${configuredParent}.`,
+        };
       }
-    } else {
-      folderRes = await createAtRoot();
     }
 
     const folderId = folderRes.data.id!;
@@ -240,6 +332,7 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
       warning,
       connectedEmail: connectedEmail || undefined,
       parentFolderName: parentFolderName && !warning ? parentFolderName : undefined,
+      authMode: client.authMode,
     };
   } catch (err: any) {
     console.error('Google Automation Error:', err);
@@ -247,6 +340,7 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
       success: false,
       status: 'FAILED',
       connectedEmail: connectedEmail || undefined,
+      authMode: client.authMode,
       error: err?.message || String(err),
     };
   }

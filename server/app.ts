@@ -132,7 +132,20 @@ export function createApp() {
 
   app.get("/api/health", async (_req, res) => {
     await ensureBackgroundServicesStarted();
-    res.json({ status: "ok" });
+    const { resolveDriveParentFolderId, DRIVE_CONFIG_VERSION } = await import("./driveConfig");
+    const { hasServiceAccountConfigured, getServiceAccountClientEmail } = await import(
+      "./serviceAccount",
+    );
+    const resolved = resolveDriveParentFolderId();
+    res.json({
+      status: "ok",
+      driveConfigVersion: DRIVE_CONFIG_VERSION,
+      effectiveDriveParentId: resolved.parentId,
+      rawDriveParentEnv: resolved.rawEnv,
+      driveParentAutoCorrected: resolved.autoCorrected,
+      hasServiceAccount: hasServiceAccountConfigured(),
+      serviceAccountEmail: getServiceAccountClientEmail(),
+    });
   });
 
   app.post("/api/dossiers", createDossierLimiter, upload.array("documents"), async (req, res) => {
@@ -271,7 +284,11 @@ export function createApp() {
         }
       }
 
-      exportDossierToGoogleWorkspace(newDossier, latestAccessToken)
+      // Export auto : compte de service si configuré (formulaire client sans admin connecté)
+      const { hasServiceAccountConfigured } = await import("./serviceAccount");
+      const driveTokenForAutoExport = hasServiceAccountConfigured() ? null : latestAccessToken;
+
+      exportDossierToGoogleWorkspace(newDossier, driveTokenForAutoExport)
         .then(async (result) => {
           const currentDb = await readDBAsync();
           const existing = currentDb.dossiers.find((d: any) => d.id === newDossier.id);
@@ -515,6 +532,36 @@ export function createApp() {
     res.json({ email: "oauth-client", folderId: "oauth-drive", configured: true });
   });
 
+  /** Teste le compte de service (export auto formulaire client, sans admin connecté). */
+  app.get("/api/admin/drive-auto-check", async (_req, res) => {
+    const { hasServiceAccountConfigured, getServiceAccountClientEmail } = await import(
+      "./serviceAccount",
+    );
+    if (!hasServiceAccountConfigured()) {
+      return res.status(400).json({
+        ok: false,
+        error:
+          "Compte de service absent. Ajoutez GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 sur Railway (voir docs/CONFIGURATION_DRIVE_AUTO.md).",
+      });
+    }
+    try {
+      const { getDriveDiagnostics } = await import("./googleAutomation");
+      const { resolveDriveParentFolderId } = await import("./driveConfig");
+      const resolved = resolveDriveParentFolderId();
+      const diag = await getDriveDiagnostics("", resolved.parentId);
+      res.json({
+        ok: Boolean(diag.parentOk),
+        mode: "service_account",
+        serviceAccountEmail: getServiceAccountClientEmail(),
+        shareHint:
+          "Partagez le dossier « Dossiers Clients Assurance » avec cet email (rôle Éditeur) dans Google Drive.",
+        ...diag,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   app.get("/api/admin/drive-check", async (req, res) => {
     const authHeader = req.headers.authorization;
     const token =
@@ -524,8 +571,9 @@ export function createApp() {
     }
     try {
       const { getDriveDiagnostics } = await import("./googleAutomation");
-      const parentId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID?.trim();
-      const diag = await getDriveDiagnostics(token, parentId);
+      const { resolveDriveParentFolderId } = await import("./driveConfig");
+      const resolved = resolveDriveParentFolderId();
+      const diag = await getDriveDiagnostics(token, resolved.parentId);
       res.json({ success: true, ...diag });
     } catch (err: any) {
       res.status(500).json({

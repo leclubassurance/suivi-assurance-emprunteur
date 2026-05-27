@@ -36,8 +36,7 @@ if (isFirebaseValid) {
     provider.setCustomParameters({
       prompt: 'select_account'
     });
-    // drive (not drive.file): required to create dossiers in a shared/parent folder
-    // such as 0ALC2kSJGmwXjUk9PVA (Shared Drive or team folder)
+    // drive (not drive.file): required to create subfolders in the parent folder (ex. Dossiers Clients Assurance)
     provider.addScope("https://www.googleapis.com/auth/drive");
     provider.addScope("https://www.googleapis.com/auth/gmail.send");
     provider.addScope("https://www.googleapis.com/auth/gmail.readonly");

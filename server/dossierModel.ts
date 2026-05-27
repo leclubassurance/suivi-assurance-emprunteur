@@ -1,3 +1,5 @@
+import { sanitizeLegacyDriveWorkspaceState } from "./driveConfig";
+
 export type DossierStatus =
   | "NOUVEAU"
   | "EN_COURS"
@@ -102,7 +104,7 @@ export function ensureDossierShape(d: any): Dossier {
     notes: Array.isArray(d.notes) ? d.notes : [],
     processedGmailIds: Array.isArray(d.processedGmailIds) ? d.processedGmailIds : [],
   };
-  return dossier;
+  return sanitizeLegacyDriveWorkspaceState(dossier) as Dossier;
 }
 
 export function addEvent(dossier: Dossier, event: Omit<DossierEvent, "id" | "at"> & { id?: string; at?: string }) {

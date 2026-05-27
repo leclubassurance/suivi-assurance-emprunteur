@@ -22,7 +22,15 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
+    // Ne pas renvoyer index.html pour les URLs /api (sinon les tests JSON affichent le site)
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api")) {
+        return res.status(404).json({
+          error: "Route API introuvable",
+          path: req.path,
+          hint: "Redéployez Railway avec le dernier code (git push origin main).",
+        });
+      }
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
