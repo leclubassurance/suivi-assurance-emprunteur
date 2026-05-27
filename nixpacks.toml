@@ -1,0 +1,9 @@
+# dist/ n'est pas sur GitHub → le build DOIT réussir sur Railway (esbuild + vite en devDependencies)
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "NODE_ENV=production node dist/server.cjs"

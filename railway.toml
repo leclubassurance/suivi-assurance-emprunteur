@@ -1,6 +1,7 @@
 [build]
 builder = "NIXPACKS"
+buildCommand = "npm install && npm run build"
 
 [deploy]
-startCommand = "NODE_ENV=production npm run start"
+startCommand = "NODE_ENV=production node dist/server.cjs"
 restartPolicyType = "ON_FAILURE"

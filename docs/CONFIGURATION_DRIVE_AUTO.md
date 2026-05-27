@@ -1,5 +1,16 @@
 # Création automatique des dossiers Google Drive (sans admin connecté)
 
+## Erreur 502 « Application failed to respond »
+
+Souvent : le dossier `dist/` n’est **pas** sur GitHub (normal). Si le **build** Railway échoue, `dist/server.cjs` n’existe pas → crash au démarrage.
+
+1. Railway → **Deployments** → dernier déploiement → onglet **Build** (pas seulement Deploy)
+2. Cherchez `npm run build` et une ligne **erreur** (esbuild, vite, etc.)
+3. Poussez le dernier code (`nixpacks.toml` force `npm install && npm run build`)
+4. Après succès : `curl` doit afficher `"build":"railway-express-2026-05-27"`
+
+---
+
 ## Railway n’affiche que `{"status":"ok"}` ?
 
 Le code sur **GitHub** est à jour, mais **Railway** n’a pas redéployé le backend.
