@@ -24,6 +24,12 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const [previewActive, setPreviewActive] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
+  const [driveDiagnostic, setDriveDiagnostic] = useState<{
+    summary: string;
+    parentOk: boolean;
+    email?: string | null;
+    parentName?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (selectedDossier) {
@@ -120,6 +126,35 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleDriveCheck = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      showToast("Connexion Google manquante. Déconnectez-vous puis reconnectez-vous.", "error");
+      return;
+    }
+    try {
+      showToast("Test Drive en cours...", "info");
+      const res = await fetch(getApiUrl("/api/admin/drive-check"), {
+        headers: await authHeaders(false),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDriveDiagnostic({ summary: data.error || data.hint || "Erreur", parentOk: false });
+        showToast(data.error || data.hint || "Diagnostic Drive impossible", "error");
+        return;
+      }
+      setDriveDiagnostic({
+        summary: data.summary || "",
+        parentOk: Boolean(data.parentOk),
+        email: data.email,
+        parentName: data.parent?.name,
+      });
+      showToast(data.summary || "Diagnostic terminé", data.parentOk ? "success" : "error");
+    } catch {
+      showToast("Erreur diagnostic Drive", "error");
+    }
+  };
+
   const handleExportDrive = async () => {
     if (!selectedDossier) return;
     const token = await getAccessToken();
@@ -138,8 +173,11 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       if (res.ok) {
         if (data.success) {
           const who = data.connectedEmail ? ` (${data.connectedEmail})` : "";
+          const where = data.parentFolderName ? ` dans « ${data.parentFolderName} »` : "";
           showToast(
-            data.warning ? `Drive OK${who} — ${data.warning}` : `Dossier Drive créé${who}`,
+            data.warning
+              ? `Drive OK${who} — ${data.warning}`
+              : `Dossier créé${where}${who}`,
             data.warning ? "info" : "success",
           );
         } else {
@@ -497,31 +535,31 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       </button>
                       <button
                         type="button"
-                        onClick={async () => {
-                          try {
-                            const res = await fetch(getApiUrl("/api/admin/drive-check"), {
-                              headers: await authHeaders(false),
-                            });
-                            const data = await res.json().catch(() => ({}));
-                            if (!res.ok) {
-                              showToast(data.error || data.hint || "Diagnostic Drive impossible", "error");
-                              return;
-                            }
-                            const p = data.parent;
-                            const parentOk = p && !p.error && p.canAddChildren !== false;
-                            showToast(
-                              `Drive : ${data.email || "?"} · Parent ${parentOk ? "OK" : "inaccessible"}${p?.name ? ` (${p.name})` : ""}`,
-                              parentOk ? "success" : "error",
-                            );
-                          } catch {
-                            showToast("Erreur diagnostic Drive", "error");
-                          }
-                        }}
+                        onClick={handleDriveCheck}
                         className="bg-white border border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-xs hover:bg-slate-50"
                       >
                         Tester Drive
                       </button>
                     </div>
+                    {driveDiagnostic && (
+                      <div
+                        className={`mb-4 p-4 rounded-xl border text-xs ${
+                          driveDiagnostic.parentOk
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                            : "bg-amber-50 border-amber-200 text-amber-900"
+                        }`}
+                      >
+                        <div className="font-black mb-1">
+                          {driveDiagnostic.parentOk ? "Drive prêt" : "Drive à corriger"}
+                        </div>
+                        <p>{driveDiagnostic.summary}</p>
+                        {driveDiagnostic.parentOk && driveDiagnostic.parentName && (
+                          <p className="mt-2 font-semibold">
+                            Dossier cible : {driveDiagnostic.parentName}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {aiSuggestions && aiSuggestions.length > 0 && (
                       <div className="mb-6 bg-indigo-50 border border-indigo-100 rounded-2xl p-5">
                         <div className="flex items-center gap-2 font-black text-indigo-900 mb-3">

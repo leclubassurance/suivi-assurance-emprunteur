@@ -9,17 +9,42 @@ export interface WorkspaceExportResult {
   warning?: string;
   error?: string;
   connectedEmail?: string;
+  parentFolderName?: string;
 }
 
-export async function getDriveDiagnostics(accessToken: string, parentId?: string) {
+export interface DriveDiagnosticsResult {
+  email: string | null;
+  emailError?: string;
+  configuredParentId: string | null;
+  parent: {
+    id?: string;
+    name?: string;
+    accessible: boolean;
+    canAddChildren?: boolean;
+    error?: string;
+  } | null;
+  parentOk: boolean;
+  summary: string;
+}
+
+export async function getDriveDiagnostics(accessToken: string, parentId?: string): Promise<DriveDiagnosticsResult> {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
   const drive = google.drive({ version: 'v3', auth });
 
-  const about = await drive.about.get({ fields: 'user(emailAddress,displayName)' });
-  const email = about.data.user?.emailAddress || null;
+  let email: string | null = null;
+  let emailError: string | undefined;
 
-  let parent: Record<string, unknown> | null = null;
+  try {
+    const about = await drive.about.get({ fields: 'user(emailAddress,displayName)' });
+    email = about.data.user?.emailAddress || null;
+  } catch (err: any) {
+    emailError =
+      err?.message ||
+      "Impossible de lire le compte Google. Déconnectez-vous puis reconnectez-vous dans l'admin (autorisation Drive).";
+  }
+
+  let parent: DriveDiagnosticsResult['parent'] = null;
   if (parentId) {
     try {
       const meta = await drive.files.get({
@@ -27,18 +52,51 @@ export async function getDriveDiagnostics(accessToken: string, parentId?: string
         fields: 'id,name,mimeType,driveId,capabilities',
         supportsAllDrives: true,
       });
+      const canAdd = meta.data.capabilities?.canAddChildren;
       parent = {
-        id: meta.data.id,
-        name: meta.data.name,
-        driveId: meta.data.driveId,
-        canAddChildren: meta.data.capabilities?.canAddChildren,
+        id: meta.data.id || parentId,
+        name: meta.data.name || undefined,
+        accessible: true,
+        canAddChildren: canAdd ?? undefined,
       };
+      if (canAdd === false) {
+        parent.accessible = false;
+        parent.error = `Pas le droit de créer des sous-dossiers dans « ${meta.data.name} ».`;
+      }
     } catch (err: any) {
-      parent = { error: err?.message || String(err) };
+      parent = {
+        accessible: false,
+        error: err?.message || String(err),
+      };
     }
   }
 
-  return { email, parent, configuredParentId: parentId || null };
+  const parentOk = Boolean(parent?.accessible && parent.canAddChildren !== false);
+  let summary: string;
+
+  if (emailError) {
+    summary = emailError;
+  } else if (!parentId) {
+    summary = `Compte ${email || '?'} — aucun dossier parent configuré (export à la racine Mon Drive).`;
+  } else if (parentOk && parent?.name) {
+    summary = `Compte ${email} — dossier parent « ${parent.name} » accessible. Vous pouvez cliquer sur Drive.`;
+  } else if (parentOk) {
+    summary = `Compte ${email} — dossier parent (${parentId}) accessible.`;
+  } else {
+    summary =
+      `Compte ${email || '?'} — dossier parent inaccessible (${parent?.error || 'erreur'}). ` +
+      `Vérifiez GOOGLE_DRIVE_PARENT_FOLDER_ID (ID dans l'URL …/folders/XXXX, pas la racine d'un Drive partagé) ` +
+      `ou reconnectez Google avec assurance@leclubimmobilier.fr.`;
+  }
+
+  return {
+    email,
+    emailError,
+    configuredParentId: parentId || null,
+    parent,
+    parentOk,
+    summary,
+  };
 }
 
 export async function deleteDossierFromGoogleWorkspace(folderId: string, accessToken: string) {
@@ -61,6 +119,19 @@ async function getConnectedEmail(drive: any) {
     return about.data.user?.emailAddress || null;
   } catch {
     return null;
+  }
+}
+
+async function getParentFolderName(drive: any, parentId: string) {
+  try {
+    const meta = await drive.files.get({
+      fileId: parentId,
+      fields: 'name',
+      supportsAllDrives: true,
+    });
+    return meta.data.name || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -97,25 +168,27 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
 
     const configuredParent = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID?.trim();
     let warning: string | undefined;
+    let parentFolderName: string | undefined;
     let folderRes;
 
     const createAtRoot = async (reason?: string) => {
       const res = await createFolder(drive, folderName);
       if (reason) {
         warning =
-          `${reason} Dossier créé dans le Drive de ${connectedEmail || 'votre compte connecté'} (racine / Mon Drive).`;
+          `${reason} Dossier créé dans le Drive de ${connectedEmail || 'votre compte connecté'} (Mon Drive / racine).`;
       }
       return res;
     };
 
     if (configuredParent) {
+      parentFolderName = await getParentFolderName(drive, configuredParent);
       try {
         folderRes = await createFolder(drive, folderName, configuredParent);
       } catch (parentErr: any) {
         console.warn('[Drive] Échec dossier parent, repli racine:', parentErr?.message || parentErr);
         try {
           folderRes = await createAtRoot(
-            `Dossier parent « ${configuredParent} » inaccessible (${parentErr?.message || 'erreur'}).`,
+            `Impossible d'écrire dans « ${parentFolderName || configuredParent} » (${parentErr?.message || 'erreur'}).`,
           );
         } catch (rootErr: any) {
           return {
@@ -124,8 +197,8 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
             connectedEmail: connectedEmail || undefined,
             error:
               `Impossible d'écrire sur Drive (${rootErr?.message || rootErr}). ` +
-              `Compte connecté : ${connectedEmail || 'inconnu'}. ` +
-              `Reconnectez Google dans l'admin (autorisation Drive complète) ou supprimez GOOGLE_DRIVE_PARENT_FOLDER_ID sur Railway.`,
+              `Compte connecté : ${connectedEmail || 'inconnu — reconnectez Google'}. ` +
+              `Parent configuré : ${configuredParent}.`,
           };
         }
       }
@@ -157,7 +230,7 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
     if (uploaded === 0 && dossier.formData?.documents?.length > 0) {
       warning =
         (warning ? `${warning} ` : '') +
-        'Fichiers non copiés : chemins absents sur le serveur (normal si dossier créé avant migration Railway).';
+        'Fichiers non copiés : chemins absents sur le serveur (réessayez après un nouvel envoi formulaire).';
     }
 
     return {
@@ -166,6 +239,7 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
       folderId,
       warning,
       connectedEmail: connectedEmail || undefined,
+      parentFolderName: parentFolderName && !warning ? parentFolderName : undefined,
     };
   } catch (err: any) {
     console.error('Google Automation Error:', err);
