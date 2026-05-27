@@ -27,33 +27,41 @@ export function classifyFileName(filename: string): DocumentCategory | null {
     return "rib";
   }
 
+  // Tableau avant offre (évite "tableau de crédit" classé en offre)
   if (
+    n.includes("tableau") ||
     n.includes("amort") ||
-    (n.includes("tableau") && (n.includes("pret") || n.includes("credit") || n.includes("amort"))) ||
     n.includes("echeancier") ||
-    n.includes("echeance")
+    n.includes("echeance") ||
+    n.includes("mensualite")
   ) {
     return "tableau";
   }
 
   if (
     n.includes("fiche") &&
-    (n.includes("standard") || n.includes("information") || n.includes("fsi") || n.includes("europeenne"))
+    (n.includes("standard") ||
+      n.includes("information") ||
+      n.includes("fsi") ||
+      n.includes("europeenne") ||
+      n.includes("europeen"))
   ) {
     return "fiche";
   }
 
   if (
     n.includes("offre") ||
-    (n.includes("pret") && !n.includes("tableau")) ||
     n.includes("emprunt") ||
-    (n.includes("contrat") && (n.includes("pret") || n.includes("credit") || n.includes("emprunt"))) ||
+    (n.includes("pret") && !n.includes("tableau")) ||
+    (n.includes("contrat") &&
+      (n.includes("pret") || n.includes("credit") || n.includes("emprunt"))) ||
     n.includes("proposition") ||
     n.includes("simulation") ||
     n.includes("financement") ||
     n.includes("convention") ||
     n.includes("offrepret") ||
-    n.includes("loan")
+    n.includes("loan") ||
+    n.includes("credit immobilier")
   ) {
     return "offre";
   }
@@ -67,12 +75,18 @@ export function inferDocumentCategory(doc: {
   category?: string;
 }): DocumentCategory | null {
   const explicit = doc.category ? normalize(doc.category) : "";
-  if (explicit === "cni" || explicit === "rib" || explicit === "offre" || explicit === "tableau" || explicit === "fiche") {
+  if (
+    explicit === "cni" ||
+    explicit === "rib" ||
+    explicit === "offre" ||
+    explicit === "tableau" ||
+    explicit === "fiche"
+  ) {
     return explicit as DocumentCategory;
   }
 
   const id = String(doc.id || "");
-  for (const prefix of ["offre", "tableau", "fiche", "cni", "rib"] as const) {
+  for (const prefix of ["tableau", "offre", "fiche", "cni", "rib"] as const) {
     if (id.startsWith(`${prefix}-`)) return prefix;
   }
 
@@ -80,7 +94,6 @@ export function inferDocumentCategory(doc: {
 }
 
 export function categoryToChecklistKey(category: DocumentCategory | null): string | null {
-  if (!category || category === "autre") return null;
-  if (category === "fiche") return "offre";
+  if (!category || category === "autre" || category === "fiche") return null;
   return category;
 }

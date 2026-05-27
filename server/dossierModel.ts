@@ -105,7 +105,9 @@ export function ensureDossierShape(d: any): Dossier {
     notes: Array.isArray(d.notes) ? d.notes : [],
     processedGmailIds: Array.isArray(d.processedGmailIds) ? d.processedGmailIds : [],
   };
-  const shaped = sanitizeLegacyDriveWorkspaceState(dossier) as Dossier;
+  const shaped = sanitizeLegacyDriveWorkspaceState(
+    dossier as unknown as Record<string, unknown>,
+  ) as unknown as Dossier;
   if (Array.isArray(shaped.formData?.documents)) {
     shaped.formData.documents = shaped.formData.documents.map((doc: any) => {
       const category = inferDocumentCategory(doc);

@@ -6,31 +6,55 @@ function newDocId(category: DocumentCategory | null, fallbackPrefix = "doc") {
   return `${prefix}-${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** Conserve les ids offre-/tableau-/fiche- du formulaire en les associant aux fichiers uploadés. */
+/** Conserve les ids offre-/tableau-/fiche- du formulaire (appariement par index puis par nom). */
 export function mergeFormDocumentsWithUploads(
   metaDocs: any[] = [],
   files: Express.Multer.File[] = [],
 ) {
-  const remainingMeta = [...metaDocs];
+  const usedMetaIndexes = new Set<number>();
 
-  const takeMetaForFile = (file: Express.Multer.File) => {
-    const byName = remainingMeta.findIndex(
-      (d) => String(d?.name || "").toLowerCase() === String(file.originalname || "").toLowerCase(),
+  const pickMeta = (file: Express.Multer.File, fileIndex: number) => {
+    if (fileIndex < metaDocs.length && !usedMetaIndexes.has(fileIndex)) {
+      const byIndex = metaDocs[fileIndex];
+      const indexName = String(byIndex?.name || "").toLowerCase();
+      const fileName = String(file.originalname || "").toLowerCase();
+      if (!indexName || indexName === fileName) {
+        usedMetaIndexes.add(fileIndex);
+        return byIndex;
+      }
+    }
+
+    const byNameIdx = metaDocs.findIndex(
+      (d, i) =>
+        !usedMetaIndexes.has(i) &&
+        String(d?.name || "").toLowerCase() === String(file.originalname || "").toLowerCase(),
     );
-    if (byName >= 0) return remainingMeta.splice(byName, 1)[0];
-    if (remainingMeta.length > 0) return remainingMeta.shift();
+    if (byNameIdx >= 0) {
+      usedMetaIndexes.add(byNameIdx);
+      return metaDocs[byNameIdx];
+    }
+
+    if (fileIndex < metaDocs.length && !usedMetaIndexes.has(fileIndex)) {
+      usedMetaIndexes.add(fileIndex);
+      return metaDocs[fileIndex];
+    }
+
+    const nextIdx = metaDocs.findIndex((_, i) => !usedMetaIndexes.has(i));
+    if (nextIdx >= 0) {
+      usedMetaIndexes.add(nextIdx);
+      return metaDocs[nextIdx];
+    }
+
     return null;
   };
 
-  return files.map((f) => {
-    const meta = takeMetaForFile(f);
+  return files.map((f, fileIndex) => {
+    const meta = pickMeta(f, fileIndex);
     const fromMeta = meta ? inferDocumentCategory(meta) : null;
     const fromName = classifyFileName(f.originalname);
     const category = fromMeta || fromName;
     const id =
-      meta?.id && String(meta.id).includes("-")
-        ? String(meta.id)
-        : newDocId(category);
+      meta?.id && String(meta.id).includes("-") ? String(meta.id) : newDocId(category);
 
     return {
       id,

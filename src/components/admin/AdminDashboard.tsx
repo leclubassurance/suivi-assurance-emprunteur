@@ -122,12 +122,18 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       if (res.ok) {
         const errHint =
           data.errors?.length > 0 ? ` Erreurs : ${data.errors.slice(0, 2).join(" | ")}` : "";
+        const driveHint =
+          data.driveUploaded > 0
+            ? ` ${data.driveUploaded} copie(s) sur Drive.`
+            : !data.hasDriveFolder && data.added?.length
+              ? " Créez le dossier Drive (bouton Drive) puis relancez."
+              : "";
         const msg =
           data.added?.length > 0
-            ? `${data.added.length} fichier(s) ajouté(s) : ${data.added.join(", ")}`
+            ? `${data.added.length} fichier(s) ajouté(s) : ${data.added.join(", ")}.${driveHint}`
             : data.attachmentPartsFound > 0
-              ? `${data.attachmentPartsFound} PJ détectée(s) — déjà en dossier ou non lisibles.${errHint}`
-              : `Aucune PJ (${data.scanned || 0} mail(s) scanné(s)).${errHint}`;
+              ? `${data.attachmentPartsFound} PJ détectée(s) — déjà en dossier ou non lisibles.${driveHint}${errHint}`
+              : `Aucune PJ (${data.scanned || 0} mail(s) scanné(s)).${driveHint}${errHint}`;
         showToast(msg, data.added?.length ? "success" : "info");
         loadDossiers();
       } else {
@@ -156,6 +162,9 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
         showToast(
           `Sync Gmail : ${data.processed || 0} message(s), ${data.inbound || 0} reçu(s) client` +
             (data.attachmentsSaved ? `, ${data.attachmentsSaved} PJ enregistrée(s)` : "") +
+            (data.driveAttachmentsUploaded
+              ? `, ${data.driveAttachmentsUploaded} sur Drive`
+              : "") +
             (data.aiReplies ? `, ${data.aiReplies} réponse(s) IA` : ""),
           "success",
         );

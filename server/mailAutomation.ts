@@ -75,11 +75,42 @@ function isAiAutoReplyEnabled() {
   return v !== 'false' && v !== '0' && v !== 'no';
 }
 
+function buildGmailQueriesForDossier(dossier: any, clientEmail: string): string[] {
+  const dossierId = String(dossier?.id || '').trim();
+  const queries = [
+    `(from:${clientEmail} OR to:${clientEmail}) has:attachment newer_than:180d`,
+    `from:${clientEmail} has:attachment newer_than:180d`,
+    `from:${clientEmail} newer_than:180d`,
+  ];
+  if (dossierId) {
+    queries.unshift(`subject:${dossierId} newer_than:180d`);
+  }
+  return queries;
+}
+
+async function resolveGmailDriveUploadTarget(dossier: any, accessToken: string) {
+  const folderId = dossier?.workspaceFolderId;
+  if (!folderId) return { driveSubfolderId: null as string | null, driveAccessToken: accessToken };
+
+  const { ensureGmailAttachmentsSubfolder } = await import('./gmailDriveUpload');
+  const subfolderId = await ensureGmailAttachmentsSubfolder(folderId, accessToken);
+  return {
+    driveSubfolderId: subfolderId || folderId,
+    driveAccessToken: accessToken,
+  };
+}
+
 /** Rescanne les emails clients et extrait les pièces jointes (même si déjà importés). */
 export async function resyncDossierGmailAttachments(
   accessToken: string,
   dossier: any,
-): Promise<{ added: string[]; scanned: number; attachmentPartsFound: number; errors: string[] }> {
+): Promise<{
+  added: string[];
+  scanned: number;
+  attachmentPartsFound: number;
+  driveUploaded: number;
+  errors: string[];
+}> {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
   const gmail = google.gmail({ version: 'v1', auth });
@@ -89,57 +120,86 @@ export async function resyncDossierGmailAttachments(
   const errors: string[] = [];
   let scanned = 0;
   let attachmentPartsFound = 0;
+  let driveUploaded = 0;
+  const seenMessageIds = new Set<string>();
+
+  const driveCtx = await resolveGmailDriveUploadTarget(dossier, accessToken);
 
   for (const clientEmail of emails) {
-    const q = `from:${clientEmail} newer_than:90d`;
-    const listRes = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
-    for (const msgMeta of listRes.data.messages || []) {
-      if (!msgMeta.id) continue;
-      scanned++;
-      const msgRes = await gmail.users.messages.get({
-        userId: 'me',
-        id: msgMeta.id,
-        format: 'full',
-      });
-      const payload = msgRes.data.payload;
-      const parts = collectAttachmentParts(payload);
-      attachmentPartsFound += parts.length;
+    for (const q of buildGmailQueriesForDossier(dossier, clientEmail)) {
+      const listRes = await gmail.users.messages.list({ userId: 'me', q, maxResults: 40 });
+      for (const msgMeta of listRes.data.messages || []) {
+        if (!msgMeta.id || seenMessageIds.has(msgMeta.id)) continue;
+        seenMessageIds.add(msgMeta.id);
+        scanned++;
 
-      const { saved, errors: dlErrors } = await downloadGmailAttachments(
-        gmail,
-        msgMeta.id,
-        payload,
-        dossier.id,
-      );
-      errors.push(...dlErrors);
-      const merged = mergeDocumentsIntoDossier(dossier, saved);
-      for (const doc of merged) {
-        added.push(doc.name);
-        addEvent(dossier, {
-          type: 'DOCUMENT_UPLOADED',
-          actor: { kind: 'SYSTEM' },
-          message: `Pièce jointe reçue par email : ${doc.name}`,
-          meta: { source: 'gmail', gmailId: msgMeta.id },
+        const msgRes = await gmail.users.messages.get({
+          userId: 'me',
+          id: msgMeta.id,
+          format: 'full',
+        });
+        const payload = msgRes.data.payload;
+        const parts = collectAttachmentParts(payload);
+        attachmentPartsFound += parts.length;
+
+        const { saved, errors: dlErrors, driveUploaded: du } = await downloadGmailAttachments(
+          gmail,
+          msgMeta.id,
+          payload,
+          dossier.id,
+          {
+            dossier,
+            driveAccessToken: driveCtx.driveAccessToken,
+            driveSubfolderId: driveCtx.driveSubfolderId,
+          },
+        );
+        driveUploaded += du;
+        errors.push(...dlErrors);
+        const merged = mergeDocumentsIntoDossier(dossier, saved);
+        for (const doc of merged) {
+          added.push(doc.name);
+          addEvent(dossier, {
+            type: 'DOCUMENT_UPLOADED',
+            actor: { kind: 'SYSTEM' },
+            message: `Pièce jointe reçue par email : ${doc.name}`,
+            meta: {
+              source: 'gmail',
+              gmailId: msgMeta.id,
+              driveFileId: doc.driveFileId,
+            },
+          });
+        }
+
+        const headers = msgRes.data.payload?.headers || [];
+        const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value || '';
+        const fromHeader = headers.find((h) => h.name?.toLowerCase() === 'from')?.value || '';
+        const text = decodeBody(msgRes.data.payload);
+        const sender = extractEmail(fromHeader) || clientEmail;
+        upsertCommunication(dossier, {
+          id: `msg_${msgMeta.id}`,
+          gmailId: msgMeta.id,
+          direction: 'inbound',
+          from: sender,
+          subject,
+          text,
+          attachments: saved.map((d) => ({
+            name: d.name,
+            size: d.size,
+            driveLink: d.driveLink,
+          })),
+          date: new Date(Number(msgRes.data.internalDate || Date.now())).toISOString(),
         });
       }
-
-      const headers = msgRes.data.payload?.headers || [];
-      const subject = headers.find((h) => h.name?.toLowerCase() === 'subject')?.value || '';
-      const text = decodeBody(msgRes.data.payload);
-      upsertCommunication(dossier, {
-        id: `msg_${msgMeta.id}`,
-        gmailId: msgMeta.id,
-        direction: 'inbound',
-        from: clientEmail,
-        subject,
-        text,
-        attachments: saved.map((d) => ({ name: d.name, size: d.size })),
-        date: new Date(Number(msgRes.data.internalDate || Date.now())).toISOString(),
-      });
     }
   }
 
-  return { added, scanned, attachmentPartsFound, errors };
+  if (!dossier.workspaceFolderId && added.length > 0) {
+    errors.push(
+      'Dossier Drive non créé : cliquez sur « Drive » une fois, puis relancez « Récupérer PJ email » pour archiver sur Drive.',
+    );
+  }
+
+  return { added, scanned, attachmentPartsFound, driveUploaded, errors };
 }
 
 export async function syncGmailInbox(accessToken: string, db: any, aiCallback: Function) {
@@ -156,10 +216,11 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
   let inboundCount = 0;
   let aiReplies = 0;
   let attachmentsSaved = 0;
-  const attachmentDebug: Array<{ messageId: string; found: number; saved: number }> = [];
+  let driveAttachmentsUploaded = 0;
+  const attachmentDebug: Array<{ messageId: string; found: number; saved: number; drive: number }> = [];
 
   for (const clientEmail of clientEmails) {
-    const q = `(from:${clientEmail} OR to:${clientEmail}) newer_than:60d`;
+    const q = `(from:${clientEmail} OR to:${clientEmail}) newer_than:180d`;
     const listRes = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
     const messages = listRes.data.messages || [];
 
@@ -196,16 +257,24 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
 
       let addedAttachments: any[] = [];
       if (isFromClient) {
-        const { saved, found } = await downloadGmailAttachments(
+        const driveCtx = await resolveGmailDriveUploadTarget(dossier, accessToken);
+        const { saved, found, driveUploaded: du } = await downloadGmailAttachments(
           gmail,
           msgMeta.id,
           payload,
           dossier.id,
+          {
+            dossier,
+            driveAccessToken: driveCtx.driveAccessToken,
+            driveSubfolderId: driveCtx.driveSubfolderId,
+          },
         );
+        driveAttachmentsUploaded += du;
         attachmentDebug.push({
           messageId: msgMeta.id,
           found,
           saved: saved.length,
+          drive: du,
         });
         addedAttachments = mergeDocumentsIntoDossier(dossier, saved);
         if (addedAttachments.length) {
@@ -305,6 +374,7 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
     processed: processedIds.size,
     aiReplies,
     attachmentsSaved,
+    driveAttachmentsUploaded,
     attachmentDebug,
   };
 }

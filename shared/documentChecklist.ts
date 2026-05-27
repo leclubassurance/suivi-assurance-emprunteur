@@ -22,19 +22,52 @@ function docName(doc: any) {
   return normalize(doc?.name);
 }
 
+function getCategory(d: any): string | null {
+  return inferDocumentCategory(d);
+}
+
 function enrichDocuments(documents: any[] = []) {
-  const enriched = documents.map((d) => {
+  let enriched = documents.map((d) => {
     const category = inferDocumentCategory(d);
     return category ? { ...d, category } : { ...d };
   });
 
-  const hasOffre = enriched.some((d) => categoryToChecklistKey(inferDocumentCategory(d)) === "offre");
-  const hasTableau = enriched.some((d) => inferDocumentCategory(d) === "tableau");
-  if (!hasOffre && hasTableau && enriched.length >= 2) {
-    const unknown = enriched.filter((d) => !inferDocumentCategory(d));
-    if (unknown.length === 1) {
-      unknown[0].category = "offre";
-      return enriched.map((d) => (d.id === unknown[0].id ? { ...d, category: "offre" } : d));
+  const hasOffre = enriched.some((d) => {
+    const c = getCategory(d);
+    return c === "offre" || c === "fiche" || docId(d).startsWith("offre-") || docId(d).startsWith("fiche-");
+  });
+  const hasTableau = enriched.some(
+    (d) => getCategory(d) === "tableau" || docId(d).startsWith("tableau-"),
+  );
+
+  const unknown = enriched.filter((d) => !getCategory(d));
+
+  if (hasOffre && !hasTableau && unknown.length >= 1) {
+    const target = unknown[0];
+    enriched = enriched.map((d) =>
+      d.id === target.id && d.name === target.name ? { ...d, category: "tableau" } : d,
+    );
+  } else if (!hasOffre && hasTableau && unknown.length >= 1) {
+    const target = unknown[0];
+    enriched = enriched.map((d) =>
+      d.id === target.id && d.name === target.name ? { ...d, category: "offre" } : d,
+    );
+  } else if (!hasOffre && !hasTableau && unknown.length >= 2) {
+    enriched = enriched.map((d, idx) => {
+      const uIdx = unknown.indexOf(d);
+      if (uIdx === 0) return { ...d, category: "offre" };
+      if (uIdx === 1) return { ...d, category: "tableau" };
+      return d;
+    });
+  } else if (!hasTableau && unknown.length === 1 && enriched.length >= 2 && hasOffre) {
+    const onlyUnknown = unknown[0];
+    const tableauById = enriched.some((d) => docId(d).startsWith("tableau-"));
+    if (!tableauById) {
+      enriched = enriched.map((d) =>
+        d.id === onlyUnknown.id && d.name === onlyUnknown.name
+          ? { ...d, category: "tableau" }
+          : d,
+      );
     }
   }
 
@@ -49,11 +82,11 @@ export function computeDocumentChecklist(documents: any[] = []): ChecklistItem[]
 
   for (const d of docs) {
     const name = String(d.name || d.id || "document");
-    const category = inferDocumentCategory(d);
-    const key = categoryToChecklistKey(category) || (category === "autre" ? null : null);
+    const category = getCategory(d);
+    const checklistKey = categoryToChecklistKey(category as any);
 
-    if (key && matched[key]) {
-      matched[key].push(name);
+    if (checklistKey && matched[checklistKey]) {
+      matched[checklistKey].push(name);
       continue;
     }
 
@@ -87,34 +120,29 @@ export function computeDocumentChecklist(documents: any[] = []): ChecklistItem[]
     }
   }
 
-  const hasCni = matched.cni.length > 0;
-  const hasRib = matched.rib.length > 0;
-  const hasOffrePret = matched.offre.length > 0;
-  const hasAmortissement = matched.amort.length > 0;
-
   return [
     {
       key: "cni",
       label: "Pièce d'identité (CNI/Passeport)",
-      ok: hasCni,
+      ok: matched.cni.length > 0,
       matchedFiles: matched.cni,
     },
     {
       key: "rib",
       label: "RIB",
-      ok: hasRib,
+      ok: matched.rib.length > 0,
       matchedFiles: matched.rib,
     },
     {
       key: "offre",
       label: "Offre de prêt",
-      ok: hasOffrePret,
+      ok: matched.offre.length > 0,
       matchedFiles: matched.offre,
     },
     {
       key: "amort",
       label: "Tableau d'amortissement",
-      ok: hasAmortissement,
+      ok: matched.amort.length > 0,
       matchedFiles: matched.amort,
     },
   ];

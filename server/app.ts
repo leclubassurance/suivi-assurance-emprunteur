@@ -245,8 +245,8 @@ export function createApp() {
             confirmationSubject,
             confirmationHtml,
           )
-            .then(async (success) => {
-              if (success) {
+            .then(async (sendResult) => {
+              if (sendResult?.ok) {
                 appendLog(
                   `[Email] Mail de confirmation automatique envoyé de Charles Victor à ${toEmail} pour le dossier ${newDossier.id}`,
                 );
@@ -297,8 +297,29 @@ export function createApp() {
         }
       }
 
-      // Export auto : compte de service si configuré (formulaire client sans admin connecté)
-      const { hasServiceAccountReady } = await import("./serviceAccount");
+      // Export auto Drive (compte de service recommandé — formulaire sans admin connecté)
+      const {
+        hasServiceAccountReady,
+        hasServiceAccountConfigured,
+        loadServiceAccountDetails,
+      } = await import("./serviceAccount");
+      const saDetails = loadServiceAccountDetails();
+      const canAutoDrive = hasServiceAccountReady() || Boolean(latestAccessToken);
+
+      if (!canAutoDrive) {
+        newDossier.workspaceStatus = "FAILED";
+        newDossier.workspaceError =
+          saDetails.parseError ||
+          (hasServiceAccountConfigured()
+            ? "Compte de service Google invalide sur Railway (vérifiez GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)."
+            : "Export Drive auto impossible : ajoutez GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 sur Railway et partagez le dossier parent avec le compte de service.");
+        await writeDB(db, newDossier);
+        appendLog(`[Drive] Export auto ignoré pour ${newDossier.id}: ${newDossier.workspaceError}`);
+      } else {
+        newDossier.workspaceStatus = "PENDING";
+        await writeDB(db, newDossier);
+      }
+
       const driveTokenForAutoExport = hasServiceAccountReady() ? null : latestAccessToken;
 
       exportDossierToGoogleWorkspace(newDossier, driveTokenForAutoExport)
@@ -676,6 +697,7 @@ export function createApp() {
         processed: result.processed,
         aiReplies: result.aiReplies,
         attachmentsSaved: result.attachmentsSaved ?? 0,
+        driveAttachmentsUploaded: result.driveAttachmentsUploaded ?? 0,
         attachmentDebug: result.attachmentDebug ?? [],
       });
     } catch (err: any) {
@@ -709,6 +731,8 @@ export function createApp() {
         added: result.added,
         scanned: result.scanned,
         attachmentPartsFound: result.attachmentPartsFound,
+        driveUploaded: result.driveUploaded ?? 0,
+        hasDriveFolder: Boolean(dossier.workspaceFolderId),
         errors: result.errors,
       });
     } catch (err: any) {
@@ -777,8 +801,8 @@ export function createApp() {
     const toEmail = dossier.formData?.assures?.[0]?.email || "assurance@leclubimmobilier.fr";
     const mailContent = html || text;
 
-    const success = await sendEmailReplyWithGmailAPI(accessToken, toEmail, subject, mailContent);
-    if (success) {
+    const sendResult = await sendEmailReplyWithGmailAPI(accessToken, toEmail, subject, mailContent);
+    if (sendResult?.ok) {
       if (!dossier.communications) dossier.communications = [];
       dossier.communications.push({
         id: "msg_" + Date.now(),

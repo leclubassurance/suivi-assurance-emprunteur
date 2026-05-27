@@ -19,6 +19,8 @@ export type SavedGmailAttachment = {
   source: string;
   category?: string;
   gmailMessageId?: string;
+  driveFileId?: string;
+  driveLink?: string;
 };
 
 type CollectedPart = {
@@ -114,22 +116,32 @@ function decodeGmailBase64(data: string) {
   return Buffer.from(normalized, 'base64');
 }
 
+export type GmailDownloadOptions = {
+  dossier?: { id?: string; workspaceFolderId?: string };
+  driveAccessToken?: string | null;
+  driveSubfolderId?: string | null;
+};
+
 export async function downloadGmailAttachments(
   gmail: gmail_v1.Gmail,
   messageId: string,
   payload: gmail_v1.Schema$MessagePart | undefined,
   dossierId: string,
-): Promise<{ saved: SavedGmailAttachment[]; found: number; errors: string[] }> {
+  options?: GmailDownloadOptions,
+): Promise<{ saved: SavedGmailAttachment[]; found: number; errors: string[]; driveUploaded: number }> {
   const parts = collectAttachmentParts(payload);
   const errors: string[] = [];
   if (!parts.length) {
-    return { saved: [], found: 0, errors };
+    return { saved: [], found: 0, errors, driveUploaded: 0 };
   }
 
   const dir = path.join(getUploadsBaseDir(), dossierId, 'gmail');
   fs.mkdirSync(dir, { recursive: true });
 
   const saved: SavedGmailAttachment[] = [];
+  let driveUploaded = 0;
+  const driveFolderId = options?.driveSubfolderId || options?.dossier?.workspaceFolderId;
+  const driveToken = options?.driveAccessToken;
 
   for (const part of parts) {
     try {
@@ -156,7 +168,7 @@ export async function downloadGmailAttachments(
       const safeName = part.filename.replace(/[^a-zA-Z0-9._-]/g, '_') || 'piece-jointe.bin';
       const localPath = path.join(dir, `${Date.now()}_${safeName}`);
       fs.writeFileSync(localPath, buf);
-      saved.push({
+      const doc: SavedGmailAttachment = {
         id: `${idPrefix}-gmail_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         category: category || undefined,
         name: part.filename,
@@ -165,7 +177,27 @@ export async function downloadGmailAttachments(
         localPath,
         source: 'gmail',
         gmailMessageId: messageId,
-      });
+      };
+
+      if (driveFolderId) {
+        const { uploadBufferToDriveFolder } = await import('./gmailDriveUpload');
+        const uploaded = await uploadBufferToDriveFolder(
+          driveFolderId,
+          part.filename,
+          part.mimeType,
+          buf,
+          driveToken,
+        );
+        if (uploaded) {
+          doc.driveFileId = uploaded.fileId;
+          doc.driveLink = uploaded.webViewLink || undefined;
+          driveUploaded += 1;
+        } else {
+          errors.push(`${part.filename}: enregistré localement mais échec upload Drive`);
+        }
+      }
+
+      saved.push(doc);
     } catch (err: any) {
       const msg = `${part.filename}: ${err?.message || err}`;
       console.error('[Gmail] PJ', msg);
@@ -173,7 +205,7 @@ export async function downloadGmailAttachments(
     }
   }
 
-  return { saved, found: parts.length, errors };
+  return { saved, found: parts.length, errors, driveUploaded };
 }
 
 function docFingerprint(doc: { name?: string; size?: number; category?: string }) {
@@ -198,9 +230,9 @@ export function mergeDocumentsIntoDossier(dossier: any, newDocs: SavedGmailAttac
     const fp = docFingerprint(doc);
     if (!nameKey) continue;
 
+    const singleSlot = doc.category === 'offre' || doc.category === 'tableau' || doc.category === 'fiche';
     const dupByCategory =
-      doc.category &&
-      ['cni', 'rib', 'offre', 'tableau', 'fiche'].includes(doc.category) &&
+      singleSlot &&
       dossier.formData.documents.some((d: any) => d.category === doc.category);
 
     if (existingNames.has(nameKey) || existingFp.has(fp) || dupByCategory) continue;
