@@ -2,6 +2,14 @@
 
 ## Erreur 502 « Application failed to respond »
 
+Le dépôt contient un **Dockerfile** : Railway doit l’utiliser automatiquement au prochain déploiement.
+
+Vérifiez aussi : Railway → service → **Settings** → **Start Command** doit être **vide** (laisser le Dockerfile / `railway.toml` décider).
+
+---
+
+## Erreur 502 (autres causes)
+
 Souvent : le dossier `dist/` n’est **pas** sur GitHub (normal). Si le **build** Railway échoue, `dist/server.cjs` n’existe pas → crash au démarrage.
 
 1. Railway → **Deployments** → dernier déploiement → onglet **Build** (pas seulement Deploy)
@@ -86,6 +94,16 @@ base64 -i ~/Downloads/VOTRE-FICHIER-CLE.json | tr -d '\n' | pbcopy
 Astuce : tapez `base64 -i ~/Downloads/` puis **Tab** pour auto-compléter le nom du fichier `.json`.
 
 Collez dans Railway → **Variables** → `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` → **Redeploy**.
+
+### Quoi mettre dans `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` ?
+
+| À mettre | Exemple |
+|----------|---------|
+| ✅ La **sortie** de la commande `base64 -i fichier.json` (une longue ligne, commence souvent par `eyJ...`) | `eyJ0eXBlIjoic2VydmljZV9hY2NvdW50Ii...` |
+| ❌ **Pas** le contenu brut du fichier JSON dans cette variable | pas `{ "type": "service_account", ... }` |
+| ❌ **Pas** le résultat de `curl .../drive-auto-check` | c’est un **test** après déploiement, pas une variable |
+
+Alternative : variable `GOOGLE_SERVICE_ACCOUNT_JSON` = tout le JSON sur **une seule ligne** (sans base64).
 
 Ou avec le script du projet :
 
