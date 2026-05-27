@@ -4,7 +4,7 @@ import { createApp } from "./server/app";
 import { initFirebaseSync } from "./server/firebaseSync";
 import { startScheduler } from "./server/scheduler";
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const app = createApp();
 
 async function startServer() {

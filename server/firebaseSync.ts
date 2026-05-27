@@ -5,18 +5,37 @@ import path from 'path';
 
 let firestoreDb: any = null;
 
+function loadFirebaseConfig(): Record<string, string> | null {
+  const fromEnv = {
+    apiKey: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY,
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID,
+    appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId:
+      process.env.FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    firestoreDatabaseId: process.env.FIREBASE_DATABASE_ID,
+  };
+
+  if (fromEnv.apiKey && fromEnv.projectId && !fromEnv.apiKey.includes("dummy")) {
+    return fromEnv as Record<string, string>;
+  }
+
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (!fs.existsSync(configPath)) return null;
+
+  const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  if (firebaseConfig.apiKey?.includes("dummy")) return null;
+  return firebaseConfig;
+}
+
 export async function initFirebaseSync() {
-  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-  if (!fs.existsSync(configPath)) {
+  const firebaseConfig = loadFirebaseConfig();
+  if (!firebaseConfig) {
     console.log("[Firebase] Configuration not found, skipping sync.");
     return;
   }
 
-  const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  if (firebaseConfig.apiKey && firebaseConfig.apiKey.includes("dummy")) {
-    console.log("[Firebase] Dummy API key detected, skipping sync.");
-    return;
-  }
   const app = initializeApp(firebaseConfig);
   firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 

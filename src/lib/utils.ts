@@ -14,24 +14,31 @@ export function getApiUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  
-  // Default to relative path which is most reliable in proxied environments
-  // Only use absolute origin if APP_URL is correctly set and we are in a context where relative won't work
-  let detectedOrigin = '';
 
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  // VITE_API_URL: backend Railway/Render URL when frontend is on Vercel
+  const apiBase = import.meta.env.VITE_API_URL as string | undefined;
+  if (apiBase?.startsWith('http')) {
+    const base = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase;
+    return `${base}${cleanPath}`;
+  }
+
+  // Fallback: same-origin (local dev or monolithic deploy)
+  let detectedOrigin = '';
   try {
     const envAppUrl = (process.env as any).APP_URL;
     if (envAppUrl && envAppUrl.startsWith('http')) {
       detectedOrigin = envAppUrl;
     }
-  } catch (e) {}
+  } catch {
+    // ignore
+  }
 
   if (detectedOrigin) {
     const base = detectedOrigin.endsWith('/') ? detectedOrigin.slice(0, -1) : detectedOrigin;
     return `${base}${cleanPath}`;
   }
-  
+
   return cleanPath;
 }

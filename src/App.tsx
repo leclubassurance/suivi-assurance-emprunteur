@@ -195,7 +195,14 @@ export default function App() {
       clearTimeout(timeoutId);
 
       if (!res.ok) {
-        throw new Error("Erreur serveur lors de l'enregistrement du dossier");
+        let detail = "";
+        try {
+          const errBody = await res.json();
+          detail = errBody?.error ? `: ${errBody.error}` : "";
+        } catch {
+          detail = res.status === 404 ? " (API introuvable — vérifiez VITE_API_URL sur Vercel)" : "";
+        }
+        throw new Error(`Erreur serveur lors de l'enregistrement du dossier${detail}`);
       }
       
       const result = await res.json();
