@@ -1,4 +1,4 @@
-# dist/ n'est pas sur GitHub → le build DOIT réussir sur Railway (esbuild + vite en devDependencies)
+# dist/server.cjs n'est pas versionné — on build le frontend (vite) et on lance server.ts via tsx
 [phases.install]
 cmds = ["npm install"]
 
@@ -6,4 +6,4 @@ cmds = ["npm install"]
 cmds = ["npm run build"]
 
 [start]
-cmd = "NODE_ENV=production node dist/server.cjs"
+cmd = "NODE_ENV=production npx tsx server.ts"
