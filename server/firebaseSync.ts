@@ -1,9 +1,34 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
-import fs from 'fs';
-import path from 'path';
+import { initializeApp, type FirebaseApp } from "firebase/app";
+import {
+  getFirestore,
+  type Firestore,
+  doc,
+  setDoc,
+  getDoc,
+  collection,
+  getDocs,
+  deleteDoc,
+} from "firebase/firestore";
+import fs from "fs";
+import path from "path";
+import { ensureDossierShape } from "./dossierModel";
 
-let firestoreDb: any = null;
+const DOSSIERS_COLLECTION = "dossiers";
+
+let firebaseApp: FirebaseApp | null = null;
+let firestoreDb: Firestore | null = null;
+let initPromise: Promise<void> | null = null;
+let loadedProjectId: string | null = null;
+
+export type FirebaseStatus = {
+  configured: boolean;
+  ready: boolean;
+  projectId: string | null;
+  databaseId: string | null;
+  collection: string;
+  dossierCount: number | null;
+  error: string | null;
+};
 
 function loadFirebaseConfig(): Record<string, string> | null {
   const fromEnv = {
@@ -29,89 +54,157 @@ function loadFirebaseConfig(): Record<string, string> | null {
   return firebaseConfig;
 }
 
-export async function initFirebaseSync() {
-  const firebaseConfig = loadFirebaseConfig();
-  if (!firebaseConfig) {
-    console.log("[Firebase] Configuration not found, skipping sync.");
-    return;
-  }
+export function isFirebaseConfigured(): boolean {
+  return loadFirebaseConfig() !== null;
+}
 
-  const app = initializeApp(firebaseConfig);
-  firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export function isFirestoreReady(): boolean {
+  return Boolean(firestoreDb);
+}
 
-  // Download all dossiers on start if local db is empty
-  const DB_FILE = path.join(process.cwd(), "data", "db.json");
-  let hasLocalData = false;
-  if (fs.existsSync(DB_FILE)) {
-    try {
-        const localData = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        if (localData && localData.dossiers && localData.dossiers.length > 0) {
-            hasLocalData = true;
-        }
-    } catch (e) {
-        // ignore
+export function getFirebaseProjectId(): string | null {
+  return loadedProjectId;
+}
+
+export async function initFirebaseSync(): Promise<void> {
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    const firebaseConfig = loadFirebaseConfig();
+    if (!firebaseConfig) {
+      const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT);
+      if (onRailway || process.env.FIREBASE_REQUIRED === "true") {
+        console.error(
+          "[Firebase] Configuration manquante. Définissez FIREBASE_* / VITE_FIREBASE_* sur Railway et Vercel.",
+        );
+      } else {
+        console.log("[Firebase] Configuration not found — mode local uniquement (USE_LOCAL_DB).");
+      }
+      return;
     }
-  }
 
-  if (!hasLocalData) {
+    firebaseApp = initializeApp(firebaseConfig);
+    firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || undefined);
+    loadedProjectId = firebaseConfig.projectId || null;
+
     try {
-        const snap = await getDocs(collection(firestoreDb, 'dossiers'));
-        const dossiers = snap.docs.map(d => d.data());
-        if (!fs.existsSync(path.dirname(DB_FILE))) {
-            fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-        }
-        fs.writeFileSync(DB_FILE, JSON.stringify({ dossiers }, null, 2));
-        console.log(`[Firebase] Initialized local DB with ${dossiers.length} dossiers from Firestore.`);
+      const snap = await getDocs(collection(firestoreDb, DOSSIERS_COLLECTION));
+      console.log(
+        `[Firebase] Firestore prêt — projet=${loadedProjectId}, collection=${DOSSIERS_COLLECTION}, dossiers=${snap.size}`,
+      );
     } catch (err: any) {
-        console.error("[Firebase] Error fetching initial data from Firestore:", err.message);
+      console.error("[Firebase] Connexion Firestore échouée:", err?.message || err);
+      firestoreDb = null;
+      throw err;
     }
-  } else {
-    // Sync local to Firestore to avoid data loss
-    try {
-        const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        if (data && data.dossiers) {
-            for (const dossier of data.dossiers) {
-                const cleanDossier = JSON.parse(JSON.stringify(dossier));
-                await setDoc(doc(firestoreDb, 'dossiers', cleanDossier.id), cleanDossier);
-            }
-            console.log(`[Firebase] Synced ${data.dossiers.length} local dossiers to Firestore.`);
-        }
-    } catch(err: any) {
-        console.error("[Firebase] Error syncing local data to Firestore:", err.message);
-    }
-  }
+  })();
+
+  return initPromise;
 }
 
-export async function refreshFromFirebase() {
-  if (!firestoreDb) return;
+export async function getFirebaseStatus(): Promise<FirebaseStatus> {
+  await initFirebaseSync();
+  if (!firestoreDb) {
+    return {
+      configured: isFirebaseConfigured(),
+      ready: false,
+      projectId: loadedProjectId,
+      databaseId: process.env.FIREBASE_DATABASE_ID || "(default)",
+      collection: DOSSIERS_COLLECTION,
+      dossierCount: null,
+      error: isFirebaseConfigured() ? "Firestore non initialisé" : "Variables Firebase absentes",
+    };
+  }
+
   try {
-    const snap = await getDocs(collection(firestoreDb, 'dossiers'));
-    const dossiers = snap.docs.map(d => d.data());
-    const DB_FILE = path.join(process.cwd(), "data", "db.json");
-    if (!fs.existsSync(path.dirname(DB_FILE))) {
-      fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-    }
-    fs.writeFileSync(DB_FILE, JSON.stringify({ dossiers }, null, 2), "utf-8");
+    const snap = await getDocs(collection(firestoreDb, DOSSIERS_COLLECTION));
+    return {
+      configured: true,
+      ready: true,
+      projectId: loadedProjectId,
+      databaseId: process.env.FIREBASE_DATABASE_ID || "(default)",
+      collection: DOSSIERS_COLLECTION,
+      dossierCount: snap.size,
+      error: null,
+    };
   } catch (err: any) {
-    console.error("[Firebase] Error refreshing from Firestore:", err.message);
+    return {
+      configured: true,
+      ready: false,
+      projectId: loadedProjectId,
+      databaseId: process.env.FIREBASE_DATABASE_ID || "(default)",
+      collection: DOSSIERS_COLLECTION,
+      dossierCount: null,
+      error: err?.message || String(err),
+    };
   }
 }
 
-export async function syncDossierToFirebase(dossier: any) {
+export async function readAllDossiersFromFirestore(): Promise<ReturnType<typeof ensureDossierShape>[]> {
+  await initFirebaseSync();
+  if (!firestoreDb) {
+    throw new Error(
+      "Firestore indisponible : configurez FIREBASE_PROJECT_ID et FIREBASE_API_KEY sur Railway.",
+    );
+  }
+
+  const snap = await getDocs(collection(firestoreDb, DOSSIERS_COLLECTION));
+  return snap.docs.map((d) => ensureDossierShape(d.data()));
+}
+
+export async function readDossierFromFirestore(id: string) {
+  await initFirebaseSync();
+  if (!firestoreDb) return null;
+  const snap = await getDoc(doc(firestoreDb, DOSSIERS_COLLECTION, id));
+  if (!snap.exists()) return null;
+  return ensureDossierShape(snap.data());
+}
+
+export async function syncDossierToFirebase(dossier: unknown) {
+  await initFirebaseSync();
   if (!firestoreDb) return;
   try {
     const cleanDossier = JSON.parse(JSON.stringify(dossier));
-    await setDoc(doc(firestoreDb, 'dossiers', cleanDossier.id), cleanDossier);
+    await setDoc(doc(firestoreDb, DOSSIERS_COLLECTION, cleanDossier.id), cleanDossier);
   } catch (err: any) {
-    console.error("[Firebase] Error syncing dossier:", dossier.id, err.message);
+    console.error("[Firebase] Error syncing dossier:", (dossier as any)?.id, err.message);
+    throw err;
   }
 }
 
 export async function deleteDossierFromFirebase(id: string) {
+  await initFirebaseSync();
   if (!firestoreDb) return;
   try {
-    await deleteDoc(doc(firestoreDb, 'dossiers', id));
+    await deleteDoc(doc(firestoreDb, DOSSIERS_COLLECTION, id));
   } catch (err: any) {
     console.error("[Firebase] Error deleting dossier:", id, err.message);
+    throw err;
+  }
+}
+
+/** Import unique : data/db.json ou /tmp/data/db.json → Firestore (FIREBASE_IMPORT_LOCAL=true). */
+export async function importLocalJsonToFirestoreIfRequested() {
+  if (process.env.FIREBASE_IMPORT_LOCAL !== "true") return;
+
+  const candidates = [
+    path.join(process.cwd(), "data", "db.json"),
+    path.join("/tmp", "data", "db.json"),
+  ];
+
+  for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
+      const dossiers = Array.isArray(raw?.dossiers) ? raw.dossiers : [];
+      if (dossiers.length === 0) continue;
+      for (const d of dossiers) {
+        await syncDossierToFirebase(ensureDossierShape(d));
+      }
+      console.log(`[Firebase] Importé ${dossiers.length} dossier(s) depuis ${file} vers Firestore.`);
+      return;
+    } catch (err: any) {
+      console.error(`[Firebase] Import local échoué (${file}):`, err.message);
+    }
   }
 }

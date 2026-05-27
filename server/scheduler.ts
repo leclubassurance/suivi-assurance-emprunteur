@@ -105,7 +105,7 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
     }
   }
 
-  writeDB(db);
+  await writeDB(db);
   return { processed, sent, failed };
 }
 

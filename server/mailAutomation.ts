@@ -1,119 +1,12 @@
 import { google } from 'googleapis';
-import fs from 'fs';
-import path from 'path';
 import { addEvent } from './dossierModel';
-
-function getUploadsBaseDir() {
-  if (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT) {
-    return path.join('/tmp/data', 'uploads');
-  }
-  return path.join(process.cwd(), 'data', 'uploads');
-}
-
-type GmailAttachmentPart = {
-  filename: string;
-  mimeType: string;
-  attachmentId: string;
-};
-
-function collectAttachmentParts(payload: any, out: GmailAttachmentPart[] = []): GmailAttachmentPart[] {
-  if (!payload) return out;
-  const filename = payload.filename;
-  const attachmentId = payload.body?.attachmentId;
-  if (filename && attachmentId) {
-    const mimeType = payload.mimeType || 'application/octet-stream';
-    const disp = (payload.headers || []).find(
-      (h: any) => h.name?.toLowerCase() === 'content-disposition',
-    )?.value;
-    const isInline =
-      mimeType.startsWith('image/') && disp?.toLowerCase().includes('inline') && !disp.includes('attachment');
-    if (!isInline) {
-      out.push({ filename, mimeType, attachmentId });
-    }
-  }
-  if (payload.parts?.length) {
-    for (const part of payload.parts) {
-      collectAttachmentParts(part, out);
-    }
-  }
-  return out;
-}
-
-async function downloadGmailAttachments(
-  gmail: ReturnType<typeof google.gmail>,
-  messageId: string,
-  payload: any,
-  dossierId: string,
-) {
-  const parts = collectAttachmentParts(payload);
-  if (!parts.length) return [] as Array<{
-    id: string;
-    name: string;
-    size: number;
-    type: string;
-    localPath: string;
-    source: string;
-  }>;
-
-  const dir = path.join(getUploadsBaseDir(), dossierId, 'gmail');
-  fs.mkdirSync(dir, { recursive: true });
-
-  const saved: Array<{
-    id: string;
-    name: string;
-    size: number;
-    type: string;
-    localPath: string;
-    source: string;
-  }> = [];
-
-  for (const part of parts) {
-    try {
-      const att = await gmail.users.messages.attachments.get({
-        userId: 'me',
-        messageId,
-        id: part.attachmentId,
-      });
-      const raw = att.data?.data;
-      if (!raw) continue;
-      const buf = Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-      if (buf.length < 80) continue;
-
-      const safeName = part.filename.replace(/[^a-zA-Z0-9._-]/g, '_') || 'piece-jointe.bin';
-      const localPath = path.join(dir, `${Date.now()}_${safeName}`);
-      fs.writeFileSync(localPath, buf);
-      saved.push({
-        id: `doc_gmail_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        name: part.filename,
-        size: buf.length,
-        type: part.mimeType,
-        localPath,
-        source: 'gmail',
-      });
-    } catch (err) {
-      console.error('[Gmail] Échec téléchargement pièce jointe', part.filename, err);
-    }
-  }
-  return saved;
-}
-
-function mergeDocumentsIntoDossier(dossier: any, newDocs: Array<{ name: string }>) {
-  if (!newDocs.length) return [] as any[];
-  if (!dossier.formData) dossier.formData = {};
-  if (!dossier.formData.documents) dossier.formData.documents = [];
-  const existing = new Set(
-    dossier.formData.documents.map((d: any) => String(d.name || '').toLowerCase()),
-  );
-  const added: any[] = [];
-  for (const doc of newDocs) {
-    const key = String(doc.name || '').toLowerCase();
-    if (!key || existing.has(key)) continue;
-    dossier.formData.documents.push(doc);
-    existing.add(key);
-    added.push(doc);
-  }
-  return added;
-}
+import {
+  collectAttachmentParts,
+  downloadGmailAttachments,
+  findDossierForInboundMessage,
+  getDossierClientEmails,
+  mergeDocumentsIntoDossier,
+} from './gmailAttachments';
 
 function extractEmail(fromRaw: string) {
   const emailMatch = fromRaw.match(/<([^>]+)>/);
@@ -147,12 +40,22 @@ function decodeBody(payload: any): string {
   return '';
 }
 
-function pushCommunication(dossier: any, msg: any) {
+function upsertCommunication(dossier: any, msg: any) {
   if (!dossier.communications) dossier.communications = [];
-  const exists = dossier.communications.some(
-    (c: any) => (c.gmailId && c.gmailId === msg.gmailId) || c.id === msg.id,
+  const idx = dossier.communications.findIndex(
+    (c: any) => (msg.gmailId && c.gmailId === msg.gmailId) || c.id === msg.id,
   );
-  if (!exists) dossier.communications.push(msg);
+  if (idx >= 0) {
+    const prev = dossier.communications[idx];
+    dossier.communications[idx] = {
+      ...prev,
+      ...msg,
+      attachments:
+        msg.attachments?.length > 0 ? msg.attachments : prev.attachments || [],
+    };
+  } else {
+    dossier.communications.push(msg);
+  }
 }
 
 function getProcessedIds(dossier: any): Set<string> {
@@ -172,6 +75,73 @@ function isAiAutoReplyEnabled() {
   return v !== 'false' && v !== '0' && v !== 'no';
 }
 
+/** Rescanne les emails clients et extrait les pièces jointes (même si déjà importés). */
+export async function resyncDossierGmailAttachments(
+  accessToken: string,
+  dossier: any,
+): Promise<{ added: string[]; scanned: number; attachmentPartsFound: number; errors: string[] }> {
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: accessToken });
+  const gmail = google.gmail({ version: 'v1', auth });
+
+  const emails = getDossierClientEmails(dossier);
+  const added: string[] = [];
+  const errors: string[] = [];
+  let scanned = 0;
+  let attachmentPartsFound = 0;
+
+  for (const clientEmail of emails) {
+    const q = `from:${clientEmail} newer_than:60d`;
+    const listRes = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
+    for (const msgMeta of listRes.data.messages || []) {
+      if (!msgMeta.id) continue;
+      scanned++;
+      const msgRes = await gmail.users.messages.get({
+        userId: 'me',
+        id: msgMeta.id,
+        format: 'full',
+      });
+      const payload = msgRes.data.payload;
+      const parts = collectAttachmentParts(payload);
+      attachmentPartsFound += parts.length;
+
+      const { saved, errors: dlErrors } = await downloadGmailAttachments(
+        gmail,
+        msgMeta.id,
+        payload,
+        dossier.id,
+      );
+      errors.push(...dlErrors);
+      const merged = mergeDocumentsIntoDossier(dossier, saved);
+      for (const doc of merged) {
+        added.push(doc.name);
+        addEvent(dossier, {
+          type: 'DOCUMENT_UPLOADED',
+          actor: { kind: 'SYSTEM' },
+          message: `Pièce jointe reçue par email : ${doc.name}`,
+          meta: { source: 'gmail', gmailId: msgMeta.id },
+        });
+      }
+
+      const subject =
+        payload?.headers?.find((h) => h.name?.toLowerCase() === 'subject')?.value || '';
+      const text = decodeBody(payload);
+      upsertCommunication(dossier, {
+        id: `msg_${msgMeta.id}`,
+        gmailId: msgMeta.id,
+        direction: 'inbound',
+        from: clientEmail,
+        subject,
+        text,
+        attachments: saved.map((d) => ({ name: d.name, size: d.size })),
+        date: new Date(Number(msgRes.data.internalDate || Date.now())).toISOString(),
+      });
+    }
+  }
+
+  return { added, scanned, attachmentPartsFound, errors };
+}
+
 export async function syncGmailInbox(accessToken: string, db: any, aiCallback: Function) {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
@@ -179,18 +149,18 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
 
   const clientEmails = new Set<string>();
   for (const d of db.dossiers || []) {
-    const email = d.formData?.assures?.[0]?.email;
-    if (email) clientEmails.add(String(email).toLowerCase());
+    for (const e of getDossierClientEmails(d)) clientEmails.add(e);
   }
 
   const processedIds = new Set<string>();
   let inboundCount = 0;
   let aiReplies = 0;
   let attachmentsSaved = 0;
+  const attachmentDebug: Array<{ messageId: string; found: number; saved: number }> = [];
 
   for (const clientEmail of clientEmails) {
-    const q = `(from:${clientEmail} OR to:${clientEmail}) newer_than:30d`;
-    const listRes = await gmail.users.messages.list({ userId: 'me', q, maxResults: 40 });
+    const q = `(from:${clientEmail} OR to:${clientEmail}) newer_than:60d`;
+    const listRes = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
     const messages = listRes.data.messages || [];
 
     for (const msgMeta of messages) {
@@ -212,28 +182,32 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
       const labelIds = msgRes.data.labelIds || [];
       const isSentByMe = labelIds.includes('SENT');
 
-      const isFromClient = !isSentByMe && senderEmail === clientEmail;
-      const isToClient = isSentByMe || toRaw.includes(clientEmail);
+      const dossier = findDossierForInboundMessage(db, senderEmail, subject);
+      if (!dossier) continue;
+
+      const dossierEmails = getDossierClientEmails(dossier);
+      const isFromClient = !isSentByMe && dossierEmails.includes(senderEmail);
+      const isToClient = isSentByMe || dossierEmails.some((e) => toRaw.includes(e));
 
       if (!isFromClient && !isToClient) continue;
-
-      const matchedDossiers = db.dossiers.filter((d: any) => {
-        const primaryEmail = d.formData?.assures?.[0]?.email;
-        return primaryEmail && primaryEmail.toLowerCase() === clientEmail;
-      });
-      if (matchedDossiers.length === 0) continue;
-
-      const dossier = matchedDossiers.sort(
-        (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      )[0];
 
       const text = decodeBody(payload);
       const direction = isFromClient ? 'inbound' : 'outbound';
 
       let addedAttachments: any[] = [];
       if (isFromClient) {
-        const downloaded = await downloadGmailAttachments(gmail, msgMeta.id, payload, dossier.id);
-        addedAttachments = mergeDocumentsIntoDossier(dossier, downloaded);
+        const { saved, found } = await downloadGmailAttachments(
+          gmail,
+          msgMeta.id,
+          payload,
+          dossier.id,
+        );
+        attachmentDebug.push({
+          messageId: msgMeta.id,
+          found,
+          saved: saved.length,
+        });
+        addedAttachments = mergeDocumentsIntoDossier(dossier, saved);
         if (addedAttachments.length) {
           attachmentsSaved += addedAttachments.length;
           for (const doc of addedAttachments) {
@@ -247,12 +221,12 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
         }
       }
 
-      pushCommunication(dossier, {
+      upsertCommunication(dossier, {
         id: `msg_${msgMeta.id}`,
         gmailId: msgMeta.id,
         direction,
         from: isFromClient ? senderEmail : process.env.GMAIL_USER || 'assurance@leclubimmobilier.fr',
-        to: isFromClient ? undefined : clientEmail,
+        to: isFromClient ? undefined : getDossierClientEmails(dossier)[0],
         subject,
         text,
         attachments: addedAttachments.map((d) => ({ name: d.name, size: d.size })),
@@ -279,7 +253,7 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
               );
               if (sendResult.ok) {
                 aiReplies++;
-                pushCommunication(dossier, {
+                upsertCommunication(dossier, {
                   id: `msg_ai_${msgMeta.id}`,
                   gmailId: sendResult.messageId,
                   direction: 'outbound',
@@ -298,7 +272,7 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
                 dossier.status = 'EN_COURS';
               }
             } else if (aiDecision?.status === 'escalated') {
-              pushCommunication(dossier, {
+              upsertCommunication(dossier, {
                 id: `msg_esc_${msgMeta.id}`,
                 direction: 'inbound',
                 from: 'Camille (IA)',
@@ -325,7 +299,14 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
   }
 
   dossierTouchUpdatedAt(db);
-  return { db, inboundCount, processed: processedIds.size, aiReplies, attachmentsSaved };
+  return {
+    db,
+    inboundCount,
+    processed: processedIds.size,
+    aiReplies,
+    attachmentsSaved,
+    attachmentDebug,
+  };
 }
 
 function dossierTouchUpdatedAt(db: any) {

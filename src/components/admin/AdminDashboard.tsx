@@ -105,6 +105,37 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleResyncAttachments = async () => {
+    if (!selectedDossier) return;
+    const token = await getAccessToken();
+    if (!token) {
+      showToast("Connexion Google manquante (OAuth).", "error");
+      return;
+    }
+    try {
+      showToast("Récupération des pièces jointes Gmail...", "info");
+      const res = await fetch(
+        getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/resync-attachments`),
+        { method: "POST", headers: await authHeaders(), body: JSON.stringify({}) },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const msg =
+          data.added?.length > 0
+            ? `${data.added.length} fichier(s) ajouté(s) : ${data.added.join(", ")}`
+            : data.attachmentPartsFound > 0
+              ? `${data.attachmentPartsFound} PJ détectée(s) mais déjà présentes ou non lisibles`
+              : `Aucune PJ trouvée (${data.scanned || 0} mail(s) scanné(s))`;
+        showToast(msg, data.added?.length ? "success" : "info");
+        loadDossiers();
+      } else {
+        showToast(data.error || "Erreur récupération PJ", "error");
+      }
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
   const handleSyncGmail = async () => {
     const token = await getAccessToken();
     if (!token) {
@@ -530,6 +561,13 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                         className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 px-4 rounded-xl border border-slate-200 text-xs transition-all flex items-center gap-2"
                       >
                         <Mail className="w-4 h-4" /> Sync Gmail (IA)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResyncAttachments}
+                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold py-2.5 px-4 rounded-xl border border-emerald-200 text-xs transition-all flex items-center gap-2"
+                      >
+                        <FileText className="w-4 h-4" /> Récupérer PJ email
                       </button>
                     <label className="bg-white border border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer select-none">
                       <input

@@ -34,7 +34,8 @@ if (isFirebaseValid) {
     auth = getAuth(app);
     provider = new GoogleAuthProvider();
     provider.setCustomParameters({
-      prompt: 'select_account'
+      prompt: "select_account",
+      login_hint: "assurance@leclubimmobilier.fr",
     });
     // drive (not drive.file): required to create subfolders in the parent folder (ex. Dossiers Clients Assurance)
     provider.addScope("https://www.googleapis.com/auth/drive");

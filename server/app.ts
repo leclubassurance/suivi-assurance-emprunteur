@@ -17,8 +17,9 @@ import {
 import {
   initFirebaseSync,
   deleteDossierFromFirebase,
+  getFirebaseStatus,
 } from "./firebaseSync";
-import { readDB, writeDB } from "./db";
+import { readDB, writeDB, getDataStoreMode } from "./db";
 import { addEvent, ensureDossierShape, newId, scheduleTask } from "./dossierModel";
 import { runSchedulerOnce, startScheduler } from "./scheduler";
 import { sendEmail } from "./emailProvider";
@@ -143,9 +144,13 @@ export function createApp() {
     await ensureBackgroundServicesStarted();
     const resolved = resolveDriveParentFolderId();
     const sa = loadServiceAccountDetails();
+    const firebase = await getFirebaseStatus();
     res.json({
       status: "ok",
-      build: "railway-express-2026-05-27",
+      build: "railway-firestore-2026-05-27",
+      dataStore: getDataStoreMode(),
+      firebase,
+      adminAuthEmail: "assurance@leclubimmobilier.fr",
       driveConfigVersion: DRIVE_CONFIG_VERSION,
       effectiveDriveParentId: resolved.parentId,
       rawDriveParentEnv: resolved.rawEnv,
@@ -212,7 +217,7 @@ export function createApp() {
       });
 
       db.dossiers.push(newDossier);
-      writeDB(db, newDossier);
+      await writeDB(db, newDossier);
       appendLog(`Succès d'écriture du dossier ${newDossier.id} dans la base de données.`);
 
       const toEmail = formData.assures?.[0]?.email;
@@ -242,7 +247,7 @@ export function createApp() {
             confirmationSubject,
             confirmationHtml,
           )
-            .then((success) => {
+            .then(async (success) => {
               if (success) {
                 appendLog(
                   `[Email] Mail de confirmation automatique envoyé de Charles Victor à ${toEmail} pour le dossier ${newDossier.id}`,
@@ -252,7 +257,7 @@ export function createApp() {
                   actor: { kind: "SYSTEM" },
                   meta: { template: "CONFIRMATION", to: toEmail, subject: confirmationSubject },
                 });
-                writeDB(db, newDossier);
+                await writeDB(db, newDossier);
               } else {
                 appendLog(`[Email Warning] Échec d'envoi automatique du mail de confirmation à ${toEmail}`);
                 addEvent(newDossier, {
@@ -264,10 +269,10 @@ export function createApp() {
                     subject: confirmationSubject,
                   },
                 });
-                writeDB(db, newDossier);
+                await writeDB(db, newDossier);
               }
             })
-            .catch((err: any) => {
+            .catch(async (err: any) => {
               appendLog(`[Email Error] Erreur d'envoi automatique du mail : ${err.message}`);
               addEvent(newDossier, {
                 type: "EMAIL_FAILED",
@@ -279,7 +284,7 @@ export function createApp() {
                   error: err.message,
                 },
               });
-              writeDB(db, newDossier);
+              await writeDB(db, newDossier);
             });
         } else {
           appendLog(
@@ -290,7 +295,7 @@ export function createApp() {
             actor: { kind: "SYSTEM" },
             meta: { template: "CONFIRMATION_SIMULATED", to: toEmail, subject: confirmationSubject },
           });
-          writeDB(db, newDossier);
+          await writeDB(db, newDossier);
         }
       }
 
@@ -310,7 +315,7 @@ export function createApp() {
               existing.workspaceFolderId = result.folderId;
               existing.workspaceSheetId = result.spreadsheetId;
               existing.updatedAt = new Date().toISOString();
-              writeDB(currentDb, existing);
+              await writeDB(currentDb, existing);
               appendLog(
                 `Dossier ${newDossier.id} mis à jour au statut EN_COURS après export Google Workspace. (Statut: ${result.status})`,
               );
@@ -318,7 +323,7 @@ export function createApp() {
               existing.workspaceStatus = "FAILED";
               existing.workspaceError = result.error;
               existing.updatedAt = new Date().toISOString();
-              writeDB(currentDb, existing);
+              await writeDB(currentDb, existing);
               appendLog(`Échec de l'export Google Workspace pour le dossier ${newDossier.id}: ${result.error}`);
             }
           }
@@ -380,7 +385,7 @@ export function createApp() {
           }
         }
       }
-      writeDB(db, dossier);
+      await writeDB(db, dossier);
       res.json({ success: true, dossier });
     } else {
       res.status(404).json({ error: "Dossier introuvable" });
@@ -403,7 +408,7 @@ export function createApp() {
       actor: { kind: "ADMIN", label: author || "ADMIN" },
       meta: { noteId: note.id },
     });
-    writeDB(db, dossier);
+    await writeDB(db, dossier);
     res.json({ success: true, note, dossier });
   });
 
@@ -439,7 +444,7 @@ export function createApp() {
           actor: { kind: "ADMIN", label: "Admin" },
           meta: { to: toEmail, subject, error: gmailResult.error, channel: "gmail" },
         });
-        writeDB(db, dossier);
+        await writeDB(db, dossier);
         return res.status(500).json({
           error: `Échec Gmail : ${gmailResult.error}. Reconnectez-vous à Google (Déconnexion puis connexion).`,
         });
@@ -453,7 +458,7 @@ export function createApp() {
           actor: { kind: "ADMIN", label: "Admin" },
           meta: { to: toEmail, subject, error },
         });
-        writeDB(db, dossier);
+        await writeDB(db, dossier);
         return res.status(500).json({ error });
       }
       providerId = (result as any).providerId || null;
@@ -482,7 +487,7 @@ export function createApp() {
       meta: { to: toEmail, subject, providerId, channel },
       message: `Email envoyé au client (${channel}).`,
     });
-    writeDB(db, dossier);
+    await writeDB(db, dossier);
     return res.json({
       success: true,
       providerId,
@@ -505,7 +510,7 @@ export function createApp() {
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     const actions = proposeNextActions(dossier);
     auditAiDecision(dossier, actions);
-    writeDB(db, dossier);
+    await writeDB(db, dossier);
     res.json({ success: true, actions });
   });
 
@@ -528,13 +533,17 @@ export function createApp() {
     }
 
     db.dossiers = db.dossiers.filter((d: any) => d.id !== id);
-    writeDB(db);
+    await writeDB(db);
+    try {
+      await deleteDossierFromFirebase(id);
+    } catch (err) {
+      console.error("Failed to delete dossier from Firestore", err);
+    }
     try {
       fs.rmSync(path.join(UPLOADS_DIR, id), { recursive: true, force: true });
     } catch (err) {
       console.error("Failed to remove uploads dir", err);
     }
-    deleteDossierFromFirebase(id).catch(console.error);
     res.json({ success: true });
   });
 
@@ -617,7 +626,7 @@ export function createApp() {
       dossier.workspaceStatus = "PENDING";
       dossier.workspaceError = undefined;
       dossier.workspaceWarning = undefined;
-      writeDB(db, dossier);
+      await writeDB(db, dossier);
 
       const authHeader = req.headers.authorization;
       const token =
@@ -640,7 +649,7 @@ export function createApp() {
           updated.workspaceError = result.error;
         }
         updated.updatedAt = new Date().toISOString();
-        writeDB(currentDb);
+        await writeDB(currentDb);
       }
 
       res.json(result);
@@ -662,17 +671,51 @@ export function createApp() {
       const { syncGmailInbox } = await import("./mailAutomation");
       const db = await readDBAsync();
       const result = await syncGmailInbox(accessToken, db, processIncomingClientEmail);
-      writeDB(result.db);
+      await writeDB(result.db);
       res.json({
         success: true,
         inbound: result.inboundCount,
         processed: result.processed,
         aiReplies: result.aiReplies,
         attachmentsSaved: result.attachmentsSaved ?? 0,
+        attachmentDebug: result.attachmentDebug ?? [],
       });
     } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/admin/dossiers/:id/resync-attachments", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Connexion Google requise." });
+    }
+    const accessToken = authHeader.split(" ")[1];
+    const { id } = req.params;
+
+    try {
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      const { resyncDossierGmailAttachments } = await import("./mailAutomation");
+      const result = await resyncDossierGmailAttachments(accessToken, dossier);
+      await writeDB(db, dossier);
+
+      res.json({
+        success: true,
+        dossierId: id,
+        documentsCount: dossier.formData?.documents?.length ?? 0,
+        added: result.added,
+        scanned: result.scanned,
+        attachmentPartsFound: result.attachmentPartsFound,
+        errors: result.errors,
+      });
+    } catch (err: any) {
+      console.error("resync-attachments", err);
+      res.status(500).json({ error: err?.message || String(err) });
     }
   });
 
@@ -691,7 +734,7 @@ export function createApp() {
       if (!dossier) return res.status(404).json({ error: "Dossier non trouvé" });
 
       dossier.status = "TRAITÉ";
-      writeDB(db, dossier);
+      await writeDB(db, dossier);
 
       if (dossier.formData?.documents?.length > 0) {
         const docData = dossier.formData.documents[0];
@@ -748,7 +791,7 @@ export function createApp() {
         date: new Date().toISOString(),
       });
       dossier.status = "MAIL_ENVOYÉ";
-      writeDB(db, dossier);
+      await writeDB(db, dossier);
       res.json({ success: true, message: "Email envoyé avec Gmail !" });
     } else {
       res.status(500).json({ error: "Echec de l'envoi de l'email via Gmail API" });

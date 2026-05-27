@@ -2,9 +2,10 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Only our backend and authorized clients should access this.
-    // For the sake of this prototype, allowing read/write.
-    match /dossiers/{document=**} {
+    // L'admin ne lit pas Firestore dans le navigateur : uniquement l'API Railway.
+    // Le backend utilise le SDK sans session Auth → règles ouvertes sur dossiers.
+    // (À durcir plus tard avec firebase-admin + compte de service.)
+    match /dossiers/{dossierId} {
       allow read, write: if true;
     }
   }

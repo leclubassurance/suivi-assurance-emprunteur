@@ -1,44 +1,111 @@
 import fs from "fs";
 import path from "path";
-import { syncDossierToFirebase } from "./firebaseSync";
+import {
+  initFirebaseSync,
+  isFirebaseConfigured,
+  isFirestoreReady,
+  readAllDossiersFromFirestore,
+  syncDossierToFirebase,
+  importLocalJsonToFirestoreIfRequested,
+} from "./firebaseSync";
 import { Dossier, ensureDossierShape } from "./dossierModel";
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_FILE = path.join(DATA_DIR, "db.json");
 
 export interface DBShape {
   dossiers: Dossier[];
 }
 
-export function getDbFilePath() {
-  return DB_FILE;
+function getLocalDbFile(): string {
+  if (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT) {
+    return path.join("/tmp", "data", "db.json");
+  }
+  return path.join(process.cwd(), "data", "db.json");
 }
 
-export function readDBSync(): DBShape {
-  if (!fs.existsSync(DB_FILE)) return { dossiers: [] };
-  const raw = fs.readFileSync(DB_FILE, "utf-8");
+export function getDbFilePath() {
+  return getLocalDbFile();
+}
+
+function useLocalDbOnly(): boolean {
+  if (process.env.USE_LOCAL_DB === "true") return true;
+  if (process.env.DATA_STORE === "local") return true;
+  return false;
+}
+
+function useFirestorePrimary(): boolean {
+  if (useLocalDbOnly()) return false;
+  if (process.env.DATA_STORE === "firestore") return isFirebaseConfigured();
+  // Par défaut : Firestore si configuré (prod Railway / Vercel API)
+  return isFirebaseConfigured();
+}
+
+let dbInitDone = false;
+
+async function ensureDbLayerReady(): Promise<void> {
+  if (dbInitDone) return;
+  await initFirebaseSync();
+  if (useFirestorePrimary()) {
+    await importLocalJsonToFirestoreIfRequested();
+  }
+  dbInitDone = true;
+}
+
+function readLocalDBSync(): DBShape {
+  const dbFile = getLocalDbFile();
+  const dataDir = path.dirname(dbFile);
+  if (!fs.existsSync(dbFile)) return { dossiers: [] };
+  const raw = fs.readFileSync(dbFile, "utf-8");
   const parsed = JSON.parse(raw);
   const dossiers = Array.isArray(parsed?.dossiers) ? parsed.dossiers.map(ensureDossierShape) : [];
   return { dossiers };
 }
 
-/** Source de vérité = fichier local Railway (évite d'écraser communications à chaque GET). */
+function writeLocalDBSync(db: DBShape) {
+  const dbFile = getLocalDbFile();
+  const dataDir = path.dirname(dbFile);
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(dbFile, JSON.stringify(db, null, 2), "utf-8");
+}
+
+/** Source de vérité : Firestore (prod) ou fichier local (dev sans Firebase). */
 export async function readDB(): Promise<DBShape> {
-  return readDBSync();
+  await ensureDbLayerReady();
+
+  if (useFirestorePrimary()) {
+    if (!isFirestoreReady()) {
+      throw new Error(
+        "Firestore requis mais non connecté. Vérifiez FIREBASE_* sur Railway (même projet que Vercel).",
+      );
+    }
+    const dossiers = await readAllDossiersFromFirestore();
+    return { dossiers };
+  }
+
+  return readLocalDBSync();
 }
 
-function syncAllToFirebase(db: DBShape) {
-  for (const dossier of db.dossiers) {
-    syncDossierToFirebase(dossier).catch(() => undefined);
+export async function writeDB(db: DBShape, modifiedDossier?: Dossier): Promise<void> {
+  await ensureDbLayerReady();
+
+  if (useFirestorePrimary()) {
+    if (!isFirestoreReady()) {
+      throw new Error("Impossible d'écrire : Firestore non connecté.");
+    }
+    if (modifiedDossier) {
+      await syncDossierToFirebase(modifiedDossier);
+      return;
+    }
+    for (const dossier of db.dossiers) {
+      await syncDossierToFirebase(dossier);
+    }
+    return;
+  }
+
+  writeLocalDBSync(db);
+  if (modifiedDossier && isFirebaseConfigured()) {
+    await syncDossierToFirebase(modifiedDossier).catch(() => undefined);
   }
 }
 
-export function writeDB(db: DBShape, modifiedDossier?: Dossier) {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
-  if (modifiedDossier) {
-    syncDossierToFirebase(modifiedDossier).catch(() => undefined);
-  } else {
-    syncAllToFirebase(db);
-  }
+export function getDataStoreMode(): "firestore" | "local" {
+  return useFirestorePrimary() ? "firestore" : "local";
 }
