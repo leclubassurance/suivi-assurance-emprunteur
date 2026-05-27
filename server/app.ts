@@ -515,6 +515,26 @@ export function createApp() {
     res.json({ email: "oauth-client", folderId: "oauth-drive", configured: true });
   });
 
+  app.get("/api/admin/drive-check", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token =
+      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+    if (!token) {
+      return res.status(401).json({ error: "Connexion Google requise (reconnectez-vous dans l'admin)." });
+    }
+    try {
+      const { getDriveDiagnostics } = await import("./googleAutomation");
+      const parentId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID?.trim();
+      const diag = await getDriveDiagnostics(token, parentId);
+      res.json({ success: true, ...diag });
+    } catch (err: any) {
+      res.status(500).json({
+        error: err?.message || String(err),
+        hint: "Reconnectez Google dans l'admin pour autoriser Drive (scope complet).",
+      });
+    }
+  });
+
   app.post("/api/dossiers/:id/retry-workspace", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;

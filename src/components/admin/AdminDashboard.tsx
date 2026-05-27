@@ -137,9 +137,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         if (data.success) {
-          showToast(data.warning ? `Drive OK (avec avertissement)` : "Dossier Drive créé", "success");
+          const who = data.connectedEmail ? ` (${data.connectedEmail})` : "";
+          showToast(
+            data.warning ? `Drive OK${who} — ${data.warning}` : `Dossier Drive créé${who}`,
+            data.warning ? "info" : "success",
+          );
         } else {
-          showToast(data.error || "Erreur Drive", "error");
+          const who = data.connectedEmail ? ` Compte : ${data.connectedEmail}.` : "";
+          showToast((data.error || "Erreur Drive") + who, "error");
         }
         loadDossiers();
       } else {
@@ -489,6 +494,32 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                         className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2"
                       >
                         <FileText className="w-4 h-4" /> Drive
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(getApiUrl("/api/admin/drive-check"), {
+                              headers: await authHeaders(false),
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                              showToast(data.error || data.hint || "Diagnostic Drive impossible", "error");
+                              return;
+                            }
+                            const p = data.parent;
+                            const parentOk = p && !p.error && p.canAddChildren !== false;
+                            showToast(
+                              `Drive : ${data.email || "?"} · Parent ${parentOk ? "OK" : "inaccessible"}${p?.name ? ` (${p.name})` : ""}`,
+                              parentOk ? "success" : "error",
+                            );
+                          } catch {
+                            showToast("Erreur diagnostic Drive", "error");
+                          }
+                        }}
+                        className="bg-white border border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-xs hover:bg-slate-50"
+                      >
+                        Tester Drive
                       </button>
                     </div>
                     {aiSuggestions && aiSuggestions.length > 0 && (

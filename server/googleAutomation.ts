@@ -8,6 +8,37 @@ export interface WorkspaceExportResult {
   spreadsheetId?: string;
   warning?: string;
   error?: string;
+  connectedEmail?: string;
+}
+
+export async function getDriveDiagnostics(accessToken: string, parentId?: string) {
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: accessToken });
+  const drive = google.drive({ version: 'v3', auth });
+
+  const about = await drive.about.get({ fields: 'user(emailAddress,displayName)' });
+  const email = about.data.user?.emailAddress || null;
+
+  let parent: Record<string, unknown> | null = null;
+  if (parentId) {
+    try {
+      const meta = await drive.files.get({
+        fileId: parentId,
+        fields: 'id,name,mimeType,driveId,capabilities',
+        supportsAllDrives: true,
+      });
+      parent = {
+        id: meta.data.id,
+        name: meta.data.name,
+        driveId: meta.data.driveId,
+        canAddChildren: meta.data.capabilities?.canAddChildren,
+      };
+    } catch (err: any) {
+      parent = { error: err?.message || String(err) };
+    }
+  }
+
+  return { email, parent, configuredParentId: parentId || null };
 }
 
 export async function deleteDossierFromGoogleWorkspace(folderId: string, accessToken: string) {
@@ -19,29 +50,18 @@ export async function deleteDossierFromGoogleWorkspace(folderId: string, accessT
     await drive.files.delete({ fileId: folderId, supportsAllDrives: true });
     return true;
   } catch (error) {
-    console.error("Failed to delete Google Drive dossier folder", error);
+    console.error('Failed to delete Google Drive dossier folder', error);
     return false;
   }
 }
 
-function isParentNotFoundError(err: any) {
-  const msg = String(err?.message || err || '').toLowerCase();
-  return msg.includes('not found') || msg.includes('file not found') || err?.code === 404;
-}
-
-async function verifyParentAccess(drive: any, parentId: string) {
-  const meta = await drive.files.get({
-    fileId: parentId,
-    fields: 'id,name,mimeType,driveId,capabilities',
-    supportsAllDrives: true,
-  });
-  const canAdd = meta.data.capabilities?.canAddChildren;
-  if (canAdd === false) {
-    throw new Error(
-      `Le compte connecté n'a pas le droit de créer des dossiers dans « ${meta.data.name} ». Demandez le rôle Gestionnaire de contenu sur ce Drive partagé.`,
-    );
+async function getConnectedEmail(drive: any) {
+  try {
+    const about = await drive.about.get({ fields: 'user(emailAddress)' });
+    return about.data.user?.emailAddress || null;
+  } catch {
+    return null;
   }
-  return meta.data;
 }
 
 async function createFolder(drive: any, folderName: string, parentId?: string) {
@@ -61,13 +81,14 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
     return {
       success: false,
       status: 'FAILED',
-      error: "Token OAuth Google manquant ou expiré. L'administrateur doit se connecter sur son tableau de bord.",
+      error: "Token OAuth Google manquant. Déconnectez-vous puis reconnectez-vous dans l'admin.",
     };
   }
 
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
   const drive = google.drive({ version: 'v3', auth });
+  const connectedEmail = await getConnectedEmail(drive);
 
   try {
     const primaryAssure = dossier.formData?.assures?.[0] || {};
@@ -78,22 +99,38 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
     let warning: string | undefined;
     let folderRes;
 
+    const createAtRoot = async (reason?: string) => {
+      const res = await createFolder(drive, folderName);
+      if (reason) {
+        warning =
+          `${reason} Dossier créé dans le Drive de ${connectedEmail || 'votre compte connecté'} (racine / Mon Drive).`;
+      }
+      return res;
+    };
+
     if (configuredParent) {
       try {
-        await verifyParentAccess(drive, configuredParent);
         folderRes = await createFolder(drive, folderName, configuredParent);
-      } catch (err: any) {
-        if (isParentNotFoundError(err)) {
-          console.warn(`[Drive] Parent inaccessible (${configuredParent}):`, err.message);
-          folderRes = await createFolder(drive, folderName);
-          warning =
-            `Dossier parent introuvable (${configuredParent}). Créé à la racine du Drive connecté. Vérifiez que assurance@leclubimmobilier.fr est membre du Drive partagé avec droit « Gestionnaire de contenu », puis reconnectez Google dans l'admin.`;
-        } else {
-          throw err;
+      } catch (parentErr: any) {
+        console.warn('[Drive] Échec dossier parent, repli racine:', parentErr?.message || parentErr);
+        try {
+          folderRes = await createAtRoot(
+            `Dossier parent « ${configuredParent} » inaccessible (${parentErr?.message || 'erreur'}).`,
+          );
+        } catch (rootErr: any) {
+          return {
+            success: false,
+            status: 'FAILED',
+            connectedEmail: connectedEmail || undefined,
+            error:
+              `Impossible d'écrire sur Drive (${rootErr?.message || rootErr}). ` +
+              `Compte connecté : ${connectedEmail || 'inconnu'}. ` +
+              `Reconnectez Google dans l'admin (autorisation Drive complète) ou supprimez GOOGLE_DRIVE_PARENT_FOLDER_ID sur Railway.`,
+          };
         }
       }
     } else {
-      folderRes = await createFolder(drive, folderName);
+      folderRes = await createAtRoot();
     }
 
     const folderId = folderRes.data.id!;
@@ -119,13 +156,24 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
 
     if (uploaded === 0 && dossier.formData?.documents?.length > 0) {
       warning =
-        (warning ? warning + ' ' : '') +
-        'Aucun fichier trouvé sur le serveur (uploads Railway). Réessayez Drive après un nouvel envoi du formulaire.';
+        (warning ? `${warning} ` : '') +
+        'Fichiers non copiés : chemins absents sur le serveur (normal si dossier créé avant migration Railway).';
     }
 
-    return { success: true, status: warning ? 'WARNING' : 'SUCCESS', folderId, warning };
+    return {
+      success: true,
+      status: warning ? 'WARNING' : 'SUCCESS',
+      folderId,
+      warning,
+      connectedEmail: connectedEmail || undefined,
+    };
   } catch (err: any) {
     console.error('Google Automation Error:', err);
-    return { success: false, status: 'FAILED', error: err.message };
+    return {
+      success: false,
+      status: 'FAILED',
+      connectedEmail: connectedEmail || undefined,
+      error: err?.message || String(err),
+    };
   }
 }
