@@ -1,0 +1,6 @@
+{
+  "name": "Suivi Assurance Emprunteur",
+  "description": "Gestionnaire d'assurance emprunteur (ADE) pour LCIF, avec persona Charles Victor, calculs d'économies Loi Lemoine et export Google Workspace.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
