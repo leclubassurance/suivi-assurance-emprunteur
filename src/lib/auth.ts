@@ -36,8 +36,9 @@ if (isFirebaseValid) {
     provider.setCustomParameters({
       prompt: 'select_account'
     });
-    // Request Workspace scopes explicitly requested by User
-    provider.addScope("https://www.googleapis.com/auth/drive.file");
+    // drive (not drive.file): required to create dossiers in a shared/parent folder
+    // such as 0ALC2kSJGmwXjUk9PVA (Shared Drive or team folder)
+    provider.addScope("https://www.googleapis.com/auth/drive");
     provider.addScope("https://www.googleapis.com/auth/gmail.send");
     provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
     provider.addScope("https://www.googleapis.com/auth/gmail.modify");

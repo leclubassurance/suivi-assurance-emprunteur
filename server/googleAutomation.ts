@@ -29,6 +29,21 @@ function isParentNotFoundError(err: any) {
   return msg.includes('not found') || msg.includes('file not found') || err?.code === 404;
 }
 
+async function verifyParentAccess(drive: any, parentId: string) {
+  const meta = await drive.files.get({
+    fileId: parentId,
+    fields: 'id,name,mimeType,driveId,capabilities',
+    supportsAllDrives: true,
+  });
+  const canAdd = meta.data.capabilities?.canAddChildren;
+  if (canAdd === false) {
+    throw new Error(
+      `Le compte connecté n'a pas le droit de créer des dossiers dans « ${meta.data.name} ». Demandez le rôle Gestionnaire de contenu sur ce Drive partagé.`,
+    );
+  }
+  return meta.data;
+}
+
 async function createFolder(drive: any, folderName: string, parentId?: string) {
   return drive.files.create({
     requestBody: {
@@ -36,7 +51,7 @@ async function createFolder(drive: any, folderName: string, parentId?: string) {
       mimeType: 'application/vnd.google-apps.folder',
       ...(parentId ? { parents: [parentId] } : {}),
     },
-    fields: 'id',
+    fields: 'id,webViewLink',
     supportsAllDrives: true,
   });
 }
@@ -65,13 +80,14 @@ export async function exportDossierToGoogleWorkspace(dossier: any, accessToken: 
 
     if (configuredParent) {
       try {
+        await verifyParentAccess(drive, configuredParent);
         folderRes = await createFolder(drive, folderName, configuredParent);
       } catch (err: any) {
         if (isParentNotFoundError(err)) {
-          console.warn(`[Drive] Parent folder inaccessible (${configuredParent}), fallback to root.`);
+          console.warn(`[Drive] Parent inaccessible (${configuredParent}):`, err.message);
           folderRes = await createFolder(drive, folderName);
           warning =
-            `Le dossier parent (${configuredParent}) est inaccessible. Dossier créé à la racine de votre Drive. Partagez le dossier parent avec assurance@leclubimmobilier.fr ou retirez GOOGLE_DRIVE_PARENT_FOLDER_ID sur Railway.`;
+            `Dossier parent introuvable (${configuredParent}). Créé à la racine du Drive connecté. Vérifiez que assurance@leclubimmobilier.fr est membre du Drive partagé avec droit « Gestionnaire de contenu », puis reconnectez Google dans l'admin.`;
         } else {
           throw err;
         }
