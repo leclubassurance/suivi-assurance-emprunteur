@@ -23,6 +23,8 @@ import { addEvent, ensureDossierShape, newId, scheduleTask } from "./dossierMode
 import { runSchedulerOnce, startScheduler } from "./scheduler";
 import { sendEmail } from "./emailProvider";
 import { auditAiDecision, proposeNextActions } from "./nextActionEngine";
+import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig";
+import { hasServiceAccountConfigured, getServiceAccountClientEmail } from "./serviceAccount";
 
 function getRuntimeDataDir() {
   // Vercel serverless has a writable /tmp only.
@@ -132,13 +134,10 @@ export function createApp() {
 
   app.get("/api/health", async (_req, res) => {
     await ensureBackgroundServicesStarted();
-    const { resolveDriveParentFolderId, DRIVE_CONFIG_VERSION } = await import("./driveConfig");
-    const { hasServiceAccountConfigured, getServiceAccountClientEmail } = await import(
-      "./serviceAccount",
-    );
     const resolved = resolveDriveParentFolderId();
     res.json({
       status: "ok",
+      build: "railway-express-2026-05-27",
       driveConfigVersion: DRIVE_CONFIG_VERSION,
       effectiveDriveParentId: resolved.parentId,
       rawDriveParentEnv: resolved.rawEnv,

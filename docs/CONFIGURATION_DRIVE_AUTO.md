@@ -1,5 +1,17 @@
 # Création automatique des dossiers Google Drive (sans admin connecté)
 
+## Railway n’affiche que `{"status":"ok"}` ?
+
+Le code sur **GitHub** est à jour, mais **Railway** n’a pas redéployé le backend.
+
+1. [railway.app](https://railway.app) → projet **Assurance** → service **suivi-assurance-emprunteur**
+2. Bouton violet **Apply X changes** (variables) puis **Deploy**
+3. Onglet **Deployments** → le commit doit être récent (ex. `railway.toml` ou *Drive auto*)
+4. Retest : `curl -s https://assurance-emprunteur.up.railway.app/api/health`  
+   → doit contenir `"build":"railway-express-2026-05-27"` et `"driveConfigVersion":3`
+
+---
+
 ## Pousser le code sur GitHub (Mac)
 
 Dans le Terminal, allez dans le dossier du projet (adaptez le chemin si besoin) :
