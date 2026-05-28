@@ -187,6 +187,22 @@ export async function downloadGmailAttachments(
         }),
       };
 
+      // Analyse interne du PDF pour documents clés
+      try {
+        const isPdf = String(part.filename || "").toLowerCase().endsWith(".pdf") || String(part.mimeType || "").includes("pdf");
+        if ((category === "offre" || category === "tableau") && isPdf) {
+          const { analyzeLoanPdf } = await import("./documentPdfSignals");
+          const sig = await analyzeLoanPdf(localPath, category as any);
+          (doc as any).loanSignal = sig;
+          if (doc.quality && !sig.ok) {
+            doc.quality.ok = false;
+            doc.quality.reasons = [...new Set([...(doc.quality.reasons || []), ...(sig.reasons || [])])];
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       if (driveFolderId) {
         const { uploadBufferToDriveFolder } = await import('./gmailDriveUpload');
         const uploaded = await uploadBufferToDriveFolder(

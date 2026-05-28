@@ -9,8 +9,22 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
     () => `LCIF-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`,
     [],
   );
-  const initialIdRef = useRef<string>(data?.id || generatedId);
+  const STORAGE_KEY = "last_submitted_dossier_id";
+  const initialId = useMemo(() => {
+    try {
+      const stored = sessionStorage.getItem(STORAGE_KEY);
+      if (stored && /^LCIF-\d{6}$/.test(stored)) return stored;
+    } catch {}
+    return data?.id || generatedId;
+  }, [data?.id, generatedId]);
+  const initialIdRef = useRef<string>(initialId);
   const dossierId = data?.id || initialIdRef.current;
+
+  try {
+    if (dossierId && /^LCIF-\d{6}$/.test(dossierId)) {
+      sessionStorage.setItem(STORAGE_KEY, dossierId);
+    }
+  } catch {}
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(dossierId);

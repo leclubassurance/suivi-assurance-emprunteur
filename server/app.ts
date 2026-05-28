@@ -246,6 +246,28 @@ export function createApp() {
         appendLog(`[Uploads Warning] Déplacement fichiers ${newDossier.id} impossible: ${mvErr?.message || mvErr}`);
       }
 
+      // Analyse interne des docs clés (offre/tableau) pour fiabiliser la relance (non visible client)
+      try {
+        const { analyzeLoanPdf } = await import("./documentPdfSignals");
+        for (const doc of newDossier.formData?.documents || []) {
+          if (!doc?.localPath || !doc?.category) continue;
+          const cat = String(doc.category);
+          const isPdf = String(doc.name || "").toLowerCase().endsWith(".pdf") || String(doc.type || "").includes("pdf");
+          if ((cat === "offre" || cat === "tableau") && isPdf) {
+            const sig = await analyzeLoanPdf(doc.localPath, cat as any);
+            doc.loanSignal = sig;
+            if (doc.quality) {
+              if (!sig.ok) {
+                doc.quality.ok = false;
+                doc.quality.reasons = [...new Set([...(doc.quality.reasons || []), ...(sig.reasons || [])])];
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        appendLog(`[Docs Warning] Analyse PDF impossible: ${e?.message || String(e)}`);
+      }
+
       await writeDB(db, newDossier);
       appendLog(`Succès d'écriture du dossier ${newDossier.id} dans la base de données.`);
 
