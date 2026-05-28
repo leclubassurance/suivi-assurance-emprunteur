@@ -220,7 +220,8 @@ export default function App() {
       }
     } finally {
       setIsSubmitting(false);
-      setSubmitStatus('');
+      // Ne pas vider submitStatus: SuccessStep en dépend pour afficher un numéro stable
+      // (sinon il regénère un LCIF-* aléatoire à chaque render/clic).
     }
   };
 

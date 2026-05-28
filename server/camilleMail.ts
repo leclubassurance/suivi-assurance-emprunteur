@@ -1,8 +1,30 @@
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 
+function stripLeadingGreeting(bodyText: string) {
+  const raw = String(bodyText || "").trim();
+  if (!raw) return "";
+  const lines = raw.split(/\r?\n/);
+  let i = 0;
+  // Remove 1-3 leading greeting lines like "Bonjour", "Bonjour X,", "Bonjour Monsieur Y,"
+  while (i < lines.length && i < 3) {
+    const l = lines[i].trim();
+    if (!l) {
+      i++;
+      continue;
+    }
+    if (/^bonjour\b/i.test(l)) {
+      i++;
+      continue;
+    }
+    break;
+  }
+  return lines.slice(i).join("\n").trim();
+}
+
 export function wrapCamilleHtmlReply(bodyText: string, clientPrenom?: string) {
   const greeting = clientPrenom ? `Bonjour ${clientPrenom},` : "Bonjour,";
-  const inner = bodyText.trim().replace(/\n/g, "<br/>");
+  const cleaned = stripLeadingGreeting(bodyText);
+  const inner = cleaned.replace(/\n/g, "<br/>");
 
   return `<div style="font-family: Arial, sans-serif; color: #334155; max-width: 600px; line-height: 1.55; font-size: 14px;">
   <img src="https://res.cloudinary.com/dji8akleo/image/upload/v1772999309/5_yn8wfm.png" alt="Le Club Immobilier Français" style="max-width: 140px; margin-bottom: 16px;" />
