@@ -1,5 +1,7 @@
 import { google } from 'googleapis';
 import { addEvent } from './dossierModel';
+import { canUseDomainWideDelegation, createDelegatedJwt, getDelegatedAccessToken } from "./googleDelegatedAuth";
+import { hasServerOAuthRefreshToken, getServerAccessToken } from "./googleOAuthServer";
 import {
   collectAttachmentParts,
   downloadGmailAttachments,
@@ -100,9 +102,37 @@ async function resolveGmailDriveUploadTarget(dossier: any, accessToken: string) 
   };
 }
 
+async function createGmailAuth(accessToken?: string | null) {
+  if (accessToken) {
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    return { auth, driveAccessToken: accessToken };
+  }
+
+  if (hasServerOAuthRefreshToken()) {
+    const serverToken = await getServerAccessToken();
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: serverToken });
+    return { auth, driveAccessToken: serverToken };
+  }
+
+  if (!canUseDomainWideDelegation()) {
+    throw new Error("Token OAuth manquant et délégation Google Workspace non configurée (service account + subject).");
+  }
+
+  const scopes = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/drive",
+  ];
+  const auth = createDelegatedJwt(scopes);
+  const driveAccessToken = await getDelegatedAccessToken(["https://www.googleapis.com/auth/drive"]);
+  return { auth, driveAccessToken };
+}
+
 /** Rescanne les emails clients et extrait les pièces jointes (même si déjà importés). */
 export async function resyncDossierGmailAttachments(
-  accessToken: string,
+  accessToken: string | null,
   dossier: any,
 ): Promise<{
   added: string[];
@@ -111,9 +141,8 @@ export async function resyncDossierGmailAttachments(
   driveUploaded: number;
   errors: string[];
 }> {
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-  const gmail = google.gmail({ version: 'v1', auth });
+  const { auth, driveAccessToken } = await createGmailAuth(accessToken);
+  const gmail = google.gmail({ version: 'v1', auth: auth as any });
 
   const emails = getDossierClientEmails(dossier);
   const added: string[] = [];
@@ -123,7 +152,7 @@ export async function resyncDossierGmailAttachments(
   let driveUploaded = 0;
   const seenMessageIds = new Set<string>();
 
-  const driveCtx = await resolveGmailDriveUploadTarget(dossier, accessToken);
+  const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
 
   for (const clientEmail of emails) {
     for (const q of buildGmailQueriesForDossier(dossier, clientEmail)) {
@@ -202,10 +231,9 @@ export async function resyncDossierGmailAttachments(
   return { added, scanned, attachmentPartsFound, driveUploaded, errors };
 }
 
-export async function syncGmailInbox(accessToken: string, db: any, aiCallback: Function) {
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-  const gmail = google.gmail({ version: 'v1', auth });
+export async function syncGmailInbox(accessToken: string | null, db: any, aiCallback: Function) {
+  const { auth, driveAccessToken } = await createGmailAuth(accessToken);
+  const gmail = google.gmail({ version: 'v1', auth: auth as any });
 
   const clientEmails = new Set<string>();
   for (const d of db.dossiers || []) {
@@ -257,7 +285,7 @@ export async function syncGmailInbox(accessToken: string, db: any, aiCallback: F
 
       let addedAttachments: any[] = [];
       if (isFromClient) {
-        const driveCtx = await resolveGmailDriveUploadTarget(dossier, accessToken);
+        const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
         const { saved, found, driveUploaded: du } = await downloadGmailAttachments(
           gmail,
           msgMeta.id,
@@ -387,10 +415,9 @@ function dossierTouchUpdatedAt(db: any) {
   }
 }
 
-export async function sendEmailReplyWithGmailAPI(accessToken: string, toEmail: string, subject: string, bodyText: string) {
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-  const gmail = google.gmail({ version: 'v1', auth });
+export async function sendEmailReplyWithGmailAPI(accessToken: string | null, toEmail: string, subject: string, bodyText: string) {
+  const { auth } = await createGmailAuth(accessToken);
+  const gmail = google.gmail({ version: 'v1', auth: auth as any });
 
   const isHtml = /<[a-z][\s\S]*>/i.test(bodyText);
   const mailLines = [];

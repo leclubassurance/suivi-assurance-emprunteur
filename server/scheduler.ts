@@ -3,6 +3,10 @@ import { addEvent, Dossier, EmailMessage, newId } from "./dossierModel";
 import { detectMissingDocs, getPrimaryClientEmail } from "./rules";
 import { sendEmail } from "./emailProvider";
 import { templateGenericFollowup, templateMissingDocsFollowup } from "./emailTemplates";
+import { syncGmailInbox } from "./mailAutomation";
+import { processIncomingClientEmail } from "./aiAssistant";
+import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
+import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
 
 export type SchedulerRunResult = {
   processed: number;
@@ -116,5 +120,19 @@ export function startScheduler() {
   setInterval(() => {
     runSchedulerOnce().catch(() => undefined);
   }, intervalMs);
+
+  // Autosync Gmail autonome (sans connexion admin) via service account + délégation domaine
+  const gmailEnabled = ((process.env as any).GMAIL_AUTOSYNC_ENABLED || "true").toLowerCase() === "true";
+  const gmailIntervalMs = Number((process.env as any).GMAIL_AUTOSYNC_INTERVAL_MS || 120_000);
+  if (gmailEnabled) {
+    setInterval(() => {
+      // accessToken=null => refresh_token OAuth serveur (ou DWD si activé)
+      if (!hasServerOAuthRefreshToken() && !canUseDomainWideDelegation()) return;
+      readDB()
+        .then((db) => syncGmailInbox(null, db, processIncomingClientEmail))
+        .then(({ db }) => writeDB(db))
+        .catch(() => undefined);
+    }, gmailIntervalMs);
+  }
 }
 

@@ -22,11 +22,13 @@ import {
 import { readDB, writeDB, getDataStoreMode } from "./db";
 import { addEvent, ensureDossierShape, newId, scheduleTask } from "./dossierModel";
 import { runSchedulerOnce, startScheduler } from "./scheduler";
-import { sendEmail } from "./emailProvider";
+import { isEmailConfigured, sendEmail } from "./emailProvider";
 import { auditAiDecision, proposeNextActions } from "./nextActionEngine";
 import { RAILWAY_BUILD_ID } from "./buildInfo";
 import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig";
 import { mergeFormDocumentsWithUploads } from "./documentMerge";
+import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
+import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
 import {
   hasServiceAccountConfigured,
   hasServiceAccountReady,
@@ -291,14 +293,186 @@ export function createApp() {
               });
               await writeDB(db, newDossier);
             });
+        } else if (hasServerOAuthRefreshToken()) {
+          // Mode autonome 24/7 : envoi Gmail via refresh_token OAuth serveur (sans login admin)
+          sendEmailReplyWithGmailAPI(null, toEmail, confirmationSubject, confirmationHtml)
+            .then(async (sendResult) => {
+              if (sendResult?.ok) {
+                appendLog(
+                  `[Email] Mail de confirmation automatique envoyé via Gmail (refresh_token) à ${toEmail} pour le dossier ${newDossier.id}`,
+                );
+                addEvent(newDossier, {
+                  type: "EMAIL_SENT",
+                  actor: { kind: "SYSTEM" },
+                  meta: {
+                    template: "CONFIRMATION",
+                    to: toEmail,
+                    subject: confirmationSubject,
+                    channel: "GMAIL_REFRESH_TOKEN",
+                  },
+                });
+              } else {
+                appendLog(
+                  `[Email Warning] Échec d'envoi Gmail (refresh_token) du mail de confirmation à ${toEmail}: ${sendResult?.error || "unknown"}`,
+                );
+                addEvent(newDossier, {
+                  type: "EMAIL_FAILED",
+                  actor: { kind: "SYSTEM" },
+                  meta: {
+                    template: "CONFIRMATION",
+                    to: toEmail,
+                    subject: confirmationSubject,
+                    channel: "GMAIL_REFRESH_TOKEN",
+                    error: sendResult?.error || "unknown",
+                  },
+                });
+              }
+              await writeDB(db, newDossier);
+            })
+            .catch(async (err: any) => {
+              appendLog(
+                `[Email Error] Erreur Gmail (refresh_token) mail de confirmation : ${err?.message || String(err)}`,
+              );
+              addEvent(newDossier, {
+                type: "EMAIL_FAILED",
+                actor: { kind: "SYSTEM" },
+                meta: {
+                  template: "CONFIRMATION",
+                  to: toEmail,
+                  subject: confirmationSubject,
+                  channel: "GMAIL_REFRESH_TOKEN",
+                  error: err?.message || String(err),
+                },
+              });
+              await writeDB(db, newDossier);
+            });
+        } else if (canUseDomainWideDelegation()) {
+          // Mode autonome 24/7 : envoi Gmail via service account + délégation domaine (sans login admin)
+          sendEmailReplyWithGmailAPI(null, toEmail, confirmationSubject, confirmationHtml)
+            .then(async (sendResult) => {
+              if (sendResult?.ok) {
+                appendLog(
+                  `[Email] Mail de confirmation automatique envoyé via Gmail (DWD) à ${toEmail} pour le dossier ${newDossier.id}`,
+                );
+                addEvent(newDossier, {
+                  type: "EMAIL_SENT",
+                  actor: { kind: "SYSTEM" },
+                  meta: { template: "CONFIRMATION", to: toEmail, subject: confirmationSubject, channel: "GMAIL_DWD" },
+                });
+              } else {
+                appendLog(
+                  `[Email Warning] Échec d'envoi Gmail (DWD) du mail de confirmation à ${toEmail}: ${sendResult?.error || "unknown"}`,
+                );
+                addEvent(newDossier, {
+                  type: "EMAIL_FAILED",
+                  actor: { kind: "SYSTEM" },
+                  meta: {
+                    template: "CONFIRMATION",
+                    to: toEmail,
+                    subject: confirmationSubject,
+                    channel: "GMAIL_DWD",
+                    error: sendResult?.error || "unknown",
+                  },
+                });
+              }
+              await writeDB(db, newDossier);
+            })
+            .catch(async (err: any) => {
+              appendLog(`[Email Error] Erreur Gmail (DWD) mail de confirmation : ${err?.message || String(err)}`);
+              addEvent(newDossier, {
+                type: "EMAIL_FAILED",
+                actor: { kind: "SYSTEM" },
+                meta: {
+                  template: "CONFIRMATION",
+                  to: toEmail,
+                  subject: confirmationSubject,
+                  channel: "GMAIL_DWD",
+                  error: err?.message || String(err),
+                },
+              });
+              await writeDB(db, newDossier);
+            });
+        } else if (isEmailConfigured()) {
+          // Pas d'OAuth admin : on envoie via SMTP si configuré (pour que le formulaire client fonctionne sans admin connecté)
+          sendEmail({ to: toEmail, subject: confirmationSubject, html: confirmationHtml })
+            .then(async (smtpResult) => {
+              if (smtpResult.ok) {
+                appendLog(
+                  `[Email] Mail de confirmation automatique envoyé via SMTP à ${toEmail} pour le dossier ${newDossier.id}`,
+                );
+                addEvent(newDossier, {
+                  type: "EMAIL_SENT",
+                  actor: { kind: "SYSTEM" },
+                  meta: {
+                    template: "CONFIRMATION",
+                    to: toEmail,
+                    subject: confirmationSubject,
+                    channel: "SMTP",
+                    providerId: smtpResult.providerId,
+                  },
+                });
+              } else if (smtpResult.ok === false) {
+                appendLog(
+                  `[Email Warning] Échec d'envoi SMTP du mail de confirmation à ${toEmail}: ${smtpResult.error}`,
+                );
+                addEvent(newDossier, {
+                  type: "EMAIL_FAILED",
+                  actor: { kind: "SYSTEM" },
+                  meta: {
+                    template: "CONFIRMATION",
+                    to: toEmail,
+                    subject: confirmationSubject,
+                    channel: "SMTP",
+                    error: smtpResult.error,
+                  },
+                });
+              } else {
+                appendLog(
+                  `[Email Warning] Échec d'envoi SMTP du mail de confirmation à ${toEmail}: résultat inconnu`,
+                );
+                addEvent(newDossier, {
+                  type: "EMAIL_FAILED",
+                  actor: { kind: "SYSTEM" },
+                  meta: {
+                    template: "CONFIRMATION",
+                    to: toEmail,
+                    subject: confirmationSubject,
+                    channel: "SMTP",
+                    error: "Unknown SMTP result shape",
+                  },
+                });
+              }
+              await writeDB(db, newDossier);
+            })
+            .catch(async (err: any) => {
+              appendLog(`[Email Error] Erreur SMTP mail de confirmation : ${err?.message || String(err)}`);
+              addEvent(newDossier, {
+                type: "EMAIL_FAILED",
+                actor: { kind: "SYSTEM" },
+                meta: {
+                  template: "CONFIRMATION",
+                  to: toEmail,
+                  subject: confirmationSubject,
+                  channel: "SMTP",
+                  error: err?.message || String(err),
+                },
+              });
+              await writeDB(db, newDossier);
+            });
         } else {
           appendLog(
-            `[Email Simulation] Envoi simulé de l'email de confirmation à ${toEmail} pour le dossier ${newDossier.id}.`,
+            `[Email Skipped] Aucun token OAuth admin et SMTP non configuré : confirmation non envoyée à ${toEmail} (dossier ${newDossier.id}).`,
           );
           addEvent(newDossier, {
-            type: "EMAIL_SENT",
+            type: "EMAIL_FAILED",
             actor: { kind: "SYSTEM" },
-            meta: { template: "CONFIRMATION_SIMULATED", to: toEmail, subject: confirmationSubject },
+            meta: {
+              template: "CONFIRMATION",
+              to: toEmail,
+              subject: confirmationSubject,
+              channel: "NONE",
+              error: "No OAuth token available and SMTP is not configured",
+            },
           });
           await writeDB(db, newDossier);
         }
