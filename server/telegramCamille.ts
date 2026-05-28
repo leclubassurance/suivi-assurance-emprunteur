@@ -5,6 +5,10 @@ import { executeCamilleStaffDirective } from "./camilleStaffDirective";
 /** message_id Telegram → dossier (mémoire courte, complété par Firestore via dossier.camilleEscalation) */
 const alertMessageToDossier = new Map<string, string>();
 
+export function hasTelegramBotToken(): boolean {
+  return Boolean(getBotToken());
+}
+
 export function isTelegramEnabled(): boolean {
   return Boolean(getBotToken() && getAllowedChatIds().length > 0);
 }
@@ -37,15 +41,38 @@ async function telegramApi(method: string, body: Record<string, unknown>) {
   return data.result;
 }
 
+/** Envoi Telegram (token seul) — utilisé pour /start avant chat_id autorisé */
+export async function sendTelegramRaw(chatId: string, text: string, replyMarkup?: unknown) {
+  if (!getBotToken()) {
+    console.warn("[Telegram] TELEGRAM_BOT_TOKEN manquant — impossible d'envoyer");
+    return null;
+  }
+  try {
+    return await telegramApi("sendMessage", {
+      chat_id: chatId,
+      text: text.slice(0, 4000),
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      reply_markup: replyMarkup,
+    });
+  } catch (e: any) {
+    console.error("[Telegram] sendMessage:", e?.message || String(e));
+    try {
+      return await telegramApi("sendMessage", {
+        chat_id: chatId,
+        text: text.replace(/<[^>]+>/g, "").slice(0, 4000),
+        disable_web_page_preview: true,
+      });
+    } catch (e2: any) {
+      console.error("[Telegram] sendMessage fallback:", e2?.message || String(e2));
+      return null;
+    }
+  }
+}
+
 export async function sendTelegramMessage(chatId: string, text: string, replyMarkup?: unknown) {
   if (!isTelegramEnabled()) return null;
-  return telegramApi("sendMessage", {
-    chat_id: chatId,
-    text: text.slice(0, 4000),
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-    reply_markup: replyMarkup,
-  });
+  return sendTelegramRaw(chatId, text, replyMarkup);
 }
 
 function escapeHtml(s: string) {
@@ -132,28 +159,37 @@ async function findDossierForTelegramReply(
 
 export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   const message = update?.message;
-  if (!message?.chat?.id || message.from?.is_bot) return;
+  if (!message?.chat?.id) return;
+  if (message.from?.is_bot) return;
 
   const chatId = String(message.chat.id);
-  const allowed = getAllowedChatIds();
-  if (!allowed.includes(chatId)) {
-    await sendTelegramMessage(
-      chatId,
-      "⛔ Non autorisé. Ajoutez votre chat_id dans TELEGRAM_ALLOWED_CHAT_IDS sur Railway.",
-    );
+  const text = String(message.text || "").trim();
+
+  console.log(`[Telegram] message chatId=${chatId} text=${text.slice(0, 80)}`);
+
+  if (!getBotToken()) {
+    console.warn("[Telegram] webhook reçu mais TELEGRAM_BOT_TOKEN absent sur Railway");
     return;
   }
-
-  const text = String(message.text || "").trim();
-  if (!text) return;
 
   if (text === "/start" || text.startsWith("/start ")) {
-    await sendTelegramMessage(
+    await sendTelegramRaw(
       chatId,
-      `Bonjour. Je suis le relais Camille (LCIF assurance emprunteur).\n\n<b>Votre chat_id :</b> <code>${chatId}</code>\n\nCollez-le dans Railway → TELEGRAM_ALLOWED_CHAT_IDS.\n\nQuand une escalade arrive, <b>répondez au message d'alerte</b> avec votre consigne : Camille écrira au client.\n\nVous pouvez aussi envoyer : <code>LCIF-123456 Demande les PDF banque</code>`,
+      `Bonjour. Je suis le relais Camille (LCIF assurance emprunteur).\n\n<b>Votre chat_id :</b> <code>${chatId}</code>\n\nCopiez cette valeur dans Railway → <code>TELEGRAM_ALLOWED_CHAT_IDS</code>, puis redéployez.\n\nEnsuite : répondez à une alerte 🟠 avec votre consigne, ou envoyez :\n<code>LCIF-123456 Demande les PDF banque</code>`,
     );
     return;
   }
+
+  const allowed = getAllowedChatIds();
+  if (!allowed.includes(chatId)) {
+    await sendTelegramRaw(
+      chatId,
+      `⛔ Chat non autorisé.\n\n<b>Votre chat_id :</b> <code>${chatId}</code>\n\nAjoutez-le dans Railway → TELEGRAM_ALLOWED_CHAT_IDS, redéployez, puis /start`,
+    );
+    return;
+  }
+
+  if (!text) return;
 
   const replyId = message.reply_to_message?.message_id as number | undefined;
   const dossier = await findDossierForTelegramReply(chatId, replyId, text);
@@ -222,4 +258,20 @@ export async function registerTelegramWebhook(publicBaseUrl: string) {
   if (secret) body.secret_token = secret;
   await telegramApi("setWebhook", body);
   return url;
+}
+
+export async function getTelegramWebhookInfo() {
+  if (!getBotToken()) return { ok: false, error: "TELEGRAM_BOT_TOKEN manquant" };
+  const info = await telegramApi("getWebhookInfo", {});
+  return {
+    ok: true,
+    url: info?.url,
+    has_custom_certificate: info?.has_custom_certificate,
+    pending_update_count: info?.pending_update_count,
+    last_error_message: info?.last_error_message,
+    last_error_date: info?.last_error_date,
+    botTokenConfigured: true,
+    allowedChatIds: getAllowedChatIds(),
+    webhookSecretConfigured: Boolean(String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim()),
+  };
 }

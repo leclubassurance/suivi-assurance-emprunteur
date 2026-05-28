@@ -147,17 +147,29 @@ export function createApp() {
   // --- API ROUTES ---
 
   app.post("/api/telegram/webhook", async (req, res) => {
-    try {
-      const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
-      if (secret && req.headers["x-telegram-bot-api-secret-token"] !== secret) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-      const { handleTelegramWebhookUpdate } = await import("./telegramCamille");
-      await handleTelegramWebhookUpdate(req.body);
-      res.json({ ok: true });
-    } catch (e: any) {
+    const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+    if (secret && req.headers["x-telegram-bot-api-secret-token"] !== secret) {
+      console.warn("[Telegram webhook] secret mismatch — refusé");
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    res.json({ ok: true });
+    const { handleTelegramWebhookUpdate } = await import("./telegramCamille");
+    handleTelegramWebhookUpdate(req.body).catch((e: any) => {
       console.error("[Telegram webhook]", e?.message || e);
-      res.status(500).json({ error: e?.message || "webhook error" });
+    });
+  });
+
+  app.get("/api/telegram/status", async (req, res) => {
+    const setupSecret = String(process.env.TELEGRAM_SETUP_SECRET || "").trim();
+    if (!setupSecret || req.query.secret !== setupSecret) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    try {
+      const { getTelegramWebhookInfo, isTelegramEnabled } = await import("./telegramCamille");
+      const info = await getTelegramWebhookInfo();
+      res.json({ ...info, telegramOperational: isTelegramEnabled() });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
     }
   });
 
@@ -205,7 +217,10 @@ export function createApp() {
       serviceAccountEmail: sa.clientEmail,
       serviceAccountSource: sa.source,
       serviceAccountParseError: sa.parseError,
-      telegram: (await import("./telegramCamille")).isTelegramEnabled(),
+      telegram: {
+        botToken: (await import("./telegramCamille")).hasTelegramBotToken(),
+        operational: (await import("./telegramCamille")).isTelegramEnabled(),
+      },
     });
   });
 
