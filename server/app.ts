@@ -257,6 +257,9 @@ export function createApp() {
         message: "Dossier créé via formulaire client.",
       });
 
+      const { ensureClientPortalToken, getClientPortalAbsoluteUrl } = await import("./clientPortal");
+      const portalToken = ensureClientPortalToken(newDossier);
+
       const t0 = Date.now();
       scheduleTask(newDossier, {
         type: "FOLLOWUP_MISSING_DOCS",
@@ -694,7 +697,12 @@ export function createApp() {
           );
         });
 
-      res.json({ success: true, dossierId: newDossier.id });
+      const origin = String(req.headers.origin || req.headers.referer || "").replace(/\/$/, "");
+      const portalUrl = getClientPortalAbsoluteUrl(
+        portalToken,
+        origin || process.env.PUBLIC_APP_URL || process.env.RAILWAY_PUBLIC_DOMAIN,
+      );
+      res.json({ success: true, dossierId: newDossier.id, portalUrl, portalToken });
     } catch (error: any) {
       appendLog(`Erreur de création de dossier : ${error.stack || error.message || error}`);
       console.error("Erreur de création de dossier :", error);
@@ -1384,6 +1392,100 @@ export function createApp() {
     } else {
       res.status(500).json({ error: "Echec de l'envoi de l'email via Gmail API" });
     }
+  });
+
+  app.get("/api/portail/:token", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const db = await readDBAsync();
+      const { findDossierByPortalToken, buildClientPortalView } = await import("./clientPortal");
+      const dossier = findDossierByPortalToken(db.dossiers, req.params.token);
+      if (!dossier) return res.status(404).json({ error: "Lien de suivi invalide." });
+      if (!dossier.clientPortal) {
+        dossier.clientPortal = { token: String(req.params.token), createdAt: new Date().toISOString() };
+      }
+      dossier.clientPortal.lastAccessAt = new Date().toISOString();
+      await writeDB(db, dossier);
+      res.json(buildClientPortalView(dossier));
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  app.get("/api/admin/work-queue", async (_req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const { buildRemiWorkQueue } = await import("./remiWorkQueue");
+    res.json({ items: buildRemiWorkQueue(db.dossiers) });
+  });
+
+  app.get("/api/admin/activity-metrics", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const periodDays = Number(req.query.days || 7);
+    const { computeActivityMetrics } = await import("./activityMetrics");
+    res.json(computeActivityMetrics(db.dossiers, periodDays));
+  });
+
+  app.get("/api/admin/dossiers/:id/camille-context", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { buildCamilleAdminContext } = await import("./camilleAdminContext");
+    res.json(buildCamilleAdminContext(dossier));
+  });
+
+  app.get("/api/admin/dossiers/:id/ai-audit", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { getAiAuditTrail } = await import("./aiAuditLog");
+    res.json({ entries: getAiAuditTrail(dossier) });
+  });
+
+  app.get("/api/admin/dossiers/:id/portal-link", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { ensureClientPortalToken, getClientPortalAbsoluteUrl } = await import("./clientPortal");
+    const token = ensureClientPortalToken(dossier);
+    await writeDB(db, dossier);
+    const origin = String(req.headers.origin || "").replace(/\/$/, "");
+    res.json({
+      token,
+      path: `/suivi/${token}`,
+      url: getClientPortalAbsoluteUrl(
+        token,
+        origin || process.env.PUBLIC_APP_URL || process.env.RAILWAY_PUBLIC_DOMAIN,
+      ),
+    });
+  });
+
+  app.post("/api/admin/work-queue/:id/snooze", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const hours = Number((req.body as any)?.hours || 24);
+    if (!dossier.remiQueue) dossier.remiQueue = {};
+    dossier.remiQueue.snoozedUntil = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+    dossier.remiQueue.dismissedAt = undefined;
+    await writeDB(db, dossier);
+    res.json({ success: true, snoozedUntil: dossier.remiQueue.snoozedUntil });
+  });
+
+  app.post("/api/admin/work-queue/:id/dismiss", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    if (!dossier.remiQueue) dossier.remiQueue = {};
+    dossier.remiQueue.dismissedAt = new Date().toISOString();
+    await writeDB(db, dossier);
+    res.json({ success: true });
   });
 
   app.post("/api/dossiers/:id/generate-study-email", async (req, res) => {

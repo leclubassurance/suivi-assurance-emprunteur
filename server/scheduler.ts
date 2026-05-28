@@ -1,6 +1,8 @@
 import { readDB, writeDB } from "./db";
 import { addEvent, Dossier, EmailMessage, newId } from "./dossierModel";
 import { detectMissingDocs, getPrimaryClientEmail } from "./rules";
+import { shouldSendScheduledReminder } from "./smartReminders";
+import { logAiAudit } from "./aiAuditLog";
 import { sendEmail } from "./emailProvider";
 import { templateGenericFollowup, templateMissingDocsFollowup } from "./emailTemplates";
 import { syncGmailInbox } from "./mailAutomation";
@@ -90,6 +92,23 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
         }
 
         if (task.type === "FOLLOWUP_MISSING_DOCS") {
+          const gate = shouldSendScheduledReminder(dossier, "FOLLOWUP_MISSING_DOCS");
+          if (!gate.ok) {
+            task.status = "DONE";
+            addEvent(dossier, {
+              type: "REMINDER_SENT",
+              actor: { kind: "SYSTEM" },
+              message: `Relance annulée : ${gate.reason}`,
+            });
+            logAiAudit(dossier, {
+              action: "RELANCE_MISSING_DOCS_SKIPPED",
+              channel: "scheduler",
+              actor: "Système",
+              outcome: "skipped",
+              summary: gate.reason,
+            });
+            continue;
+          }
           const missing = detectMissingDocs(dossier);
           if (missing.length === 0) {
             task.status = "DONE";
@@ -117,6 +136,23 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
             addEvent(dossier, { type: "EMAIL_SENT", actor: { kind: "SYSTEM" }, meta: { emailId: queued.id, template: queued.template, to } });
           }
         } else if (task.type === "FOLLOWUP_NO_REPLY") {
+          const gate = shouldSendScheduledReminder(dossier, "FOLLOWUP_NO_REPLY");
+          if (!gate.ok) {
+            task.status = "DONE";
+            addEvent(dossier, {
+              type: "REMINDER_SENT",
+              actor: { kind: "SYSTEM" },
+              message: `Relance annulée : ${gate.reason}`,
+            });
+            logAiAudit(dossier, {
+              action: "RELANCE_NO_REPLY_SKIPPED",
+              channel: "scheduler",
+              actor: "Système",
+              outcome: "skipped",
+              summary: gate.reason,
+            });
+            continue;
+          }
           const html = templateGenericFollowup(dossier, "Nous revenons vers vous pour savoir si vous avez pu consulter notre message. Vous pouvez répondre directement à ce mail.");
           const subject = `Relance — Dossier ${dossier.id}`;
           const queued = enqueueEmail(dossier, { template: "FOLLOWUP_NO_REPLY", to, subject, html });

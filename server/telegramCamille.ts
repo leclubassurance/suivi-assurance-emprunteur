@@ -1,13 +1,16 @@
 import { readDB, writeDB } from "./db";
 import { addEvent, type Dossier } from "./dossierModel";
 
-/** message_id Telegram → dossier (alertes Camille) */
-const alertMessageToDossier = new Map<string, string>();
+import {
+  registerTelegramRefInMemory,
+  persistTelegramDossierRef,
+  findDossierByTelegramRef,
+} from "./telegramDossierRefs";
 
 export function registerTelegramDossierContext(chatId: string, messageId: number, dossierId: string) {
-  if (chatId && messageId && dossierId) {
-    alertMessageToDossier.set(`${chatId}:${messageId}`, dossierId.toUpperCase());
-  }
+  if (!chatId || !messageId || !dossierId) return;
+  registerTelegramRefInMemory(chatId, messageId, dossierId);
+  void persistTelegramDossierRef(dossierId, chatId, messageId);
 }
 
 export function hasTelegramBotToken(): boolean {
@@ -124,22 +127,8 @@ async function findDossierForTelegramReply(
 ): Promise<Dossier | null> {
   const db = await readDB();
   if (replyToMessageId) {
-    const key = `${chatId}:${replyToMessageId}`;
-    const fromMem = alertMessageToDossier.get(key);
-    if (fromMem) {
-      const d = db.dossiers.find((x: any) => x.id === fromMem);
-      if (d) return d;
-    }
-    for (const d of db.dossiers) {
-      const esc = d.camilleEscalation as any;
-      if (
-        esc &&
-        String(esc.telegramChatId) === String(chatId) &&
-        Number(esc.telegramAlertMessageId) === Number(replyToMessageId)
-      ) {
-        return d;
-      }
-    }
+    const fromRef = findDossierByTelegramRef(db.dossiers, chatId, replyToMessageId);
+    if (fromRef) return fromRef;
   }
 
   const lcif = text.match(/LCIF-\d{6}/i)?.[0]?.toUpperCase();
@@ -156,20 +145,8 @@ async function findDossierForTelegramReply(
 
 async function isReplyToCamilleAlert(chatId: string, replyToMessageId?: number): Promise<boolean> {
   if (!replyToMessageId) return false;
-  const key = `${chatId}:${replyToMessageId}`;
-  if (alertMessageToDossier.has(key)) return true;
   const db = await readDB();
-  for (const d of db.dossiers) {
-    const esc = d.camilleEscalation as any;
-    if (
-      esc &&
-      String(esc.telegramChatId) === String(chatId) &&
-      Number(esc.telegramAlertMessageId) === Number(replyToMessageId)
-    ) {
-      return true;
-    }
-  }
-  return false;
+  return Boolean(findDossierByTelegramRef(db.dossiers, chatId, replyToMessageId));
 }
 
 async function runStaffDirectiveFlow(chatId: string, dossier: Dossier, instruction: string) {

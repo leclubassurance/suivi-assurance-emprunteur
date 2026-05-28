@@ -4,7 +4,7 @@ import { CheckCircle2, FilePlus } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { showToast } from '../../lib/toast';
 
-export default function SuccessStep({ onReset, data }: { onReset: () => void, data?: { id?: string, name?: string, email?: string } }) {
+export default function SuccessStep({ onReset, data }: { onReset: () => void, data?: { id?: string, name?: string, email?: string, portalUrl?: string } }) {
   const generatedId = useMemo(
     () => `LCIF-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`,
     [],
@@ -71,6 +71,15 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
              Nous revenons vers vous par email (<strong className="text-white">{data?.email || "votre adresse"}</strong>) sous 48h ouvrées.
            </p>
         </div>
+
+        {data?.portalUrl && (
+          <a
+            href={data.portalUrl}
+            className="block w-full py-4 mb-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[20px] font-bold text-[15px] text-center transition-all"
+          >
+            Suivre mon dossier en ligne
+          </a>
+        )}
 
         <div className="flex flex-col gap-3">
           <button 

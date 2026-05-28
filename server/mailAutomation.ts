@@ -480,6 +480,19 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
                     }),
                   )
                   .catch(() => undefined);
+                void import("./aiAuditLog")
+                  .then(({ logAiAudit }) =>
+                    logAiAudit(dossier, {
+                      action: "AUTO_REPLY_CLIENT",
+                      channel: "gmail",
+                      actor: "Camille",
+                      outcome: "sent",
+                      model: "gemini",
+                      summary: "Réponse automatique au client.",
+                      meta: { gmailId: msgMeta.id },
+                    }),
+                  )
+                  .catch(() => undefined);
               }
             } else if (aiDecision?.status === 'escalated') {
               const { handleCamilleEscalation } = await import("./camilleEscalation");

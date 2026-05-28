@@ -1,5 +1,7 @@
 import { sanitizeLegacyDriveWorkspaceState } from "./driveConfig";
 import { inferDocumentCategory } from "../shared/documentClassifier";
+import type { AiAuditEntry } from "./aiAuditLog";
+import type { TelegramMessageRef } from "./telegramDossierRefs";
 
 export type DossierStatus =
   | "NOUVEAU"
@@ -101,6 +103,21 @@ export interface Dossier {
     subject?: string | null;
     html?: string | null;
   };
+  clientPortal?: {
+    token: string;
+    createdAt: string;
+    lastAccessAt?: string;
+  };
+  camilleTelegramStaff?: {
+    lastNewsKey?: string;
+    lastNewsAt?: string;
+    messageRefs?: TelegramMessageRef[];
+  };
+  remiQueue?: {
+    snoozedUntil?: string;
+    dismissedAt?: string;
+  };
+  aiAuditTrail?: AiAuditEntry[];
 }
 
 export function newId(prefix: string) {
@@ -129,6 +146,11 @@ export function ensureDossierShape(d: any): Dossier {
     processedGmailIds: Array.isArray(d.processedGmailIds) ? d.processedGmailIds : [],
     camilleEscalation: d.camilleEscalation,
     camilleStaffHandledUntil: d.camilleStaffHandledUntil,
+    studyDraft: d.studyDraft,
+    clientPortal: d.clientPortal,
+    camilleTelegramStaff: d.camilleTelegramStaff,
+    remiQueue: d.remiQueue,
+    aiAuditTrail: Array.isArray(d.aiAuditTrail) ? d.aiAuditTrail : [],
   };
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,

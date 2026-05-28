@@ -16,6 +16,7 @@ import DocumentsStep from './components/steps/DocumentsStep';
 import SuccessStep from './components/steps/SuccessStep';
 import AdminLogin from './components/admin/AdminLogin';
 import AdminDashboard from './components/admin/AdminDashboard';
+import ClientPortalPage from './components/portal/ClientPortalPage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
 import { AlertCircle } from 'lucide-react';
 import { showToast } from './lib/toast';
@@ -31,6 +32,15 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<any>('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [portalToken, setPortalToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const m = window.location.pathname.match(/^\/suivi\/([a-f0-9]{32,64})$/i);
+    if (m) {
+      setPortalToken(m[1]);
+      setCurrentStep(Step.CLIENT_PORTAL);
+    }
+  }, []);
 
   // Load from LocalStorage on mount
   useEffect(() => {
@@ -206,7 +216,12 @@ export default function App() {
       }
       
       const result = await res.json();
-      setSubmitStatus({ id: result.dossierId, name: formData.assures[0].nom, email: formData.assures[0].email } as any);
+      setSubmitStatus({
+        id: result.dossierId,
+        name: formData.assures[0].prenom || formData.assures[0].nom,
+        email: formData.assures[0].email,
+        portalUrl: result.portalUrl,
+      } as any);
       
       goToStep(Step.SUCCESS);
       localStorage.removeItem(STORAGE_KEY);
@@ -350,6 +365,10 @@ export default function App() {
 
         {currentStep === Step.SUCCESS && (
           <SuccessStep data={submitStatus as any} onReset={resetForm}/>
+        )}
+
+        {currentStep === Step.CLIENT_PORTAL && portalToken && (
+          <ClientPortalPage token={portalToken} />
         )}
 
         {currentStep === Step.ADMIN_LOGIN && (

@@ -2,6 +2,7 @@ import { addEvent, type Dossier } from "./dossierModel";
 import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
 import { generateContentWithRetry } from "./geminiClient";
 import { acknowledgeStaffOutboundToClient } from "./camilleStaffHandoff";
+import { logAiAudit } from "./aiAuditLog";
 
 export type StaffDirectiveResult = {
   ok: boolean;
@@ -98,6 +99,15 @@ ${text.slice(0, 4000)}
         message: `Consigne sans envoi client: ${text.slice(0, 120)}`,
         meta: { channel: options?.channel },
       });
+      logAiAudit(dossier, {
+        action: "STAFF_DIRECTIVE",
+        channel: options?.channel || "telegram",
+        actor: "Camille",
+        outcome: "no_email",
+        model: "gemini-2.5-flash",
+        summary,
+        instructionPreview: text.slice(0, 300),
+      });
       return { ok: true, action: "NO_EMAIL", summary };
     }
 
@@ -126,6 +136,17 @@ ${text.slice(0, 4000)}
       actor: { kind: "AI", label: "Camille" },
       message: "Mail client envoyé suite à consigne équipe (Telegram).",
       meta: { channel: options?.channel, instructionPreview: text.slice(0, 200), to: clientEmail },
+    });
+
+    logAiAudit(dossier, {
+      action: "STAFF_DIRECTIVE",
+      channel: options?.channel || "telegram",
+      actor: "Camille",
+      outcome: "sent",
+      model: "gemini-2.5-flash",
+      summary,
+      instructionPreview: text.slice(0, 300),
+      meta: { to: clientEmail, subject },
     });
 
     void import("./telegramNotify")

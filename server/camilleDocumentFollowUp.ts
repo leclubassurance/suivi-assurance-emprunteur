@@ -223,6 +223,19 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
             }),
           )
           .catch(() => undefined);
+        void import("./aiAuditLog")
+          .then(({ logAiAudit }) =>
+            logAiAudit(existing, {
+              action: "DOC_FOLLOWUP",
+              channel: "email",
+              actor: "Camille",
+              outcome: "sent",
+              model: "gemini-2.5-flash",
+              summary: "Relance documents (problème certain).",
+              meta: { to: clientEmail, subject },
+            }),
+          )
+          .catch(() => undefined);
       } else {
         addEvent(existing, {
           type: "EMAIL_FAILED",

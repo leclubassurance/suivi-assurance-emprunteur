@@ -1,6 +1,7 @@
 import { Dossier, addEvent } from "./dossierModel";
 import { detectMissingDocs, getPrimaryClientEmail, isDossierStale } from "./rules";
 import { templateMissingDocsFollowup, templateGenericFollowup } from "./emailTemplates";
+import { canScheduleClientReminder } from "./smartReminders";
 
 export type NextAction =
   | {
@@ -35,27 +36,54 @@ export function proposeNextActions(dossier: Dossier): NextAction[] {
 
   const missing = detectMissingDocs(dossier);
   if (missing.length > 0 && isDossierStale(dossier, 7)) {
-    actions.push({
-      kind: "SEND_EMAIL",
-      template: "FOLLOWUP_MISSING_DOCS",
-      to,
-      subject: `Documents manquants — Dossier ${dossier.id}`,
-      html: templateMissingDocsFollowup(dossier, missing),
-      auto: true,
-      reason: "Pièces bloquantes manquantes + dossier inactif >7j.",
-    });
+    const gate = canScheduleClientReminder(dossier, "FOLLOWUP_MISSING_DOCS");
+    if (gate.ok) {
+      actions.push({
+        kind: "SEND_EMAIL",
+        template: "FOLLOWUP_MISSING_DOCS",
+        to,
+        subject: `Documents manquants — Dossier ${dossier.id}`,
+        html: templateMissingDocsFollowup(dossier, missing),
+        auto: true,
+        reason: "Pièces bloquantes manquantes + dossier inactif >7j.",
+      });
+    } else {
+      actions.push({
+        kind: "ALERT",
+        title: "Relance pièces (suspendue)",
+        detail: gate.reason || "",
+        severity: "info",
+        auto: false,
+        reason: gate.reason || "Relance pièces non recommandée.",
+      });
+    }
   }
 
   if (missing.length === 0 && dossier.status === "EN_ATTENTE_CLIENT" && isDossierStale(dossier, 10)) {
-    actions.push({
-      kind: "SEND_EMAIL",
-      template: "FOLLOWUP_NO_REPLY",
-      to,
-      subject: `Relance — Dossier ${dossier.id}`,
-      html: templateGenericFollowup(dossier, "Nous revenons vers vous pour savoir si vous avez pu avancer sur votre dossier. Vous pouvez répondre directement à ce mail."),
-      auto: false,
-      reason: "Attente client >10j (mode assisté).",
-    });
+    const gate = canScheduleClientReminder(dossier, "FOLLOWUP_NO_REPLY");
+    if (gate.ok) {
+      actions.push({
+        kind: "SEND_EMAIL",
+        template: "FOLLOWUP_NO_REPLY",
+        to,
+        subject: `Relance — Dossier ${dossier.id}`,
+        html: templateGenericFollowup(
+          dossier,
+          "Nous revenons vers vous pour savoir si vous avez pu avancer sur votre dossier. Vous pouvez répondre directement à ce mail.",
+        ),
+        auto: false,
+        reason: "Attente client >10j (mode assisté).",
+      });
+    } else {
+      actions.push({
+        kind: "ALERT",
+        title: "Relance sans réponse (suspendue)",
+        detail: gate.reason || "",
+        severity: "info",
+        auto: false,
+        reason: gate.reason || "Relance non recommandée.",
+      });
+    }
   }
 
   if (actions.length === 0) {

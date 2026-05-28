@@ -6,6 +6,12 @@ import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
 import { computeDocumentChecklist } from "../../lib/documentChecklist";
 import { QUALITE_OPTIONS, STATUT_PRO_OPTIONS, PROFESSION_RISQUE_OPTIONS, DEPLACEMENTS_PRO_OPTIONS } from "../../constants";
+import {
+  AdminActivityBar,
+  AdminWorkQueuePanel,
+  AdminCamillePanel,
+  useAdminOpsData,
+} from "./AdminOpsPanel";
 
 export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onLogout: () => void; }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
@@ -25,6 +31,8 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const [previewActive, setPreviewActive] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
+  const [sidebarMode, setSidebarMode] = useState<"dossiers" | "queue">("queue");
+  const { metrics } = useAdminOpsData();
   const [driveDiagnostic, setDriveDiagnostic] = useState<{
     summary: string;
     parentOk: boolean;
@@ -510,6 +518,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      <AdminActivityBar metrics={metrics} />
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center">
         <h1 className="text-xl font-bold flex items-center gap-4">
           Espace conseiller — Assurance emprunteur
@@ -540,6 +549,33 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <div className="w-1/3 max-w-sm bg-white border-r border-slate-200 flex flex-col">
+          <div className="flex border-b">
+            <button
+              type="button"
+              onClick={() => setSidebarMode("queue")}
+              className={`flex-1 py-2 text-xs font-black ${sidebarMode === "queue" ? "bg-amber-50 text-amber-900 border-b-2 border-amber-500" : "text-slate-500"}`}
+            >
+              À traiter
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarMode("dossiers")}
+              className={`flex-1 py-2 text-xs font-black ${sidebarMode === "dossiers" ? "bg-indigo-50 text-indigo-900 border-b-2 border-indigo-500" : "text-slate-500"}`}
+            >
+              Tous les dossiers
+            </button>
+          </div>
+          {sidebarMode === "queue" ? (
+            <AdminWorkQueuePanel
+              selectedId={selectedDossier?.id}
+              onSelect={(id) => {
+                const d = dossiers.find((x) => x.id === id);
+                if (d) setSelectedDossier(d);
+                setSidebarMode("dossiers");
+              }}
+            />
+          ) : (
+            <>
           <div className="p-4 border-b border-slate-100">
             <div className="flex gap-2 items-center bg-slate-100 p-2 rounded-lg">
               <Search className="w-4 h-4 text-slate-400" />
@@ -566,6 +602,8 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
               </div>
             ))}
           </div>
+            </>
+          )}
         </div>
 
         {/* Main Workspace */}
@@ -657,13 +695,11 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     <h3 className="font-bold mb-4 text-slate-800 flex items-center gap-2">
                       <ListTodo className="w-4 h-4 text-indigo-600" /> Checklist & notes
                     </h3>
+                    <AdminCamillePanel dossier={selectedDossier} />
                     <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
-                      <div className="font-black mb-1">Assistante IA (Camille)</div>
+                      <div className="font-black mb-1">Automatisation Gmail</div>
                       <p>
-                        Répond automatiquement aux emails clients (pièces manquantes, questions simples).
-                        Sur Railway : <code className="bg-white px-1 rounded">GEMINI_API_KEY</code> +{" "}
-                        <code className="bg-white px-1 rounded">AI_AUTO_REPLY_ENABLED=true</code>.
-                        Déconnectez/reconnectez Google après mise à jour.
+                        Camille répond aux clients ; les relances respectent un délai anti-spam (pas de doublon si contact récent).
                       </p>
                     </div>
                     <div className="flex gap-3 flex-wrap mb-4">
