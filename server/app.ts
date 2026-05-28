@@ -257,8 +257,23 @@ export function createApp() {
         message: "Dossier créé via formulaire client.",
       });
 
-      const { ensureClientPortalToken, getClientPortalAbsoluteUrl } = await import("./clientPortal");
+      const {
+        ensureClientPortalToken,
+        getClientPortalAbsoluteUrl,
+        resolvePublicAppBaseUrl,
+        buildClientPortalEmailCtaHtml,
+      } = await import("./clientPortal");
       const portalToken = ensureClientPortalToken(newDossier);
+      const portalBase = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      const portalUrlForEmail = getClientPortalAbsoluteUrl(portalToken, portalBase);
+      const portalCtaHtml = buildClientPortalEmailCtaHtml(portalUrlForEmail);
+      if (!portalCtaHtml) {
+        appendLog(
+          `[Email] Lien suivi client absent du mail de confirmation (${newDossier.id}) : définir PUBLIC_APP_URL sur Railway.`,
+        );
+      }
 
       const t0 = Date.now();
       scheduleTask(newDossier, {
@@ -366,6 +381,7 @@ export function createApp() {
       <p style="font-size:14px;margin:0 0 18px 0;color:#374151;">
         Notre équipe vous revient sous 48h ouvrées.
       </p>
+      ${portalCtaHtml}
       <p style="font-size:14px;margin:18px 0 0 0;color:#111827;">Bien cordialement,<br/>
         <strong>Charles Victor</strong><br/>
         <span style="color:#6B7280;">Le Club Immobilier Français</span>
@@ -697,11 +713,10 @@ export function createApp() {
           );
         });
 
-      const origin = String(req.headers.origin || req.headers.referer || "").replace(/\/$/, "");
-      const portalUrl = getClientPortalAbsoluteUrl(
-        portalToken,
-        origin || process.env.PUBLIC_APP_URL || process.env.RAILWAY_PUBLIC_DOMAIN,
-      );
+      const portalUrl =
+        portalUrlForEmail.startsWith("http")
+          ? portalUrlForEmail
+          : getClientPortalAbsoluteUrl(portalToken, portalBase);
       res.json({ success: true, dossierId: newDossier.id, portalUrl, portalToken });
     } catch (error: any) {
       appendLog(`Erreur de création de dossier : ${error.stack || error.message || error}`);
@@ -1470,6 +1485,16 @@ export function createApp() {
     const db = await readDBAsync();
     const periodDays = Number(req.query.days || 7);
     const { computeActivityMetrics } = await import("./activityMetrics");
+    let kpiBackfilled = 0;
+    for (const d of db.dossiers) {
+      if (!d.studyKpi?.extractedAt) {
+        const { refreshStudyKpiFromCommunications } = await import("./studyEmailKpi");
+        if (refreshStudyKpiFromCommunications(d)) kpiBackfilled += 1;
+      }
+    }
+    if (kpiBackfilled > 0) {
+      await writeDB(db);
+    }
     res.json(computeActivityMetrics(db.dossiers, periodDays));
   });
 

@@ -64,6 +64,9 @@ export function buildCamilleAdminContext(dossier: Dossier) {
           : "Docs prêt : reçus (vérif. ou format)",
       loan.needsResubmit ? "Docs prêt : scan/photo à refaire" : "Format docs : OK",
       studySent ? `Étude envoyée (portail client : ${portalKey})` : "Étude : pas encore envoyée",
+      dossier.studyKpi
+        ? `KPI mail étude : ${dossier.studyKpi.grossSavingsEur} € économie brute · ${dossier.studyKpi.feesCourtageEur} € courtage · prêt ${dossier.studyKpi.loanCapitalEur} €`
+        : null,
       getLastStudyOutbound(dossier)
         ? `Dernier mail étude : ${getLastStudyOutbound(dossier)!.subject.slice(0, 70)}`
         : null,

@@ -103,6 +103,19 @@ export interface Dossier {
     subject?: string | null;
     html?: string | null;
   };
+  /** KPI extraits du mail d'étude HTML (sync Gmail sortant). */
+  studyKpi?: {
+    grossSavingsEur: number;
+    feesCourtageEur: number;
+    feesAssureurEur?: number;
+    loanCapitalEur: number;
+    scenario?: "A" | "B" | "C";
+    confidence: "high" | "medium" | "low";
+    source: "gmail_outbound";
+    gmailId: string;
+    extractedAt: string;
+    subject?: string;
+  };
   clientPortal?: {
     token: string;
     createdAt: string;
@@ -147,6 +160,7 @@ export function ensureDossierShape(d: any): Dossier {
     camilleEscalation: d.camilleEscalation,
     camilleStaffHandledUntil: d.camilleStaffHandledUntil,
     studyDraft: d.studyDraft,
+    studyKpi: d.studyKpi,
     clientPortal: d.clientPortal,
     camilleTelegramStaff: d.camilleTelegramStaff,
     remiQueue: d.remiQueue,

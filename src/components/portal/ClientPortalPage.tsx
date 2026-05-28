@@ -50,7 +50,7 @@ export default function ClientPortalPage({ token }: { token: string }) {
 
   return (
     <div className="min-h-[100dvh] bg-[#f8f9fb] flex flex-col items-center justify-center py-10 px-4">
-      <ClientPortalContent data={data} />
+      <ClientPortalContent data={data} portalUrl={typeof window !== "undefined" ? window.location.href : undefined} />
     </div>
   );
 }

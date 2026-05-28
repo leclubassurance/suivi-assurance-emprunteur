@@ -1,6 +1,7 @@
 import type { Dossier } from "./dossierModel";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
+import { formatEurKpi, getLoanCapitalFromDossier } from "./studyEmailKpi";
 
 export type ActivityMetrics = {
   periodDays: number;
@@ -14,6 +15,13 @@ export type ActivityMetrics = {
   avgDaysToFirstOutbound: number | null;
   loanDocsOkRate: number;
   certainDocProblemCount: number;
+  studiesWithKpi: number;
+  totalEconomiesRealiseesEur: number;
+  totalEconomiesRealiseesLabel: string;
+  totalMontantPretsAccompagnesEur: number;
+  totalMontantPretsAccompagnesLabel: string;
+  totalGainsFraisCourtageEur: number;
+  totalGainsFraisCourtageLabel: string;
 };
 
 function daysSince(iso?: string) {
@@ -31,6 +39,10 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
   let camilleReplies7d = 0;
   let loanDocsOk = 0;
   let certainDocProblemCount = 0;
+  let studiesWithKpi = 0;
+  let totalEconomiesRealiseesEur = 0;
+  let totalMontantPretsAccompagnesEur = 0;
+  let totalGainsFraisCourtageEur = 0;
   const firstOutboundDays: number[] = [];
 
   for (const d of dossiers) {
@@ -55,6 +67,18 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
     const amort = ctx.find((x) => x.key === "amort")?.ok;
     if (offre && amort) loanDocsOk += 1;
     if (assessCertainLoanDocProblems(d).certain) certainDocProblemCount += 1;
+
+    const kpi = d.studyKpi;
+    if (kpi?.extractedAt && new Date(kpi.extractedAt).getTime() >= cutoff) {
+      studiesWithKpi += 1;
+      if (Number(kpi.grossSavingsEur) > 0) {
+        totalEconomiesRealiseesEur += Number(kpi.grossSavingsEur) || 0;
+      }
+      const loan =
+        Number(kpi.loanCapitalEur) > 0 ? Number(kpi.loanCapitalEur) : getLoanCapitalFromDossier(d);
+      if (loan > 0) totalMontantPretsAccompagnesEur += loan;
+      totalGainsFraisCourtageEur += Number(kpi.feesCourtageEur) || 0;
+    }
 
     const outbounds = [...(d.communications || [])]
       .filter((c: any) => c.direction === "outbound")
@@ -84,5 +108,12 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
     avgDaysToFirstOutbound,
     loanDocsOkRate: Math.round((loanDocsOk / total) * 100),
     certainDocProblemCount,
+    studiesWithKpi,
+    totalEconomiesRealiseesEur: Math.round(totalEconomiesRealiseesEur),
+    totalEconomiesRealiseesLabel: formatEurKpi(totalEconomiesRealiseesEur),
+    totalMontantPretsAccompagnesEur: Math.round(totalMontantPretsAccompagnesEur),
+    totalMontantPretsAccompagnesLabel: formatEurKpi(totalMontantPretsAccompagnesEur),
+    totalGainsFraisCourtageEur: Math.round(totalGainsFraisCourtageEur),
+    totalGainsFraisCourtageLabel: formatEurKpi(totalGainsFraisCourtageEur),
   };
 }

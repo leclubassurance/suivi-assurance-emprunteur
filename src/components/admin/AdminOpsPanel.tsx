@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Clock, Eye } from "lucide-react";
+import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Clock, Eye, Euro, Landmark, Wallet } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
 import type { Dossier } from "../../types";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
@@ -25,6 +25,10 @@ type Metrics = {
   camilleReplies7d: number;
   loanDocsOkRate: number;
   certainDocProblemCount: number;
+  studiesWithKpi: number;
+  totalEconomiesRealiseesLabel: string;
+  totalMontantPretsAccompagnesLabel: string;
+  totalGainsFraisCourtageLabel: string;
 };
 
 const priorityStyle: Record<string, string> = {
@@ -37,6 +41,9 @@ const priorityStyle: Record<string, string> = {
 export function AdminActivityBar({ metrics }: { metrics: Metrics | null }) {
   if (!metrics) return null;
   const cards = [
+    { label: "Économies présentées", value: metrics.totalEconomiesRealiseesLabel, icon: Euro },
+    { label: "Prêts accompagnés", value: metrics.totalMontantPretsAccompagnesLabel, icon: Landmark },
+    { label: "Frais de courtage", value: metrics.totalGainsFraisCourtageLabel, icon: Wallet },
     { label: "Nouveaux", value: metrics.newDossiers, icon: TrendingUp },
     { label: "Escalades", value: metrics.openEscalations, icon: AlertTriangle },
     { label: "Mails client (7j)", value: metrics.clientMessages7d, icon: Mail },
@@ -44,7 +51,7 @@ export function AdminActivityBar({ metrics }: { metrics: Metrics | null }) {
     { label: "PDF à refaire", value: metrics.certainDocProblemCount, icon: Clock },
   ];
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4 bg-slate-900 text-white">
+    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 p-4 bg-slate-900 text-white">
       {cards.map((c) => (
         <div key={c.label} className="rounded-xl bg-white/10 px-3 py-2">
           <div className="flex items-center gap-2 text-[10px] uppercase font-bold text-white/60">

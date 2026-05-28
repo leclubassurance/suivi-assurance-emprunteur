@@ -15,31 +15,40 @@ function extractEmail(fromRaw: string) {
   return (emailMatch ? emailMatch[1] : fromRaw).trim().toLowerCase();
 }
 
+function decodeEmailBodies(payload: any): { text: string; html: string } {
+  let text = "";
+  let html = "";
+
+  function walk(part: any) {
+    if (!part) return;
+    if (part.mimeType === "text/plain" && part.body?.data && !text) {
+      text = Buffer.from(part.body.data, "base64").toString("utf-8");
+    }
+    if (part.mimeType === "text/html" && part.body?.data) {
+      html = Buffer.from(part.body.data, "base64").toString("utf-8");
+    }
+    for (const child of part.parts || []) walk(child);
+  }
+
+  if (payload?.body?.data) {
+    const raw = Buffer.from(payload.body.data, "base64").toString("utf-8");
+    if (payload.mimeType === "text/html") html = raw;
+    else text = raw;
+  }
+  walk(payload);
+
+  if (!text && html) {
+    text = html
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return { text, html };
+}
+
 function decodeBody(payload: any): string {
-  if (!payload) return '';
-
-  if (payload.body?.data) {
-    return Buffer.from(payload.body.data, 'base64').toString('utf-8');
-  }
-
-  if (payload.parts?.length) {
-    for (const part of payload.parts) {
-      if (part.mimeType === 'text/plain' && part.body?.data) {
-        return Buffer.from(part.body.data, 'base64').toString('utf-8');
-      }
-    }
-    for (const part of payload.parts) {
-      if (part.mimeType === 'text/html' && part.body?.data) {
-        return Buffer.from(part.body.data, 'base64').toString('utf-8');
-      }
-    }
-    for (const part of payload.parts) {
-      const nested = decodeBody(part);
-      if (nested) return nested;
-    }
-  }
-
-  return '';
+  return decodeEmailBodies(payload).text;
 }
 
 function upsertCommunication(dossier: any, msg: any) {
@@ -326,7 +335,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
 
       if (!isFromClient && !isToClient) continue;
 
-      const text = decodeBody(payload);
+      const { text, html } = decodeEmailBodies(payload);
       const direction = isFromClient ? 'inbound' : 'outbound';
 
       let addedAttachments: any[] = [];
@@ -372,6 +381,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         to: isFromClient ? undefined : getDossierClientEmails(dossier)[0],
         subject,
         text,
+        html: html || undefined,
         attachments: addedAttachments.map((d) => ({ name: d.name, size: d.size })),
         date: msgDate,
       });
@@ -383,6 +393,18 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
           source: "gmail_sync_outbound",
           subject,
         });
+        try {
+          const { applyStudyKpiFromGmailOutbound } = await import("./studyEmailKpi");
+          applyStudyKpiFromGmailOutbound(dossier, {
+            subject,
+            html,
+            text,
+            gmailId: msgMeta.id,
+            date: msgDate,
+          });
+        } catch (kpiErr: any) {
+          console.warn(`[KPI] Extraction étude Gmail: ${kpiErr?.message || kpiErr}`);
+        }
         const { hasStudyBeenSent } = await import("./dossierLifecycle");
         if (
           hasStudyBeenSent(dossier) &&

@@ -28,13 +28,44 @@ export function getClientPortalPublicPath(token: string) {
   return `/suivi/${token}`;
 }
 
+export function resolvePublicAppBaseUrl(fallbackOrigin?: string): string {
+  const raw =
+    process.env.PUBLIC_APP_URL ||
+    process.env.RAILWAY_PUBLIC_DOMAIN ||
+    fallbackOrigin ||
+    "";
+  const base = String(raw).trim().replace(/\/$/, "");
+  if (!base) return "";
+  return base.startsWith("http") ? base : `https://${base}`;
+}
+
 export function getClientPortalAbsoluteUrl(token: string, baseUrl?: string) {
-  const base = (baseUrl || process.env.PUBLIC_APP_URL || process.env.RAILWAY_PUBLIC_DOMAIN || "")
-    .toString()
-    .replace(/\/$/, "");
+  const base = resolvePublicAppBaseUrl(baseUrl);
   if (!base) return getClientPortalPublicPath(token);
-  const host = base.startsWith("http") ? base : `https://${base}`;
-  return `${host}${getClientPortalPublicPath(token)}`;
+  return `${base}${getClientPortalPublicPath(token)}`;
+}
+
+/** Bloc HTML pour le mail de confirmation de dépôt (lien page suivi client). */
+export function buildClientPortalEmailCtaHtml(portalUrl: string): string {
+  if (!portalUrl.startsWith("http")) return "";
+
+  const safeUrl = portalUrl.replace(/"/g, "&quot;");
+  return `
+      <div style="margin:0 0 20px 0;padding:16px 18px;background-color:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;">
+        <p style="font-size:14px;margin:0 0 10px 0;color:#1E3A8A;font-weight:600;">
+          Suivez l'avancement de votre demande en ligne
+        </p>
+        <p style="font-size:13px;margin:0 0 14px 0;color:#374151;line-height:1.55;">
+          Consultez à tout moment les étapes de votre dossier (documents reçus, préparation de l'étude, envoi par email).
+          Ce lien personnel vous est réservé — aucun mot de passe n'est nécessaire.
+        </p>
+        <a href="${safeUrl}" style="display:inline-block;background-color:#1E3A8A;color:#FFFFFF;font-size:14px;font-weight:700;text-decoration:none;padding:12px 22px;border-radius:10px;">
+          Voir l'avancement de mon dossier
+        </a>
+        <p style="font-size:11px;margin:14px 0 0 0;color:#6B7280;line-height:1.5;word-break:break-all;">
+          Lien de suivi : <a href="${safeUrl}" style="color:#1E40AF;text-decoration:underline;">${safeUrl}</a>
+        </p>
+      </div>`;
 }
 
 export function findDossierByPortalToken(dossiers: Dossier[], token: string): Dossier | null {

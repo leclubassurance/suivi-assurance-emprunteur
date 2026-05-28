@@ -76,12 +76,12 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
           <div className="mb-6 text-left">
             <a
               href={data.portalUrl}
-              className="block w-full py-4 bg-white hover:bg-slate-50 text-[#111318] border-2 border-slate-200 rounded-[20px] font-bold text-[15px] text-center transition-all"
+              className="block w-full py-4 bg-[#1E3A8A] hover:bg-[#172554] text-white rounded-[20px] font-bold text-[15px] text-center transition-all shadow-sm"
             >
               Consulter l&apos;avancement de mon dossier
             </a>
             <p className="text-[12px] text-slate-400 mt-2 leading-relaxed text-center px-2">
-              Page personnelle et confidentielle — conservez ce lien (aucun mot de passe).
+              Même lien dans votre email de confirmation — page personnelle, sans mot de passe.
             </p>
           </div>
         )}
