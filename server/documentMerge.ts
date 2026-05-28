@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { classifyFileName, inferDocumentCategory, type DocumentCategory } from "../shared/documentClassifier";
+import { assessDocumentQuality } from "../shared/documentQuality";
 
 function newDocId(category: DocumentCategory | null, fallbackPrefix = "doc") {
   const prefix = category && category !== "autre" ? category : fallbackPrefix;
@@ -65,6 +66,12 @@ export function mergeFormDocumentsWithUploads(
       localPath: f.path,
       source: meta?.source || "form",
       uploadedAt: meta?.uploadedAt || new Date().toISOString(),
+      quality: assessDocumentQuality({
+        name: f.originalname,
+        size: f.size,
+        type: f.mimetype,
+        category: category || undefined,
+      }),
     };
   });
 }

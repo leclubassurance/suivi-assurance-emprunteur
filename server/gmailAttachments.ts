@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { gmail_v1 } from 'googleapis';
 import { classifyFileName, type DocumentCategory } from '../shared/documentClassifier';
+import { assessDocumentQuality } from '../shared/documentQuality';
 
 export function getUploadsBaseDir() {
   if (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT) {
@@ -21,6 +22,7 @@ export type SavedGmailAttachment = {
   gmailMessageId?: string;
   driveFileId?: string;
   driveLink?: string;
+  quality?: { ok: boolean; reasons: string[]; confidence?: string };
 };
 
 type CollectedPart = {
@@ -177,6 +179,12 @@ export async function downloadGmailAttachments(
         localPath,
         source: 'gmail',
         gmailMessageId: messageId,
+        quality: assessDocumentQuality({
+          name: part.filename,
+          size: buf.length,
+          type: part.mimeType,
+          category: category || undefined,
+        }),
       };
 
       if (driveFolderId) {

@@ -41,12 +41,18 @@ export function buildCamilleContextBlock(dossier: any, newAttachmentNames: strin
   const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
   const missingBlocking = checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib"));
   const loanDocs = checklist.filter((c) => c.key === "offre" || c.key === "amort");
+  const docs = (dossier.formData?.documents || []) as any[];
+  const qualityIssues = docs
+    .filter((d) => d?.quality && d.quality.ok === false)
+    .map((d) => `${d.name || d.id}: ${(d.quality.reasons || []).join(", ")}`)
+    .slice(0, 6);
 
   return {
     checklist,
     missingBlocking,
     loanDocsOk: loanDocs.every((c) => c.ok),
     newAttachmentNames,
+    qualityIssues,
     documentSummary: checklist
       .map((c) => {
         const files = c.matchedFiles?.length ? ` (${c.matchedFiles.join(", ")})` : "";
