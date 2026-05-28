@@ -142,6 +142,7 @@ export function createApp() {
     },
   });
   const upload = multer({ storage });
+  const quoteUpload = multer({ storage });
 
   // --- API ROUTES ---
 
@@ -276,21 +277,32 @@ export function createApp() {
       if (toEmail) {
         const confirmationSubject = `Confirmation de réception - Dossier N° ${newDossier.id}`;
         const confirmationHtml = `
-<div style="font-family: Arial, sans-serif; color: #1E3A8A; max-width: 600px; margin: 0 auto; border: 1px solid #EFF6FF; padding: 20px; border-radius: 8px;">
-  <img src="https://res.cloudinary.com/dji8akleo/image/upload/v1772999309/5_yn8wfm.png" alt="Le Club Immobilier Français" style="max-width: 150px; margin-bottom: 20px;" />
-  <h2 style="color: #1E3A8A; font-size: 18px; margin-top: 0;">Bonjour ${clientName},</h2>
-  <p style="font-size: 14px; color: #334155; line-height: 1.5; margin-bottom: 15px;">
-    Nous avons bien reçu votre dossier d'assurance emprunteur sous le numéro <strong>${newDossier.id}</strong>.
-  </p>
-  <p style="font-size: 14px; color: #334155; line-height: 1.5; margin-bottom: 20px;">
-    Notre équipe vous revient sous 48h ouvrées.
-  </p>
-  <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #EFF6FF;">
-    <p style="font-size: 14px; color: #1E3A8A; font-weight: bold; margin: 0;">Charles Victor</p>
-    <p style="font-size: 12px; color: #64748B; margin: 2px 0 0 0;">Le Club Immobilier Français</p>
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background-color:#F8FAFC;color:#1F2937;line-height:1.6;">
+  <div style="max-width:640px;margin:0 auto;background-color:#FFFFFF;border:1px solid #E5E7EB;">
+    <div style="background-color:#1E3A8A;padding:24px 20px;text-align:center;">
+      <img src="https://res.cloudinary.com/dji8akleo/image/upload/v1772999309/5_yn8wfm.png" alt="Le Club Immobilier Français" style="max-width:180px;height:auto;display:inline-block;" />
+    </div>
+    <div style="padding:24px 22px;">
+      <p style="font-size:16px;margin:0 0 14px 0;color:#111827;"><strong>Bonjour ${clientName},</strong></p>
+      <p style="font-size:14px;margin:0 0 12px 0;color:#374151;">
+        Nous avons bien reçu votre dossier d'assurance emprunteur sous le numéro <strong>${newDossier.id}</strong>.
+      </p>
+      <p style="font-size:14px;margin:0 0 18px 0;color:#374151;">
+        Notre équipe vous revient sous 48h ouvrées.
+      </p>
+      <p style="font-size:14px;margin:18px 0 0 0;color:#111827;">Bien cordialement,<br/>
+        <strong>Charles Victor</strong><br/>
+        <span style="color:#6B7280;">Le Club Immobilier Français</span>
+      </p>
+    </div>
+    <div style="background-color:#F8FAFC;padding:16px 22px;border-top:1px solid #E5E7EB;">
+      <p style="font-size:11px;margin:0;color:#9CA3AF;line-height:1.5;">
+        Le Club Immobilier Français — 17 Passage Leroy, 44000 Nantes<br/>
+        N° ORIAS : 24002253
+      </p>
+    </div>
   </div>
-</div>
-        `;
+</div>`;
         if (latestAccessToken) {
           sendEmailReplyWithGmailAPI(
             latestAccessToken,
@@ -807,6 +819,90 @@ export function createApp() {
     }
 
     res.json({ success: true, computation: comp, draft });
+  });
+
+  // Upload/replace a single active quote ("devis") PDF for the dossier (admin only workflow)
+  app.post("/api/admin/dossiers/:id/quote", quoteUpload.single("quote"), async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id } = req.params;
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) return res.status(400).json({ error: "Missing quote file" });
+
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    if (!dossier.formData) dossier.formData = {};
+    if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
+
+    // Remove existing active quote docs (single active)
+    dossier.formData.documents = dossier.formData.documents.filter((d: any) => d?.category !== "devis");
+
+    const doc = {
+      id: `devis-${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      category: "devis",
+      name: file.originalname,
+      size: file.size,
+      type: file.mimetype,
+      localPath: file.path,
+      source: "admin",
+      uploadedAt: new Date().toISOString(),
+    };
+
+    // Move under dossier folder
+    try {
+      const dossierDir = path.join(UPLOADS_DIR, dossier.id);
+      if (!fs.existsSync(dossierDir)) fs.mkdirSync(dossierDir, { recursive: true });
+      const base = path.basename(doc.localPath);
+      const nextPath = path.join(dossierDir, base);
+      if (doc.localPath !== nextPath && fs.existsSync(doc.localPath)) {
+        fs.renameSync(doc.localPath, nextPath);
+        doc.localPath = nextPath;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    dossier.formData.documents.push(doc);
+
+    // Upload to Drive if folder exists (best effort) using OAuth server token
+    try {
+      if (dossier.workspaceFolderId) {
+        const { getServerAccessToken } = await import("./googleOAuthServer");
+        const { uploadBufferToDriveFolder } = await import("./gmailDriveUpload");
+        const buf = fs.readFileSync(doc.localPath);
+        const uploaded = await uploadBufferToDriveFolder(
+          dossier.workspaceFolderId,
+          doc.name,
+          doc.type || "application/pdf",
+          buf,
+          await getServerAccessToken(),
+        );
+        if (uploaded) {
+          (doc as any).driveFileId = uploaded.fileId;
+          (doc as any).driveLink = uploaded.webViewLink || undefined;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    await writeDB(db, dossier);
+    res.json({ success: true, dossier });
+  });
+
+  // Delete active quote ("devis")
+  app.delete("/api/admin/dossiers/:id/quote", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id } = req.params;
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    if (!dossier.formData) dossier.formData = {};
+    if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
+    dossier.formData.documents = dossier.formData.documents.filter((d: any) => d?.category !== "devis");
+    await writeDB(db, dossier);
+    res.json({ success: true, dossier });
   });
 
   app.post("/api/admin/run-scheduler", async (_req, res) => {

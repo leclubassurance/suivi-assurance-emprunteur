@@ -276,7 +276,8 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
       const labelIds = msgRes.data.labelIds || [];
       const isSentByMe = labelIds.includes('SENT');
 
-      const dossier = findDossierForInboundMessage(db, senderEmail, subject);
+      const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
+      const dossier = findDossierForInboundMessage(db, senderEmail, subject, msgDate);
       if (!dossier) continue;
 
       const dossierEmails = getDossierClientEmails(dossier);
@@ -332,7 +333,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         subject,
         text,
         attachments: addedAttachments.map((d) => ({ name: d.name, size: d.size })),
-        date: new Date(Number(msgRes.data.internalDate || Date.now())).toISOString(),
+        date: msgDate,
       });
 
       if (isFromClient) {

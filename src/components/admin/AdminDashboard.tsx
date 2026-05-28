@@ -176,6 +176,45 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleUploadQuote = async (file: File) => {
+    if (!selectedDossier) return;
+    try {
+      const fd = new FormData();
+      fd.append("quote", file);
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/quote`), {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Erreur upload devis", "error");
+        return;
+      }
+      showToast("Devis ajouté (1 seul actif).", "success");
+      loadDossiers();
+    } catch {
+      showToast("Erreur upload devis", "error");
+    }
+  };
+
+  const handleDeleteQuote = async () => {
+    if (!selectedDossier) return;
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/quote`), {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Erreur suppression devis", "error");
+        return;
+      }
+      showToast("Devis supprimé.", "success");
+      loadDossiers();
+    } catch {
+      showToast("Erreur suppression devis", "error");
+    }
+  };
+
   const handleSyncGmail = async () => {
     const token = await getAccessToken();
     if (!token) {
@@ -1086,6 +1125,31 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                   <h3 className="font-bold flex gap-2 items-center mb-6 text-slate-800">
                     <FileText className="w-5 h-5 text-indigo-600"/> Documents joints
                   </h3>
+                  <div className="mb-5 flex flex-col gap-2">
+                    <div className="text-xs font-bold text-slate-600 uppercase tracking-wide">Devis (1 actif)</div>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleUploadQuote(f);
+                          e.currentTarget.value = "";
+                        }}
+                        className="text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleDeleteQuote}
+                        className="text-xs font-bold text-slate-600 hover:text-slate-900"
+                      >
+                        Supprimer le devis
+                      </button>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Ajoutez ici le PDF Kieris. Il servira au calcul auto et au contexte interne de Camille (sans citer l’assureur).
+                    </div>
+                  </div>
                   <div className="space-y-3">
                     {selectedDossier.formData?.documents?.length ? (
                       selectedDossier.formData.documents.map((doc, idx) => (

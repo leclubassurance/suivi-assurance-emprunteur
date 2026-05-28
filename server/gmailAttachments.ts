@@ -283,6 +283,7 @@ export function findDossierForInboundMessage(
   db: { dossiers: any[] },
   senderEmail: string,
   subject: string,
+  messageDate?: string,
 ): any | null {
   const lcif = subject.match(/LCIF-\d{6}/i)?.[0]?.toUpperCase();
   if (lcif) {
@@ -292,7 +293,28 @@ export function findDossierForInboundMessage(
 
   const matches = db.dossiers.filter((d) => getDossierClientEmails(d).includes(senderEmail));
   if (matches.length === 0) return null;
+
+  // Guardrail: never attach old emails to a newer dossier
+  // If the email doesn't contain LCIF-XXXXXX, we only match dossiers created "before" the message date.
+  const msgTs = messageDate ? new Date(messageDate).getTime() : NaN;
+  if (Number.isFinite(msgTs)) {
+    const eligible = matches.filter((d) => {
+      const createdTs = new Date(d.createdAt || 0).getTime();
+      // allow small negative drift (clock/headers), but block large history
+      return createdTs <= msgTs + 6 * 3600 * 1000;
+    });
+    if (eligible.length > 0) {
+      // choose the dossier whose createdAt is closest to (but not after) the message
+      return eligible.sort((a, b) => {
+        const da = Math.abs(msgTs - new Date(a.createdAt || 0).getTime());
+        const dbb = Math.abs(msgTs - new Date(b.createdAt || 0).getTime());
+        return da - dbb;
+      })[0];
+    }
+    return null;
+  }
+
   return matches.sort(
-    (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime(),
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )[0];
 }
