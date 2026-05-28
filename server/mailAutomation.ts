@@ -5,7 +5,7 @@ import { hasServerOAuthRefreshToken, getServerAccessToken } from "./googleOAuthS
 import {
   collectAttachmentParts,
   downloadGmailAttachments,
-  findDossierForInboundMessage,
+  findDossierForGmailMessage,
   getDossierClientEmails,
   mergeDocumentsIntoDossier,
 } from './gmailAttachments';
@@ -311,7 +311,13 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
       const isSentByMe = labelIds.includes('SENT');
 
       const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
-      const dossier = findDossierForInboundMessage(db, senderEmail, subject, msgDate);
+      const dossier = findDossierForGmailMessage(db, {
+        senderEmail,
+        toRaw,
+        subject,
+        messageDate: msgDate,
+        isSentByMe,
+      });
       if (!dossier) continue;
 
       const dossierEmails = getDossierClientEmails(dossier);
@@ -369,6 +375,15 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         attachments: addedAttachments.map((d) => ({ name: d.name, size: d.size })),
         date: msgDate,
       });
+
+      if (isSentByMe && isToClient && !isFromClient) {
+        const { acknowledgeStaffOutboundToClient } = await import("./camilleStaffHandoff");
+        acknowledgeStaffOutboundToClient(dossier, {
+          gmailId: msgMeta.id,
+          source: "gmail_sync_outbound",
+          subject,
+        });
+      }
 
       if (isFromClient) {
         inboundCount++;

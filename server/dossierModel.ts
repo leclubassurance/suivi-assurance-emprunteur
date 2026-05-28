@@ -85,7 +85,11 @@ export interface Dossier {
     remiNotifiedAt?: string;
     clientNotifiedAt?: string;
     followUpScheduledAt?: string;
+    resolvedAt?: string;
+    resolvedBy?: string;
   };
+  /** Camille en mode soutien (ne pas contredire l'équipe) jusqu'à cette date ISO */
+  camilleStaffHandledUntil?: string;
   studyDraft?: {
     kind: string;
     computedAt: string;
@@ -122,6 +126,7 @@ export function ensureDossierShape(d: any): Dossier {
     notes: Array.isArray(d.notes) ? d.notes : [],
     processedGmailIds: Array.isArray(d.processedGmailIds) ? d.processedGmailIds : [],
     camilleEscalation: d.camilleEscalation,
+    camilleStaffHandledUntil: d.camilleStaffHandledUntil,
   };
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,

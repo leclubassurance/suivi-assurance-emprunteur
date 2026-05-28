@@ -846,6 +846,8 @@ export function createApp() {
       meta: { to: toEmail, subject, providerId, channel },
       message: `Email envoyé au client (${channel}).`,
     });
+    const { acknowledgeStaffOutboundToClient } = await import("./camilleStaffHandoff");
+    acknowledgeStaffOutboundToClient(dossier, { source: "admin_send_email", subject });
     await writeDB(db, dossier);
     return res.json({
       success: true,

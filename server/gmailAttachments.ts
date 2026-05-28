@@ -279,32 +279,24 @@ export function getDossierClientEmails(dossier: any): string[] {
   return [...emails];
 }
 
-export function findDossierForInboundMessage(
-  db: { dossiers: any[] },
-  senderEmail: string,
-  subject: string,
+function matchDossierByLcif(db: { dossiers: any[] }, subject: string) {
+  const lcif = subject.match(/LCIF-\d{6}/i)?.[0]?.toUpperCase();
+  if (!lcif) return null;
+  return db.dossiers.find((d) => String(d.id).toUpperCase() === lcif) || null;
+}
+
+function pickBestDossierForClient(
+  matches: any[],
   messageDate?: string,
 ): any | null {
-  const lcif = subject.match(/LCIF-\d{6}/i)?.[0]?.toUpperCase();
-  if (lcif) {
-    const byId = db.dossiers.find((d) => String(d.id).toUpperCase() === lcif);
-    if (byId) return byId;
-  }
-
-  const matches = db.dossiers.filter((d) => getDossierClientEmails(d).includes(senderEmail));
   if (matches.length === 0) return null;
-
-  // Guardrail: never attach old emails to a newer dossier
-  // If the email doesn't contain LCIF-XXXXXX, we only match dossiers created "before" the message date.
   const msgTs = messageDate ? new Date(messageDate).getTime() : NaN;
   if (Number.isFinite(msgTs)) {
     const eligible = matches.filter((d) => {
       const createdTs = new Date(d.createdAt || 0).getTime();
-      // allow small negative drift (clock/headers), but block large history
       return createdTs <= msgTs + 6 * 3600 * 1000;
     });
     if (eligible.length > 0) {
-      // choose the dossier whose createdAt is closest to (but not after) the message
       return eligible.sort((a, b) => {
         const da = Math.abs(msgTs - new Date(a.createdAt || 0).getTime());
         const dbb = Math.abs(msgTs - new Date(b.createdAt || 0).getTime());
@@ -313,8 +305,46 @@ export function findDossierForInboundMessage(
     }
     return null;
   }
-
   return matches.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )[0];
+}
+
+/** Email entrant client ou sortant assurance@ → client (sync Gmail). */
+export function findDossierForGmailMessage(
+  db: { dossiers: any[] },
+  params: {
+    senderEmail: string;
+    toRaw: string;
+    subject: string;
+    messageDate?: string;
+    isSentByMe: boolean;
+  },
+): any | null {
+  const byId = matchDossierByLcif(db, params.subject);
+  if (byId) return byId;
+
+  const toLc = String(params.toRaw || "").toLowerCase();
+
+  if (params.isSentByMe) {
+    const matches = db.dossiers.filter((d) =>
+      getDossierClientEmails(d).some((ce) => toLc.includes(ce)),
+    );
+    return pickBestDossierForClient(matches, params.messageDate);
+  }
+
+  return findDossierForInboundMessage(db, params.senderEmail, params.subject, params.messageDate);
+}
+
+export function findDossierForInboundMessage(
+  db: { dossiers: any[] },
+  senderEmail: string,
+  subject: string,
+  messageDate?: string,
+): any | null {
+  const byId = matchDossierByLcif(db, subject);
+  if (byId) return byId;
+
+  const matches = db.dossiers.filter((d) => getDossierClientEmails(d).includes(senderEmail));
+  return pickBestDossierForClient(matches, messageDate);
 }

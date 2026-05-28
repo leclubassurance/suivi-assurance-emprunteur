@@ -169,7 +169,12 @@ export function startScheduler() {
       gmailSyncInProgress = true;
       readDB()
         .then((db) => syncGmailInbox(null, db, processIncomingClientEmail))
-        .then(({ db }) => writeDB(db))
+        .then(({ db, inboundCount, aiReplies }) => {
+          if (inboundCount > 0 || aiReplies > 0) {
+            console.log(`[Gmail autosync] inbound=${inboundCount} aiReplies=${aiReplies}`);
+          }
+          return writeDB(db);
+        })
         .catch((err) => console.error("[Gmail autosync]", err?.message || err))
         .finally(() => {
           gmailSyncInProgress = false;

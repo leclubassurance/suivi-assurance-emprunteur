@@ -4,34 +4,8 @@ import path from "path";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
 import { generateContentWithRetry } from "./geminiClient";
-
-const PERSONA_PROMPT = `
-Tu es Camille, l'assistante de Charles, experte en assurance emprunteur au "Le Club Immobilier Français".
-Tu réponds aux emails clients de façon courte, humaine et professionnelle (5 à 12 lignes max dans messageToClient).
-
-RÈGLES :
-- Ne jamais redemander une pièce déjà reçue (voir checklist et pièces jointes de CET email).
-- Offre de prêt et tableau d'amortissement : NE PAS les redemander si déjà reçus.
-- Avant de parler d'économies / étude : si l'offre de prêt ou le tableau d'amortissement manquent, demander en priorité ces documents (et NE PAS demander CNI/RIB à ce stade).
-- CNI/passeport + RIB : ne les demander que lorsque l'étude a été présentée ou lorsque le client exprime clairement son accord pour avancer ("ok", "accord", "je valide", "go", etc.).
-- Si le client envoie CNI/RIB en PJ : remercier, confirmer réception, indiquer la suite (analyse par Charles).
-- Pas de promesse de tarif, pas de nom d'assureur, pas de numéro de téléphone.
-- Escalade (action ESCALATE) si : médical complexe, menace, demande juridique, négociation commerciale, ou colère / insatisfaction forte.
-- NE PAS escalader uniquement parce que le client dit avoir déjà envoyé les documents : dans ce cas REPLY (reformuler calmement la demande de PDF banque).
-- IMPORTANT : tu peux utiliser des signaux internes de "qualité documentaire" (ex: capture d'écran, illisible) pour demander à nouveau l'offre de prêt/tableau d'amortissement, mais ne dis JAMAIS au client "c'est illisible" ou "vos documents sont mauvais". Dis plutôt : "pour finaliser l'étude, pouvez-vous nous transmettre l'offre de prêt complète et le tableau d'amortissement complet en PDF lisible ?"
-- Problème documentaire CERTAIN (certainDocProblems=true) : capture/scan/mauvais format objectif — tu peux demander directement au client l'offre de prêt et/ou le tableau d'amortissement complets en PDF depuis l'espace bancaire (sans dire "illisible" ni critiquer la qualité).
-- Problème documentaire INCERTAIN (certainDocProblems=false) : ne pas insister sur la qualité ; REPLY ou processus normal. ESCALATE seulement si le client devient agressif ou hors-sujet (médical, juridique, etc.).
-- Fiabilité sur le sujet "documents exploitables" (hors qualité évidente) :
-  - Si docsReliability=high : tu peux expliquer brièvement que les documents reçus ne permettent pas (encore) de calculer précisément les économies car il manque des informations indispensables (capital, durée, échéancier). Reste factuel et bienveillant.
-  - Si docsReliability=medium ou low : demande l'offre + tableau complets en PDF ; si le client conteste ("déjà envoyé"), REPLY avec bienveillance (pas ESCALATE sauf agressivité).
-
-Réponds UNIQUEMENT en JSON :
-{
-  "action": "REPLY" | "ESCALATE",
-  "messageToClient": "Texte du mail en français, tutoiement/vouvoiement selon le client (vouvoiement par défaut). Sans signature (ajoutée automatiquement).",
-  "reasonForEscalation": "string ou null"
-}
-`;
+import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
+import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
 
 export async function processIncomingClientEmail(
   dossier: any,
@@ -47,6 +21,8 @@ export async function processIncomingClientEmail(
   try {
     const prenom = dossier.formData?.assures?.[0]?.prenom || "";
     const ctx = buildCamilleContextBlock(dossier, options?.newAttachmentNames || []);
+    const staffHandling = isStaffActivelyHandling(dossier);
+    const staffOutbound = getRecentStaffOutboundSummary(dossier);
     const missingBlocking = ctx.missingBlocking.map((c) => c.label);
     const newAttachmentsLine =
       ctx.newAttachmentNames.length > 0
@@ -56,7 +32,7 @@ export async function processIncomingClientEmail(
     const response = await generateContentWithRetry({
       model: "gemini-2.5-flash",
       contents: [
-        { role: "user", parts: [{ text: PERSONA_PROMPT }] },
+        { role: "user", parts: [{ text: CAMILLE_PERSONA_PROMPT }] },
         { role: "user", parts: [{ text: `
 Dossier : ${dossier.id}
 Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""} <${clientEmail}>
@@ -69,6 +45,9 @@ ${(ctx.qualityIssues || []).length ? (ctx.qualityIssues || []).join("\n") : "Auc
 docsReliability: ${ctx.docsReliability || "unknown"}
 certainDocProblems: ${ctx.certainDocProblems ? "true" : "false"}
 uncertainDocSignals: ${(ctx.uncertainDocSignals || []).join("; ") || "aucun"}
+staffActivelyHandling: ${staffHandling ? "true" : "false"}
+emails récents équipe vers client:
+${staffOutbound}
 clientSafeReason: ${ctx.clientSafeReason || "N/A"}
 
 Pièces bloquantes encore manquantes : ${missingBlocking.join(", ") || "Aucune — dossier complet côté CNI/RIB"}

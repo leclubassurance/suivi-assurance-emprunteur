@@ -153,6 +153,13 @@ export async function handleCamilleEscalation(params: {
     );
     if (remiSend?.ok) {
       notifiedRemi = true;
+      const { notifyEscalationSideChannels } = await import("./escalationAlerts");
+      void notifyEscalationSideChannels({
+        dossierId: dossier.id,
+        clientEmail,
+        reason: reason || "Escalade",
+        excerpt: String(clientMessageText || "").slice(0, 1500),
+      });
       addEvent(dossier, {
         type: "EMAIL_SENT",
         actor: { kind: "AI", label: "Camille" },
@@ -223,6 +230,14 @@ export async function sendEscalationReminderToRemi(dossier: Dossier, payload: Re
 
   const send = await sendGmail(null, remiTo, subject, html);
   if (send?.ok) {
+    const { notifyEscalationSideChannels } = await import("./escalationAlerts");
+    void notifyEscalationSideChannels({
+      dossierId: dossier.id,
+      clientEmail,
+      reason,
+      excerpt: String(payload?.excerpt || "—"),
+      reminder: true,
+    });
     addEvent(dossier, {
       type: "EMAIL_SENT",
       actor: { kind: "SYSTEM" },
