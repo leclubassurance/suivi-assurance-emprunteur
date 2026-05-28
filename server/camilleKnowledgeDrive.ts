@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
-import * as pdfParse from "pdf-parse";
 import { buildStaticCamilleKnowledgeBlock } from "../shared/lcifKnowledge";
+import { extractPdfTextFromBuffer } from "./pdfTextExtract";
 import { resolveDriveParentFolderId } from "./driveConfig";
 import { createDriveClient, resolveDriveAccessToken } from "./googleAutomation";
 import { downloadDriveFileToBuffer, uploadBufferToDriveFolder } from "./gmailDriveUpload";
@@ -258,9 +258,7 @@ async function extractTextFromBuffer(
 ): Promise<string> {
   const lower = name.toLowerCase();
   if (mimeType?.includes("pdf") || lower.endsWith(".pdf")) {
-    const fn = (pdfParse as any).default || (pdfParse as any);
-    const parsed = await fn(buf);
-    return String(parsed?.text || "").trim();
+    return extractPdfTextFromBuffer(buf);
   }
   if (lower.endsWith(".txt") || lower.endsWith(".md") || mimeType?.startsWith("text/")) {
     return buf.toString("utf-8").trim();

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
-import * as pdfParse from "pdf-parse";
 import { enrichLoanDocSignal, type LoanDocSignalShape } from "../shared/loanDocAnalysis";
+import { extractPdfTextFromBuffer } from "./pdfTextExtract";
 import { getHybridOcrMinTextChars, hybridOcrExtractText, isHybridOcrEnabled } from "./documentHybridOcr";
 
 export type LoanDocSignal = LoanDocSignalShape;
@@ -25,9 +25,7 @@ function isImagePath(localPath: string, mimeType?: string) {
 }
 
 async function extractNativePdfText(buf: Buffer): Promise<string> {
-  const fn = (pdfParse as any).default || (pdfParse as any);
-  const data = await fn(buf);
-  return String(data.text || "");
+  return extractPdfTextFromBuffer(buf);
 }
 
 export function classifyLoanDocText(

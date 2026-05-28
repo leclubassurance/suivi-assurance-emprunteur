@@ -1,5 +1,5 @@
 import fs from "fs";
-import * as pdfParse from "pdf-parse";
+import { extractPdfTextFromBuffer } from "./pdfTextExtract";
 
 export type EconomyReliability = "HIGH" | "MEDIUM" | "LOW";
 
@@ -45,9 +45,7 @@ function norm(s: string) {
 async function extractPdfText(localPath?: string): Promise<string> {
   if (!localPath || !fs.existsSync(localPath)) return "";
   const buf = fs.readFileSync(localPath);
-  const fn = (pdfParse as any).default || (pdfParse as any);
-  const data = await fn(buf);
-  return String(data.text || "");
+  return extractPdfTextFromBuffer(buf);
 }
 
 type AmortRow = { idx: number; date: string; payment: number; insuranceAndFees: number; raw: string };
