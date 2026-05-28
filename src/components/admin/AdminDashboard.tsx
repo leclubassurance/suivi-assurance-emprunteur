@@ -110,7 +110,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     if (!selectedDossier) return;
     const token = await getAccessToken();
     if (!token) {
-      showToast("Connexion Google manquante (OAuth).", "error");
+      showToast("Connexion Google requise. Reconnectez-vous puis réessayez.", "error");
       return;
     }
     try {
@@ -148,7 +148,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const handleComputeEconomyDraft = async () => {
     if (!selectedDossier) return;
     try {
-      showToast("Calcul des économies en cours...", "info");
+      showToast("Génération du brouillon en cours...", "info");
       const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/compute-economy`), {
         method: "POST",
         headers: await authHeaders(),
@@ -166,8 +166,8 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       if (data?.draft?.html) setEmailHtml(data.draft.html);
       showToast(
         reliability === "HIGH"
-          ? "Brouillon prêt (fiabilité HIGH). Vérifiez puis envoyez."
-          : `Brouillon généré (fiabilité ${reliability || "?"}). Vérifiez.`,
+          ? "Brouillon prêt. Vérifiez puis envoyez au client."
+          : `Brouillon généré (fiabilité ${reliability || "?"}). À vérifier avant envoi.`,
         "success",
       );
       loadDossiers();
@@ -190,7 +190,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
         showToast(data.error || "Erreur upload devis", "error");
         return;
       }
-      showToast("Devis ajouté (1 seul actif).", "success");
+      showToast("Devis ajouté (un seul devis actif).", "success");
       loadDossiers();
     } catch {
       showToast("Erreur upload devis", "error");
@@ -218,11 +218,11 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const handleSyncGmail = async () => {
     const token = await getAccessToken();
     if (!token) {
-      showToast("Connexion Google manquante (OAuth).", "error");
+      showToast("Connexion Google requise. Reconnectez-vous puis réessayez.", "error");
       return;
     }
     try {
-      showToast("Synchronisation Gmail (IA) en cours...", "info");
+      showToast("Synchronisation Gmail en cours...", "info");
       const res = await fetch(getApiUrl("/api/admin/sync-emails"), {
         method: "POST",
         headers: await authHeaders(),
@@ -231,7 +231,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(
-          `Sync Gmail : ${data.processed || 0} message(s), ${data.inbound || 0} reçu(s) client` +
+          `Gmail : ${data.processed || 0} message(s), ${data.inbound || 0} reçu(s) client` +
             (data.attachmentsSaved ? `, ${data.attachmentsSaved} PJ enregistrée(s)` : "") +
             (data.driveAttachmentsUploaded
               ? `, ${data.driveAttachmentsUploaded} sur Drive`
@@ -511,24 +511,24 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center">
         <h1 className="text-xl font-bold flex items-center gap-4">
-          CRM Assurance Emprunteur
+          Espace conseiller — Assurance emprunteur
           <button onClick={async () => {
             try {
               showToast("Exécution des relances...", "info");
               const res = await fetch(getApiUrl("/api/admin/run-scheduler"), { method: "POST" });
               const data = await res.json().catch(() => ({}));
               if (res.ok) {
-                showToast(`Relances: ${data.sent || 0} envoyée(s), ${data.failed || 0} échec(s)`, "success");
+                showToast(`Relances envoyées : ${data.sent || 0} · Échecs : ${data.failed || 0}`, "success");
                 loadDossiers();
               } else {
-                showToast("Erreur scheduler", "error");
+                showToast("Impossible de lancer les relances.", "error");
               }
             } catch {
               showToast("Erreur réseau", "error");
             }
           }} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-2">
             <CalendarClock className="w-3.5 h-3.5" />
-            Lancer relances
+            Lancer les relances
           </button>
         </h1>
         <button onClick={onLogout} className="flex gap-2 text-slate-500 hover:text-slate-900 transition-colors">
@@ -544,7 +544,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
               <Search className="w-4 h-4 text-slate-400" />
               <input 
                 className="bg-transparent border-none outline-none text-sm w-full"
-                placeholder="Rechercher un client..."
+                placeholder="Rechercher (nom, prénom, dossier)..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -670,14 +670,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                         onClick={handleSyncGmail}
                         className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 px-4 rounded-xl border border-slate-200 text-xs transition-all flex items-center gap-2"
                       >
-                        <Mail className="w-4 h-4" /> Sync Gmail (IA)
+                        <Mail className="w-4 h-4" /> Synchroniser Gmail
                       </button>
                       <button
                         type="button"
                         onClick={handleResyncAttachments}
                         className="bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold py-2.5 px-4 rounded-xl border border-emerald-200 text-xs transition-all flex items-center gap-2"
                       >
-                        <FileText className="w-4 h-4" /> Récupérer PJ email
+                        <FileText className="w-4 h-4" /> Importer les pièces jointes
                       </button>
                     <label className="bg-white border border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer select-none">
                       <input
@@ -698,7 +698,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                         onClick={handleDriveCheck}
                         className="bg-white border border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-xs hover:bg-slate-50"
                       >
-                        Tester Drive
+                        Vérifier Drive
                       </button>
                     </div>
                     {driveDiagnostic && (
@@ -823,7 +823,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               {(selectedDossier as any).workspaceError}
                               {isStaleLegacyDriveError((selectedDossier as any).workspaceError) && (
                                 <span className="block mt-1 text-amber-800 font-semibold">
-                                  Message obsolète (ancien dossier Drive). Cliquez sur « Drive » pour réexporter, ou « Tester Drive » pour vérifier la config Railway.
+                                  Message obsolète (ancien dossier Drive). Cliquez sur « Drive » pour réexporter, ou « Vérifier Drive » pour valider la configuration.
                                 </span>
                               )}
                             </span>
@@ -833,7 +833,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                           )}
                         </div>
                       ) : (
-                        <div className="text-slate-500 italic">Pas encore exporté. Cliquez sur “Drive”.</div>
+                        <div className="text-slate-500 italic">Pas encore exporté sur Drive. Cliquez sur « Drive ».</div>
                       )}
                     </div>
                     <div className="space-y-3">
@@ -957,7 +957,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       <Mail className="w-5 h-5 text-indigo-600"/> Historique des échanges
                     </h3>
                     <p className="text-xs text-slate-500 mb-4">
-                      Cliquez sur <strong>Sync Gmail (IA)</strong> dans l’onglet Suivi pour importer les emails reçus et envoyés (30 derniers jours).
+                      Cliquez sur <strong>Synchroniser Gmail</strong> dans l’onglet Suivi pour importer les emails reçus et envoyés (30 derniers jours).
                       Si la sync échoue, déconnectez-vous puis reconnectez-vous à Google pour autoriser la lecture Gmail.
                     </p>
 
@@ -1147,7 +1147,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       </button>
                     </div>
                     <div className="text-xs text-slate-500">
-                      Ajoutez ici le PDF Kieris. Il servira au calcul auto et au contexte interne de Camille (sans citer l’assureur).
+                      Ajoutez ici le PDF du devis. Il sert au suivi interne et au contexte de Camille (sans citer l’assureur au client).
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -1202,10 +1202,10 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                 <div className="bg-white border rounded-2xl p-6 shadow-sm flex flex-col gap-6">
                   <div>
                     <h3 className="font-bold flex gap-2 items-center text-slate-800 text-base">
-                      <Mail className="w-5 h-5 text-indigo-600"/> Envoi du Mail Client
+                      <Mail className="w-5 h-5 text-indigo-600"/> Envoi au client
                     </h3>
                     <p className="text-xs text-slate-500 mt-1">
-                      Collez le HTML de l’étude. L’envoi se fait via votre compte Gmail connecté (assurance@leclubimmobilier.fr).
+                      Collez le HTML du mail. L’envoi se fait via votre compte Gmail connecté (assurance@leclubimmobilier.fr).
                     </p>
                   </div>
 

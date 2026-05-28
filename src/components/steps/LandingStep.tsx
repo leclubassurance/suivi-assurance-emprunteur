@@ -34,7 +34,7 @@ export default function LandingStep({ onStart, onAdminAccess }: { onStart: () =>
               Réduisez le coût<br />de votre assurance<br />de prêt.
             </h1>
             <p className="text-slate-300 text-[15px] md:text-[16px] max-w-md leading-relaxed mb-10">
-              Déposez vos documents en ligne. En moyenne <strong className="text-white">15 000 €</strong> d'économies sur la durée du prêt, à garanties strictement équivalentes.
+              Déposez vos documents en ligne. Nous analysons votre situation et vous présentons, par email, une solution à garanties équivalentes (ou supérieures), en toute transparence.
             </p>
           </div>
           
@@ -69,7 +69,7 @@ export default function LandingStep({ onStart, onAdminAccess }: { onStart: () =>
             {/* Avant */}
             <div className="flex-1 bg-white/5 rounded-[16px] p-4 text-[13px] border border-white/5">
               <div className="flex justify-between items-center mb-4">
-                <span className="uppercase text-[10px] tracking-wider text-blue-200 flex-1 truncate pr-2 font-semibold">ASSURANCE B...</span>
+                <span className="uppercase text-[10px] tracking-wider text-blue-200 flex-1 truncate pr-2 font-semibold">Assurance bancaire</span>
                 <span className="bg-white/10 px-1.5 py-0.5 rounded-[4px] text-[10px] font-bold tracking-wide">AVANT</span>
               </div>
               <div className="mb-4">
@@ -87,7 +87,7 @@ export default function LandingStep({ onStart, onAdminAccess }: { onStart: () =>
               <div className="absolute inset-0 bg-gradient-to-br from-blue-400/10 to-transparent"></div>
               <div className="relative z-10">
                 <div className="flex justify-between items-center mb-4">
-                  <span className="uppercase text-[10px] tracking-wider text-blue-200 flex-1 truncate pr-2 font-semibold">NOUVELLE ASS...</span>
+                  <span className="uppercase text-[10px] tracking-wider text-blue-200 flex-1 truncate pr-2 font-semibold">Nouvelle assurance</span>
                   <span className="bg-[#3b82f6] text-white px-1.5 py-0.5 rounded-[4px] text-[10px] font-bold shadow-sm tracking-wide">APRÈS</span>
                 </div>
                 <div className="mb-4">
@@ -266,7 +266,7 @@ export default function LandingStep({ onStart, onAdminAccess }: { onStart: () =>
           <span>·</span>
           <button className="hover:text-slate-600 transition-colors">Confidentialité</button>
           <span>·</span>
-          <button onDoubleClick={onAdminAccess} className="hover:text-slate-600 transition-colors opacity-30 hover:opacity-100" title="Double click">Admin</button>
+          <button onDoubleClick={onAdminAccess} className="hover:text-slate-600 transition-colors opacity-30 hover:opacity-100" title="Double‑clic">Admin</button>
         </div>
         <p className="text-slate-400 text-[12px]">© {new Date().getFullYear()} Le Club Immobilier Français.</p>
         <p className="text-slate-400 text-[11px] max-w-lg mx-auto leading-relaxed px-4">

@@ -28,7 +28,7 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(dossierId);
-    showToast('Numéro copié !', 'success');
+    showToast("Numéro de dossier copié.", "success");
   };
 
   return (
@@ -48,9 +48,9 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
           <CheckCircle2 className="w-10 h-10 text-green-500" strokeWidth={2.5} />
         </motion.div>
         
-        <h1 className="text-3xl font-bold tracking-tight text-[#111318] mb-3">Dossier reçu !</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-[#111318] mb-3">Demande bien reçue</h1>
         <p className="text-slate-500 text-[15px] font-medium mb-8">
-          {data?.name ? `Merci ${data.name}, vos informations` : "Vos informations"} et documents ont bien été transmis à notre équipe d'experts.
+          {data?.name ? `Merci ${data.name},` : "Merci,"} nous avons bien reçu vos informations et vos documents.
         </p>
 
         <div className="bg-[#111318] rounded-[24px] p-6 text-left relative overflow-hidden mb-8 shadow-sm">
@@ -68,7 +68,7 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
              </button>
            </div>
            <p className="text-[14px] text-white/70 mt-5 leading-relaxed font-medium">
-             Vous recevrez une réponse à votre adresse <strong className="text-white">{data?.email || "email"}</strong> sous 48h ouvrées. Un système de notification vous informera de l'avancement. 
+             Nous revenons vers vous par email (<strong className="text-white">{data?.email || "votre adresse"}</strong>) sous 48h ouvrées.
            </p>
         </div>
 
@@ -78,7 +78,7 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
             className="w-full py-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-[20px] font-bold text-[15px] transition-all flex items-center justify-center gap-2"
           >
             <FilePlus className="w-[18px] h-[18px]" strokeWidth={2.5} />
-            Créer une nouvelle demande
+            Déposer un nouveau dossier
           </button>
         </div>
 
