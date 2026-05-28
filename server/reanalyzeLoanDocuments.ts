@@ -95,15 +95,14 @@ export async function reanalyzeDossierLoanDocuments(
         type: doc.type,
         category: cat,
       });
-      if (!sig.ok) {
+      if (sig.ok && sig.matchesExpected) {
+        q.ok = true;
+        q.reasons = [];
+        q.confidence = "high";
+      } else if (!sig.ok) {
         q.ok = false;
-        const reasons = [...new Set([...(q.reasons || []), ...(sig.reasons || [])])];
-        if (sig.ocrUsed && reasons.some((r) => /sans texte exploitable/i.test(r))) {
-          q.reasons = reasons.filter((r) => !/sans texte exploitable/i.test(r));
-          if (!q.reasons.length) q.reasons.push("Contenu lu par OCR — type de document à confirmer");
-        } else {
-          q.reasons = reasons;
-        }
+        q.reasons = sig.adminLabel ? [sig.adminLabel] : [...(sig.reasons || [])];
+        q.confidence = sig.confidence === "high" ? "medium" : "low";
       } else if (sig.ocrUsed) {
         q.reasons = (q.reasons || []).filter(
           (r) => !/capture|photo|inexploitable|sans texte/i.test(r),

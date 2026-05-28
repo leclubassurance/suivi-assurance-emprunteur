@@ -41,6 +41,12 @@ Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""} <${clientEmail}>
 État des pièces (source de vérité — ne pas contredire) :
 ${ctx.documentSummary}
 
+Analyse automatique OCR/PDF (ne pas contredire) :
+${ctx.documentAnalysisReport || "Non disponible"}
+
+Consignes rédaction client (si besoin de préciser des documents) :
+${ctx.loanClientGuidance || "—"}
+
 Signaux internes (ne pas révéler au client) :
 ${(ctx.qualityIssues || []).length ? (ctx.qualityIssues || []).join("\n") : "Aucun"}
 docsReliability: ${ctx.docsReliability || "unknown"}
@@ -53,7 +59,9 @@ clientSafeReason: ${ctx.clientSafeReason || "N/A"}
 
 Pièces bloquantes encore manquantes : ${missingBlocking.join(", ") || "Aucune — dossier complet côté CNI/RIB"}
 Offre de prêt + tableau présents dans le dossier : ${ctx.loanDocsPresent ? "OUI" : "NON"}
-Exploitables pour l'étude (PDF banque OK) : ${ctx.loanDocsOk ? "OUI" : "NON"}
+Offre validée par analyse : ${ctx.loanOffreExploitable ? "OUI" : "NON"}
+Tableau validé par analyse : ${ctx.loanAmortExploitable ? "OUI" : "NON"}
+Exploitables pour l'étude (les deux validés) : ${ctx.loanDocsOk ? "OUI" : "NON"}
 Si présents mais pas exploitables : demander uniquement un renvoi PDF banque, sans dire qu'ils manquent.
 Si présents et exploitables : NE PAS demander offre/tableau (sauf si le client pose une question précise).
 Ne jamais mettre de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.

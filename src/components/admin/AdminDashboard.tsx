@@ -957,8 +957,13 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               {badgeLabel}
                             </div>
                           </div>
-                          {st === "review" && item.reviewHint && (
-                            <p className="mt-1.5 text-[11px] font-semibold text-amber-800">{item.reviewHint}</p>
+                          {item.reviewHint && st !== "ok" && (
+                            <p className="mt-1.5 text-[11px] font-semibold text-amber-800 leading-snug">
+                              {item.reviewHint}
+                            </p>
+                          )}
+                          {st === "ok" && item.reviewHint && (
+                            <p className="mt-1.5 text-[11px] text-emerald-800 leading-snug">{item.reviewHint}</p>
                           )}
                           {item.ok && item.matchedFiles && item.matchedFiles.length > 0 && (
                             <p className={`mt-1.5 text-[11px] truncate ${fileClass}`} title={item.matchedFiles.join(", ")}>
@@ -1381,11 +1386,22 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               </div>
                               <p className="text-xs text-slate-500">
                                 {(doc.size / 1024).toFixed(1)} KB
-                                {(doc as any).loanSignal?.ocrUsed ? " · lu par OCR" : ""}
-                                {doc.quality && doc.quality.ok === false && doc.quality.reasons?.length
-                                  ? ` · ${doc.quality.reasons[0]}`
+                                {(doc as any).loanSignal?.ocrUsed ? " · OCR" : ""}
+                                {(doc as any).loanSignal?.textSource
+                                  ? ` · ${(doc as any).loanSignal.textSource === "pdf_native" ? "PDF" : "OCR"}`
                                   : ""}
                               </p>
+                              {(doc as any).loanSignal?.summary && (
+                                <p
+                                  className={`text-[11px] mt-1 leading-snug ${
+                                    (doc as any).loanSignal.ok
+                                      ? "text-emerald-800"
+                                      : "text-amber-800"
+                                  }`}
+                                >
+                                  {(doc as any).loanSignal.adminLabel || (doc as any).loanSignal.summary}
+                                </p>
+                              )}
                             </div>
                           </div>
                           <a

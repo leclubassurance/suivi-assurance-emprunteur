@@ -54,6 +54,9 @@ export function assessCertainLoanDocProblems(dossier: any): LoanDocProblemAssess
     const fileName = String(doc.name || doc.id || "document");
 
     if (isImageDoc(doc)) {
+      if (doc?.loanSignal?.ok === true && doc?.loanSignal?.matchesExpected === true) {
+        continue;
+      }
       problems.push({ kind: "image_not_pdf", category, fileName });
       continue;
     }
@@ -64,13 +67,10 @@ export function assessCertainLoanDocProblems(dossier: any): LoanDocProblemAssess
     }
 
     if (hasScanPdfSignal(doc)) {
-      const ocrValidated =
-        doc?.loanSignal?.ocrUsed === true &&
-        doc?.loanSignal?.ok === true &&
-        Number(doc?.loanSignal?.extractedChars || 0) >= 80;
-      if (!ocrValidated) {
-        problems.push({ kind: "scan_pdf_no_text", category, fileName });
+      if (doc?.loanSignal?.ok === true && doc?.loanSignal?.matchesExpected === true) {
+        continue;
       }
+      problems.push({ kind: "scan_pdf_no_text", category, fileName });
       continue;
     }
 

@@ -1,5 +1,6 @@
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { inferDocumentCategory } from "../shared/documentClassifier";
+import { isLoanSlotExploitable } from "../shared/loanDocAnalysis";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import type { Dossier } from "./dossierModel";
@@ -46,8 +47,10 @@ export function resolveLoanDocPresence(dossier: Dossier | any) {
   const filesPresent = offrePresent && amortPresent;
   const docProb = assessCertainLoanDocProblems(dossier);
   const studySent = hasStudyBeenSent(dossier);
-  const exploitable = filesPresent && !docProb.certain;
-  const needsResubmit = docProb.certain && !studySent;
+  const offreExploitable = isLoanSlotExploitable(docs, "offre");
+  const amortExploitable = isLoanSlotExploitable(docs, "tableau");
+  const exploitable = offreExploitable && amortExploitable;
+  const needsResubmit = filesPresent && !exploitable && !studySent;
 
   return {
     offrePresent,
@@ -57,8 +60,10 @@ export function resolveLoanDocPresence(dossier: Dossier | any) {
     needsResubmit,
     studySent,
     docProb,
-    checklistOffreOk: Boolean(offreItem?.ok),
-    checklistAmortOk: Boolean(amortItem?.ok),
+    checklistOffreOk: offreItem?.status === "ok" || offreExploitable,
+    checklistAmortOk: amortItem?.status === "ok" || amortExploitable,
+    offreExploitable,
+    amortExploitable,
   };
 }
 

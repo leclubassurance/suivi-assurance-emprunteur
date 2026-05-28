@@ -183,9 +183,35 @@ function reviewHintForProblem(kind: string): string {
   if (kind === "image_not_pdf" || kind === "screenshot_filename") {
     return "Capture ou image — PDF banque attendu";
   }
-  if (kind === "scan_pdf_no_text") return "PDF illisible ou scan";
+  if (kind === "scan_pdf_no_text") return "PDF peu lisible — PDF banque conseillé";
   if (kind === "wrong_doc_kind") return "Type de document douteux";
   return "À confirmer par l'équipe";
+}
+
+function loanDocsForCategory(documents: any[], loanCat: "offre" | "tableau") {
+  return documents.filter((d) => {
+    const c = inferDocumentCategory(d);
+    return c === loanCat || (loanCat === "offre" && c === "fiche");
+  });
+}
+
+function statusFromLoanSignals(catDocs: any[]): Pick<ChecklistItem, "status" | "reviewHint"> | null {
+  const sigs = catDocs.map((d) => d?.loanSignal).filter(Boolean);
+  if (!sigs.length) return null;
+
+  const validated = sigs.find((s) => s.ok && s.matchesExpected);
+  if (validated) {
+    return {
+      status: "ok",
+      reviewHint: validated.adminLabel || validated.summary,
+    };
+  }
+
+  const best = sigs[0];
+  return {
+    status: "review",
+    reviewHint: best.adminLabel || best.summary || "Analyse automatique : document à confirmer",
+  };
 }
 
 function applyChecklistReviewStatus(items: ChecklistItem[], documents: any[]): ChecklistItem[] {
@@ -196,23 +222,18 @@ function applyChecklistReviewStatus(items: ChecklistItem[], documents: any[]): C
 
     const loanCat = loanCategoryForKey(item.key);
     if (loanCat) {
+      const catDocs = loanDocsForCategory(documents, loanCat);
+      const fromSignal = statusFromLoanSignals(catDocs);
+      if (fromSignal) {
+        return { ...item, status: fromSignal.status, reviewHint: fromSignal.reviewHint };
+      }
+
       const catProblems = assessment.problems.filter((p) => p.category === loanCat);
       if (catProblems.length > 0) {
         return {
           ...item,
           status: "review" as const,
           reviewHint: reviewHintForProblem(catProblems[0].kind),
-        };
-      }
-      const catDocs = documents.filter((d) => {
-        const c = inferDocumentCategory(d);
-        return c === loanCat || (loanCat === "offre" && c === "fiche");
-      });
-      if (catDocs.some((d) => d?.loanSignal?.ok === false)) {
-        return {
-          ...item,
-          status: "review" as const,
-          reviewHint: "Analyse automatique : document à confirmer",
         };
       }
       if (catDocs.some((d) => d?.quality?.ok === false)) {

@@ -1,18 +1,10 @@
 import fs from "fs";
 import path from "path";
 import * as pdfParse from "pdf-parse";
+import { enrichLoanDocSignal, type LoanDocSignalShape } from "../shared/loanDocAnalysis";
 import { getHybridOcrMinTextChars, hybridOcrExtractText, isHybridOcrEnabled } from "./documentHybridOcr";
 
-export type LoanDocSignal = {
-  ok: boolean;
-  kind: "offre" | "tableau" | "unknown";
-  reasons: string[];
-  keywords: string[];
-  /** Texte extrait par OCR hybride (scan / image) */
-  ocrUsed?: boolean;
-  textSource?: "pdf_native" | "ocr" | "ocr_image";
-  extractedChars?: number;
-};
+export type LoanDocSignal = LoanDocSignalShape;
 
 function norm(s: string) {
   return s
@@ -197,12 +189,16 @@ export async function analyzeLoanPdf(
     }
   }
 
-  return {
-    ...classified,
-    ocrUsed,
-    textSource,
-    extractedChars: text.trim().length,
-  };
+  return enrichLoanDocSignal(
+    {
+      ...classified,
+      ocrUsed,
+      textSource,
+      extractedChars: text.trim().length,
+    },
+    expected,
+    { fileName: path.basename(localPath) },
+  );
 }
 
 export function isLoanPdfOrImage(name?: string, mimeType?: string): boolean {
