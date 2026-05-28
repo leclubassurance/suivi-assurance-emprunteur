@@ -6,9 +6,10 @@ export function Select({ label, error, options, className = '', ...props }: any)
       {label && <label className="text-[13px] font-bold text-slate-700">{label}</label>}
       <select 
         className={`bento-input ${error ? 'border-red-300 ring-1 ring-red-100 bg-red-50' : 'bg-white hover:border-slate-300'}`} 
+        aria-label={label || "Sélection"}
         {...props}
       >
-        <option value="" disabled>Sélectionner...</option>
+        <option value="" disabled>Sélectionnez…</option>
         {options?.map((opt: any) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
