@@ -115,7 +115,9 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
 
   // Proposed total from devis ("Total des cotisations ... 10 393,48 €")
   let proposedTotalRemaining: number | null = null;
-  const mTot = devisN.match(/total des cotisations[^\\d]{0,40}(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*€/i);
+  const mTot =
+    devisN.match(/total des cotisations[\s\S]{0,120}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
+    devisN.match(/total[\s\S]{0,40}cotisations[\s\S]{0,120}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
   if (mTot?.[1]) proposedTotalRemaining = toNumberFR(mTot[1]);
   if (!proposedTotalRemaining) reasons.push("Total cotisations devis introuvable");
 
@@ -123,7 +125,7 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   const proposedMonthlyByYear: Array<{ year: number; monthly: number }> = [];
   const yearLines = devisText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   for (const line of yearLines) {
-    const m = line.match(/^(\d{1,2})\s+[\d\s.,]+€\s+([\d\s.,]+)\s*€$/);
+    const m = line.match(/^(\d{1,2})\s+[\d\s.,]+(?:€|eur)?\s+([\d\s.,]+)\s*(?:€|eur)?$/i);
     if (!m) continue;
     const y = Number(m[1]);
     const monthly = toNumberFR(m[2]);
@@ -131,7 +133,7 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   }
   if (proposedMonthlyByYear.length === 0) {
     // fallback: try looser
-    const rx = /(\d{1,2})\s+[\d\s.,]+€\s+(\d{1,3},\d{2})\s*€/g;
+    const rx = /(\d{1,2})\s+[\d\s.,]+(?:€|eur)?\s+(\d{1,3},\d{2})\s*(?:€|eur)?/gi;
     let mm;
     while ((mm = rx.exec(devisN))) {
       const y = Number(mm[1]);

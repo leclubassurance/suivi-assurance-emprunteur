@@ -273,6 +273,11 @@ export function createApp() {
       appendLog(`Succès d'écriture du dossier ${newDossier.id} dans la base de données.`);
 
       const toEmail = formData.assures?.[0]?.email;
+      const ccEmails = Array.isArray(formData.assures)
+        ? formData.assures
+            .map((a: any) => String(a?.email || "").trim().toLowerCase())
+            .filter((e: string) => e && e !== String(toEmail || "").trim().toLowerCase())
+        : [];
       const clientName = formData.assures?.[0]?.prenom || "Cher client";
       if (toEmail) {
         const confirmationSubject = `Confirmation de réception - Dossier N° ${newDossier.id}`;
@@ -309,6 +314,7 @@ export function createApp() {
             toEmail,
             confirmationSubject,
             confirmationHtml,
+            { cc: ccEmails },
           )
             .then(async (sendResult) => {
               if (sendResult?.ok) {
@@ -351,7 +357,7 @@ export function createApp() {
             });
         } else if (hasServerOAuthRefreshToken()) {
           // Mode autonome 24/7 : envoi Gmail via refresh_token OAuth serveur (sans login admin)
-          sendEmailReplyWithGmailAPI(null, toEmail, confirmationSubject, confirmationHtml)
+          sendEmailReplyWithGmailAPI(null, toEmail, confirmationSubject, confirmationHtml, { cc: ccEmails })
             .then(async (sendResult) => {
               if (sendResult?.ok) {
                 appendLog(
@@ -404,7 +410,7 @@ export function createApp() {
             });
         } else if (canUseDomainWideDelegation()) {
           // Mode autonome 24/7 : envoi Gmail via service account + délégation domaine (sans login admin)
-          sendEmailReplyWithGmailAPI(null, toEmail, confirmationSubject, confirmationHtml)
+          sendEmailReplyWithGmailAPI(null, toEmail, confirmationSubject, confirmationHtml, { cc: ccEmails })
             .then(async (sendResult) => {
               if (sendResult?.ok) {
                 appendLog(
@@ -450,7 +456,7 @@ export function createApp() {
             });
         } else if (isEmailConfigured()) {
           // Pas d'OAuth admin : on envoie via SMTP si configuré (pour que le formulaire client fonctionne sans admin connecté)
-          sendEmail({ to: toEmail, subject: confirmationSubject, html: confirmationHtml })
+          sendEmail({ to: [toEmail, ...ccEmails].join(","), subject: confirmationSubject, html: confirmationHtml })
             .then(async (smtpResult) => {
               if (smtpResult.ok) {
                 appendLog(
@@ -689,7 +695,7 @@ export function createApp() {
   app.post("/api/admin/dossiers/:id/send-email", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;
-    const { to, subject, html } = (req.body || {}) as any;
+    const { to, cc, subject, html } = (req.body || {}) as any;
     if (!subject || !html) return res.status(400).json({ error: "Missing subject or html" });
 
     const db = await readDBAsync();
@@ -698,6 +704,12 @@ export function createApp() {
 
     const toEmail = to || dossier.formData?.assures?.[0]?.email;
     if (!toEmail) return res.status(400).json({ error: "Missing recipient email" });
+    const ccEmails =
+      Array.isArray(cc) && cc.length
+        ? cc.map((e: any) => String(e || "").trim()).filter(Boolean)
+        : ((dossier.formData?.assures || []) as any[])
+            .map((a: any) => String(a?.email || "").trim())
+            .filter((e: string) => e && e.toLowerCase() !== String(toEmail).toLowerCase());
 
     const authHeader = req.headers.authorization;
     const googleToken =
@@ -708,7 +720,7 @@ export function createApp() {
 
     if (googleToken) {
       const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
-      const gmailResult = await sendEmailReplyWithGmailAPI(googleToken, toEmail, subject, html);
+      const gmailResult = await sendEmailReplyWithGmailAPI(googleToken, toEmail, subject, html, { cc: ccEmails });
       if (gmailResult.ok) {
         providerId = gmailResult.messageId || null;
         channel = "gmail";
@@ -724,7 +736,7 @@ export function createApp() {
         });
       }
     } else {
-      const result = await sendEmail({ to: toEmail, subject, html });
+      const result = await sendEmail({ to: [toEmail, ...ccEmails].join(","), subject, html });
       if ("error" in result) {
         const error = (result as any).error;
         addEvent(dossier, {

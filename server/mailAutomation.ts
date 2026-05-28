@@ -437,7 +437,13 @@ function dossierTouchUpdatedAt(db: any) {
   }
 }
 
-export async function sendEmailReplyWithGmailAPI(accessToken: string | null, toEmail: string, subject: string, bodyText: string) {
+export async function sendEmailReplyWithGmailAPI(
+  accessToken: string | null,
+  toEmail: string,
+  subject: string,
+  bodyText: string,
+  options?: { cc?: string[] },
+) {
   const { auth } = await createGmailAuth(accessToken);
   const gmail = google.gmail({ version: 'v1', auth: auth as any });
 
@@ -445,6 +451,10 @@ export async function sendEmailReplyWithGmailAPI(accessToken: string | null, toE
   const mailLines = [];
 
   mailLines.push(`To: ${toEmail}`);
+  const cc = (options?.cc || []).filter(Boolean);
+  if (cc.length) {
+    mailLines.push(`Cc: ${cc.join(", ")}`);
+  }
   mailLines.push(`Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=`);
   mailLines.push('MIME-Version: 1.0');
   mailLines.push(`Content-Type: text/${isHtml ? 'html' : 'plain'}; charset="UTF-8"`);
