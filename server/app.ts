@@ -149,7 +149,7 @@ export function createApp() {
     const saReady = hasServiceAccountReady();
     res.json({
       status: "ok",
-      build: "railway-firestore-2026-05-28",
+      build: "railway-firestore-2026-05-28b",
       deploySource: "tsx-server.ts",
       gitCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
       gitBranch: process.env.RAILWAY_GIT_BRANCH || null,
