@@ -324,7 +324,7 @@ export function createApp() {
                 addEvent(newDossier, {
                   type: "EMAIL_SENT",
                   actor: { kind: "SYSTEM" },
-                  meta: { template: "CONFIRMATION", to: toEmail, subject: confirmationSubject },
+                  meta: { template: "CONFIRMATION", to: toEmail, cc: ccEmails.join(", "), subject: confirmationSubject },
                 });
                 await writeDB(db, newDossier);
               } else {
@@ -335,6 +335,7 @@ export function createApp() {
                   meta: {
                     template: "CONFIRMATION",
                     to: toEmail,
+                    cc: ccEmails.join(", "),
                     subject: confirmationSubject,
                   },
                 });
@@ -349,6 +350,7 @@ export function createApp() {
                 meta: {
                   template: "CONFIRMATION",
                   to: toEmail,
+                  cc: ccEmails.join(", "),
                   subject: confirmationSubject,
                   error: err.message,
                 },
@@ -369,6 +371,7 @@ export function createApp() {
                   meta: {
                     template: "CONFIRMATION",
                     to: toEmail,
+                    cc: ccEmails.join(", "),
                     subject: confirmationSubject,
                     channel: "GMAIL_REFRESH_TOKEN",
                   },
@@ -383,6 +386,7 @@ export function createApp() {
                   meta: {
                     template: "CONFIRMATION",
                     to: toEmail,
+                    cc: ccEmails.join(", "),
                     subject: confirmationSubject,
                     channel: "GMAIL_REFRESH_TOKEN",
                     error: sendResult?.error || "unknown",
@@ -401,6 +405,7 @@ export function createApp() {
                 meta: {
                   template: "CONFIRMATION",
                   to: toEmail,
+                  cc: ccEmails.join(", "),
                   subject: confirmationSubject,
                   channel: "GMAIL_REFRESH_TOKEN",
                   error: err?.message || String(err),
@@ -419,7 +424,7 @@ export function createApp() {
                 addEvent(newDossier, {
                   type: "EMAIL_SENT",
                   actor: { kind: "SYSTEM" },
-                  meta: { template: "CONFIRMATION", to: toEmail, subject: confirmationSubject, channel: "GMAIL_DWD" },
+                  meta: { template: "CONFIRMATION", to: toEmail, cc: ccEmails.join(", "), subject: confirmationSubject, channel: "GMAIL_DWD" },
                 });
               } else {
                 appendLog(
@@ -431,6 +436,7 @@ export function createApp() {
                   meta: {
                     template: "CONFIRMATION",
                     to: toEmail,
+                    cc: ccEmails.join(", "),
                     subject: confirmationSubject,
                     channel: "GMAIL_DWD",
                     error: sendResult?.error || "unknown",
@@ -447,6 +453,7 @@ export function createApp() {
                 meta: {
                   template: "CONFIRMATION",
                   to: toEmail,
+                  cc: ccEmails.join(", "),
                   subject: confirmationSubject,
                   channel: "GMAIL_DWD",
                   error: err?.message || String(err),
@@ -468,6 +475,7 @@ export function createApp() {
                   meta: {
                     template: "CONFIRMATION",
                     to: toEmail,
+                    cc: ccEmails.join(", "),
                     subject: confirmationSubject,
                     channel: "SMTP",
                     providerId: smtpResult.providerId,
@@ -483,6 +491,7 @@ export function createApp() {
                   meta: {
                     template: "CONFIRMATION",
                     to: toEmail,
+                    cc: ccEmails.join(", "),
                     subject: confirmationSubject,
                     channel: "SMTP",
                     error: smtpResult.error,
@@ -498,6 +507,7 @@ export function createApp() {
                   meta: {
                     template: "CONFIRMATION",
                     to: toEmail,
+                    cc: ccEmails.join(", "),
                     subject: confirmationSubject,
                     channel: "SMTP",
                     error: "Unknown SMTP result shape",
@@ -514,6 +524,7 @@ export function createApp() {
                 meta: {
                   template: "CONFIRMATION",
                   to: toEmail,
+                  cc: ccEmails.join(", "),
                   subject: confirmationSubject,
                   channel: "SMTP",
                   error: err?.message || String(err),
@@ -531,6 +542,7 @@ export function createApp() {
             meta: {
               template: "CONFIRMATION",
               to: toEmail,
+              cc: ccEmails.join(", "),
               subject: confirmationSubject,
               channel: "NONE",
               error: "No OAuth token available and SMTP is not configured",

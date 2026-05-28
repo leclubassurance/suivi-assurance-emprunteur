@@ -384,6 +384,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       const parts = [
         meta.template ? `Modèle : ${meta.template}` : null,
         meta.to ? `À : ${meta.to}` : null,
+        meta.cc ? `Cc : ${meta.cc}` : null,
         meta.subject ? `Objet : ${meta.subject}` : null,
         meta.channel ? `Canal : ${meta.channel}` : null,
         meta.error ? `Erreur : ${meta.error}` : null,
