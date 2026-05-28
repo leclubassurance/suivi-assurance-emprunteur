@@ -1065,9 +1065,15 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               <p className="text-xs text-slate-500">{(doc.size / 1024).toFixed(1)} KB</p>
                             </div>
                           </div>
-                          <a 
-                            href={getApiUrl(`/api/files?path=${encodeURIComponent(doc.localPath)}`)} 
-                            download={doc.name}
+                          <a
+                            href={
+                              doc.driveLink
+                                ? doc.driveLink
+                                : getApiUrl(`/api/dossiers/${selectedDossier.id}/documents/${doc.id}/download`)
+                            }
+                            target={doc.driveLink ? "_blank" : undefined}
+                            rel={doc.driveLink ? "noreferrer" : undefined}
+                            download={!doc.driveLink ? doc.name : undefined}
                             className="bg-white border text-slate-700 p-2 rounded-lg hover:bg-slate-100 transition-colors"
                           >
                             <Download className="w-4 h-4" />

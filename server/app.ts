@@ -29,6 +29,7 @@ import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig"
 import { mergeFormDocumentsWithUploads } from "./documentMerge";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
+import { getServerAccessToken } from "./googleOAuthServer";
 import {
   hasServiceAccountConfigured,
   hasServiceAccountReady,
@@ -224,6 +225,27 @@ export function createApp() {
       });
 
       db.dossiers.push(newDossier);
+
+      // Déplace les fichiers uploadés sous /uploads/<dossierId>/... (évite /uploads/unknown et stabilise les chemins)
+      try {
+        const dossierDir = path.join(UPLOADS_DIR, newDossier.id);
+        if (!fs.existsSync(dossierDir)) fs.mkdirSync(dossierDir, { recursive: true });
+        if (newDossier.formData?.documents?.length) {
+          for (const doc of newDossier.formData.documents) {
+            if (!doc?.localPath || typeof doc.localPath !== "string") continue;
+            if (!fs.existsSync(doc.localPath)) continue;
+            const base = path.basename(doc.localPath);
+            const nextPath = path.join(dossierDir, base);
+            if (doc.localPath !== nextPath) {
+              fs.renameSync(doc.localPath, nextPath);
+              doc.localPath = nextPath;
+            }
+          }
+        }
+      } catch (mvErr: any) {
+        appendLog(`[Uploads Warning] Déplacement fichiers ${newDossier.id} impossible: ${mvErr?.message || mvErr}`);
+      }
+
       await writeDB(db, newDossier);
       appendLog(`Succès d'écriture du dossier ${newDossier.id} dans la base de données.`);
 
@@ -501,7 +523,20 @@ export function createApp() {
         await writeDB(db, newDossier);
       }
 
-      const driveTokenForAutoExport = hasServiceAccountReady() ? null : latestAccessToken;
+      let driveTokenForAutoExport: string | null = null;
+      if (latestAccessToken) {
+        driveTokenForAutoExport = latestAccessToken;
+      } else if (hasServerOAuthRefreshToken()) {
+        try {
+          driveTokenForAutoExport = await getServerAccessToken();
+        } catch (e: any) {
+          appendLog(`[Drive Warning] Impossible d'obtenir un token OAuth serveur: ${e?.message || String(e)}`);
+          driveTokenForAutoExport = hasServiceAccountReady() ? null : null;
+        }
+      } else {
+        // fallback service account si configuré
+        driveTokenForAutoExport = hasServiceAccountReady() ? null : null;
+      }
 
       exportDossierToGoogleWorkspace(newDossier, driveTokenForAutoExport)
         .then(async (result) => {
@@ -515,6 +550,11 @@ export function createApp() {
               existing.workspaceFolderId = result.folderId;
               existing.workspaceSheetId = result.spreadsheetId;
               existing.updatedAt = new Date().toISOString();
+              // Sauvegarde des liens Drive par document (si dispo)
+              if (newDossier.formData?.documents?.length) {
+                existing.formData = existing.formData || {};
+                existing.formData.documents = newDossier.formData.documents;
+              }
               await writeDB(currentDb, existing);
               appendLog(
                 `Dossier ${newDossier.id} mis à jour au statut EN_COURS après export Google Workspace. (Statut: ${result.status})`,
@@ -829,10 +869,13 @@ export function createApp() {
       await writeDB(db, dossier);
 
       const authHeader = req.headers.authorization;
-      const token =
+      let token =
         authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+      if (!token && hasServerOAuthRefreshToken()) {
+        token = await getServerAccessToken();
+      }
 
-      const result = await exportDossierToGoogleWorkspace(dossier, token);
+      const result = await exportDossierToGoogleWorkspace(dossier, token || null);
 
       const currentDb = await readDBAsync();
       const updated = currentDb.dossiers.find((d: any) => d.id === id);
@@ -844,6 +887,10 @@ export function createApp() {
           updated.workspaceFolderId = result.folderId;
           updated.workspaceSheetId = result.spreadsheetId;
           updated.workspaceError = undefined;
+          if (dossier.formData?.documents?.length) {
+            updated.formData = updated.formData || {};
+            updated.formData.documents = dossier.formData.documents;
+          }
         } else {
           updated.workspaceStatus = "FAILED";
           updated.workspaceError = result.error;
@@ -857,6 +904,27 @@ export function createApp() {
       console.error("Manual retry workspace error:", err);
       res.status(500).json({ error: err.message || err });
     }
+  });
+
+  // Téléchargement sécurisé: doc par id (redirige vers Drive si dispo)
+  app.get("/api/dossiers/:id/documents/:docId/download", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id, docId } = req.params;
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === id);
+    if (!dossier) return res.status(404).send("Dossier introuvable");
+    const doc = (dossier.formData?.documents || []).find((d: any) => d?.id === docId);
+    if (!doc) return res.status(404).send("Document introuvable");
+
+    if (doc.driveLink) {
+      return res.redirect(doc.driveLink);
+    }
+
+    const p = doc.localPath as string | undefined;
+    if (!p || typeof p !== "string" || !fs.existsSync(p)) {
+      return res.status(404).send("File not found");
+    }
+    res.download(p, doc.name || path.basename(p));
   });
 
   app.post("/api/admin/sync-emails", async (req, res) => {
@@ -1023,13 +1091,9 @@ export function createApp() {
     }
   });
 
-  app.get("/api/files", async (req, res) => {
-    await ensureBackgroundServicesStarted();
-    const filePath = req.query.path as string;
-    if (!filePath || !fs.existsSync(filePath)) {
-      return res.status(404).send("File not found");
-    }
-    res.download(filePath);
+  // Ancien endpoint non sécurisé (chemin arbitraire) — gardé pour compat mais désactivé
+  app.get("/api/files", async (_req, res) => {
+    res.status(410).send("Deprecated. Use /api/dossiers/:id/documents/:docId/download");
   });
 
   return app;

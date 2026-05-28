@@ -309,7 +309,7 @@ export async function exportDossierToGoogleWorkspace(
     if (dossier.formData?.documents?.length > 0) {
       for (const doc of dossier.formData.documents) {
         if (!doc.localPath || !fs.existsSync(doc.localPath)) continue;
-        await drive.files.create({
+        const up = await drive.files.create({
           requestBody: {
             name: doc.name,
             parents: [folderId],
@@ -319,7 +319,12 @@ export async function exportDossierToGoogleWorkspace(
             body: fs.createReadStream(doc.localPath),
           },
           supportsAllDrives: true,
+          fields: "id,webViewLink",
         });
+        if (up.data?.id) {
+          doc.driveFileId = up.data.id;
+          doc.driveLink = up.data.webViewLink || `https://drive.google.com/file/d/${up.data.id}/view`;
+        }
         uploaded++;
       }
     }
