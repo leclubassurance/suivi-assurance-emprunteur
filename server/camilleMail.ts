@@ -1,4 +1,5 @@
 import { computeDocumentChecklist } from "../shared/documentChecklist";
+import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 
 function stripLeadingGreeting(bodyText: string) {
   const raw = String(bodyText || "").trim();
@@ -66,6 +67,8 @@ export function buildCamilleContextBlock(dossier: any, newAttachmentNames: strin
   const docsReliability: "low" | "medium" | "high" =
     offerOk && tableauOk && !strongMismatch ? "high" : strongMismatch ? "low" : "medium";
 
+  const docProblemAssessment = assessCertainLoanDocProblems(dossier);
+
   // Client-safe explanation snippets (never mention "bad/illegible", but explain need for exact docs)
   const clientSafeReason =
     docsReliability === "high"
@@ -81,6 +84,9 @@ export function buildCamilleContextBlock(dossier: any, newAttachmentNames: strin
     newAttachmentNames,
     qualityIssues,
     docsReliability,
+    certainDocProblems: docProblemAssessment.certain,
+    certainDocProblemsDetail: docProblemAssessment.problems,
+    uncertainDocSignals: docProblemAssessment.uncertainSignals,
     clientSafeReason,
     documentSummary: checklist
       .map((c) => {

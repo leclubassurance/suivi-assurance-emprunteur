@@ -1,49 +1,9 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import fs from "fs";
 import path from "path";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
-
-// Initialisation de Gemini avec httpOptions pour la télémétrie conforme au skill
-const ai = new GoogleGenAI({ 
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
-
-// Helper de requête robuste gérant les erreurs 503/429 avec retry exponentiel
-async function generateContentWithRetry(params: any, retries = 3, delay = 1000): Promise<any> {
-  let lastError: any = null;
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const response = await ai.models.generateContent(params);
-      return response;
-    } catch (error: any) {
-      lastError = error;
-      const errMsg = error?.message || String(error);
-      const isUnavailable = errMsg.includes("503") || errMsg.toUpperCase().includes("UNAVAILABLE") || errMsg.toLowerCase().includes("high demand") || errMsg.toLowerCase().includes("temporary");
-      const isRateLimited = errMsg.includes("429") || errMsg.toLowerCase().includes("quota exceeded") || errMsg.toLowerCase().includes("rate limit");
-      
-      if ((isUnavailable || isRateLimited) && attempt < retries) {
-        let waitTime = delay;
-        const retryMatch = errMsg.match(/retry in ([\d\.]+)s/);
-        if (retryMatch) {
-          waitTime = Math.max(delay, (parseFloat(retryMatch[1]) * 1000) + 1000);
-        }
-
-        console.warn(`[Gemini API Warning] ${isRateLimited ? '429 Quota' : '503 Unavailable'} détecté sur ${params.model}. Tentative ${attempt}/${retries} après ${waitTime}ms...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-        delay *= 2; 
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw lastError;
-}
+import { generateContentWithRetry } from "./geminiClient";
 
 const PERSONA_PROMPT = `
 Tu es Camille, l'assistante de Charles, experte en assurance emprunteur au "Le Club Immobilier Français".
@@ -58,7 +18,9 @@ RÈGLES :
 - Pas de promesse de tarif, pas de nom d'assureur, pas de numéro de téléphone.
 - Escalade (action ESCALATE) si : médical complexe, contestation, menace, demande juridique, négociation commerciale, ou incertitude forte.
 - IMPORTANT : tu peux utiliser des signaux internes de "qualité documentaire" (ex: capture d'écran, illisible) pour demander à nouveau l'offre de prêt/tableau d'amortissement, mais ne dis JAMAIS au client "c'est illisible" ou "vos documents sont mauvais". Dis plutôt : "pour finaliser l'étude, pouvez-vous nous transmettre l'offre de prêt complète et le tableau d'amortissement complet en PDF lisible ?"
-- Fiabilité sur le sujet "documents exploitables" :
+- Problème documentaire CERTAIN (certainDocProblems=true) : capture/scan/mauvais format objectif — tu peux demander directement au client l'offre de prêt et/ou le tableau d'amortissement complets en PDF depuis l'espace bancaire (sans dire "illisible" ni critiquer la qualité).
+- Problème documentaire INCERTAIN (certainDocProblems=false) : ne pas insister sur la qualité des pièces ; processus normal. Si le client conteste ou si l'échange devient ambigu, ESCALATE pour traitement manuel.
+- Fiabilité sur le sujet "documents exploitables" (hors qualité évidente) :
   - Si docsReliability=high : tu peux expliquer brièvement que les documents reçus ne permettent pas (encore) de calculer précisément les économies car il manque des informations indispensables (capital, durée, échéancier). Reste factuel et bienveillant.
   - Si docsReliability=medium : reste vague + demande l'offre + tableau complets en PDF. Si le client conteste ("déjà envoyé", "je ne comprends pas"), ESCALATE.
   - Si docsReliability=low : reste vague + demande l'offre + tableau complets en PDF, et ESCALATE si le client ne renvoie pas directement les bons documents ou si l'échange devient ambigu.
@@ -105,6 +67,8 @@ ${ctx.documentSummary}
 Signaux internes (ne pas révéler au client) :
 ${(ctx.qualityIssues || []).length ? (ctx.qualityIssues || []).join("\n") : "Aucun"}
 docsReliability: ${ctx.docsReliability || "unknown"}
+certainDocProblems: ${ctx.certainDocProblems ? "true" : "false"}
+uncertainDocSignals: ${(ctx.uncertainDocSignals || []).join("; ") || "aucun"}
 clientSafeReason: ${ctx.clientSafeReason || "N/A"}
 
 Pièces bloquantes encore manquantes : ${missingBlocking.join(", ") || "Aucune — dossier complet côté CNI/RIB"}

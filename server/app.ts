@@ -269,6 +269,13 @@ export function createApp() {
         appendLog(`[Docs Warning] Analyse PDF impossible: ${e?.message || String(e)}`);
       }
 
+      try {
+        const { scheduleCamilleDocumentFollowUpIfNeeded } = await import("./camilleDocumentFollowUp");
+        scheduleCamilleDocumentFollowUpIfNeeded(newDossier);
+      } catch (followUpErr: any) {
+        appendLog(`[Camille] Relance documents non programmée: ${followUpErr?.message || String(followUpErr)}`);
+      }
+
       await writeDB(db, newDossier);
       appendLog(`Succès d'écriture du dossier ${newDossier.id} dans la base de données.`);
 
