@@ -4,6 +4,12 @@ import { buildCamilleContextBlock } from "./camilleMail";
 import { getAiAuditTrail } from "./aiAuditLog";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
+import {
+  hasStudyBeenSent,
+  getLastStudyOutbound,
+  resolveClientPortalStatusKey,
+  needsStatusStudySent,
+} from "./dossierLifecycle";
 
 export function buildCamilleAdminContext(dossier: Dossier) {
   const a = dossier.formData?.assures?.[0];
@@ -21,17 +27,23 @@ export function buildCamilleAdminContext(dossier: Dossier) {
     .filter((c: any) => c.direction === "outbound")
     .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
 
+  const studySent = hasStudyBeenSent(dossier);
+  const portalKey = resolveClientPortalStatusKey(dossier);
+
   let suggestedNextStep = "Suivi standard.";
   if (esc?.lastAt && !esc?.resolvedAt) {
     suggestedNextStep = "Escalade ouverte — consigne Telegram ou mail depuis l'admin.";
-  } else if (docProb.certain) {
-    suggestedNextStep = "Relancer PDF banque (offre + tableau complets).";
-  } else if (!ctx.loanDocsOk) {
+  } else if (needsStatusStudySent(dossier)) {
+    suggestedNextStep = "Étude déjà envoyée (visible dans les échanges) : passer le statut en MAIL ENVOYÉ pour le portail client.";
+  } else if (docProb.certain && !studySent) {
+    suggestedNextStep =
+      "Demander offre de prêt + tableau d'amortissement en PDF complets depuis l'espace banque (pas de scan/capture).";
+  } else if (!ctx.loanDocsOk && !studySent) {
     suggestedNextStep = "Obtenir offre de prêt + tableau d'amortissement.";
-  } else if (!dossier.studyDraft) {
-    suggestedNextStep = "Préparer et envoyer l'étude personnalisée.";
+  } else if (!studySent) {
+    suggestedNextStep = "Préparer et envoyer l'étude personnalisée par email.";
   } else {
-    suggestedNextStep = "Dossier avancé — répondre aux questions client si besoin.";
+    suggestedNextStep = "Étude envoyée — répondre au client si nouveau mail.";
   }
 
   const staffUntil = dossier.camilleStaffHandledUntil;
@@ -46,7 +58,11 @@ export function buildCamilleAdminContext(dossier: Dossier) {
       `Statut : ${dossier.status}`,
       esc?.lastAt && !esc?.resolvedAt ? `Escalade : ${esc.reason || "oui"}` : "Pas d'escalade",
       ctx.loanDocsOk ? "Docs prêt : OK" : "Docs prêt : incomplets",
-      docProb.certain ? "Alerte PDF / scan" : "Format docs : OK",
+      docProb.certain ? "Docs prêt : scan/photo à refaire" : "Format docs : OK",
+      studySent ? `Étude envoyée (portail client : ${portalKey})` : "Étude : pas encore envoyée",
+      getLastStudyOutbound(dossier)
+        ? `Dernier mail étude : ${getLastStudyOutbound(dossier)!.subject.slice(0, 70)}`
+        : null,
       staffUntil && new Date(staffUntil) > new Date()
         ? `Mode équipe actif jusqu'au ${staffUntil.slice(0, 16)}`
         : null,

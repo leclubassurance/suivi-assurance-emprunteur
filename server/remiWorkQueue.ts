@@ -3,6 +3,13 @@ import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { buildCamilleContextBlock } from "./camilleMail";
 import { isDossierStale } from "./rules";
+import {
+  hasStudyBeenSent,
+  needsStatusStudySent,
+  getLastStudyOutbound,
+  getLastClientInbound,
+  getLastOutbound,
+} from "./dossierLifecycle";
 
 export type WorkQueuePriority = "critical" | "high" | "medium" | "low";
 
@@ -11,7 +18,9 @@ export type WorkQueueKind =
   | "new_dossier"
   | "missing_loan_docs"
   | "doc_quality"
+  | "status_sync"
   | "client_waiting"
+  | "client_replied"
   | "study_pending"
   | "drive_failed";
 
@@ -23,6 +32,8 @@ export interface WorkQueueItem {
   priority: WorkQueuePriority;
   title: string;
   detail: string;
+  /** Action concrète pour Rémi */
+  action: string;
   updatedAt: string;
   snoozedUntil?: string;
   dismissedAt?: string;
@@ -37,12 +48,16 @@ function borrower(d: Dossier) {
 }
 
 function isSnoozed(d: Dossier) {
-  const until = (d as any).remiQueue?.snoozedUntil;
+  const until = d.remiQueue?.snoozedUntil;
   return until && new Date(until).getTime() > Date.now();
 }
 
 function isDismissed(d: Dossier) {
-  return Boolean((d as any).remiQueue?.dismissedAt);
+  return Boolean(d.remiQueue?.dismissedAt);
+}
+
+function push(items: WorkQueueItem[], item: WorkQueueItem) {
+  items.push(item);
 }
 
 export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
@@ -56,99 +71,160 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
     const checklist = computeDocumentChecklist(d.formData?.documents || []);
     const ctx = buildCamilleContextBlock(d);
     const docProb = assessCertainLoanDocProblems(d);
+    const studySent = hasStudyBeenSent(d);
+    const lastStudy = getLastStudyOutbound(d);
+    const lastIn = getLastClientInbound(d);
+    const lastOut = getLastOutbound(d);
 
     if (esc?.lastAt && !esc?.resolvedAt) {
-      items.push({
+      push(items, {
         dossierId: d.id,
         clientName: name,
         clientEmail: email,
         kind: "escalation",
         priority: "critical",
-        title: "Escalade Camille",
-        detail: esc.reason || "Intervention requise",
+        title: "Escalade — décision requise",
+        detail: esc.reason || "Camille attend votre consigne",
+        action:
+          "Répondre sur Telegram à l'alerte (ex. consigne pour le client) ou traiter le mail client depuis l'onglet Échanges.",
         updatedAt: esc.lastAt,
       });
       continue;
     }
 
-    if (d.status === "NOUVEAU") {
-      items.push({
+    if (needsStatusStudySent(d)) {
+      push(items, {
+        dossierId: d.id,
+        clientName: name,
+        clientEmail: email,
+        kind: "status_sync",
+        priority: "medium",
+        title: "Étude déjà envoyée — aligner le statut",
+        detail: lastStudy
+          ? `Mail envoyé : « ${lastStudy.subject.slice(0, 70)} »`
+          : "L'historique Gmail montre une étude envoyée",
+        action:
+          "Dans l'admin : passer le statut en « MAIL ENVOYÉ » pour que le portail client affiche « Étude envoyée ».",
+        updatedAt: lastStudy?.date || d.updatedAt,
+      });
+    }
+
+    if (d.status === "NOUVEAU" && !studySent) {
+      push(items, {
         dossierId: d.id,
         clientName: name,
         clientEmail: email,
         kind: "new_dossier",
         priority: "high",
-        title: "Nouveau dossier",
-        detail: "À prendre en charge",
+        title: "Nouveau dossier à ouvrir",
+        detail: `Reçu le ${(d.createdAt || "").slice(0, 10)}`,
+        action:
+          "Vérifier les pièces, lancer l'export Drive si besoin, puis traiter ou confier la relance documents à Camille.",
         updatedAt: d.createdAt,
       });
     }
 
-    if (!ctx.loanDocsOk) {
-      items.push({
+    if (!studySent && !ctx.loanDocsOk) {
+      const missing = checklist
+        .filter((c) => (c.key === "offre" || c.key === "amort") && !c.ok)
+        .map((c) => c.label);
+      push(items, {
         dossierId: d.id,
         clientName: name,
         clientEmail: email,
         kind: "missing_loan_docs",
         priority: "high",
-        title: "Offre ou tableau manquant",
-        detail: checklist
-          .filter((c) => (c.key === "offre" || c.key === "amort") && !c.ok)
-          .map((c) => c.label)
-          .join(", ") || "Documents prêt incomplets",
+        title: "Documents de prêt manquants",
+        detail: missing.length ? missing.join(" · ") : "Offre et/ou tableau d'amortissement",
+        action:
+          "Relancer le client (Camille ou mail manuel) pour l'offre de prêt + tableau d'amortissement en PDF depuis l'espace banque.",
         updatedAt: d.updatedAt,
       });
-    } else if (docProb.certain) {
-      items.push({
+    } else if (!studySent && docProb.certain) {
+      push(items, {
         dossierId: d.id,
         clientName: name,
         clientEmail: email,
         kind: "doc_quality",
         priority: "high",
-        title: "PDF banque à refaire",
-        detail: docProb.problems.map((p) => p.kind).join(", "),
+        title: "Documents de prêt non exploitables (scan / photo)",
+        detail:
+          "Fichiers reçus mais illisibles pour l'analyse — il faut des PDF complets depuis la banque en ligne.",
+        action:
+          "Demander au client les PDF banque complets (offre + tableau), via Telegram à Camille ou depuis l'onglet Envoi mail.",
         updatedAt: d.updatedAt,
       });
     }
 
-    if (d.status === "EN_ATTENTE_CLIENT" && isDossierStale(d, 5)) {
-      items.push({
-        dossierId: d.id,
-        clientName: name,
-        clientEmail: email,
-        kind: "client_waiting",
-        priority: "medium",
-        title: "Attente client",
-        detail: "Sans activité depuis 5+ jours",
-        updatedAt: d.updatedAt,
-      });
+    if (lastIn && studySent) {
+      const inDate = new Date(lastIn.date || 0).getTime();
+      const studyDate = new Date(lastStudy?.date || 0).getTime();
+      if (inDate > studyDate) {
+        push(items, {
+          dossierId: d.id,
+          clientName: name,
+          clientEmail: email,
+          kind: "client_replied",
+          priority: "high",
+          title: "Le client a répondu après l'étude",
+          detail: String(lastIn.subject || lastIn.text || "").slice(0, 120),
+          action:
+            "Lire le mail dans Échanges, répondre ou laisser Camille répondre ; mettre à jour le statut si le dossier est clos.",
+          updatedAt: String(lastIn.date || d.updatedAt),
+        });
+      }
     }
 
-    if (ctx.loanDocsOk && !d.studyDraft && (d.status === "EN_COURS" || d.status === "NOUVEAU")) {
-      items.push({
+    if (!studySent && ctx.loanDocsOk && !docProb.certain && (d.status === "EN_COURS" || d.status === "NOUVEAU")) {
+      push(items, {
         dossierId: d.id,
         clientName: name,
         clientEmail: email,
         kind: "study_pending",
         priority: "medium",
-        title: "Étude à préparer / envoyer",
-        detail: "Docs prêt OK — pas d'étude enregistrée",
+        title: "Préparer et envoyer l'étude",
+        detail: "Offre + tableau OK — étude pas encore envoyée au client",
+        action:
+          "Calculer les économies si besoin, générer le mail d'étude (onglet Envoi mail) et envoyer au client.",
+        updatedAt: d.updatedAt,
+      });
+    }
+
+    if (
+      !studySent &&
+      d.status === "EN_ATTENTE_CLIENT" &&
+      isDossierStale(d, 5) &&
+      (!lastIn || new Date(lastIn.date || 0) < new Date(Date.now() - 5 * 86400000))
+    ) {
+      push(items, {
+        dossierId: d.id,
+        clientName: name,
+        clientEmail: email,
+        kind: "client_waiting",
+        priority: "medium",
+        title: "Sans nouvelles du client",
+        detail: "Statut attente client · aucune activité depuis 5+ jours",
+        action:
+          "Relance manuelle ou vérifier si Camille doit envoyer un rappel (éviter doublon si mail récent).",
         updatedAt: d.updatedAt,
       });
     }
 
     if (d.workspaceStatus === "FAILED") {
-      items.push({
+      push(items, {
         dossierId: d.id,
         clientName: name,
         clientEmail: email,
         kind: "drive_failed",
         priority: "low",
-        title: "Export Drive en échec",
-        detail: d.workspaceError || "Erreur workspace",
+        title: "Export Google Drive en échec",
+        detail: d.workspaceError || "Erreur technique",
+        action: "Onglet Suivi → Vérifier Drive ou relancer l'export dossier.",
         updatedAt: d.updatedAt,
       });
     }
+
+    void lastOut;
   }
 
   const rank: Record<WorkQueuePriority, number> = { critical: 0, high: 1, medium: 2, low: 3 };

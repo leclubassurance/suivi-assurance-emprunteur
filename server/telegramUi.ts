@@ -26,7 +26,7 @@ function suggestNextAction(d: Dossier, docProb: ReturnType<typeof assessCertainL
     return "Répondez à l'alerte 🟠 ou utilisez un bouton pour guider Camille.";
   }
   if (docProb.certain) {
-    return "Documents à renvoyer en PDF banque (offre + tableau).";
+    return "Demander offre de prêt + tableau d'amortissement en PDF banque en ligne.";
   }
   const missing = computeDocumentChecklist(d.formData?.documents || []).filter((c) => !c.ok);
   if (missing.some((m) => m.key === "offre" || m.key === "amort")) {
@@ -55,7 +55,7 @@ export function formatDossierTelegramCard(d: Dossier): string {
       : missing.map((m) => `   • ${escapeTelegramHtml(m.label)}`).join("\n");
 
   const docIssue = docProb.certain
-    ? "⚠️ <b>PDF banque requis</b> (captures / scan non exploitables)"
+    ? "⚠️ <b>Documents prêt à refaire</b> (PDF complets depuis la banque, pas de scan)"
     : "✅ Format documents OK côté prêt";
 
   const loanOk = ctx.loanDocsOk ? "✅ Offre + tableau reçus" : "⏳ Offre ou tableau manquant";

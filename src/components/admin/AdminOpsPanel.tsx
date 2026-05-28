@@ -11,6 +11,7 @@ type WorkQueueItem = {
   priority: string;
   title: string;
   detail: string;
+  action: string;
   updatedAt: string;
 };
 
@@ -124,7 +125,8 @@ export function AdminWorkQueuePanel({
               <span className="text-[10px] font-mono uppercase text-slate-500">{item.priority}</span>
             </div>
             <p className="text-xs text-slate-600 mt-1">{item.clientName}</p>
-            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.detail}</p>
+            <p className="text-xs font-semibold text-indigo-900 mt-2 leading-snug">{item.action}</p>
+            <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{item.detail}</p>
             <p className="text-[10px] font-mono text-slate-400 mt-2">{item.dossierId}</p>
             <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
               <button

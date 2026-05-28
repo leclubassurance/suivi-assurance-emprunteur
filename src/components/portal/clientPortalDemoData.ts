@@ -5,27 +5,28 @@ export const CLIENT_PORTAL_DEMO_DATA: ClientPortalData = {
   dossierId: "LCIF-930840",
   clientPrenom: "Marie",
   status: {
-    label: "Étude en cours",
+    label: "Étude envoyée par email",
     description:
-      "Nous analysons votre dossier. Vous serez contactée par email si nous avons besoin d'un document complémentaire.",
+      "Votre étude personnalisée vous a été transmise par email. Consultez votre boîte de réception (et les spams).",
   },
   steps: [
-    { key: "received", label: "Demande reçue", done: true },
+    { key: "received", label: "Demande enregistrée", done: true },
     {
       key: "docs",
-      label: "Documents prêt reçus",
+      label: "Offre de prêt et tableau d'amortissement",
       done: true,
-      hint: "Offre et tableau d'amortissement OK",
+      hint: "Documents reçus et exploitables",
     },
     {
       key: "study",
-      label: "Étude des économies",
-      done: false,
+      label: "Étude des économies réalisée",
+      done: true,
     },
     {
       key: "done",
-      label: "Proposition envoyée",
-      done: false,
+      label: "Étude transmise par email",
+      done: true,
+      hint: "Dernier envoi : Marie, votre étude personnalisée - Assurance Emprunteur",
     },
   ],
   documents: [

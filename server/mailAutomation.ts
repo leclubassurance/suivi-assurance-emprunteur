@@ -383,6 +383,13 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
           source: "gmail_sync_outbound",
           subject,
         });
+        const { hasStudyBeenSent } = await import("./dossierLifecycle");
+        if (
+          hasStudyBeenSent(dossier) &&
+          !["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))
+        ) {
+          dossier.status = "MAIL_ENVOYÉ";
+        }
       }
 
       if (isFromClient) {
