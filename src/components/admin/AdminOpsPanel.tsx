@@ -29,6 +29,12 @@ type Metrics = {
   totalEconomiesRealiseesLabel: string;
   totalMontantPretsAccompagnesLabel: string;
   totalGainsFraisCourtageLabel: string;
+  kpiHelp?: {
+    economies: string;
+    prets: string;
+    courtage: string;
+    periodLabel: string;
+  };
 };
 
 const priorityStyle: Record<string, string> = {
@@ -40,26 +46,78 @@ const priorityStyle: Record<string, string> = {
 
 export function AdminActivityBar({ metrics }: { metrics: Metrics | null }) {
   if (!metrics) return null;
-  const cards = [
-    { label: "Économies présentées", value: metrics.totalEconomiesRealiseesLabel, icon: Euro },
-    { label: "Prêts accompagnés", value: metrics.totalMontantPretsAccompagnesLabel, icon: Landmark },
-    { label: "Frais de courtage", value: metrics.totalGainsFraisCourtageLabel, icon: Wallet },
+
+  const businessCards = [
+    {
+      label: "Économies annoncées",
+      sub: `${metrics.studiesWithKpi} étude(s)`,
+      value: metrics.totalEconomiesRealiseesLabel,
+      help: metrics.kpiHelp?.economies,
+      icon: Euro,
+    },
+    {
+      label: "Capitaux accompagnés",
+      sub: metrics.kpiHelp?.periodLabel,
+      value: metrics.totalMontantPretsAccompagnesLabel,
+      help: metrics.kpiHelp?.prets,
+      icon: Landmark,
+    },
+    {
+      label: "Courtage LCIF",
+      sub: "lu dans les mails d'étude",
+      value: metrics.totalGainsFraisCourtageLabel,
+      help: metrics.kpiHelp?.courtage,
+      icon: Wallet,
+    },
+  ];
+
+  const opsCards = [
     { label: "Nouveaux", value: metrics.newDossiers, icon: TrendingUp },
     { label: "Escalades", value: metrics.openEscalations, icon: AlertTriangle },
-    { label: "Mails client (7j)", value: metrics.clientMessages7d, icon: Mail },
+    { label: "Mails client", value: metrics.clientMessages7d, icon: Mail },
     { label: "Docs prêt OK", value: `${metrics.loanDocsOkRate}%`, icon: FileWarning },
     { label: "PDF à refaire", value: metrics.certainDocProblemCount, icon: Clock },
   ];
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 p-4 bg-slate-900 text-white">
-      {cards.map((c) => (
-        <div key={c.label} className="rounded-xl bg-white/10 px-3 py-2">
-          <div className="flex items-center gap-2 text-[10px] uppercase font-bold text-white/60">
-            <c.icon className="w-3.5 h-3.5" /> {c.label}
-          </div>
-          <p className="text-xl font-black mt-1">{c.value}</p>
+    <div className="bg-slate-900 text-white p-4 space-y-4">
+      <div>
+        <p className="text-[10px] uppercase font-bold text-white/50 tracking-wide mb-3">
+          Performance commerciale · {metrics.kpiHelp?.periodLabel || "7 jours"}
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {businessCards.map((c) => (
+            <div
+              key={c.label}
+              className="rounded-xl bg-white/10 px-4 py-3 border border-white/10"
+              title={c.help}
+            >
+              <div className="flex items-center gap-2 text-[10px] uppercase font-bold text-white/60">
+                <c.icon className="w-3.5 h-3.5 shrink-0" /> {c.label}
+              </div>
+              <p className="text-2xl font-black mt-1.5">{c.value}</p>
+              <p className="text-[11px] text-white/45 mt-1">{c.sub}</p>
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
+
+      <details className="group">
+        <summary className="text-[11px] font-bold text-white/50 cursor-pointer list-none flex items-center gap-2">
+          <span className="group-open:rotate-90 transition-transform">▸</span>
+          Activité opérationnelle (file, mails, qualité docs)
+        </summary>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">
+          {opsCards.map((c) => (
+            <div key={c.label} className="rounded-lg bg-white/5 px-3 py-2">
+              <div className="flex items-center gap-1.5 text-[9px] uppercase font-bold text-white/50">
+                <c.icon className="w-3 h-3" /> {c.label}
+              </div>
+              <p className="text-lg font-black mt-0.5">{c.value}</p>
+            </div>
+          ))}
+        </div>
+      </details>
     </div>
   );
 }
@@ -88,70 +146,36 @@ export function AdminWorkQueuePanel({
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 60000);
+    const t = setInterval(load, 60_000);
     return () => clearInterval(t);
   }, [load]);
 
-  const snooze = async (id: string) => {
-    await fetch(getApiUrl(`/api/admin/work-queue/${id}/snooze`), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hours: 24 }),
-    });
-    load();
-  };
-
-  const dismiss = async (id: string) => {
-    await fetch(getApiUrl(`/api/admin/work-queue/${id}/dismiss`), { method: "POST" });
-    load();
-  };
-
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-3 border-b flex items-center justify-between bg-amber-50">
-        <span className="text-xs font-black text-amber-900 flex items-center gap-2">
-          <Inbox className="w-4 h-4" /> À traiter ({items.length})
-        </span>
-        <button type="button" onClick={load} className="text-[10px] font-bold text-amber-800 underline">
-          Actualiser
-        </button>
+    <div className="w-full lg:w-80 shrink-0 border-r border-slate-200 bg-slate-50 flex flex-col max-h-[calc(100vh-120px)]">
+      <div className="p-4 border-b border-slate-200 bg-white">
+        <div className="flex items-center gap-2 font-black text-slate-800 text-sm">
+          <Inbox className="w-4 h-4" /> File « À traiter »
+        </div>
+        <p className="text-[11px] text-slate-500 mt-1">Triée par priorité</p>
       </div>
-      <div className="flex-1 overflow-y-auto">
-        {loading && <p className="p-4 text-xs text-slate-400">Chargement…</p>}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+        {loading && <p className="text-xs text-slate-400 p-2">Chargement…</p>}
         {!loading && items.length === 0 && (
-          <p className="p-4 text-xs text-slate-500">Rien en attente — bravo.</p>
+          <p className="text-xs text-slate-500 p-2">Rien en attente.</p>
         )}
         {items.map((item) => (
-          <div
+          <button
             key={`${item.dossierId}-${item.kind}`}
-            className={`p-3 border-b cursor-pointer hover:bg-indigo-50/50 ${selectedId === item.dossierId ? "bg-indigo-50" : ""} ${priorityStyle[item.priority] || ""}`}
+            type="button"
             onClick={() => onSelect(item.dossierId)}
+            className={`w-full text-left p-3 rounded-xl border transition-all ${priorityStyle[item.priority] || priorityStyle.medium} ${
+              selectedId === item.dossierId ? "ring-2 ring-indigo-400" : ""
+            }`}
           >
-            <div className="flex justify-between gap-2">
-              <span className="font-bold text-sm text-slate-900">{item.title}</span>
-              <span className="text-[10px] font-mono uppercase text-slate-500">{item.priority}</span>
-            </div>
-            <p className="text-xs text-slate-600 mt-1">{item.clientName}</p>
-            <p className="text-xs font-semibold text-indigo-900 mt-2 leading-snug">{item.action}</p>
-            <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{item.detail}</p>
-            <p className="text-[10px] font-mono text-slate-400 mt-2">{item.dossierId}</p>
-            <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                onClick={() => snooze(item.dossierId)}
-                className="text-[10px] font-bold px-2 py-1 rounded bg-white border"
-              >
-                +24h
-              </button>
-              <button
-                type="button"
-                onClick={() => dismiss(item.dossierId)}
-                className="text-[10px] font-bold px-2 py-1 rounded bg-white border"
-              >
-                OK
-              </button>
-            </div>
-          </div>
+            <p className="text-[11px] font-bold text-slate-500">{item.clientName}</p>
+            <p className="text-sm font-bold text-slate-900 mt-0.5">{item.title}</p>
+            <p className="text-[11px] text-slate-600 mt-1 line-clamp-2">{item.detail}</p>
+          </button>
         ))}
       </div>
     </div>
@@ -163,16 +187,19 @@ export function useAdminOpsData() {
   const loadMetrics = useCallback(async () => {
     try {
       const res = await fetch(getApiUrl("/api/admin/activity-metrics?days=7"));
-      if (res.ok) setMetrics(await res.json());
+      const data = await res.json();
+      setMetrics(data);
     } catch {
       setMetrics(null);
     }
   }, []);
+
   useEffect(() => {
     loadMetrics();
-    const t = setInterval(loadMetrics, 120000);
+    const t = setInterval(loadMetrics, 120_000);
     return () => clearInterval(t);
   }, [loadMetrics]);
+
   return { metrics, reloadMetrics: loadMetrics };
 }
 
@@ -189,16 +216,14 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
           fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/camille-context`)),
           fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/ai-audit`)),
         ]);
-        if (!cancelled && cRes.ok) setCtx(await cRes.json());
-        if (!cancelled && aRes.ok) {
-          const a = await aRes.json();
+        const c = await cRes.json();
+        const a = await aRes.json();
+        if (!cancelled) {
+          setCtx(c);
           setAudit(a.entries || []);
         }
       } catch {
-        if (!cancelled) {
-          setCtx(null);
-          setAudit([]);
-        }
+        if (!cancelled) setCtx(null);
       }
     })();
     return () => {
@@ -217,13 +242,22 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
 
   if (!ctx) return <p className="text-xs text-slate-400">Chargement contexte Camille…</p>;
 
+  const sk = (dossier as any).studyKpi;
+
   return (
     <div className="space-y-4">
+      {sk && (
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950">
+          <p className="font-black mb-1">KPI mail d&apos;étude (Gmail)</p>
+          <p>Économie brute : <strong>{sk.grossSavingsEur} €</strong></p>
+          <p>Courtage : <strong>{sk.feesCourtageEur} €</strong> · Capital prêt : <strong>{sk.loanCapitalEur} €</strong></p>
+        </div>
+      )}
+
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
         <p className="text-xs font-black text-slate-800 mb-1">Page de suivi client (lien personnel)</p>
         <p className="text-[11px] text-slate-600 leading-relaxed mb-3">
-          Le client voit une page sobre avec logo LCIF, statut, étapes et documents — sans compte. Le lien est
-          généré automatiquement (aucun paramétrage secret sur Railway).
+          Le client voit une page sobre avec logo LCIF, statut, étapes et documents — sans compte.
         </p>
         <div className="flex flex-wrap gap-2">
           <a
@@ -237,7 +271,7 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
           <button
             type="button"
             onClick={() => setShowPortalPreview(true)}
-            className="text-[11px] font-bold px-3 py-2 rounded-lg bg-[#111318] text-white flex items-center gap-1.5"
+            className="text-[11px] font-bold px-3 py-2 rounded-lg bg-[#1E3A8A] text-white flex items-center gap-1.5"
           >
             <Eye className="w-3.5 h-3.5" /> Aperçu ce dossier
           </button>

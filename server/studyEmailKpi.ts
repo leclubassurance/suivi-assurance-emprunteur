@@ -107,10 +107,25 @@ export function parseStudyEconomyFromEmailHtml(
     if (fromHtml != null) gross = fromHtml;
   }
 
-  const feesCourtage =
-    firstAmountAfter(/frais de courtage/i, blob) ??
-    firstAmountAfter(/frais courtage/i, blob) ??
-    0;
+  let feesCourtage: number | null = null;
+  const courtageHtml = rawHtml.match(
+    /Frais de courtage\s*:?\s*<\/span>\s*<span[^>]*>([^<]+)</i,
+  );
+  if (courtageHtml?.[1]) {
+    feesCourtage = parseEuroToken(courtageHtml[1]);
+  }
+  if (feesCourtage == null) {
+    const courtageRow = rawHtml.match(
+      /Frais de courtage[\s\S]{0,120}?(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+    );
+    if (courtageRow?.[1]) feesCourtage = parseEuroToken(courtageRow[1]);
+  }
+  if (feesCourtage == null) {
+    feesCourtage =
+      firstAmountAfter(/frais de courtage/i, blob) ??
+      firstAmountAfter(/frais courtage/i, blob) ??
+      0;
+  }
 
   const feesAssureur =
     firstAmountAfter(/frais de dossier/i, blob) ??

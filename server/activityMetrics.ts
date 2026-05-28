@@ -22,6 +22,12 @@ export type ActivityMetrics = {
   totalMontantPretsAccompagnesLabel: string;
   totalGainsFraisCourtageEur: number;
   totalGainsFraisCourtageLabel: string;
+  kpiHelp: {
+    economies: string;
+    prets: string;
+    courtage: string;
+    periodLabel: string;
+  };
 };
 
 function daysSince(iso?: string) {
@@ -115,5 +121,11 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
     totalMontantPretsAccompagnesLabel: formatEurKpi(totalMontantPretsAccompagnesEur),
     totalGainsFraisCourtageEur: Math.round(totalGainsFraisCourtageEur),
     totalGainsFraisCourtageLabel: formatEurKpi(totalGainsFraisCourtageEur),
+    kpiHelp: {
+      periodLabel: `${periodDays} derniers jours`,
+      economies: `Somme des économies brutes annoncées dans les mails d'étude Charles Victor (${studiesWithKpi} dossier(s)). Ce n'est pas le chiffre d'affaires encaissé, mais ce qui a été présenté au client.`,
+      prets: `Total des capitaux restants dus déclarés au formulaire pour ces mêmes dossiers (un dossier = une ou plusieurs lignes de prêt).`,
+      courtage: `Total des frais de courtage LCIF lus dans le HTML des mails d'étude (ligne « Frais de courtage »). 0 € si le mail ne contient pas ce montant ou affiche « ___ € ».`,
+    },
   };
 }

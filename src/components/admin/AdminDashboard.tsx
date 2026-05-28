@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Dossier, UserInfo } from "../../types";
-import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, Trash2, CalendarClock, ListTodo, Bell, Sparkles } from "lucide-react";
+import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, Trash2, CalendarClock, ListTodo, Bell, Sparkles, Upload } from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
@@ -28,6 +28,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const [emailSubject, setEmailSubject] = useState("");
   const [emailHtml, setEmailHtml] = useState("");
   const [economyStatus, setEconomyStatus] = useState<{ reliability?: string; reasons?: string[] } | null>(null);
+  const [uploadDocCategory, setUploadDocCategory] = useState("auto");
   const [previewActive, setPreviewActive] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
@@ -202,6 +203,34 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       loadDossiers();
     } catch {
       showToast("Erreur upload devis", "error");
+    }
+  };
+
+  const handleUploadDocument = async (file: File) => {
+    if (!selectedDossier) return;
+    try {
+      const fd = new FormData();
+      fd.append("document", file);
+      fd.append("category", uploadDocCategory);
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/documents`), {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Erreur lors de l'ajout du document", "error");
+        return;
+      }
+      if (data.driveWarning) {
+        showToast(data.driveWarning, "info");
+      } else if (data.document?.driveLink) {
+        showToast("Document ajouté et copié sur Drive.", "success");
+      } else {
+        showToast("Document ajouté au dossier.", "success");
+      }
+      loadDossiers();
+    } catch {
+      showToast("Erreur lors de l'ajout du document", "error");
     }
   };
 
@@ -1202,6 +1231,43 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       Ajoutez ici le PDF du devis. Il sert au suivi interne et au contexte de Camille (sans citer l’assureur au client).
                     </div>
                   </div>
+                  <div className="mb-6 p-4 rounded-xl border border-dashed border-slate-300 bg-slate-50">
+                    <p className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
+                      <Upload className="w-4 h-4" /> Ajouter un document au dossier
+                    </p>
+                    <p className="text-xs text-slate-500 mb-3">
+                      Le fichier est enregistré dans le dossier et copié sur Google Drive si le dossier Drive existe déjà.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <select
+                        value={uploadDocCategory}
+                        onChange={(e) => setUploadDocCategory(e.target.value)}
+                        className="text-xs font-semibold border border-slate-200 rounded-lg px-3 py-2 bg-white"
+                      >
+                        <option value="auto">Type : détection auto</option>
+                        <option value="offre">Offre de prêt</option>
+                        <option value="tableau">Tableau d&apos;amortissement</option>
+                        <option value="cni">Pièce d&apos;identité</option>
+                        <option value="rib">RIB</option>
+                        <option value="devis">Devis assureur</option>
+                        <option value="autre">Autre</option>
+                      </select>
+                      <label className="text-xs font-bold bg-[#1E3A8A] hover:bg-[#172554] text-white px-4 py-2 rounded-lg cursor-pointer">
+                        Choisir un fichier
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleUploadDocument(f);
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="space-y-3">
                     {selectedDossier.formData?.documents?.length ? (
                       selectedDossier.formData.documents.map((doc, idx) => (

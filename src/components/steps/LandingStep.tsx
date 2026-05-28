@@ -227,22 +227,31 @@ export default function LandingStep({ onStart, onAdminAccess }: { onStart: () =>
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200/60 rounded-[28px] p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-        <div className="flex items-center gap-5 pl-2">
-          <div className="flex -space-x-3">
-            {["LC", "LC", "LC", "LC", "LC"].map((initials, i) => (
-              <div
-                key={i}
-                className="w-12 h-12 rounded-full border-2 border-white bg-[#1E3A8A] text-white text-[11px] font-bold flex items-center justify-center shadow-sm"
-                style={{ zIndex: 10 - i }}
-              >
-                {initials}
-              </div>
-            ))}
+      <div className="bg-white border border-slate-200/60 rounded-[28px] p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-8 shadow-sm overflow-hidden relative">
+        <div className="absolute -right-8 -bottom-12 w-48 h-48 opacity-[0.06] pointer-events-none hidden md:block">
+          <img
+            src="https://res.cloudinary.com/dji8akleo/image/upload/v1777112444/6_oqr0zi.png"
+            alt=""
+            className="w-full h-full object-contain"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+        <div className="flex items-center gap-6 pl-2 relative z-10">
+          <div className="shrink-0 rounded-2xl border border-slate-100 bg-[#F8FAFC] px-5 py-4 shadow-sm">
+            <img
+              src="https://res.cloudinary.com/dji8akleo/image/upload/v1777112444/6_oqr0zi.png"
+              alt="Le Club Immobilier Français"
+              className="h-14 sm:h-16 w-auto object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <div>
-            <div className="font-bold text-[#111318] text-[15px] mb-0.5">De nombreux dossiers d&apos;assurance déjà optimisés</div>
-            <div className="text-slate-500 text-[14px]">Rejoignez nos clients satisfaits</div>
+            <div className="font-bold text-[#111318] text-[15px] md:text-[16px] mb-1 leading-snug">
+              Des centaines de dossiers d&apos;assurance emprunteur accompagnés
+            </div>
+            <div className="text-slate-500 text-[14px] leading-relaxed">
+              Le Club Immobilier Français · Courtier ORIAS 24002253
+            </div>
           </div>
         </div>
         <button 

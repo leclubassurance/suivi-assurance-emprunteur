@@ -127,7 +127,7 @@ export function createApp() {
 
   const storage = multer.diskStorage({
     destination: function (req, _file, cb) {
-      const dossierId = (req.params as any).dossierId || "unknown";
+      const dossierId = (req.params as any).id || (req.params as any).dossierId || "unknown";
       const dir = path.join(UPLOADS_DIR, dossierId);
       try {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -143,6 +143,7 @@ export function createApp() {
   });
   const upload = multer({ storage });
   const quoteUpload = multer({ storage });
+  const adminDocUpload = multer({ storage });
 
   // --- API ROUTES ---
 
@@ -1060,6 +1061,53 @@ export function createApp() {
 
     await writeDB(db, dossier);
     res.json({ success: true, dossier });
+  });
+
+  // Ajouter un document au dossier (admin) — copié sur Drive si le dossier existe
+  app.post("/api/admin/dossiers/:id/documents", adminDocUpload.single("document"), async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id } = req.params;
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) return res.status(400).json({ error: "Fichier manquant" });
+
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    let driveToken: string | null = null;
+    try {
+      const { getServerAccessToken } = await import("./googleOAuthServer");
+      driveToken = await getServerAccessToken();
+    } catch {
+      driveToken = null;
+    }
+
+    const { addFileToDossier } = await import("./dossierDocuments");
+    const category = String((req.body as any)?.category || "auto");
+    const doc = await addFileToDossier(dossier, file, {
+      uploadsDir: UPLOADS_DIR,
+      category,
+      source: "admin",
+      driveAccessToken: driveToken,
+    });
+
+    let driveWarning: string | undefined;
+    if (!dossier.workspaceFolderId) {
+      driveWarning =
+        "Document enregistré localement. Créez le dossier Drive (bouton « Créer dossier Drive ») puis réimportez ou relancez l'export pour archiver sur Drive.";
+    } else if (!doc.driveLink) {
+      driveWarning = "Document enregistré ; upload Drive non confirmé (vérifiez la connexion Google).";
+    }
+
+    dossier.updatedAt = new Date().toISOString();
+    await writeDB(db, dossier);
+
+    res.json({
+      success: true,
+      document: doc,
+      driveWarning,
+      dossier,
+    });
   });
 
   // Delete active quote ("devis")
