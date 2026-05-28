@@ -128,13 +128,18 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         const missing = (data.documents || []).filter(
-          (d: { skipReason?: string }) => d.skipReason === "file_missing_on_server",
-        ).length;
+          (d: { analyzed?: boolean; skipReason?: string }) => !d.analyzed,
+        );
+        const driveN = data.driveFetchedCount ?? 0;
         showToast(
-          `${data.analyzedCount || 0} document(s) réanalysé(s)` +
-            (data.ocrCount ? `, dont ${data.ocrCount} via OCR` : "") +
-            (missing ? ` — ${missing} fichier(s) absent(s) sur le serveur` : ""),
-          "success",
+          data.analyzedCount
+            ? `${data.analyzedCount} document(s) réanalysé(s)` +
+                (data.ocrCount ? `, dont ${data.ocrCount} via OCR` : "") +
+                (driveN ? `, ${driveN} récupéré(s) depuis Drive` : "")
+            : missing.length
+              ? `Aucune analyse : ${missing.map((d: { name?: string; skipReason?: string }) => `${d.name} (${d.skipReason})`).join(", ")}`
+              : "Aucun document de prêt à analyser",
+          data.analyzedCount ? "success" : "error",
         );
         loadDossiers();
       } else {

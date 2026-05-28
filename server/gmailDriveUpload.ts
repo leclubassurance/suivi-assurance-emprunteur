@@ -1,5 +1,5 @@
 import { Readable } from "stream";
-import { createDriveClient } from "./googleAutomation";
+import { createDriveClient, resolveDriveAccessToken } from "./googleAutomation";
 
 export type DriveUploadResult = {
   fileId: string;
@@ -36,6 +36,76 @@ export async function uploadBufferToDriveFolder(
     return { fileId: res.data.id, webViewLink: res.data.webViewLink };
   } catch (err: any) {
     console.error("[Gmail→Drive] Upload échoué:", filename, err?.message || err);
+    return null;
+  }
+}
+
+/** Télécharge un fichier Drive (compte de service ou OAuth serveur). */
+export async function downloadDriveFileToBuffer(
+  fileId: string,
+  accessToken?: string | null,
+): Promise<Buffer | null> {
+  if (!fileId) return null;
+
+  let client = (await createDriveClient(accessToken)) || null;
+  if (!client) {
+    const resolved = await resolveDriveAccessToken(null);
+    if (resolved.mode === "service_account" && resolved.client) {
+      client = resolved.client;
+    }
+  }
+  if (!client) return null;
+
+  try {
+    const res = await client.drive.files.get(
+      {
+        fileId,
+        alt: "media",
+        supportsAllDrives: true,
+      },
+      { responseType: "arraybuffer" },
+    );
+    const data = res.data as ArrayBuffer;
+    return Buffer.from(data);
+  } catch (err: any) {
+    console.warn(`[Drive] Téléchargement ${fileId} échoué:`, err?.message || err);
+    return null;
+  }
+}
+
+function escapeDriveQueryString(s: string) {
+  return String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+/** Recherche un fichier par nom dans un dossier Drive client. */
+export async function findDriveFileIdInFolder(
+  folderId: string,
+  fileName: string,
+  accessToken?: string | null,
+): Promise<string | null> {
+  if (!folderId || !fileName) return null;
+
+  let client = (await createDriveClient(accessToken)) || null;
+  if (!client) {
+    const resolved = await resolveDriveAccessToken(null);
+    if (resolved.mode === "service_account" && resolved.client) {
+      client = resolved.client;
+    }
+  }
+  if (!client) return null;
+
+  const safeName = escapeDriveQueryString(fileName);
+  try {
+    const list = await client.drive.files.list({
+      q: `'${folderId}' in parents and name='${safeName}' and trashed=false`,
+      fields: "files(id,name)",
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 5,
+    });
+    return list.data.files?.[0]?.id || null;
+  } catch (err: any) {
+    console.warn(`[Drive] Recherche ${fileName} dans ${folderId}:`, err?.message || err);
     return null;
   }
 }

@@ -64,7 +64,13 @@ export function assessCertainLoanDocProblems(dossier: any): LoanDocProblemAssess
     }
 
     if (hasScanPdfSignal(doc)) {
-      problems.push({ kind: "scan_pdf_no_text", category, fileName });
+      const ocrValidated =
+        doc?.loanSignal?.ocrUsed === true &&
+        doc?.loanSignal?.ok === true &&
+        Number(doc?.loanSignal?.extractedChars || 0) >= 80;
+      if (!ocrValidated) {
+        problems.push({ kind: "scan_pdf_no_text", category, fileName });
+      }
       continue;
     }
 

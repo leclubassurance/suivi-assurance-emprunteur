@@ -319,11 +319,14 @@ export function createApp() {
       // Analyse interne des docs clés (offre/tableau) pour fiabiliser la relance (non visible client)
       try {
         const { analyzeLoanPdf, isLoanPdfOrImage } = await import("./documentPdfSignals");
+        const { ensureDocumentLocalFile } = await import("./documentFileResolve");
         for (const doc of newDossier.formData?.documents || []) {
-          if (!doc?.localPath || !doc?.category) continue;
+          if (!doc?.category) continue;
           const cat = String(doc.category);
           if ((cat === "offre" || cat === "tableau") && isLoanPdfOrImage(doc.name, doc.type)) {
-            const sig = await analyzeLoanPdf(doc.localPath, cat as any, { mimeType: doc.type });
+            const resolved = await ensureDocumentLocalFile(newDossier, doc, UPLOADS_DIR);
+            if (!resolved.localPath) continue;
+            const sig = await analyzeLoanPdf(resolved.localPath, cat as any, { mimeType: doc.type });
             doc.loanSignal = sig;
             if (doc.quality) {
               if (!sig.ok) {

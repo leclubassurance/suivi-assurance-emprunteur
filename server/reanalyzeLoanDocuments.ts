@@ -4,6 +4,7 @@ import { addEvent, type Dossier } from "./dossierModel";
 import { inferDocumentCategory } from "../shared/documentClassifier";
 import { assessDocumentQuality } from "../shared/documentQuality";
 import { analyzeLoanPdf, isLoanPdfOrImage } from "./documentPdfSignals";
+import { ensureDocumentLocalFile } from "./documentFileResolve";
 import { RAILWAY_BUILD_ID } from "./buildInfo";
 
 export type ReanalyzeDocResult = {
@@ -14,6 +15,7 @@ export type ReanalyzeDocResult = {
   ocrUsed?: boolean;
   ok?: boolean;
   skipReason?: string;
+  fileSource?: string;
 };
 
 export type ReanalyzeDossierResult = {
@@ -21,27 +23,8 @@ export type ReanalyzeDossierResult = {
   documents: ReanalyzeDocResult[];
   analyzedCount: number;
   ocrCount: number;
+  driveFetchedCount: number;
 };
-
-function resolveDocLocalPath(
-  dossier: Dossier,
-  doc: any,
-  uploadsDir: string,
-): string | null {
-  const candidates: string[] = [];
-  if (doc?.localPath && typeof doc.localPath === "string") {
-    candidates.push(doc.localPath);
-  }
-  const base = path.basename(String(doc?.localPath || doc?.name || ""));
-  if (base) {
-    candidates.push(path.join(uploadsDir, dossier.id, base));
-    candidates.push(path.join(uploadsDir, base));
-  }
-  for (const p of candidates) {
-    if (p && fs.existsSync(p)) return p;
-  }
-  return null;
-}
 
 export async function reanalyzeDossierLoanDocuments(
   dossier: Dossier,
@@ -51,6 +34,7 @@ export async function reanalyzeDossierLoanDocuments(
   const results: ReanalyzeDocResult[] = [];
   let analyzedCount = 0;
   let ocrCount = 0;
+  let driveFetchedCount = 0;
 
   for (const doc of docs) {
     const category =
@@ -81,23 +65,27 @@ export async function reanalyzeDossierLoanDocuments(
       continue;
     }
 
-    const localPath = resolveDocLocalPath(dossier, doc, uploadsDir);
-    if (!localPath) {
+    const resolved = await ensureDocumentLocalFile(dossier, doc, uploadsDir);
+    if (!resolved.localPath) {
       results.push({
         docId: String(doc?.id || doc?.name || "?"),
         name: String(doc?.name || "?"),
         category: cat,
         analyzed: false,
-        skipReason: "file_missing_on_server",
+        skipReason: resolved.skipReason || "file_missing_on_server",
       });
       continue;
     }
 
-    doc.localPath = localPath;
+    if (resolved.source === "drive_id" || resolved.source === "drive_folder") {
+      driveFetchedCount += 1;
+    }
+
+    doc.localPath = resolved.localPath;
     doc.category = cat;
 
     try {
-      const sig = await analyzeLoanPdf(localPath, cat as "offre" | "tableau", {
+      const sig = await analyzeLoanPdf(resolved.localPath, cat as "offre" | "tableau", {
         mimeType: doc.type,
       });
       doc.loanSignal = sig;
@@ -109,7 +97,13 @@ export async function reanalyzeDossierLoanDocuments(
       });
       if (!sig.ok) {
         q.ok = false;
-        q.reasons = [...new Set([...(q.reasons || []), ...(sig.reasons || [])])];
+        const reasons = [...new Set([...(q.reasons || []), ...(sig.reasons || [])])];
+        if (sig.ocrUsed && reasons.some((r) => /sans texte exploitable/i.test(r))) {
+          q.reasons = reasons.filter((r) => !/sans texte exploitable/i.test(r));
+          if (!q.reasons.length) q.reasons.push("Contenu lu par OCR — type de document à confirmer");
+        } else {
+          q.reasons = reasons;
+        }
       } else if (sig.ocrUsed) {
         q.reasons = (q.reasons || []).filter(
           (r) => !/capture|photo|inexploitable|sans texte/i.test(r),
@@ -129,6 +123,7 @@ export async function reanalyzeDossierLoanDocuments(
         analyzed: true,
         ocrUsed: sig.ocrUsed,
         ok: sig.ok,
+        fileSource: resolved.source,
       });
     } catch (e: any) {
       results.push({
@@ -145,8 +140,8 @@ export async function reanalyzeDossierLoanDocuments(
     addEvent(dossier, {
       type: "AI_DECISION",
       actor: { kind: "SYSTEM", label: "OCR hybride" },
-      message: `Réanalyse documents : ${analyzedCount} fichier(s), dont ${ocrCount} via OCR.`,
-      meta: { template: "LOAN_DOC_REANALYZE", analyzedCount, ocrCount },
+      message: `Réanalyse documents : ${analyzedCount} fichier(s), ${ocrCount} OCR, ${driveFetchedCount} depuis Drive.`,
+      meta: { template: "LOAN_DOC_REANALYZE", analyzedCount, ocrCount, driveFetchedCount },
     });
     dossier.updatedAt = new Date().toISOString();
   }
@@ -156,6 +151,7 @@ export async function reanalyzeDossierLoanDocuments(
     documents: results,
     analyzedCount,
     ocrCount,
+    driveFetchedCount,
   };
 }
 
@@ -167,6 +163,7 @@ export async function reanalyzeAllDossiersLoanDocuments(
   dossiersProcessed: number;
   totalAnalyzed: number;
   totalOcr: number;
+  totalDriveFetched: number;
   missingFiles: number;
   results: ReanalyzeDossierResult[];
 }> {
@@ -181,6 +178,7 @@ export async function reanalyzeAllDossiersLoanDocuments(
   const results: ReanalyzeDossierResult[] = [];
   let totalAnalyzed = 0;
   let totalOcr = 0;
+  let totalDriveFetched = 0;
   let missingFiles = 0;
 
   for (const d of list) {
@@ -188,13 +186,23 @@ export async function reanalyzeAllDossiersLoanDocuments(
     results.push(r);
     totalAnalyzed += r.analyzedCount;
     totalOcr += r.ocrCount;
-    missingFiles += r.documents.filter((x) => x.skipReason === "file_missing_on_server").length;
+    totalDriveFetched += r.driveFetchedCount;
+    const miss = r.documents.filter((x) => !x.analyzed && x.skipReason?.includes("missing"));
+    missingFiles += miss.length;
+    if (r.analyzedCount === 0 && r.documents.some((x) => x.category === "offre" || x.category === "tableau")) {
+      const reasons = r.documents
+        .filter((x) => !x.analyzed)
+        .map((x) => `${x.name}:${x.skipReason}`)
+        .join("; ");
+      console.warn(`[OCR hybride] ${d.id} : aucun doc analysé (${reasons || "?"})`);
+    }
   }
 
   return {
     dossiersProcessed: list.length,
     totalAnalyzed,
     totalOcr,
+    totalDriveFetched,
     missingFiles,
     results,
   };
@@ -236,7 +244,7 @@ export async function runOcrHybridBackfillIfNeeded(
     console.warn(`[OCR hybride] Impossible d'écrire le marqueur backfill: ${e?.message || e}`);
   }
   console.log(
-    `[OCR hybride] Backfill terminé : ${summary.dossiersProcessed} dossiers, ${summary.totalAnalyzed} docs, ${summary.totalOcr} OCR.`,
+    `[OCR hybride] Backfill terminé : ${summary.dossiersProcessed} dossiers, ${summary.totalAnalyzed} docs analysés, ${summary.totalOcr} OCR, ${summary.totalDriveFetched} depuis Drive, ${summary.missingFiles} sans fichier.`,
   );
   return { ran: true, summary };
 }

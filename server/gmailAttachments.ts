@@ -195,7 +195,7 @@ export async function downloadGmailAttachments(
           isLoanPdfOrImage(part.filename, part.mimeType)
         ) {
           const sig = await analyzeLoanPdf(localPath, category as any, {
-            mimeType: part.mimeType,
+            mimeType: part.mimeType || doc.type,
           });
           (doc as any).loanSignal = sig;
           if (doc.quality && !sig.ok) {
