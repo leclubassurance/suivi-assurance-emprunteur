@@ -217,12 +217,20 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
           généré automatiquement (aucun paramétrage secret sur Railway).
         </p>
         <div className="flex flex-wrap gap-2">
+          <a
+            href="/apercu-suivi-client"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] font-bold px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-800 flex items-center gap-1.5"
+          >
+            <Eye className="w-3.5 h-3.5" /> Démo publique
+          </a>
           <button
             type="button"
             onClick={() => setShowPortalPreview(true)}
             className="text-[11px] font-bold px-3 py-2 rounded-lg bg-[#111318] text-white flex items-center gap-1.5"
           >
-            <Eye className="w-3.5 h-3.5" /> Aperçu client
+            <Eye className="w-3.5 h-3.5" /> Aperçu ce dossier
           </button>
           <button
             type="button"

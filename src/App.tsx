@@ -17,6 +17,7 @@ import SuccessStep from './components/steps/SuccessStep';
 import AdminLogin from './components/admin/AdminLogin';
 import AdminDashboard from './components/admin/AdminDashboard';
 import ClientPortalPage from './components/portal/ClientPortalPage';
+import ClientPortalDemoPage from './components/portal/ClientPortalDemoPage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
 import { AlertCircle } from 'lucide-react';
 import { showToast } from './lib/toast';
@@ -33,9 +34,15 @@ export default function App() {
   const [submitStatus, setSubmitStatus] = useState<any>('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [portalToken, setPortalToken] = useState<string | null>(null);
+  const [portalDemo, setPortalDemo] = useState(false);
 
   useEffect(() => {
-    const m = window.location.pathname.match(/^\/suivi\/([a-f0-9]{32,64})$/i);
+    const path = window.location.pathname;
+    if (path === "/demo/suivi" || path === "/apercu-suivi-client") {
+      setPortalDemo(true);
+      return;
+    }
+    const m = path.match(/^\/suivi\/([a-f0-9]{32,64})$/i);
     if (m) {
       setPortalToken(m[1]);
       setCurrentStep(Step.CLIENT_PORTAL);
@@ -261,6 +268,10 @@ export default function App() {
     setCurrentUser(null);
     goToStep(Step.LANDING);
   };
+
+  if (portalDemo) {
+    return <ClientPortalDemoPage />;
+  }
 
   return (
     <div className="min-h-[100dvh] flex flex-col w-full h-full">

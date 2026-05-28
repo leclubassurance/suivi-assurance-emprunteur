@@ -1394,6 +1394,37 @@ export function createApp() {
     }
   });
 
+  app.get("/api/portail/demo", async (_req, res) => {
+    res.json({
+      dossierId: "LCIF-930840",
+      clientPrenom: "Marie",
+      status: {
+        label: "Étude en cours",
+        description: "Nous analysons votre dossier. Vous serez contactée par email si besoin.",
+      },
+      steps: [
+        { key: "received", label: "Demande reçue", done: true },
+        { key: "docs", label: "Documents prêt reçus", done: true },
+        { key: "study", label: "Étude des économies", done: false },
+        { key: "done", label: "Proposition envoyée", done: false },
+      ],
+      documents: [
+        { key: "offre", label: "Offre de prêt", received: true, requiredNow: false },
+        { key: "amort", label: "Tableau d'amortissement", received: true, requiredNow: false },
+        { key: "cni", label: "Pièce d'identité", received: false, requiredNow: false },
+        { key: "rib", label: "RIB", received: false, requiredNow: false },
+      ],
+      tips: [
+        "Pour toute question, répondez aux emails envoyés par Le Club Immobilier Français.",
+      ],
+      lastUpdateLabel: new Date().toLocaleDateString("fr-FR", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }),
+    });
+  });
+
   app.get("/api/portail/:token", async (req, res) => {
     await ensureBackgroundServicesStarted();
     try {
