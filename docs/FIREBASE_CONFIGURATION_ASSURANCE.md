@@ -104,7 +104,10 @@ Pour une persistance complète des fichiers, utilisez l’export Drive (manuel o
 
 | Symptôme | Cause probable |
 |----------|----------------|
+| `/api/health` sans `build` / `firebase` / `dataStore` | Railway n’exécute pas le dernier `main` — voir [RAILWAY_DEPLOY.md](./RAILWAY_DEPLOY.md) |
 | Admin vide, health `firebase.ready: false` | Variables `FIREBASE_*` manquantes sur Railway |
 | `dataStore: local` | Firebase non configuré ou `USE_LOCAL_DB=true` |
 | Connexion refusée | Compte Google ≠ assurance@ |
 | Données différentes Vercel / Railway | `projectId` différent entre Vercel et Railway |
+
+Déploiement Railway (commit, Start Command, redeploy) : **[RAILWAY_DEPLOY.md](./RAILWAY_DEPLOY.md)**.

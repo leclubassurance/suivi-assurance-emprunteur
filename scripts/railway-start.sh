@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# Entrée Railway optionnelle (identique à package.json start / railway.toml startCommand).
+# Ne pas utiliser node dist/server.cjs — bundle obsolète si présent sur disque.
 set -e
 cd "$(dirname "$0")/.."
 if [ ! -f dist/index.html ]; then

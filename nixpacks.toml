@@ -1,4 +1,4 @@
-# dist/server.cjs n'est pas versionné — on build le frontend (vite) et on lance server.ts via tsx
+# Build = vite uniquement (dist/index.html). Runtime = tsx server.ts — jamais node dist/server.cjs
 [phases.install]
 cmds = ["npm install"]
 

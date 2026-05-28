@@ -1,5 +1,7 @@
+import fs from "fs";
 import path from "path";
 import express from "express";
+import { RAILWAY_BUILD_ID } from "./server/buildInfo";
 import { createApp } from "./server/app";
 import { initFirebaseSync } from "./server/firebaseSync";
 import { startScheduler } from "./server/scheduler";
@@ -27,6 +29,13 @@ function setupStaticFrontend() {
 
 async function startServer() {
   if (isProduction()) {
+    const indexPath = path.join(process.cwd(), "dist", "index.html");
+    if (!fs.existsSync(indexPath)) {
+      console.error(
+        "ERREUR: dist/index.html absent — exécutez npm run build avant le démarrage (Railway build phase).",
+      );
+      process.exit(1);
+    }
     setupStaticFrontend();
   } else {
     console.log("Starting Vite development server...");
@@ -39,6 +48,9 @@ async function startServer() {
   }
 
   const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(
+      `[boot] build=${RAILWAY_BUILD_ID} deploySource=tsx-server.ts git=${process.env.RAILWAY_GIT_COMMIT_SHA || "local"}`,
+    );
     console.log(`Server listening on 0.0.0.0:${PORT} (NODE_ENV=${process.env.NODE_ENV || "unset"})`);
   });
 

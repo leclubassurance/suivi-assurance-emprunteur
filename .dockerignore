@@ -1,5 +1,7 @@
 node_modules
 dist
+# Ne jamais embarquer un vieux bundle API (source de vérité = tsx server.ts)
+dist/server.cjs
 data
 .git
 .env*
