@@ -73,12 +73,17 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
         </div>
 
         {data?.portalUrl && (
-          <a
-            href={data.portalUrl}
-            className="block w-full py-4 mb-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[20px] font-bold text-[15px] text-center transition-all"
-          >
-            Suivre mon dossier en ligne
-          </a>
+          <div className="mb-6 text-left">
+            <a
+              href={data.portalUrl}
+              className="block w-full py-4 bg-white hover:bg-slate-50 text-[#111318] border-2 border-slate-200 rounded-[20px] font-bold text-[15px] text-center transition-all"
+            >
+              Consulter l&apos;avancement de mon dossier
+            </a>
+            <p className="text-[12px] text-slate-400 mt-2 leading-relaxed text-center px-2">
+              Page personnelle et confidentielle — conservez ce lien (aucun mot de passe).
+            </p>
+          </div>
         )}
 
         <div className="flex flex-col gap-3">

@@ -1445,6 +1445,15 @@ export function createApp() {
     res.json({ entries: getAiAuditTrail(dossier) });
   });
 
+  app.get("/api/admin/dossiers/:id/portal-preview", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { buildClientPortalView } = await import("./clientPortal");
+    res.json(buildClientPortalView(dossier));
+  });
+
   app.get("/api/admin/dossiers/:id/portal-link", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();

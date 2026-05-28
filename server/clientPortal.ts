@@ -129,7 +129,9 @@ export function buildClientPortalView(dossier: Dossier) {
   if (!ctx.loanDocsOk) {
     tips.push("Les documents indispensables sont l'offre de prêt et le tableau d'amortissement au format PDF.");
   }
-  tips.push("Vous pouvez répondre directement aux emails reçus de notre équipe — Camille vous accuse réception 24h/24.");
+  tips.push(
+    "Pour toute question, répondez aux emails envoyés par Le Club Immobilier Français : notre équipe vous accompagne personnellement.",
+  );
 
   return {
     dossierId: dossier.id,

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Clock } from "lucide-react";
+import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Clock, Eye } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
 import type { Dossier } from "../../types";
+import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
 
 type WorkQueueItem = {
   dossierId: string;
@@ -169,6 +170,7 @@ export function useAdminOpsData() {
 export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
   const [ctx, setCtx] = useState<any>(null);
   const [audit, setAudit] = useState<any[]>([]);
+  const [showPortalPreview, setShowPortalPreview] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -208,16 +210,37 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
 
   return (
     <div className="space-y-4">
-      <div className="p-4 rounded-xl bg-violet-50 border border-violet-100">
-        <div className="flex justify-between items-start gap-2 mb-2">
-          <p className="text-xs font-black text-violet-900">Ce que Camille sait</p>
+      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+        <p className="text-xs font-black text-slate-800 mb-1">Page de suivi client (lien personnel)</p>
+        <p className="text-[11px] text-slate-600 leading-relaxed mb-3">
+          Le client voit une page sobre avec logo LCIF, statut, étapes et documents — sans compte. Le lien est
+          généré automatiquement (aucun paramétrage secret sur Railway).
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowPortalPreview(true)}
+            className="text-[11px] font-bold px-3 py-2 rounded-lg bg-[#111318] text-white flex items-center gap-1.5"
+          >
+            <Eye className="w-3.5 h-3.5" /> Aperçu client
+          </button>
           <button
             type="button"
             onClick={copyPortal}
-            className="text-[10px] font-bold text-violet-700 underline shrink-0"
+            className="text-[11px] font-bold px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-800"
           >
-            Lien suivi client
+            Copier le lien
           </button>
+        </div>
+      </div>
+
+      {showPortalPreview && (
+        <AdminPortalPreviewModal dossierId={dossier.id} onClose={() => setShowPortalPreview(false)} />
+      )}
+
+      <div className="p-4 rounded-xl bg-violet-50 border border-violet-100">
+        <div className="flex justify-between items-start gap-2 mb-2">
+          <p className="text-xs font-black text-violet-900">Ce que Camille sait</p>
         </div>
         <pre className="text-[11px] text-violet-950 whitespace-pre-wrap font-sans leading-relaxed">{ctx.summary}</pre>
         <p className="text-xs font-semibold text-violet-800 mt-3">Prochaine étape suggérée</p>
