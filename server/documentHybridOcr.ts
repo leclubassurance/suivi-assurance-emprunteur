@@ -65,47 +65,71 @@ export async function hybridOcrExtractText(
     return { text: "", usedOcr: false, error: "unsupported_mime" };
   }
 
-  const model = process.env.OCR_HYBRID_MODEL || "gemini-2.0-flash";
+  const configured = process.env.OCR_HYBRID_MODEL || "gemini-2.5-flash";
+  const modelCandidates = [
+    configured,
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-lite",
+  ].filter((m, i, arr) => m && arr.indexOf(m) === i);
 
-  try {
-    const response = await generateContentWithRetry({
-      model,
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              inlineData: {
-                mimeType,
-                data: buf.toString("base64"),
-              },
-            },
-            {
-              text: `Document bancaire français (offre de prêt ou tableau d'amortissement).
+  const promptText = `Document bancaire français (offre de prêt ou tableau d'amortissement).
 Extrais tout le texte visible, dans l'ordre de lecture (tableaux : une ligne par échéance si possible).
-Réponds UNIQUEMENT avec le texte brut extrait, sans commentaire ni markdown.`,
-            },
-          ],
+Réponds UNIQUEMENT avec le texte brut extrait, sans commentaire ni markdown.`;
+
+  let lastError: string | undefined;
+
+  for (const model of modelCandidates) {
+    try {
+      const response = await generateContentWithRetry({
+        model,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: buf.toString("base64"),
+                },
+              },
+              { text: promptText },
+            ],
+          },
+        ],
+        config: {
+          temperature: 0.1,
+          maxOutputTokens: 8192,
         },
-      ],
-      config: {
-        temperature: 0.1,
-        maxOutputTokens: 8192,
-      },
-    });
+      });
 
-    const text = String(response.text || "")
-      .replace(/^```[\w]*\n?/m, "")
-      .replace(/\n?```$/m, "")
-      .trim();
+      const text = String(response.text || "")
+        .replace(/^```[\w]*\n?/m, "")
+        .replace(/\n?```$/m, "")
+        .trim();
 
-    if (!text) {
-      return { text: "", usedOcr: false, error: "empty_ocr" };
+      if (!text) {
+        lastError = "empty_ocr";
+        continue;
+      }
+
+      if (model !== configured) {
+        console.log(`[OCR hybride] Modèle de repli utilisé : ${model}`);
+      }
+      return { text, usedOcr: true, provider: "gemini" };
+    } catch (e: any) {
+      const errMsg = e?.message || String(e);
+      lastError = errMsg;
+      const modelGone =
+        /404/.test(errMsg) &&
+        (/no longer available/i.test(errMsg) || /NOT_FOUND/i.test(errMsg) || /not found/i.test(errMsg));
+      if (modelGone) {
+        console.warn(`[OCR hybride] Modèle ${model} indisponible, essai suivant…`);
+        continue;
+      }
+      console.warn(`[OCR hybride] Échec ${path.basename(localPath)} (${model}): ${errMsg}`);
+      break;
     }
-
-    return { text, usedOcr: true, provider: "gemini" };
-  } catch (e: any) {
-    console.warn(`[OCR hybride] Échec ${path.basename(localPath)}: ${e?.message || e}`);
-    return { text: "", usedOcr: false, error: e?.message || "ocr_failed" };
   }
+
+  return { text: "", usedOcr: false, error: lastError || "ocr_failed" };
 }
