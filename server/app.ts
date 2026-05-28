@@ -758,6 +758,57 @@ export function createApp() {
     });
   });
 
+  // Calcule les économies + génère un brouillon HTML (sans envoi). Notifie Remi si fiabilité HIGH.
+  app.post("/api/admin/dossiers/:id/compute-economy", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id } = req.params;
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { computeEconomyFromDossierDocs } = await import("./economyFromDocs");
+    const { buildEconomyHtmlDraft } = await import("./economyMailDraft");
+    const comp = await computeEconomyFromDossierDocs(dossier);
+
+    const draft = comp.ok ? buildEconomyHtmlDraft(dossier, comp) : null;
+    const now = new Date().toISOString();
+
+    dossier.studyDraft = {
+      kind: "ECONOMY",
+      computedAt: now,
+      reliability: comp.reliability,
+      reasons: comp.reasons,
+      extracted: comp.extracted,
+      subject: draft?.subject || null,
+      html: draft?.html || null,
+    };
+    addEvent(dossier, {
+      type: "NOTE_ADDED",
+      actor: { kind: "SYSTEM" },
+      message: `Calcul économies: ${comp.reliability}`,
+      meta: { reliability: comp.reliability, ok: comp.ok, reasons: comp.reasons.slice(0, 5) },
+    });
+    await writeDB(db, dossier);
+
+    // Notification Remi si HIGH
+    try {
+      if (comp.ok && comp.reliability === "HIGH" && draft?.html) {
+        const notifyTo = process.env.AI_ESCALATION_EMAIL || "remi@leclubimmobilier.fr";
+        const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
+        const subj = `Économie prête — ${dossier.id}`;
+        const body = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#0f172a">
+          <p><strong>Dossier :</strong> ${dossier.id}</p>
+          <p>Le calcul auto est prêt (fiabilité <strong>${comp.reliability}</strong>). Vous pouvez vérifier et envoyer depuis l’admin.</p>
+        </div>`;
+        await sendEmailReplyWithGmailAPI(null, notifyTo, subj, body);
+      }
+    } catch (e) {
+      // ignore notification failure
+    }
+
+    res.json({ success: true, computation: comp, draft });
+  });
+
   app.post("/api/admin/run-scheduler", async (_req, res) => {
     await ensureBackgroundServicesStarted();
     const r = await runSchedulerOnce();

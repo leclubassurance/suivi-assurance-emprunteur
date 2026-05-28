@@ -78,6 +78,15 @@ export interface Dossier {
   emails?: EmailMessage[];
   notes?: { id: string; at: string; author: string; text: string }[];
   processedGmailIds?: string[];
+  studyDraft?: {
+    kind: string;
+    computedAt: string;
+    reliability: string;
+    reasons?: string[];
+    extracted?: any;
+    subject?: string | null;
+    html?: string | null;
+  };
 }
 
 export function newId(prefix: string) {

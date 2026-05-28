@@ -21,6 +21,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   const [emailSubject, setEmailSubject] = useState("");
   const [emailHtml, setEmailHtml] = useState("");
+  const [economyStatus, setEconomyStatus] = useState<{ reliability?: string; reasons?: string[] } | null>(null);
   const [previewActive, setPreviewActive] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
@@ -141,6 +142,37 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       }
     } catch {
       showToast("Erreur réseau", "error");
+    }
+  };
+
+  const handleComputeEconomyDraft = async () => {
+    if (!selectedDossier) return;
+    try {
+      showToast("Calcul des économies en cours...", "info");
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/compute-economy`), {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Erreur calcul économies", "error");
+        return;
+      }
+      const reliability = data?.computation?.reliability;
+      const reasons = data?.computation?.reasons || [];
+      setEconomyStatus({ reliability, reasons });
+      if (data?.draft?.subject) setEmailSubject(data.draft.subject);
+      if (data?.draft?.html) setEmailHtml(data.draft.html);
+      showToast(
+        reliability === "HIGH"
+          ? "Brouillon prêt (fiabilité HIGH). Vérifiez puis envoyez."
+          : `Brouillon généré (fiabilité ${reliability || "?"}). Vérifiez.`,
+        "success",
+      );
+      loadDossiers();
+    } catch {
+      showToast("Erreur calcul économies", "error");
     }
   };
 
@@ -1111,6 +1143,28 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     <p className="text-xs text-slate-500 mt-1">
                       Collez le HTML de l’étude. L’envoi se fait via votre compte Gmail connecté (assurance@leclubimmobilier.fr).
                     </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        onClick={handleComputeEconomyDraft}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-colors inline-flex items-center gap-2"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        Calculer économies (auto)
+                      </button>
+                      {economyStatus?.reliability && (
+                        <span className="text-xs font-bold text-slate-600">
+                          Fiabilité: <span className="text-slate-900">{economyStatus.reliability}</span>
+                        </span>
+                      )}
+                    </div>
+                    {economyStatus?.reasons?.length ? (
+                      <div className="text-xs text-slate-500">
+                        {economyStatus.reasons.slice(0, 2).join(" · ")}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col gap-1.5">
