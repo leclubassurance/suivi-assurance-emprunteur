@@ -5,5 +5,5 @@ buildCommand = "npm install && npm run build"
 
 [deploy]
 # Doit correspondre à package.json "start" et scripts/railway-start.sh
-startCommand = "NODE_ENV=production npx tsx server.ts"
+startCommand = "npx tsx server.ts"
 restartPolicyType = "ON_FAILURE"
