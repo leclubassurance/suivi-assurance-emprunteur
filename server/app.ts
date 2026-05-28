@@ -25,6 +25,7 @@ import { runSchedulerOnce, startScheduler } from "./scheduler";
 import { isEmailConfigured, sendEmail } from "./emailProvider";
 import { auditAiDecision, proposeNextActions } from "./nextActionEngine";
 import { RAILWAY_BUILD_ID } from "./buildInfo";
+import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
 import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig";
 import { mergeFormDocumentsWithUploads } from "./documentMerge";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
@@ -317,13 +318,12 @@ export function createApp() {
 
       // Analyse interne des docs clés (offre/tableau) pour fiabiliser la relance (non visible client)
       try {
-        const { analyzeLoanPdf } = await import("./documentPdfSignals");
+        const { analyzeLoanPdf, isLoanPdfOrImage } = await import("./documentPdfSignals");
         for (const doc of newDossier.formData?.documents || []) {
           if (!doc?.localPath || !doc?.category) continue;
           const cat = String(doc.category);
-          const isPdf = String(doc.name || "").toLowerCase().endsWith(".pdf") || String(doc.type || "").includes("pdf");
-          if ((cat === "offre" || cat === "tableau") && isPdf) {
-            const sig = await analyzeLoanPdf(doc.localPath, cat as any);
+          if ((cat === "offre" || cat === "tableau") && isLoanPdfOrImage(doc.name, doc.type)) {
+            const sig = await analyzeLoanPdf(doc.localPath, cat as any, { mimeType: doc.type });
             doc.loanSignal = sig;
             if (doc.quality) {
               if (!sig.ok) {
@@ -372,7 +372,7 @@ export function createApp() {
 <div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background-color:#F8FAFC;color:#1F2937;line-height:1.6;">
   <div style="max-width:640px;margin:0 auto;background-color:#FFFFFF;border:1px solid #E5E7EB;">
     <div style="background-color:#1E3A8A;padding:24px 20px;text-align:center;">
-      <img src="https://res.cloudinary.com/dji8akleo/image/upload/v1772999309/5_yn8wfm.png" alt="Le Club Immobilier Français" style="max-width:180px;height:auto;display:inline-block;" />
+      ${LCIF_EMAIL_LOGO_HEADER_IMG}
     </div>
     <div style="padding:24px 22px;">
       <p style="font-size:16px;margin:0 0 14px 0;color:#111827;"><strong>Bonjour ${clientName},</strong></p>
@@ -1611,7 +1611,14 @@ export function createApp() {
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     if (!dossier.remiQueue) dossier.remiQueue = {};
-    dossier.remiQueue.dismissedAt = new Date().toISOString();
+    const kind = String((req.body as any)?.kind || "").trim();
+    if (kind) {
+      const kinds = dossier.remiQueue.dismissedKinds || [];
+      if (!kinds.includes(kind)) kinds.push(kind);
+      dossier.remiQueue.dismissedKinds = kinds;
+    } else {
+      dossier.remiQueue.dismissedAt = new Date().toISOString();
+    }
     await writeDB(db, dossier);
     res.json({ success: true });
   });
@@ -1642,6 +1649,60 @@ export function createApp() {
   app.get("/api/files", async (_req, res) => {
     res.status(410).send("Deprecated. Use /api/dossiers/:id/documents/:docId/download");
   });
+
+  app.post("/api/admin/dossiers/:id/reanalyze-documents", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+      const { reanalyzeDossierLoanDocuments } = await import("./reanalyzeLoanDocuments");
+      const result = await reanalyzeDossierLoanDocuments(dossier, UPLOADS_DIR);
+      await writeDB(db, dossier);
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      console.error("reanalyze-documents", err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/reanalyze-documents", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const db = await readDBAsync();
+      const body = (req.body || {}) as { dossierIds?: string[]; limit?: number };
+      const { reanalyzeAllDossiersLoanDocuments } = await import("./reanalyzeLoanDocuments");
+      const summary = await reanalyzeAllDossiersLoanDocuments(db.dossiers || [], UPLOADS_DIR, {
+        dossierIds: body.dossierIds,
+        limit: body.limit,
+      });
+      await writeDB(db);
+      res.json({ success: true, ...summary });
+    } catch (err: any) {
+      console.error("reanalyze-documents-all", err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  let ocrBackfillStarted = false;
+  const scheduleOcrHybridBackfill = () => {
+    if (ocrBackfillStarted) return;
+    ocrBackfillStarted = true;
+    void (async () => {
+      try {
+        await ensureBackgroundServicesStarted();
+        const db = await readDBAsync();
+        const { runOcrHybridBackfillIfNeeded } = await import("./reanalyzeLoanDocuments");
+        const { ran, summary } = await runOcrHybridBackfillIfNeeded(db, UPLOADS_DIR, DATA_DIR);
+        if (ran && (summary?.totalAnalyzed || 0) > 0) {
+          await writeDB(db);
+        }
+      } catch (err: any) {
+        console.error("[OCR hybride] Backfill au démarrage:", err?.message || err);
+      }
+    })();
+  };
+  scheduleOcrHybridBackfill();
 
   return app;
 }

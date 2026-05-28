@@ -1,18 +1,24 @@
 import fs from "fs";
+import path from "path";
 import * as pdfParse from "pdf-parse";
+import { getHybridOcrMinTextChars, hybridOcrExtractText, isHybridOcrEnabled } from "./documentHybridOcr";
 
 export type LoanDocSignal = {
   ok: boolean;
   kind: "offre" | "tableau" | "unknown";
   reasons: string[];
   keywords: string[];
+  /** Texte extrait par OCR hybride (scan / image) */
+  ocrUsed?: boolean;
+  textSource?: "pdf_native" | "ocr" | "ocr_image";
+  extractedChars?: number;
 };
 
 function norm(s: string) {
   return s
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, ""); // strip accents
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function findKeywords(text: string, words: string[]) {
@@ -20,31 +26,45 @@ function findKeywords(text: string, words: string[]) {
   return words.filter((w) => t.includes(norm(w)));
 }
 
-export async function analyzeLoanPdf(localPath: string, expected: "offre" | "tableau"): Promise<LoanDocSignal> {
+function isImagePath(localPath: string, mimeType?: string) {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.startsWith("image/")) return true;
+  return /\.(png|jpe?g|webp|heic)$/i.test(localPath);
+}
+
+async function extractNativePdfText(buf: Buffer): Promise<string> {
+  const fn = (pdfParse as any).default || (pdfParse as any);
+  const data = await fn(buf);
+  return String(data.text || "");
+}
+
+export function classifyLoanDocText(
+  text: string,
+  expected: "offre" | "tableau",
+  options?: { skipScanWarning?: boolean },
+): LoanDocSignal {
   const reasons: string[] = [];
   const keywords: string[] = [];
-
-  if (!localPath || !fs.existsSync(localPath)) {
-    return { ok: false, kind: "unknown", reasons: ["Fichier introuvable sur le serveur"], keywords };
-  }
-
-  const buf = fs.readFileSync(localPath);
-  if (buf.length < 40_000) reasons.push("PDF très léger (qualité possiblement insuffisante)");
-
-  let text = "";
-  try {
-    const fn = (pdfParse as any).default || (pdfParse as any);
-    const data = await fn(buf);
-    text = String(data.text || "");
-  } catch (e: any) {
-    return { ok: false, kind: "unknown", reasons: ["Impossible de lire le contenu PDF"], keywords };
-  }
+  const trimmed = text.trim();
 
   const baseWords = ["pret", "taux", "capital", "mensualite", "echeance"];
   keywords.push(...findKeywords(text, baseWords));
 
-  const offerWords = ["offre de pret", "conditions particulieres", "taux nominal", "taeg", "frais de dossier"];
-  const tableWords = ["tableau d'amortissement", "amortissement", "capital restant du", "interets", "assurance"];
+  const offerWords = [
+    "offre de pret",
+    "conditions particulieres",
+    "taux nominal",
+    "taeg",
+    "frais de dossier",
+  ];
+  const tableWords = [
+    "tableau d'amortissement",
+    "amortissement",
+    "capital restant du",
+    "interets",
+    "assurance",
+    "echeancier",
+  ];
 
   const offerHits = findKeywords(text, offerWords);
   const tableHits = findKeywords(text, tableWords);
@@ -52,24 +72,143 @@ export async function analyzeLoanPdf(localPath: string, expected: "offre" | "tab
   if (offerHits.length) keywords.push(...offerHits);
   if (tableHits.length) keywords.push(...tableHits);
 
-  // Decide kind
   let kind: LoanDocSignal["kind"] = "unknown";
   if (offerHits.length >= 2 && tableHits.length < 2) kind = "offre";
   else if (tableHits.length >= 2) kind = "tableau";
   else if (offerHits.length > 0) kind = "offre";
+  else if (tableHits.length > 0) kind = "tableau";
 
-  // Validate expected
   if (expected === "offre") {
     if (offerHits.length < 1) reasons.push("Mots-clés 'offre de prêt' non détectés");
     if (tableHits.length >= 2) reasons.push("Ressemble plutôt à un tableau d'amortissement");
   } else {
-    if (tableHits.length < 1) reasons.push("Mots-clés 'tableau d’amortissement' non détectés");
+    if (tableHits.length < 1) reasons.push("Mots-clés 'tableau d'amortissement' non détectés");
   }
 
-  // If too little text, likely scanned image-only PDF
-  if (text.trim().length < 80) reasons.push("PDF sans texte exploitable (scan/image) — risque d'extraction faible");
+  if (!options?.skipScanWarning && trimmed.length < getHybridOcrMinTextChars()) {
+    reasons.push("PDF sans texte exploitable (scan/image) — risque d'extraction faible");
+  }
 
   const ok = reasons.length === 0;
-  return { ok, kind, reasons, keywords: [...new Set(keywords)].slice(0, 12) };
+  return {
+    ok,
+    kind,
+    reasons,
+    keywords: [...new Set(keywords)].slice(0, 12),
+    extractedChars: trimmed.length,
+  };
 }
 
+/**
+ * Analyse offre / tableau : texte PDF natif, puis OCR Gemini si scan ou image.
+ */
+export async function analyzeLoanPdf(
+  localPath: string,
+  expected: "offre" | "tableau",
+  options?: { mimeType?: string },
+): Promise<LoanDocSignal> {
+  const keywords: string[] = [];
+
+  if (!localPath || !fs.existsSync(localPath)) {
+    return { ok: false, kind: "unknown", reasons: ["Fichier introuvable sur le serveur"], keywords };
+  }
+
+  const buf = fs.readFileSync(localPath);
+  const minChars = getHybridOcrMinTextChars();
+  const imageOnly = isImagePath(localPath, options?.mimeType);
+
+  if (buf.length < 40_000 && !imageOnly) {
+    // gardé comme signal faible ; ne bloque pas seul la validation
+  }
+
+  let text = "";
+  let textSource: LoanDocSignal["textSource"] = "pdf_native";
+  let ocrUsed = false;
+
+  if (imageOnly) {
+    if (!isHybridOcrEnabled()) {
+      return {
+        ok: false,
+        kind: "unknown",
+        reasons: ["Document image — activez l'OCR hybride ou envoyez un PDF banque"],
+        keywords,
+      };
+    }
+    const ocr = await hybridOcrExtractText(localPath, { mimeType: options?.mimeType });
+    if (!ocr.usedOcr || !ocr.text.trim()) {
+      return {
+        ok: false,
+        kind: "unknown",
+        reasons: [
+          ocr.error === "gemini_not_configured"
+            ? "OCR indisponible (clé Gemini)"
+            : "Impossible de lire le texte sur l'image (OCR)",
+        ],
+        keywords,
+        ocrUsed: false,
+      };
+    }
+    text = ocr.text;
+    textSource = "ocr_image";
+    ocrUsed = true;
+  } else {
+    try {
+      text = await extractNativePdfText(buf);
+    } catch {
+      return { ok: false, kind: "unknown", reasons: ["Impossible de lire le contenu PDF"], keywords };
+    }
+
+    if (text.trim().length < minChars && isHybridOcrEnabled()) {
+      const ocr = await hybridOcrExtractText(localPath, { mimeType: options?.mimeType || "application/pdf" });
+      if (ocr.usedOcr && ocr.text.trim().length > text.trim().length) {
+        text = ocr.text;
+        textSource = "ocr";
+        ocrUsed = true;
+      }
+    }
+  }
+
+  const classified = classifyLoanDocText(text, expected, {
+    skipScanWarning: ocrUsed && text.trim().length >= minChars,
+  });
+
+  if (ocrUsed && classified.ok) {
+    const filtered = classified.reasons.filter(
+      (r) => !/sans texte exploitable/i.test(r) && !/Mots-clés.*non détectés/i.test(r),
+    );
+    if (filtered.length !== classified.reasons.length) {
+      classified.reasons = filtered;
+      classified.ok = filtered.length === 0;
+    }
+  }
+
+  if (buf.length < 40_000 && !imageOnly && !classified.reasons.some((r) => r.includes("léger"))) {
+    classified.reasons.push("PDF très léger (qualité possiblement insuffisante)");
+    classified.ok = false;
+  }
+
+  // Type détecté vs catégorie attendue
+  if (classified.kind !== "unknown" && classified.kind !== expected) {
+    if (expected === "offre" && classified.kind === "tableau") {
+      if (!classified.reasons.some((r) => /tableau d'amortissement/i.test(r))) {
+        classified.reasons.push("Ressemble plutôt à un tableau d'amortissement");
+      }
+      classified.ok = false;
+    }
+  }
+
+  return {
+    ...classified,
+    ocrUsed,
+    textSource,
+    extractedChars: text.trim().length,
+  };
+}
+
+export function isLoanPdfOrImage(name?: string, mimeType?: string): boolean {
+  const n = String(name || "").toLowerCase();
+  const t = String(mimeType || "").toLowerCase();
+  if (t.includes("pdf") || n.endsWith(".pdf")) return true;
+  if (t.startsWith("image/") || /\.(png|jpe?g|webp|heic)$/i.test(n)) return true;
+  return false;
+}

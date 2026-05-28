@@ -69,9 +69,9 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
     }
 
     const ctx = computeDocumentChecklist(d.formData?.documents || []);
-    const offre = ctx.find((x) => x.key === "offre")?.ok;
-    const amort = ctx.find((x) => x.key === "amort")?.ok;
-    if (offre && amort) loanDocsOk += 1;
+    const offre = ctx.find((x) => x.key === "offre");
+    const amort = ctx.find((x) => x.key === "amort");
+    if (offre?.status === "ok" && amort?.status === "ok") loanDocsOk += 1;
     if (assessCertainLoanDocProblems(d).certain) certainDocProblemCount += 1;
 
     const kpi = d.studyKpi;

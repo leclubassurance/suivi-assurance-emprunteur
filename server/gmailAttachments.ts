@@ -189,10 +189,14 @@ export async function downloadGmailAttachments(
 
       // Analyse interne du PDF pour documents clés
       try {
-        const isPdf = String(part.filename || "").toLowerCase().endsWith(".pdf") || String(part.mimeType || "").includes("pdf");
-        if ((category === "offre" || category === "tableau") && isPdf) {
-          const { analyzeLoanPdf } = await import("./documentPdfSignals");
-          const sig = await analyzeLoanPdf(localPath, category as any);
+        const { analyzeLoanPdf, isLoanPdfOrImage } = await import("./documentPdfSignals");
+        if (
+          (category === "offre" || category === "tableau") &&
+          isLoanPdfOrImage(part.filename, part.mimeType)
+        ) {
+          const sig = await analyzeLoanPdf(localPath, category as any, {
+            mimeType: part.mimeType,
+          });
           (doc as any).loanSignal = sig;
           if (doc.quality && !sig.ok) {
             doc.quality.ok = false;

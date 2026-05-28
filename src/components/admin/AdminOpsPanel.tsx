@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Eye, Euro, Landmark, Wallet } from "lucide-react";
+import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Eye, Euro, Landmark, Wallet, X } from "lucide-react";
+import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import type { Dossier } from "../../types";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
@@ -44,7 +45,13 @@ const priorityStyle: Record<string, string> = {
   low: "border-slate-100 bg-slate-50",
 };
 
-export function AdminActivityBar({ metrics }: { metrics: Metrics | null }) {
+export function AdminActivityBar({
+  metrics,
+  onReanalyzeAll,
+}: {
+  metrics: Metrics | null;
+  onReanalyzeAll?: () => void;
+}) {
   if (!metrics) return null;
 
   const businessCards = [
@@ -81,9 +88,21 @@ export function AdminActivityBar({ metrics }: { metrics: Metrics | null }) {
   return (
     <div className="bg-slate-900 text-white p-4 space-y-4">
       <div>
-        <p className="text-[10px] uppercase font-bold text-white/50 tracking-wide mb-3">
-          Performance commerciale · {metrics.kpiHelp?.periodLabel || "7 jours"}
-        </p>
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <p className="text-[10px] uppercase font-bold text-white/50 tracking-wide">
+            Performance commerciale · {metrics.kpiHelp?.periodLabel || "7 jours"}
+          </p>
+          {onReanalyzeAll && (
+            <button
+              type="button"
+              onClick={onReanalyzeAll}
+              className="ml-auto text-[10px] font-bold uppercase tracking-wide text-violet-200 hover:text-white border border-violet-400/50 hover:border-violet-300 rounded-lg px-2.5 py-1 transition"
+              title="Réanalyser tous les dossiers avec OCR hybride"
+            >
+              OCR — tout réanalyser
+            </button>
+          )}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {businessCards.map((c) => (
             <div
@@ -124,16 +143,21 @@ export function AdminActivityBar({ metrics }: { metrics: Metrics | null }) {
 export function AdminWorkQueuePanel({
   onSelect,
   selectedId,
+  authHeaders,
 }: {
   onSelect: (id: string) => void;
   selectedId?: string;
+  authHeaders: (json?: boolean) => Promise<HeadersInit>;
 }) {
   const [items, setItems] = useState<WorkQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dismissing, setDismissing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(getApiUrl("/api/admin/work-queue"));
+      const res = await fetch(getApiUrl("/api/admin/work-queue"), {
+        headers: await authHeaders(false),
+      });
       const data = await res.json();
       setItems(data.items || []);
     } catch {
@@ -141,7 +165,31 @@ export function AdminWorkQueuePanel({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [authHeaders]);
+
+  const dismissItem = async (item: WorkQueueItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const key = `${item.dossierId}-${item.kind}`;
+    setDismissing(key);
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/work-queue/${item.dossierId}/dismiss`), {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ kind: item.kind }),
+      });
+      if (res.ok) {
+        setItems((prev) => prev.filter((i) => !(i.dossierId === item.dossierId && i.kind === item.kind)));
+        showToast("Notification retirée de la file.", "success");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || "Impossible de masquer cette notification.", "error");
+      }
+    } catch {
+      showToast("Erreur réseau.", "error");
+    } finally {
+      setDismissing(null);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -163,18 +211,32 @@ export function AdminWorkQueuePanel({
           <p className="text-xs text-slate-500 p-2">Rien en attente.</p>
         )}
         {items.map((item) => (
-          <button
+          <div
             key={`${item.dossierId}-${item.kind}`}
-            type="button"
-            onClick={() => onSelect(item.dossierId)}
-            className={`w-full text-left p-3 rounded-xl border transition-all ${priorityStyle[item.priority] || priorityStyle.medium} ${
+            className={`relative rounded-xl border transition-all ${priorityStyle[item.priority] || priorityStyle.medium} ${
               selectedId === item.dossierId ? "ring-2 ring-indigo-400" : ""
             }`}
           >
-            <p className="text-[11px] font-bold text-slate-500">{item.clientName}</p>
-            <p className="text-sm font-bold text-slate-900 mt-0.5">{item.title}</p>
-            <p className="text-[11px] text-slate-600 mt-1 line-clamp-2">{item.detail}</p>
-          </button>
+            <button
+              type="button"
+              onClick={(e) => dismissItem(item, e)}
+              disabled={dismissing === `${item.dossierId}-${item.kind}`}
+              className="absolute top-2 right-2 z-10 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80 transition"
+              title="Retirer de la file"
+              aria-label="Retirer de la file"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelect(item.dossierId)}
+              className="w-full text-left p-3 pr-10"
+            >
+              <p className="text-[11px] font-bold text-slate-500">{item.clientName}</p>
+              <p className="text-sm font-bold text-slate-900 mt-0.5">{item.title}</p>
+              <p className="text-[11px] text-slate-600 mt-1 line-clamp-2">{item.detail}</p>
+            </button>
+          </div>
         ))}
       </div>
     </div>

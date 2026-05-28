@@ -13,6 +13,12 @@ import {
   sanitizeCamilleClientMessage,
   shouldScheduleLoanDocFollowUp,
 } from "./camilleClientMessage";
+import {
+  acquireCamilleClientEmailLock,
+  canCamilleEmailClient,
+  registerScheduledDocFollowUp,
+  releaseCamilleClientEmailLock,
+} from "./camilleClientEmailGuard";
 
 export { assessCertainLoanDocProblems } from "./loanDocCertainty";
 
@@ -218,6 +224,17 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
 
   if (dossierAlreadySentDocFollowUp(dossier)) return;
 
+  const sendGate = canCamilleEmailClient(dossier);
+  if (!sendGate.ok) {
+    addEvent(dossier, {
+      type: "AI_DECISION",
+      actor: { kind: "AI", label: "Camille" },
+      message: `Relance documents non programmée (${sendGate.reason}).`,
+      meta: { template: "CAMILLE_DOC_FOLLOWUP_SKIPPED", reason: sendGate.reason },
+    });
+    return;
+  }
+
   const dossierId = dossier.id;
   const delayMs = 120_000 + Math.floor(Math.random() * 120_000);
 
@@ -233,11 +250,25 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
   });
 
   const timer = setTimeout(async () => {
+    if (!acquireCamilleClientEmailLock(dossierId)) return;
     try {
       const db = await readDB();
       const existing = (db.dossiers || []).find((d: any) => d.id === dossierId);
       if (!existing) return;
       if (dossierAlreadySentDocFollowUp(existing)) return;
+
+      const gate = canCamilleEmailClient(existing);
+      if (!gate.ok) {
+        addEvent(existing, {
+          type: "AI_DECISION",
+          actor: { kind: "AI", label: "Camille" },
+          message: `Relance documents annulée (${gate.reason}).`,
+          meta: { template: "CAMILLE_DOC_FOLLOWUP_CANCELLED", reason: gate.reason },
+        });
+        existing.updatedAt = new Date().toISOString();
+        await writeDB(db, existing);
+        return;
+      }
 
       const sendCheck = shouldScheduleLoanDocFollowUp(existing);
       if (!sendCheck.allowed) {
@@ -331,8 +362,11 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
       await writeDB(db, existing);
     } catch (err: any) {
       console.error(`[Camille] Erreur relance documents ${dossierId}: ${err?.message || String(err)}`);
+    } finally {
+      releaseCamilleClientEmailLock(dossierId);
     }
   }, delayMs);
 
+  registerScheduledDocFollowUp(dossierId, timer);
   if (typeof timer.unref === "function") timer.unref();
 }

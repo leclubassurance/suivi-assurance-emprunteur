@@ -2,6 +2,7 @@ import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 import { stripRedundantSalutations } from "./camilleClientMessage";
+import { LCIF_EMAIL_LOGO_IMG } from "../shared/emailBrand";
 
 export function wrapCamilleHtmlReply(
   bodyText: string,
@@ -16,7 +17,7 @@ export function wrapCamilleHtmlReply(
   const inner = cleaned.replace(/\n/g, "<br/>");
 
   return `<div style="font-family: Arial, sans-serif; color: #334155; max-width: 600px; line-height: 1.55; font-size: 14px;">
-  <img src="https://res.cloudinary.com/dji8akleo/image/upload/v1772999309/5_yn8wfm.png" alt="Le Club Immobilier Français" style="max-width: 140px; margin-bottom: 16px;" />
+  ${LCIF_EMAIL_LOGO_IMG}
   <p style="color: #1E3A8A; font-weight: bold; margin: 0 0 12px 0;">${greeting}</p>
   <div>${inner}</div>
   <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #EFF6FF;">

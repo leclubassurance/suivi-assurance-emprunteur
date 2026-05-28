@@ -129,6 +129,8 @@ export interface Dossier {
   remiQueue?: {
     snoozedUntil?: string;
     dismissedAt?: string;
+    /** Notifications « À traiter » masquées par type (sans tout le dossier). */
+    dismissedKinds?: string[];
   };
   aiAuditTrail?: AiAuditEntry[];
 }

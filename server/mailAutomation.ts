@@ -1,5 +1,12 @@
 import { google } from 'googleapis';
 import { addEvent } from './dossierModel';
+import { writeDB } from './db';
+import {
+  acquireCamilleClientEmailLock,
+  canCamilleEmailClient,
+  cancelScheduledDocFollowUp,
+  releaseCamilleClientEmailLock,
+} from './camilleClientEmailGuard';
 import { canUseDomainWideDelegation, createDelegatedJwt, getDelegatedAccessToken } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken, getServerAccessToken } from "./googleOAuthServer";
 import {
@@ -277,7 +284,23 @@ export async function resyncDossierGmailAttachments(
   return { added, scanned, attachmentPartsFound, driveUploaded, errors };
 }
 
+let gmailSyncRunning = false;
+
 export async function syncGmailInbox(accessToken: string | null, db: any, aiCallback: Function) {
+  if (gmailSyncRunning) {
+    return {
+      db,
+      inboundCount: 0,
+      processed: 0,
+      aiReplies: 0,
+      attachmentsSaved: 0,
+      driveAttachmentsUploaded: 0,
+      attachmentDebug: [] as Array<{ messageId: string; found: number; saved: number; drive: number }>,
+      skippedConcurrent: true,
+    };
+  }
+  gmailSyncRunning = true;
+  try {
   const { auth, driveAccessToken } = await createGmailAuth(accessToken);
   const gmail = google.gmail({ version: 'v1', auth: auth as any });
 
@@ -442,9 +465,25 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
             markProcessed(dossier, msgMeta.id);
             continue;
           }
+          const sendGate = canCamilleEmailClient(dossier);
+          if (!sendGate.ok) {
+            markProcessed(dossier, msgMeta.id);
+            addEvent(dossier, {
+              type: "AI_DECISION",
+              actor: { kind: "AI", label: "Camille" },
+              message: `Réponse auto non envoyée (${sendGate.reason}).`,
+              meta: { gmailId: msgMeta.id, reason: sendGate.reason },
+            });
+            continue;
+          }
+          if (!acquireCamilleClientEmailLock(dossier.id)) {
+            markProcessed(dossier, msgMeta.id);
+            continue;
+          }
           markProcessed(dossier, msgMeta.id);
           aiLockedDossierIds.add(dossier.id);
           try {
+            await writeDB(db, dossier);
             if (isBusinessHoursGateEnabled() && !isWithinBusinessHours()) {
               const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
               const outOfHours = [
@@ -483,6 +522,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
               );
               if (sendResult.ok) {
                 aiReplies++;
+                cancelScheduledDocFollowUp(dossier.id);
                 upsertCommunication(dossier, {
                   id: `msg_ai_${msgMeta.id}`,
                   gmailId: sendResult.messageId,
@@ -538,6 +578,8 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
             }
           } catch (err: any) {
             console.error('[AI] Erreur traitement email:', err);
+          } finally {
+            releaseCamilleClientEmailLock(dossier.id);
           }
         } else if (!alreadyHandled) {
           markProcessed(dossier, msgMeta.id);
@@ -556,6 +598,9 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
     driveAttachmentsUploaded,
     attachmentDebug,
   };
+  } finally {
+    gmailSyncRunning = false;
+  }
 }
 
 function dossierTouchUpdatedAt(db: any) {

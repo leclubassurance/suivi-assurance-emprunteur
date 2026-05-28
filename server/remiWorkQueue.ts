@@ -51,11 +51,19 @@ function isSnoozed(d: Dossier) {
   return until && new Date(until).getTime() > Date.now();
 }
 
-function isDismissed(d: Dossier) {
+function isDismissed(d: Dossier, kind?: WorkQueueKind) {
+  if (kind && (d.remiQueue?.dismissedKinds || []).includes(kind)) return true;
   return Boolean(d.remiQueue?.dismissedAt);
 }
 
-function push(items: WorkQueueItem[], item: WorkQueueItem) {
+function shouldShowQueueItem(d: Dossier, kind: WorkQueueKind) {
+  if (isDismissed(d)) return false;
+  if (isDismissed(d, kind)) return false;
+  return true;
+}
+
+function push(items: WorkQueueItem[], item: WorkQueueItem, d: Dossier) {
+  if (!shouldShowQueueItem(d, item.kind)) return;
   items.push(item);
 }
 
@@ -63,7 +71,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
   const items: WorkQueueItem[] = [];
 
   for (const d of dossiers) {
-    if (isDismissed(d) || isSnoozed(d)) continue;
+    if (isSnoozed(d)) continue;
 
     const { name, email } = borrower(d);
     const esc = d.camilleEscalation;
@@ -85,7 +93,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         action:
           "Répondre sur Telegram à l'alerte (ex. consigne pour le client) ou traiter le mail client depuis l'onglet Échanges.",
         updatedAt: esc.lastAt,
-      });
+      }, d);
       continue;
     }
 
@@ -103,7 +111,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         action:
           "Dans l'admin : passer le statut en « MAIL ENVOYÉ » pour que le portail client affiche « Étude envoyée ».",
         updatedAt: lastStudy?.date || d.updatedAt,
-      });
+      }, d);
     }
 
     if (d.status === "NOUVEAU" && !studySent) {
@@ -118,7 +126,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         action:
           "Vérifier les pièces, lancer l'export Drive si besoin, puis traiter ou confier la relance documents à Camille.",
         updatedAt: d.createdAt,
-      });
+      }, d);
     }
 
     const loanPresence = resolveLoanDocPresence(d);
@@ -138,7 +146,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         action:
           "Relancer le client (Camille ou mail manuel) pour l'offre de prêt + tableau d'amortissement en PDF depuis l'espace banque.",
         updatedAt: d.updatedAt,
-      });
+      }, d);
     } else if (!studySent && loanPresence.needsResubmit) {
       push(items, {
         dossierId: d.id,
@@ -152,7 +160,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         action:
           "Demander au client les PDF banque complets (offre + tableau), via Telegram à Camille ou depuis l'onglet Envoi mail.",
         updatedAt: d.updatedAt,
-      });
+      }, d);
     }
 
     if (lastIn && studySent) {
@@ -170,7 +178,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
           action:
             "Lire le mail dans Échanges, répondre ou laisser Camille répondre ; mettre à jour le statut si le dossier est clos.",
           updatedAt: String(lastIn.date || d.updatedAt),
-        });
+        }, d);
       }
     }
 
@@ -190,7 +198,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         action:
           "Calculer les économies si besoin, générer le mail d'étude (onglet Envoi mail) et envoyer au client.",
         updatedAt: d.updatedAt,
-      });
+      }, d);
     }
 
     if (
@@ -210,7 +218,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         action:
           "Relance manuelle ou vérifier si Camille doit envoyer un rappel (éviter doublon si mail récent).",
         updatedAt: d.updatedAt,
-      });
+      }, d);
     }
 
     if (d.workspaceStatus === "FAILED") {
@@ -224,7 +232,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         detail: d.workspaceError || "Erreur technique",
         action: "Onglet Suivi → Vérifier Drive ou relancer l'export dossier.",
         updatedAt: d.updatedAt,
-      });
+      }, d);
     }
 
     void lastOut;

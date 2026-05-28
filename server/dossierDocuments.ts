@@ -76,14 +76,16 @@ export async function addFileToDossier(
     }
   }
 
-  const isPdf =
-    /\.pdf$/i.test(doc.name) ||
-    String(doc.type || "").includes("pdf") ||
-    (category === "offre" || category === "tableau");
-  if (isPdf && (category === "offre" || category === "tableau")) {
+  const { isLoanPdfOrImage } = await import("./documentPdfSignals");
+  if (
+    (category === "offre" || category === "tableau") &&
+    isLoanPdfOrImage(doc.name, doc.type)
+  ) {
     try {
       const { analyzeLoanPdf } = await import("./documentPdfSignals");
-      const sig = await analyzeLoanPdf(doc.localPath, category as "offre" | "tableau");
+      const sig = await analyzeLoanPdf(doc.localPath, category as "offre" | "tableau", {
+        mimeType: doc.type,
+      });
       (doc as any).loanSignal = sig;
       if (!(doc as any).quality) {
         (doc as any).quality = { ok: sig.ok, reasons: sig.reasons || [] };

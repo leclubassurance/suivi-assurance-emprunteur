@@ -72,19 +72,16 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
            </p>
         </div>
 
-        {data?.portalUrl && (
-          <div className="mb-6 text-left">
-            <a
-              href={data.portalUrl}
-              className="block w-full py-4 bg-[#1E3A8A] hover:bg-[#172554] text-white rounded-[20px] font-bold text-[15px] text-center transition-all shadow-sm"
-            >
-              Consulter l&apos;avancement de mon dossier
-            </a>
-            <p className="text-[12px] text-slate-400 mt-2 leading-relaxed text-center px-2">
-              Même lien dans votre email de confirmation — page personnelle, sans mot de passe.
-            </p>
-          </div>
-        )}
+        <div className="mb-6 rounded-[20px] border border-blue-100 bg-blue-50/90 px-5 py-4 text-left">
+          <p className="text-[14px] font-bold text-[#1E3A8A] mb-1.5">Suivi de votre dossier</p>
+          <p className="text-[13px] text-slate-600 leading-relaxed font-medium">
+            Vous allez recevoir par email un lien personnel pour suivre l&apos;avancement de votre dossier
+            {data?.email ? (
+              <> à l&apos;adresse <strong className="text-slate-800">{data.email}</strong></>
+            ) : null}
+            . Aucun mot de passe n&apos;est nécessaire.
+          </p>
+        </div>
 
         <div className="flex flex-col gap-3">
           <button 

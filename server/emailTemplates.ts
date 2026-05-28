@@ -1,10 +1,11 @@
 import { Dossier } from "./dossierModel";
+import { LCIF_EMAIL_LOGO_IMG } from "../shared/emailBrand";
 
 function baseLayout(innerHtml: string) {
   return `
 <div style="font-family: Arial, sans-serif; color: #0f172a; max-width: 640px; margin: 0 auto; border: 1px solid #E2E8F0; padding: 20px; border-radius: 10px; background: #ffffff;">
   <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
-    <img src="https://res.cloudinary.com/dji8akleo/image/upload/v1772999309/5_yn8wfm.png" alt="Le Club Immobilier Français" style="max-width: 140px;" />
+    ${LCIF_EMAIL_LOGO_IMG}
     <div style="margin-left:auto;font-size:12px;color:#64748B;">Assurance emprunteur</div>
   </div>
   ${innerHtml}

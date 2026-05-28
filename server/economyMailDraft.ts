@@ -1,4 +1,5 @@
 import type { EconomyComputation } from "./economyFromDocs";
+import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
 
 function eur(n: number) {
   return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
@@ -45,7 +46,7 @@ export function buildEconomyHtmlDraft(dossier: any, comp: EconomyComputation) {
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background-color:#F8FAFC;color:#1F2937;line-height:1.6;">
 <div style="max-width:640px;margin:0 auto;background-color:#FFFFFF;">
   <div style="background-color:#1E3A8A;padding:32px 24px;text-align:center;">
-    <img src="https://res.cloudinary.com/dji8akleo/image/upload/v1772999309/5_yn8wfm.png" alt="Le Club Immobilier Français" style="max-width:180px;height:auto;display:inline-block;" />
+    ${LCIF_EMAIL_LOGO_HEADER_IMG}
   </div>
 
   <div style="padding:32px 28px;">
@@ -98,7 +99,7 @@ export function buildEconomyHtmlDraft(dossier: any, comp: EconomyComputation) {
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background-color:#F8FAFC;color:#1F2937;line-height:1.6;">
 <div style="max-width:640px;margin:0 auto;background-color:#FFFFFF;">
   <div style="background-color:#1E3A8A;padding:32px 24px;text-align:center;">
-    <img src="https://res.cloudinary.com/dji8akleo/image/upload/v1772999309/5_yn8wfm.png" alt="Le Club Immobilier Français" style="max-width:180px;height:auto;display:inline-block;" />
+    ${LCIF_EMAIL_LOGO_HEADER_IMG}
   </div>
 
   <div style="padding:32px 28px;">

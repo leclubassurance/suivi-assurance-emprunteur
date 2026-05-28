@@ -1,10 +1,16 @@
 import { classifyFileName, inferDocumentCategory, categoryToChecklistKey } from "./documentClassifier";
+import { assessCertainLoanDocProblems } from "./loanDocCertainty";
+
+export type ChecklistDocStatus = "missing" | "review" | "ok";
 
 export type ChecklistItem = {
   key: string;
   label: string;
+  /** Fichier reçu pour cette catégorie */
   ok: boolean;
+  status: ChecklistDocStatus;
   matchedFiles?: string[];
+  reviewHint?: string;
 };
 
 function normalize(value: unknown) {
@@ -133,32 +139,106 @@ export function computeDocumentChecklist(documents: any[] = []): ChecklistItem[]
     }
   }
 
-  return [
+  const base: ChecklistItem[] = [
     {
       key: "cni",
       label: "Pièce d'identité (CNI/Passeport)",
       ok: matched.cni.length > 0,
+      status: matched.cni.length > 0 ? "ok" : "missing",
       matchedFiles: matched.cni,
     },
     {
       key: "rib",
       label: "RIB",
       ok: matched.rib.length > 0,
+      status: matched.rib.length > 0 ? "ok" : "missing",
       matchedFiles: matched.rib,
     },
     {
       key: "offre",
       label: "Offre de prêt",
       ok: matched.offre.length > 0,
+      status: matched.offre.length > 0 ? "ok" : "missing",
       matchedFiles: matched.offre,
     },
     {
       key: "amort",
       label: "Tableau d'amortissement",
       ok: matched.amort.length > 0,
+      status: matched.amort.length > 0 ? "ok" : "missing",
       matchedFiles: matched.amort,
     },
   ];
+
+  return applyChecklistReviewStatus(base, docs);
+}
+
+function loanCategoryForKey(key: string): "offre" | "tableau" | null {
+  if (key === "offre") return "offre";
+  if (key === "amort") return "tableau";
+  return null;
+}
+
+function reviewHintForProblem(kind: string): string {
+  if (kind === "image_not_pdf" || kind === "screenshot_filename") {
+    return "Capture ou image — PDF banque attendu";
+  }
+  if (kind === "scan_pdf_no_text") return "PDF illisible ou scan";
+  if (kind === "wrong_doc_kind") return "Type de document douteux";
+  return "À confirmer par l'équipe";
+}
+
+function applyChecklistReviewStatus(items: ChecklistItem[], documents: any[]): ChecklistItem[] {
+  const assessment = assessCertainLoanDocProblems({ formData: { documents } });
+
+  return items.map((item) => {
+    if (!item.ok) return { ...item, status: "missing" as const };
+
+    const loanCat = loanCategoryForKey(item.key);
+    if (loanCat) {
+      const catProblems = assessment.problems.filter((p) => p.category === loanCat);
+      if (catProblems.length > 0) {
+        return {
+          ...item,
+          status: "review" as const,
+          reviewHint: reviewHintForProblem(catProblems[0].kind),
+        };
+      }
+      const catDocs = documents.filter((d) => {
+        const c = inferDocumentCategory(d);
+        return c === loanCat || (loanCat === "offre" && c === "fiche");
+      });
+      if (catDocs.some((d) => d?.loanSignal?.ok === false)) {
+        return {
+          ...item,
+          status: "review" as const,
+          reviewHint: "Analyse automatique : document à confirmer",
+        };
+      }
+      if (catDocs.some((d) => d?.quality?.ok === false)) {
+        return {
+          ...item,
+          status: "review" as const,
+          reviewHint: "Qualité du fichier à vérifier",
+        };
+      }
+      return { ...item, status: "ok" as const };
+    }
+
+    if (item.key === "cni" || item.key === "rib") {
+      const cat = item.key === "cni" ? "cni" : "rib";
+      const catDocs = documents.filter((d) => inferDocumentCategory(d) === cat);
+      if (catDocs.some((d) => d?.quality?.ok === false)) {
+        return {
+          ...item,
+          status: "review" as const,
+          reviewHint: "Qualité du fichier à vérifier",
+        };
+      }
+    }
+
+    return { ...item, status: "ok" as const };
+  });
 }
 
 export function getBlockingMissingLabels(documents: any[] = []) {

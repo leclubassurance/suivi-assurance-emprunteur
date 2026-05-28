@@ -115,6 +115,63 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleReanalyzeDocuments = async (dossierId?: string) => {
+    const id = dossierId || selectedDossier?.id;
+    if (!id) return;
+    try {
+      showToast("Réanalyse OCR en cours…", "info");
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${id}/reanalyze-documents`), {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const missing = (data.documents || []).filter(
+          (d: { skipReason?: string }) => d.skipReason === "file_missing_on_server",
+        ).length;
+        showToast(
+          `${data.analyzedCount || 0} document(s) réanalysé(s)` +
+            (data.ocrCount ? `, dont ${data.ocrCount} via OCR` : "") +
+            (missing ? ` — ${missing} fichier(s) absent(s) sur le serveur` : ""),
+          "success",
+        );
+        loadDossiers();
+      } else {
+        showToast(data.error || "Erreur réanalyse", "error");
+      }
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
+  const handleReanalyzeAllDocuments = async () => {
+    if (!confirm("Réanalyser les documents de prêt de tous les dossiers ? (OCR si scan — peut prendre plusieurs minutes)")) {
+      return;
+    }
+    try {
+      showToast("Réanalyse globale lancée…", "info");
+      const res = await fetch(getApiUrl("/api/admin/reanalyze-documents"), {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast(
+          `${data.dossiersProcessed || 0} dossier(s) — ${data.totalAnalyzed || 0} doc(s), ${data.totalOcr || 0} OCR` +
+            (data.missingFiles ? ` — ${data.missingFiles} fichier(s) manquant(s)` : ""),
+          "success",
+        );
+        loadDossiers();
+      } else {
+        showToast(data.error || "Erreur réanalyse globale", "error");
+      }
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
   const handleResyncAttachments = async () => {
     if (!selectedDossier) return;
     const token = await getAccessToken();
@@ -547,7 +604,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <AdminActivityBar metrics={metrics} />
+      <AdminActivityBar metrics={metrics} onReanalyzeAll={handleReanalyzeAllDocuments} />
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center">
         <h1 className="text-xl font-bold flex items-center gap-4">
           Espace conseiller — Assurance emprunteur
@@ -596,6 +653,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
           </div>
           {sidebarMode === "queue" ? (
             <AdminWorkQueuePanel
+              authHeaders={authHeaders}
               selectedId={selectedDossier?.id}
               onSelect={(id) => {
                 const d = dossiers.find((x) => x.id === id);
@@ -745,6 +803,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       >
                         <FileText className="w-4 h-4" /> Importer les pièces jointes
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReanalyzeDocuments()}
+                        className="bg-violet-50 hover:bg-violet-100 text-violet-900 font-bold py-2.5 px-4 rounded-xl border border-violet-200 text-xs transition-all flex items-center gap-2"
+                        title="Relire offre/tableau (PDF natif + OCR si scan)"
+                      >
+                        <Sparkles className="w-4 h-4" /> Réanalyser (OCR)
+                      </button>
                     <label className="bg-white border border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer select-none">
                       <input
                         type="checkbox"
@@ -860,21 +926,43 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       </div>
                     )}
                     <div className="space-y-2 mb-6">
-                      {computeDocumentChecklist(selectedDossier.formData?.documents || []).map(item => (
-                        <div key={item.key} className={`p-3 rounded-xl border ${item.ok ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
+                      {computeDocumentChecklist(selectedDossier.formData?.documents || []).map(item => {
+                        const st = item.status ?? (item.ok ? "ok" : "missing");
+                        const boxClass =
+                          st === "ok"
+                            ? "bg-emerald-50 border-emerald-200"
+                            : st === "review"
+                              ? "bg-amber-50 border-amber-200"
+                              : "bg-slate-50 border-slate-200";
+                        const badgeClass =
+                          st === "ok"
+                            ? "bg-emerald-600 text-white"
+                            : st === "review"
+                              ? "bg-amber-500 text-white"
+                              : "bg-slate-200 text-slate-700";
+                        const badgeLabel =
+                          st === "ok" ? "OK" : st === "review" ? "À vérifier" : "MANQUANT";
+                        const fileClass =
+                          st === "review" ? "text-amber-900/90" : st === "ok" ? "text-emerald-800/90" : "text-slate-600";
+                        return (
+                        <div key={item.key} className={`p-3 rounded-xl border ${boxClass}`}>
                           <div className="flex items-center justify-between gap-3">
                             <div className="text-sm font-semibold text-slate-800">{item.label}</div>
-                            <div className={`text-xs font-black px-2 py-1 rounded-full shrink-0 ${item.ok ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"}`}>
-                              {item.ok ? "OK" : "MANQUANT"}
+                            <div className={`text-xs font-black px-2 py-1 rounded-full shrink-0 ${badgeClass}`}>
+                              {badgeLabel}
                             </div>
                           </div>
+                          {st === "review" && item.reviewHint && (
+                            <p className="mt-1.5 text-[11px] font-semibold text-amber-800">{item.reviewHint}</p>
+                          )}
                           {item.ok && item.matchedFiles && item.matchedFiles.length > 0 && (
-                            <p className="mt-1.5 text-[11px] text-emerald-800/90 truncate" title={item.matchedFiles.join(", ")}>
+                            <p className={`mt-1.5 text-[11px] truncate ${fileClass}`} title={item.matchedFiles.join(", ")}>
                               Fichier : {item.matchedFiles.join(", ")}
                             </p>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <div className="mb-6 text-xs text-slate-600">
                       <div className="font-black text-slate-700 mb-1">Export Drive</div>
@@ -1288,6 +1376,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               </div>
                               <p className="text-xs text-slate-500">
                                 {(doc.size / 1024).toFixed(1)} KB
+                                {(doc as any).loanSignal?.ocrUsed ? " · lu par OCR" : ""}
                                 {doc.quality && doc.quality.ok === false && doc.quality.reasons?.length
                                   ? ` · ${doc.quality.reasons[0]}`
                                   : ""}
