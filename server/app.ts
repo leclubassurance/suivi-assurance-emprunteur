@@ -622,6 +622,60 @@ export function createApp() {
     }
   });
 
+  const helpLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 8 });
+  app.post("/api/public/help", helpLimiter, express.json(), async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      const prenom = String(req.body?.prenom || "").trim();
+      const message = String(req.body?.message || "").trim();
+      if (!email || !email.includes("@")) return res.status(400).json({ error: "Email invalide" });
+      if (!message || message.length < 3) return res.status(400).json({ error: "Message manquant" });
+
+      const db = await readDBAsync();
+      const leadId = `LCIF-${Math.floor(Math.random() * 1000000).toString().padStart(6, "0")}`;
+      const leadDossier = ensureDossierShape({
+        id: leadId,
+        status: "NOUVEAU",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        formData: {
+          assures: [{ prenom, nom: "", email }],
+          documents: [],
+        },
+        communications: [],
+        tasks: [],
+        emails: [],
+        notes: [],
+        eventLog: [],
+        isLead: true,
+      } as any);
+      addEvent(leadDossier, {
+        type: "DOSSIER_CREATED",
+        actor: { kind: "SYSTEM" },
+        message: "Pré-dossier créé via aide formulaire (Camille).",
+      });
+      db.dossiers.push(leadDossier);
+      await writeDB(db, leadDossier);
+
+      const { generateCamillePreDossierHelpEmail } = await import("./aiAssistant");
+      const draft = await generateCamillePreDossierHelpEmail({
+        clientEmail: email,
+        clientPrenom: prenom,
+        message,
+      });
+      const subj = `Re: Aide formulaire — Réf. ${leadId}`;
+
+      const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
+      const send = await sendEmailReplyWithGmailAPI(null, email, subj, draft.html);
+      if (!send.ok) return res.status(500).json({ error: send.error || "Echec envoi email" });
+
+      res.json({ success: true, ref: leadId });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   app.get("/api/dossiers", listDossiersLimiter, async (_req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();

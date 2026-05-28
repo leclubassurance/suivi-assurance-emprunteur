@@ -155,6 +155,84 @@ Décide REPLY ou ESCALATE.` }] }
   }
 }
 
+export async function generateCamillePreDossierHelpEmail(params: {
+  clientEmail: string;
+  clientPrenom?: string;
+  message: string;
+}): Promise<{ subject: string; html: string }> {
+  const prenom = String(params.clientPrenom || "").trim();
+  const safeName = prenom || "Bonjour";
+  const subject = `Aide pour votre dossier — ${safeName}`;
+
+  // If Gemini is not configured, return a safe generic reply.
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
+    const generic = [
+      `Bonjour${prenom ? ` ${prenom}` : ""},`,
+      ``,
+      `Je peux vous aider à récupérer les documents nécessaires.`,
+      ``,
+      `Pour lancer l’étude, il nous faut :`,
+      `- l’offre de prêt (PDF depuis votre espace bancaire)`,
+      `- le tableau d’amortissement / échéancier complet (PDF)`,
+      ``,
+      `Souvent, vous les trouverez dans votre application bancaire : rubrique “Crédit”, “Prêt immobilier” puis “Documents” ou “Échéancier”.`,
+      `Si vous ne les voyez pas, vous pouvez aussi demander directement à votre conseiller bancaire de vous envoyer l’offre de prêt et l’échéancier complet en PDF.`,
+      ``,
+      `Dès que vous les avez, vous pouvez les déposer dans le formulaire et répondre à ce mail si besoin.`,
+    ].join("\n");
+    return { subject, html: wrapCamilleHtmlReply(generic, prenom) };
+  }
+
+  const helpPrompt = `
+Tu es Camille, assistante de Charles, au Club Immobilier Français.
+Tu aides un client à compléter le formulaire en ligne et à retrouver les documents.
+
+Contraintes:
+- Ton chaleureux, humain, concis (6 à 14 lignes).
+- Pas de téléphone.
+- Expliquer où trouver: offre de prêt + tableau d’amortissement (échéancier) dans app bancaire / espace client, ou demander au conseiller.
+- Mentionner que les PDFs issus de l’espace bancaire sont préférables à des photos pour la lisibilité.
+- Terminer par une seule action: "répondez à ce mail si besoin" OU "déposez vos documents dans le formulaire".
+
+Réponds en JSON:
+{ "messageToClient": "..." }
+`;
+
+  const response = await generateContentWithRetry({
+    model: "gemini-2.5-flash",
+    contents: [
+      { role: "user", parts: [{ text: helpPrompt }] },
+      {
+        role: "user",
+        parts: [
+          {
+            text: `Client: ${params.clientEmail}\nMessage:\n"""\n${String(params.message || "").slice(0, 4000)}\n"""`,
+          },
+        ],
+      },
+    ],
+    config: {
+      responseMimeType: "application/json",
+      temperature: 0.55,
+    },
+  });
+
+  let decision: any = null;
+  try {
+    decision = JSON.parse(response.text || "{}");
+  } catch {
+    decision = null;
+  }
+
+  const plain = String(decision?.messageToClient || "").trim();
+  if (!plain) {
+    const fallback = `Bonjour${prenom ? ` ${prenom}` : ""},\n\nJe peux vous aider à retrouver l’offre de prêt et le tableau d’amortissement (échéancier complet) dans votre espace bancaire.\nSouvent: “Crédit / Prêt immobilier” → “Documents” ou “Échéancier”.\nSi vous ne les voyez pas, demandez à votre conseiller bancaire de vous les envoyer en PDF.\n\nDéposez ensuite les PDFs dans le formulaire — je reste disponible si besoin.`;
+    return { subject, html: wrapCamilleHtmlReply(fallback, prenom) };
+  }
+
+  return { subject, html: wrapCamilleHtmlReply(plain, prenom) };
+}
+
 const CHARLES_VICTOR_PERSONA = `
 Tu es Charles Victor, conseiller expert en assurance emprunteur au "Le Club Immobilier Français" (LCIF).
 Tu es un courtier indépendant, non lié à une compagnie d'assurance.

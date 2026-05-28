@@ -77,6 +77,33 @@ function isAiAutoReplyEnabled() {
   return v !== 'false' && v !== '0' && v !== 'no';
 }
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function getParisParts(d: Date) {
+  const fmt = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(d);
+  const weekday = (parts.find((p) => p.type === "weekday")?.value || "").toLowerCase();
+  const hour = Number(parts.find((p) => p.type === "hour")?.value || "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value || "0");
+  return { weekday, hour, minute };
+}
+
+function isWithinBusinessHours(now = new Date()) {
+  const { weekday, hour } = getParisParts(now);
+  const isWeekend = weekday.startsWith("sam") || weekday.startsWith("dim");
+  if (isWeekend) return false;
+  // default: Mon–Fri 09:00–19:00 Paris time
+  return hour >= 9 && hour < 19;
+}
+
 function getAiEscalationEmail(): string | null {
   const raw = String(process.env.AI_ESCALATION_EMAIL || "remi@leclubimmobilier.fr").trim();
   return raw && raw.includes("@") ? raw : null;
@@ -343,6 +370,31 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         if (!alreadyHandled && isAiAutoReplyEnabled()) {
           markProcessed(dossier, msgMeta.id);
           try {
+            if (!isWithinBusinessHours()) {
+              const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+              const outOfHours = [
+                `Bonjour,`,
+                ``,
+                `Merci pour votre message. Nous avons bien reçu votre demande.`,
+                `Notre équipe vous répondra dès la prochaine plage d’ouverture.`,
+                ``,
+                `Bien cordialement,`,
+                `Camille`,
+                `Le Club Immobilier Français`,
+              ].join("\n");
+              await sendEmailReplyWithGmailAPI(accessToken, clientEmail, replySubject, outOfHours);
+              addEvent(dossier, {
+                type: 'AI_DECISION',
+                actor: { kind: 'AI', label: 'Camille' },
+                message: "Réponse hors horaires envoyée (accusé de réception).",
+                meta: { gmailId: msgMeta.id },
+              });
+              continue;
+            }
+
+            // Add a small human-like delay to avoid instant replies.
+            await sleep(45_000 + Math.floor(Math.random() * 135_000));
+
             const aiDecision = await aiCallback(dossier, text, senderEmail, {
               newAttachmentNames: addedAttachments.map((d) => d.name),
             });

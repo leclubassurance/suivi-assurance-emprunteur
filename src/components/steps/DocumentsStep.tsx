@@ -83,10 +83,12 @@ export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmi
   const categories = [
     { id: 'offre', title: "Offre de prêt", desc: "Le contrat de prêt incluant les conditions (signée ou non)." },
     { id: 'tableau', title: "Tableau d'amortissement", desc: "Le tableau détaillé mois par mois sur la durée totale du prêt." },
-    { id: 'fiche', title: "Fiche standardisée d'information", desc: "La fiche de synthèse récapitulative." }
+    { id: 'fiche', title: "Fiche standardisée d'information (optionnel)", desc: "La fiche de synthèse récapitulative (si vous l’avez)." },
+    { id: 'contrat', title: "Contrat d'assurance emprunteur (si assurance externe)", desc: "À fournir si vous avez déjà souscrit votre assurance en dehors de la banque du crédit." }
   ];
 
   const isAnyFileUploading = formData.documents.some(d => d.status === 'uploading');
+  const requiredOk = ["offre", "tableau"].every((cat) => formData.documents.some((d) => d.id.startsWith(cat)));
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-8 space-y-10 pb-20">
@@ -95,6 +97,22 @@ export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmi
         <div className="text-center mb-8">
            <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-[#111318] mb-3">Vos documents</h2>
            <p className="text-slate-500 font-medium mt-1 text-[15px] max-w-xl mx-auto">Veuillez fournir les documents suivants pour démarrer l'analyse.</p>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-[24px] p-6 mb-6 shadow-sm">
+          <div className="font-bold text-amber-900 mb-2">Qualité des documents (important)</div>
+          <p className="text-amber-900/80 text-[13px] leading-relaxed font-medium">
+            Pour une analyse fiable, merci de déposer des documents <strong>lisibles</strong> et idéalement récupérés depuis votre espace bancaire (PDF).
+            Les photos sombres, floues ou coupées peuvent retarder l’étude.
+          </p>
+          <div className="mt-4 bg-white/60 border border-amber-200/60 rounded-[18px] overflow-hidden">
+            <img
+              src="https://res.cloudinary.com/dji8akleo/image/upload/v1779136661/Image_18_mai_2026_%C3%A0_22_27_57_mucohg.jpg"
+              alt="Exemples de documents lisibles / illisibles"
+              className="w-full h-auto block"
+              referrerPolicy="no-referrer"
+            />
+          </div>
         </div>
 
         <div className="space-y-5">
@@ -182,12 +200,17 @@ export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmi
       <div className="pt-8 border-t border-slate-200 flex flex-col items-center">
          <button 
            onClick={onSubmit} 
-           disabled={formData.documents.length === 0 || isSubmitting || isAnyFileUploading} 
-           className={`flex items-center justify-center gap-3 px-10 py-5 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto ${formData.documents.length === 0 || isSubmitting || isAnyFileUploading ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-[#111318] text-white hover:bg-slate-800'}`}
+           disabled={!requiredOk || isSubmitting || isAnyFileUploading} 
+           className={`flex items-center justify-center gap-3 px-10 py-5 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto ${!requiredOk || isSubmitting || isAnyFileUploading ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-[#111318] text-white hover:bg-slate-800'}`}
          >
            {isSubmitting ? (submitStatus || 'Envoi en cours...') : isAnyFileUploading ? 'Lecture du fichier...' : 'Valider mon dossier'} 
            {!isSubmitting && !isAnyFileUploading && <ArrowRight className="w-[18px] h-[18px]" strokeWidth={2.5} />}
          </button>
+         {!requiredOk && (
+           <p className="mt-3 text-[13px] font-semibold text-slate-500 text-center max-w-xl">
+             Merci d’ajouter au minimum <strong>l’offre de prêt</strong> et le <strong>tableau d’amortissement</strong>.
+           </p>
+         )}
          <div className="mt-8 bg-blue-50/50 p-6 rounded-[24px] border border-blue-100/50 max-w-2xl text-center shadow-sm">
            <p className="text-slate-600 text-[14px] leading-relaxed font-medium">
              Un conseiller va prendre en charge votre dossier et revenir vers vous sous 48h ouvrées. Un e-mail automatique accusant réception vous sera envoyé.
