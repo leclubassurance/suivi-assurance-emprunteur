@@ -1,11 +1,16 @@
-import React from 'react';
+import React, { useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle2, FilePlus } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { showToast } from '../../lib/toast';
 
 export default function SuccessStep({ onReset, data }: { onReset: () => void, data?: { id?: string, name?: string, email?: string } }) {
-  const dossierId = data?.id || `LCIF-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
+  const generatedId = useMemo(
+    () => `LCIF-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`,
+    [],
+  );
+  const initialIdRef = useRef<string>(data?.id || generatedId);
+  const dossierId = data?.id || initialIdRef.current;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(dossierId);
@@ -37,12 +42,17 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
         <div className="bg-[#111318] rounded-[24px] p-6 text-left relative overflow-hidden mb-8 shadow-sm">
            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-8 -mt-8"></div>
            <p className="text-[12px] uppercase tracking-widest font-bold text-white/50 mb-2">N° de dossier</p>
-           <button 
-             onClick={copyToClipboard}
-             className="text-2xl font-mono font-bold text-white hover:text-blue-400 transition-colors"
-           >
-             {dossierId}
-           </button>
+           <div className="flex items-center gap-3">
+             <span className="text-2xl font-mono font-bold text-white select-text">{dossierId}</span>
+             <button
+               type="button"
+               onClick={copyToClipboard}
+               className="text-[12px] font-bold text-white/80 hover:text-blue-300 transition-colors border border-white/20 rounded-full px-3 py-1.5"
+               title="Copier le numéro"
+             >
+               Copier
+             </button>
+           </div>
            <p className="text-[14px] text-white/70 mt-5 leading-relaxed font-medium">
              Vous recevrez une réponse à votre adresse <strong className="text-white">{data?.email || "email"}</strong> sous 48h ouvrées. Un système de notification vous informera de l'avancement. 
            </p>

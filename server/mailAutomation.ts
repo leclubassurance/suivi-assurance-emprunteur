@@ -77,6 +77,11 @@ function isAiAutoReplyEnabled() {
   return v !== 'false' && v !== '0' && v !== 'no';
 }
 
+function getAiEscalationEmail(): string | null {
+  const raw = String(process.env.AI_ESCALATION_EMAIL || "remi@leclubimmobilier.fr").trim();
+  return raw && raw.includes("@") ? raw : null;
+}
+
 function buildGmailQueriesForDossier(dossier: any, clientEmail: string): string[] {
   const dossierId = String(dossier?.id || '').trim();
   const queries = [
@@ -384,6 +389,22 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
                 meta: { reason: aiDecision.reason },
               });
               dossier.status = 'EN_ATTENTE_CLIENT';
+
+              // Notifie le conseiller par email (24/7) pour éviter de rater une escalade
+              const to = getAiEscalationEmail();
+              if (to) {
+                const subjectEsc = `ALERTE Camille — ${dossier.id} (${clientEmail})`;
+                const body = [
+                  `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#0f172a">`,
+                  `<p><strong>Dossier :</strong> ${dossier.id}</p>`,
+                  `<p><strong>Client :</strong> ${clientEmail}</p>`,
+                  `<p><strong>Raison :</strong> ${aiDecision.reason || "Escalade"}</p>`,
+                  `<p><strong>Extrait email :</strong></p>`,
+                  `<pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:8px">${String(text || "").slice(0, 1500)}</pre>`,
+                  `</div>`,
+                ].join("");
+                sendEmailReplyWithGmailAPI(null, to, subjectEsc, body).catch(() => undefined);
+              }
             }
           } catch (err: any) {
             console.error('[AI] Erreur traitement email:', err);
