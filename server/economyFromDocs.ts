@@ -56,22 +56,46 @@ function parseAmortizationRowsFromText(tableauText: string): AmortRow[] {
   const rows: AmortRow[] = [];
   const lines = tableauText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
-  // Common pattern (Crédit Mutuel / CA):
-  // "1 05.05.2026 1 481,31 90,18 630,96 760,17 307 607,06 0,00"
-  // We treat:
-  // - amount #1 = mensualité totale
-  // - amount #2 = "Assurance groupe et frais" / "Autres frais (dont assurance)"
-  const rx =
+  // Strategy:
+  // 1) Try strict known layout (idx + date + many € columns)
+  // 2) Fallback: detect idx+date, then extract amounts from the line and take amount[1] as insurance+fees
+  const strictRx =
     /^(\d{1,4})\s+(\d{2}[./-]\d{2}[./-]\d{4})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})/;
 
+  const looseHeadRx = /^(\d{1,4})\s+(\d{2}[./-]\d{2}[./-]\d{2,4})\b/;
+  const moneyRx = /(\d{1,3}(?:[\s.]\d{3})*,\d{2})/g;
+
   for (const line of lines) {
-    const m = line.match(rx);
-    if (!m) continue;
-    const idx = Number(m[1]);
-    const date = m[2];
-    const payment = toNumberFR(m[3]);
-    const insuranceAndFees = toNumberFR(m[4]);
-    if (!Number.isFinite(idx) || payment == null || insuranceAndFees == null) continue;
+    const mStrict = line.match(strictRx);
+    if (mStrict) {
+      const idx = Number(mStrict[1]);
+      const date = mStrict[2];
+      const payment = toNumberFR(mStrict[3]);
+      const insuranceAndFees = toNumberFR(mStrict[4]);
+      if (Number.isFinite(idx) && payment != null && insuranceAndFees != null) {
+        rows.push({ idx, date, payment, insuranceAndFees, raw: line });
+      }
+      continue;
+    }
+
+    const mHead = line.match(looseHeadRx);
+    if (!mHead) continue;
+    const idx = Number(mHead[1]);
+    const date = mHead[2];
+    if (!Number.isFinite(idx)) continue;
+
+    const amounts = Array.from(line.matchAll(moneyRx))
+      .map((mm) => toNumberFR(mm[1]))
+      .filter((v): v is number => v != null);
+    // Need at least payment + insurance
+    if (amounts.length < 2) continue;
+
+    const payment = amounts[0];
+    const insuranceAndFees = amounts[1];
+    // basic sanity: payment should be "large" vs insurance "small-ish"
+    if (!(payment > 200 && payment < 20000)) continue;
+    if (!(insuranceAndFees >= 0 && insuranceAndFees < 2000)) continue;
+
     rows.push({ idx, date, payment, insuranceAndFees, raw: line });
   }
 
@@ -131,6 +155,13 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
     reasons.push("Devis: lecture PDF impossible");
   }
 
+  if (tableau?.localPath && tableauText.trim().length < 40) {
+    reasons.push("Tableau d'amortissement: contenu PDF vide (probable scan image)");
+  }
+  if (devisFallback?.localPath && devisText.trim().length < 40) {
+    reasons.push("Devis: contenu PDF vide (probable scan image)");
+  }
+
   const offerN = norm(offerText);
   const devisN = norm(devisText);
   const tableauN = norm(tableauText);
@@ -178,8 +209,10 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   // Proposed total from devis ("Total des cotisations ... 10 393,48 €")
   let proposedTotalRemaining: number | null = null;
   const mTot =
-    devisN.match(/total des cotisations[\s\S]{0,120}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
-    devisN.match(/total[\s\S]{0,40}cotisations[\s\S]{0,120}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
+    devisN.match(/total\s+(?:des\s+)?cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
+    devisN.match(/cout\s+total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
+    devisN.match(/montant\s+total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
+    devisN.match(/total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
   if (mTot?.[1]) proposedTotalRemaining = toNumberFR(mTot[1]);
   if (!proposedTotalRemaining) reasons.push("Total cotisations devis introuvable");
 
