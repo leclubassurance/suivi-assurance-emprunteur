@@ -146,9 +146,13 @@ export function createApp() {
     const resolved = resolveDriveParentFolderId();
     const sa = loadServiceAccountDetails();
     const firebase = await getFirebaseStatus();
+    const saReady = hasServiceAccountReady();
     res.json({
       status: "ok",
-      build: "railway-firestore-2026-05-27",
+      build: "railway-firestore-2026-05-28",
+      deploySource: "tsx-server.ts",
+      gitCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
+      gitBranch: process.env.RAILWAY_GIT_BRANCH || null,
       dataStore: getDataStoreMode(),
       firebase,
       adminAuthEmail: "assurance@leclubimmobilier.fr",
@@ -157,7 +161,9 @@ export function createApp() {
       rawDriveParentEnv: resolved.rawEnv,
       driveParentAutoCorrected: resolved.autoCorrected,
       hasServiceAccountEnv: hasServiceAccountConfigured(),
-      hasServiceAccountReady: hasServiceAccountReady(),
+      hasServiceAccountReady: saReady,
+      // rétrocompat ancien health
+      hasServiceAccount: saReady,
       serviceAccountEmail: sa.clientEmail,
       serviceAccountSource: sa.source,
       serviceAccountParseError: sa.parseError,
