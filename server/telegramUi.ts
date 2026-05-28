@@ -1,0 +1,122 @@
+import type { Dossier } from "./dossierModel";
+import { computeDocumentChecklist } from "../shared/documentChecklist";
+import { buildCamilleContextBlock } from "./camilleMail";
+import { assessCertainLoanDocProblems } from "./loanDocCertainty";
+
+export function escapeTelegramHtml(s: string) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function statusBadge(status: string) {
+  const s = String(status || "").toUpperCase();
+  if (s === "EN_COURS") return "🟢 En cours";
+  if (s === "EN_ATTENTE_CLIENT") return "🟡 Attente client";
+  if (s === "NOUVEAU") return "🔵 Nouveau";
+  if (s === "MAIL_ENVOYÉ" || s === "MAIL_ENVOYE") return "📨 Mail envoyé";
+  if (s === "TRAITÉ" || s === "TRAITE") return "✅ Traité";
+  return `📁 ${escapeTelegramHtml(s || "—")}`;
+}
+
+function suggestNextAction(d: Dossier, docProb: ReturnType<typeof assessCertainLoanDocProblems>) {
+  const esc = d.camilleEscalation as any;
+  if (esc?.lastAt && !esc?.resolvedAt) {
+    return "Répondez à l'alerte 🟠 ou utilisez un bouton pour guider Camille.";
+  }
+  if (docProb.certain) {
+    return "Documents à renvoyer en PDF banque (offre + tableau).";
+  }
+  const missing = computeDocumentChecklist(d.formData?.documents || []).filter((c) => !c.ok);
+  if (missing.some((m) => m.key === "offre" || m.key === "amort")) {
+    return "Relancer offre de prêt + tableau d'amortissement.";
+  }
+  if (missing.some((m) => m.key === "cni" || m.key === "rib")) {
+    return "Pièces identité / RIB à prévoir après présentation de l'étude.";
+  }
+  return "Dossier suivi — vous pouvez poser une question ou envoyer une consigne.";
+}
+
+/** Carte dossier lisible (HTML Telegram) */
+export function formatDossierTelegramCard(d: Dossier): string {
+  const a = d.formData?.assures?.[0];
+  const name = escapeTelegramHtml([a?.prenom, a?.nom].filter(Boolean).join(" ") || "Client");
+  const email = escapeTelegramHtml(a?.email || "—");
+  const checklist = computeDocumentChecklist(d.formData?.documents || []);
+  const ctx = buildCamilleContextBlock(d);
+  const docProb = assessCertainLoanDocProblems(d);
+  const esc = d.camilleEscalation as any;
+
+  const missing = checklist.filter((c) => !c.ok);
+  const missingLines =
+    missing.length === 0
+      ? "✅ Checklist complète"
+      : missing.map((m) => `   • ${escapeTelegramHtml(m.label)}`).join("\n");
+
+  const docIssue = docProb.certain
+    ? "⚠️ <b>PDF banque requis</b> (captures / scan non exploitables)"
+    : "✅ Format documents OK côté prêt";
+
+  const loanOk = ctx.loanDocsOk ? "✅ Offre + tableau reçus" : "⏳ Offre ou tableau manquant";
+  const escLine =
+    esc?.lastAt && !esc?.resolvedAt
+      ? `🟠 <b>Escalade active</b> — ${escapeTelegramHtml(esc.reason || "intervention")}`
+      : "✅ Pas d'escalade en cours";
+
+  const lastIn = (d.communications || []).filter((c: any) => c.direction === "inbound").slice(-1)[0];
+  const lastOut = (d.communications || []).filter((c: any) => c.direction === "outbound").slice(-1)[0];
+  const lastLine = lastIn
+    ? `📩 Dernier client : <i>${escapeTelegramHtml(String(lastIn.subject || "").slice(0, 60))}</i>`
+    : lastOut
+      ? `📤 Dernier envoi : <i>${escapeTelegramHtml(String(lastOut.subject || "").slice(0, 60))}</i>`
+      : "";
+
+  return [
+    `<b>📂 ${escapeTelegramHtml(d.id)}</b>`,
+    `${statusBadge(String(d.status))}`,
+  ``,
+    `👤 <b>${name}</b>`,
+    `✉️ ${email}`,
+    `📅 Créé le ${escapeTelegramHtml((d.createdAt || "").slice(0, 10))}`,
+  ``,
+    `<b>Documents prêt</b>`,
+    loanOk,
+    docIssue,
+  ``,
+    `<b>Checklist</b>`,
+    missingLines,
+  ``,
+    escLine,
+    lastLine,
+  ``,
+    `💡 <i>${escapeTelegramHtml(suggestNextAction(d, docProb))}</i>`,
+  ].join("\n");
+}
+
+export function dossierCollaborationKeyboard(dossierId: string) {
+  const id = dossierId.toUpperCase();
+  return {
+    inline_keyboard: [
+      [
+        { text: "📧 PDF banque", callback_data: `pdf:${id}` },
+        { text: "🪪 CNI + RIB", callback_data: `cni:${id}` },
+      ],
+      [
+        { text: "📋 Actualiser", callback_data: `sum:${id}` },
+        { text: "✅ Pris en charge", callback_data: `ok:${id}` },
+      ],
+    ],
+  };
+}
+
+export const PRESET_DIRECTIVES = {
+  pdf: "Rédige un mail bienveillant : demande l'offre de prêt et le tableau d'amortissement complets en PDF depuis l'espace bancaire (pas de capture d'écran).",
+  cni: "Rédige un mail : remercie le client et indique que CNI/passeport et RIB seront demandés après validation de l'étude des économies — ne les demande pas maintenant si l'étude n'est pas encore présentée.",
+} as const;
+
+export function parseCallbackData(data: string): { action: string; dossierId: string } | null {
+  const m = String(data || "").match(/^(pdf|cni|sum|ok):(LCIF-\d{6})$/i);
+  if (!m) return null;
+  return { action: m[1].toLowerCase(), dossierId: m[2].toUpperCase() };
+}

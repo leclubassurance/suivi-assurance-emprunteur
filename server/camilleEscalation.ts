@@ -155,6 +155,7 @@ export async function handleCamilleEscalation(params: {
       clientEmail,
       reason: reason || "Escalade",
       excerpt: String(clientMessageText || "").slice(0, 1500),
+      gmailId,
     });
   }
 

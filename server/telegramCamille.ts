@@ -1,8 +1,14 @@
 import { readDB, writeDB } from "./db";
 import { addEvent, type Dossier } from "./dossierModel";
 
-/** message_id Telegram → dossier (mémoire courte, complété par Firestore via dossier.camilleEscalation) */
+/** message_id Telegram → dossier (alertes Camille) */
 const alertMessageToDossier = new Map<string, string>();
+
+export function registerTelegramDossierContext(chatId: string, messageId: number, dossierId: string) {
+  if (chatId && messageId && dossierId) {
+    alertMessageToDossier.set(`${chatId}:${messageId}`, dossierId.toUpperCase());
+  }
+}
 
 export function hasTelegramBotToken(): boolean {
   return Boolean(getBotToken());
@@ -45,7 +51,7 @@ async function telegramApi(method: string, body: Record<string, unknown>) {
 }
 
 /** Envoi Telegram (token seul) — utilisé pour /start avant chat_id autorisé */
-export async function sendTelegramRaw(chatId: string, text: string, replyMarkup?: unknown) {
+export async function sendTelegramRaw(chatId: string, text: string) {
   if (!getBotToken()) {
     console.warn("[Telegram] TELEGRAM_BOT_TOKEN manquant — impossible d'envoyer");
     return null;
@@ -56,7 +62,6 @@ export async function sendTelegramRaw(chatId: string, text: string, replyMarkup?
       text: text.slice(0, 4000),
       parse_mode: "HTML",
       disable_web_page_preview: true,
-      reply_markup: replyMarkup,
     });
   } catch (e: any) {
     console.error("[Telegram] sendMessage:", e?.message || String(e));
@@ -73,9 +78,9 @@ export async function sendTelegramRaw(chatId: string, text: string, replyMarkup?
   }
 }
 
-export async function sendTelegramMessage(chatId: string, text: string, replyMarkup?: unknown) {
+export async function sendTelegramMessage(chatId: string, text: string) {
   if (!isTelegramEnabled()) return null;
-  return sendTelegramRaw(chatId, text, replyMarkup);
+  return sendTelegramRaw(chatId, text);
 }
 
 function escapeHtml(s: string) {
@@ -88,42 +93,27 @@ export async function sendTelegramEscalationAlert(params: {
   reason: string;
   excerpt: string;
   reminder?: boolean;
+  gmailId?: string;
 }) {
-  if (!isTelegramEnabled()) return;
+  const { notifyTelegramEscalation } = await import("./telegramNotify");
+  await notifyTelegramEscalation({
+    dossier: params.dossier,
+    clientEmail: params.clientEmail,
+    reason: params.reason,
+    excerpt: params.excerpt,
+    reminder: params.reminder,
+    gmailId: params.gmailId,
+  });
 
   const chatIds = getAllowedChatIds();
-  const title = params.reminder ? "🔔 Rappel escalade" : "🟠 Escalade Camille";
-  const text = [
-    `<b>${title}</b>`,
-    ``,
-    `<b>Dossier :</b> ${escapeHtml(params.dossier.id)}`,
-    `<b>Client :</b> ${escapeHtml(params.clientEmail)}`,
-    `<b>Raison :</b> ${escapeHtml(params.reason || "—")}`,
-    ``,
-    `<i>Répondez à CE message</i> avec votre consigne (ex. « Demande les PDF banque offre + tableau »).`,
-    `Camille enverra le mail au client automatiquement.`,
-    ``,
-    `<code>${escapeHtml(params.excerpt.slice(0, 500))}</code>`,
-  ].join("\n");
-
   for (const chatId of chatIds) {
-    try {
-      const msg = await sendTelegramMessage(chatId, text);
-      if (msg?.message_id) {
-        const key = `${chatId}:${msg.message_id}`;
-        alertMessageToDossier.set(key, params.dossier.id);
-        if (!params.dossier.camilleEscalation) {
-          params.dossier.camilleEscalation = { lastAt: new Date().toISOString() };
-        }
-        params.dossier.camilleEscalation = {
-          ...params.dossier.camilleEscalation,
-          telegramChatId: chatId,
-          telegramAlertMessageId: msg.message_id,
-        } as any;
-      }
-    } catch (e: any) {
-      console.warn("[Telegram] envoi alerte:", e?.message || String(e));
+    if (!params.dossier.camilleEscalation) {
+      params.dossier.camilleEscalation = { lastAt: new Date().toISOString() };
     }
+    params.dossier.camilleEscalation = {
+      ...params.dossier.camilleEscalation,
+      telegramChatId: chatId,
+    } as any;
   }
 }
 
@@ -157,10 +147,14 @@ async function findDossierForTelegramReply(
     return db.dossiers.find((d: any) => String(d.id).toUpperCase() === lcif) || null;
   }
 
+  const { resolveDossierFromText } = await import("./camilleTelegramChat");
+  const resolved = await resolveDossierFromText(text);
+  if (resolved.kind === "found") return resolved.dossier;
+
   return null;
 }
 
-async function isReplyToEscalationAlert(chatId: string, replyToMessageId?: number): Promise<boolean> {
+async function isReplyToCamilleAlert(chatId: string, replyToMessageId?: number): Promise<boolean> {
   if (!replyToMessageId) return false;
   const key = `${chatId}:${replyToMessageId}`;
   if (alertMessageToDossier.has(key)) return true;
@@ -176,6 +170,55 @@ async function isReplyToEscalationAlert(chatId: string, replyToMessageId?: numbe
     }
   }
   return false;
+}
+
+async function runStaffDirectiveFlow(chatId: string, dossier: Dossier, instruction: string) {
+  const { handleStaffDirectiveFromTelegram } = await import("./camilleTelegramChat");
+  await sendTelegramMessage(chatId, `⏳ <b>${escapeHtml(dossier.id)}</b> — j'envoie au client…`);
+  const result = await handleStaffDirectiveFromTelegram(dossier, instruction, chatId);
+  const db = await readDB();
+  const stored = db.dossiers.find((d: any) => d.id === dossier.id);
+  if (stored) {
+    stored.updatedAt = new Date().toISOString();
+    await writeDB(db, stored);
+  }
+  if (result.ok) {
+    const icon = result.action === "SEND_TO_CLIENT" ? "✅" : "✔️";
+    await sendTelegramMessage(chatId, `${icon} <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`);
+    addEvent(dossier, {
+      type: "AI_DECISION",
+      actor: { kind: "ADMIN", label: "Telegram" },
+      message: `Consigne (${result.action}).`,
+      meta: { channel: "telegram" },
+    });
+  } else {
+    await sendTelegramMessage(chatId, `❌ <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`);
+  }
+}
+
+async function answerAndSend(
+  chatId: string,
+  userMessage: string,
+  dossier: Dossier | null,
+) {
+  const { answerCamilleTelegramQuestion, buildPortfolioSummaryAsync, getRememberedDossierId, findDossierById } =
+    await import("./camilleTelegramChat");
+  const { escapeTelegramHtml } = await import("./telegramUi");
+
+  let target = dossier;
+  if (!target) {
+    const remembered = getRememberedDossierId(chatId);
+    if (remembered) target = await findDossierById(remembered);
+  }
+
+  const portfolio = await buildPortfolioSummaryAsync(12);
+  const answer = await answerCamilleTelegramQuestion(userMessage, {
+    dossier: target,
+    portfolioLines: portfolio,
+  });
+
+  const footer = target ? `\n\n<i>Dossier : ${escapeTelegramHtml(target.id)}</i>` : "";
+  await sendTelegramMessage(chatId, `${escapeTelegramHtml(answer)}${footer}`);
 }
 
 export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
@@ -199,17 +242,23 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
     findDossierById,
     rememberChatDossier,
     getRememberedDossierId,
-    answerCamilleTelegramQuestion,
-    handleStaffDirectiveFromTelegram,
-    buildDossierDetailBlock,
-    buildPortfolioSummaryAsync,
     getHelpTelegramText,
+    buildPortfolioSummaryAsync,
+    answerCamillePortfolioBrief,
   } = await import("./camilleTelegramChat");
+  const { escapeTelegramHtml } = await import("./telegramUi");
 
   if (text === "/start" || text.startsWith("/start ")) {
     await sendTelegramRaw(
       chatId,
-      `Bonjour, je suis <b>Camille</b> (LCIF assurance emprunteur), disponible 24h/24.\n\n<b>chat_id :</b> <code>${chatId}</code>\n\nTapez <code>/help</code> pour les commandes.\n\nExemples :\n• <code>LCIF-123456 quel est l'état ?</code>\n• <code>/dossiers</code>\n• <code>LCIF-123456 Demande les PDF banque</code>`,
+      [
+        `Bonjour Rémi 👋 Je suis <b>Camille</b>, assistante assurance du <b>Club Immobilier Français</b>.`,
+        ``,
+        `Je vous <b>préviens</b> dès qu'il se passe quelque chose sur un dossier.`,
+        `Vous pouvez me <b>poser n'importe quelle question</b> — librement, sans commandes compliquées.`,
+        ``,
+        `Tapez <code>/help</code> pour quelques exemples.`,
+      ].join("\n"),
     );
     return;
   }
@@ -226,94 +275,116 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   if (!text) return;
 
   const replyId = message.reply_to_message?.message_id as number | undefined;
-  const replyToAlert = await isReplyToEscalationAlert(chatId, replyId);
-  const intent = classifyTelegramIntent(text, replyToAlert);
+  const replyToCamille = await isReplyToCamilleAlert(chatId, replyId);
+  const intent = classifyTelegramIntent(text, replyToCamille);
 
-  if (intent === "HELP") {
+  if (intent === "HELP" || /^\/help\b/i.test(text) || /^\/aide\b/i.test(text)) {
     await sendTelegramMessage(chatId, getHelpTelegramText());
     return;
   }
 
-  if (intent === "LIST_DOSSIERS") {
+  if (/^\/nouveaut/i.test(text)) {
+    await sendTelegramMessage(chatId, "⏳ Je regarde l'activité récente…");
+    const brief = await answerCamillePortfolioBrief();
+    await sendTelegramMessage(chatId, escapeTelegramHtml(brief));
+    return;
+  }
+
+  if (/^\/dossiers\b/i.test(text)) {
     const list = await buildPortfolioSummaryAsync(15);
     await sendTelegramMessage(
       chatId,
-      `<b>Dossiers récents</b>\n<pre>${escapeHtml(list)}</pre>`,
+      `<b>Dossiers récents</b>\n\n<pre>${escapeHtml(list)}</pre>\n\n<i>Posez une question sur l'un d'eux.</i>`,
     );
     return;
   }
 
+  if (/^\/dossier\b/i.test(text)) {
+    const arg = text.replace(/^\/dossier\s*/i, "").trim();
+    const { resolveDossierFromText, primaryBorrowerLabel } = await import("./camilleTelegramChat");
+    const resolved = await resolveDossierFromText(arg || text);
+    if (resolved.kind === "ambiguous") {
+      await sendTelegramMessage(
+        chatId,
+        `<b>Plusieurs dossiers :</b>\n${resolved.matches.map((m) => `• ${escapeHtml(m.label)}`).join("\n")}\n\nPrécisez le numéro LCIF.`,
+      );
+      return;
+    }
+    if (resolved.kind === "none") {
+      await sendTelegramMessage(chatId, "Indiquez <code>/dossier LCIF-123456</code> ou <code>/dossier Nom Prénom</code>.");
+      return;
+    }
+    const d = resolved.dossier;
+    rememberChatDossier(chatId, d.id);
+    await sendTelegramMessage(chatId, "⏳ …");
+    await answerAndSend(
+      chatId,
+      `Quelles sont les nouveautés et l'état du dossier ${d.id} (${primaryBorrowerLabel(d)}) ?`,
+      d,
+    );
+    return;
+  }
+
+  if (text === "/actif" || text.startsWith("/actif ")) {
+    const remembered = getRememberedDossierId(chatId);
+    if (!remembered) {
+      await sendTelegramMessage(
+        chatId,
+        "Aucun dossier en mémoire. Indiquez un <code>LCIF-…</code>, un nom d'emprunteur, ou attendez une alerte Camille.",
+      );
+      return;
+    }
+    await answerAndSend(chatId, `Où en est le dossier ${remembered} ? Quelles sont les nouveautés ?`, await findDossierById(remembered));
+    return;
+  }
+
+  const { resolveDossierFromText, stripDossierRefsFromText, primaryBorrowerLabel } = await import(
+    "./camilleTelegramChat",
+  );
+
   let dossier: Dossier | null = await findDossierForTelegramReply(chatId, replyId, text);
   const lcifFromText = extractLcifId(text);
   if (!dossier && lcifFromText) dossier = await findDossierById(lcifFromText);
-  if (!dossier && intent === "ASK_QUESTION") {
-    const remembered = getRememberedDossierId(chatId);
-    if (remembered) dossier = await findDossierById(remembered);
-  }
-  if (dossier) rememberChatDossier(chatId, dossier.id);
 
-  if (intent === "DOSSIER_INFO") {
-    if (!dossier) {
-      await sendTelegramMessage(chatId, "Dossier introuvable. Indiquez <code>LCIF-123456</code>.");
+  if (!dossier) {
+    const resolved = await resolveDossierFromText(text);
+    if (resolved.kind === "ambiguous") {
+      await sendTelegramMessage(
+        chatId,
+        `<b>Plusieurs dossiers correspondent :</b>\n${resolved.matches.map((m) => `• ${escapeHtml(m.label)}`).join("\n")}\n\nPrécisez le numéro <code>LCIF-…</code> ou le nom complet.`,
+      );
       return;
     }
-    const detail = buildDossierDetailBlock(dossier);
-    await sendTelegramMessage(chatId, `<b>${escapeHtml(dossier.id)}</b>\n<pre>${escapeHtml(detail)}</pre>`);
-    return;
+    if (resolved.kind === "found") dossier = resolved.dossier;
   }
+
+  if (dossier) rememberChatDossier(chatId, dossier.id);
 
   if (intent === "STAFF_DIRECTIVE") {
     if (!dossier) {
       await sendTelegramMessage(
         chatId,
-        "Précisez le dossier : <code>LCIF-123456</code> + votre consigne, ou répondez à une alerte 🟠.",
+        "Précisez le dossier (<code>LCIF-…</code> ou nom emprunteur) ou répondez à une alerte Camille.",
       );
       return;
     }
-    let instruction = text;
-    if (lcifFromText) instruction = text.replace(new RegExp(lcifFromText, "i"), "").trim();
-    if (!instruction && replyToAlert) instruction = text;
-    if (!instruction) {
-      await sendTelegramMessage(chatId, "Ajoutez votre consigne après le numéro de dossier.");
-      return;
-    }
-
-    await sendTelegramMessage(chatId, `⏳ <b>${escapeHtml(dossier.id)}</b> — j'envoie au client…`);
-    const result = await handleStaffDirectiveFromTelegram(dossier, instruction, chatId);
-
-    const db = await readDB();
-    const stored = db.dossiers.find((d: any) => d.id === dossier!.id);
-    if (stored) {
-      stored.updatedAt = new Date().toISOString();
-      await writeDB(db, stored);
-    }
-
-    if (result.ok) {
-      const icon = result.action === "SEND_TO_CLIENT" ? "✅" : "✔️";
-      await sendTelegramMessage(
-        chatId,
-        `${icon} <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`,
-      );
-      addEvent(dossier, {
-        type: "AI_DECISION",
-        actor: { kind: "ADMIN", label: "Telegram" },
-        message: `Consigne Telegram (${result.action}).`,
-        meta: { instructionPreview: instruction.slice(0, 300) },
-      });
-    } else {
-      await sendTelegramMessage(
-        chatId,
-        `❌ <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`,
-      );
-    }
+    let instruction = stripDossierRefsFromText(text, dossier);
+    if (!instruction) instruction = text;
+    await runStaffDirectiveFlow(chatId, dossier, instruction);
     return;
   }
 
-  await sendTelegramMessage(chatId, "⏳ Je regarde…");
-  const portfolio = await buildPortfolioSummaryAsync(10);
-  const answer = await answerCamilleTelegramQuestion(text, { dossier, portfolioLines: portfolio });
-  const plain = answer.replace(/</g, "‹").replace(/>/g, "›");
-  await sendTelegramMessage(chatId, plain);
+  let question = text;
+  if (dossier) {
+    const after = stripDossierRefsFromText(text, dossier);
+    if (after.length < 5) {
+      const who = primaryBorrowerLabel(dossier);
+      question = `Quelles sont les nouveautés et l'état actuel du dossier ${dossier.id} (${who}) ? Que dois-je savoir ?`;
+    }
+  }
+
+  await sendTelegramMessage(chatId, "⏳ …");
+  await answerAndSend(chatId, question, dossier);
 }
 
 export async function registerTelegramWebhook(publicBaseUrl: string) {

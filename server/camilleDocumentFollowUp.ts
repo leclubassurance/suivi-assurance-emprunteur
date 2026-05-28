@@ -215,6 +215,14 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
           },
         });
         console.log(`[Camille] Relance documents envoyée à ${clientEmail} (${dossierId})`);
+        void import("./telegramNotify")
+          .then(({ notifyRemiDossierNews }) =>
+            notifyRemiDossierNews(existing, "doc_followup", {
+              subject,
+              eventId: `doc_followup_${dossierId}`,
+            }),
+          )
+          .catch(() => undefined);
       } else {
         addEvent(existing, {
           type: "EMAIL_FAILED",

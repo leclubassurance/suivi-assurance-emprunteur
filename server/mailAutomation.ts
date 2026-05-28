@@ -390,13 +390,19 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         const alreadyHandled = getProcessedIds(dossier).has(msgMeta.id);
 
         if (!alreadyHandled) {
+          const attNote =
+            addedAttachments.length > 0
+              ? `Pièces jointes : ${addedAttachments.map((d) => d.name).join(", ")}`
+              : undefined;
           void import("./telegramNotify")
             .then(({ notifyTelegramClientInbound }) =>
               notifyTelegramClientInbound({
-                dossierId: dossier.id,
+                dossier,
                 clientEmail: senderEmail,
                 subject,
                 excerpt: String(text || "").slice(0, 500),
+                gmailId: msgMeta.id,
+                extra: attNote,
               }),
             )
             .catch(() => undefined);
@@ -465,6 +471,15 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
                   meta: { gmailId: msgMeta.id },
                 });
                 dossier.status = 'EN_COURS';
+                void import("./telegramNotify")
+                  .then(({ notifyTelegramCamilleReplied }) =>
+                    notifyTelegramCamilleReplied({
+                      dossier,
+                      subject: replySubject,
+                      gmailId: sendResult.messageId || msgMeta.id,
+                    }),
+                  )
+                  .catch(() => undefined);
               }
             } else if (aiDecision?.status === 'escalated') {
               const { handleCamilleEscalation } = await import("./camilleEscalation");

@@ -10,24 +10,144 @@ const chatLastDossierId = new Map<string, string>();
 
 const INTERNAL_ASSISTANT_PROMPT = `
 Tu es Camille, assistante interne du Club Immobilier Français (assurance emprunteur).
-Tu parles à Rémi ou l'équipe via Telegram — ton ton est professionnel, synthétique, utile.
+Rémi te parle librement sur Telegram : réponds à TOUTE question (état dossier, pièces, mails, escalade, historique, prochaine étape, comparaison entre dossiers récents, etc.).
 
-Tu as accès à des données dossier (statut, pièces, escalade, derniers échanges). Ne invente rien.
-Si une info manque, dis-le clairement.
+Tu as des données dossier structurées ci-dessous. Ne invente rien ; si une info manque, dis-le.
+Réponds en français, clair et utile (5 à 20 lignes selon la question).
+Texte simple : puces avec •, pas de HTML ni markdown.
 
-Tu peux :
-- résumer l'état d'un dossier
-- lister pièces manquantes / problèmes documents certains
-- expliquer la prochaine action recommandée
-- rappeler comment envoyer une consigne client : "LCIF-123456 votre consigne" ou répondre à une alerte 🟠
+Pour envoyer un mail au client, Rémi doit formuler une consigne explicite (ex. « envoie-lui… », « demande… ») ou répondre à une alerte escalade avec une instruction — tu n'envoies pas de mail dans cette réponse, tu expliques seulement si on te le demande sans consigne claire.
 
 Ne jamais citer de nom d'assureur. Pas de téléphone client.
-
-Réponds en français, 5 à 20 lignes max, format adapté Telegram (pas de HTML complexe, tu peux utiliser des listes à puces simples).
 `;
+
+/** Consigne explicite pour envoyer un mail client (pas une simple question). */
+export function looksLikeStaffDirective(text: string): boolean {
+  const t = text.trim();
+  const lower = t.toLowerCase();
+  if (/\b(qu'est-ce|quest ce|que demande|a demandé|demande-t-il|demande t il)\b/i.test(lower)) return false;
+  if (/^(envoie|mail|écris|ecris|demande|relance|dis-lui|transmet|renvoie|écris-lui|ecris-lui)\b/i.test(t)) return true;
+  if (/\b(mail au client|envoie au client|écris au client|ecris au client)\b/i.test(lower)) return true;
+  if (/\b(demande (lui|leur|au client)|relance (le|la|les) client)\b/i.test(lower)) return true;
+  if (/\b(demande|envoie|envoyer|relance|écris|ecris|transmet|renvoie|renvoyer)\b/i.test(lower)) return true;
+  return false;
+}
 
 export function extractLcifId(text: string): string | null {
   return text.match(/LCIF-\d{6}/i)?.[0]?.toUpperCase() || null;
+}
+
+function normalizeForSearch(s: string): string {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export type DossierResolveResult =
+  | { kind: "found"; dossier: Dossier }
+  | { kind: "ambiguous"; matches: Array<{ dossier: Dossier; label: string }> }
+  | { kind: "none" };
+
+/** Cible un dossier via LCIF-… ou le nom / prénom des emprunteurs (assurés). */
+export async function resolveDossierFromText(text: string): Promise<DossierResolveResult> {
+  const lcif = extractLcifId(text);
+  if (lcif) {
+    const d = await findDossierById(lcif);
+    return d ? { kind: "found", dossier: d } : { kind: "none" };
+  }
+
+  const normalizedText = normalizeForSearch(text);
+  if (normalizedText.length < 2) return { kind: "none" };
+
+  const db = await readDB();
+  const scored: Array<{ dossier: Dossier; score: number; label: string }> = [];
+
+  for (const d of db.dossiers || []) {
+    const assures = Array.isArray(d.formData?.assures) ? d.formData.assures : [];
+    let bestForDossier = 0;
+    let bestLabel = "";
+
+    for (const a of assures) {
+      const prenom = normalizeForSearch(String(a?.prenom || ""));
+      const nom = normalizeForSearch(String(a?.nom || ""));
+      const full = [prenom, nom].filter(Boolean).join(" ");
+      const display = [a?.prenom, a?.nom].filter(Boolean).join(" ") || d.id;
+      if (!full && !nom) continue;
+
+      let score = 0;
+      if (full.length >= 4 && normalizedText.includes(full)) score = 100;
+      else if (nom.length >= 3 && normalizedText.includes(nom)) score = 75;
+      else if (prenom.length >= 3 && normalizedText.includes(prenom)) score = 55;
+
+      if (score === 0 && full) {
+        const tokens = normalizedText.split(" ").filter(Boolean);
+        for (let i = 0; i < tokens.length - 1; i++) {
+          if (`${tokens[i]} ${tokens[i + 1]}` === full) {
+            score = 100;
+            break;
+          }
+        }
+      }
+
+      if (score > bestForDossier) {
+        bestForDossier = score;
+        bestLabel = `${display} — ${d.id}`;
+      }
+    }
+
+    if (bestForDossier > 0) {
+      scored.push({ dossier: d, score: bestForDossier, label: bestLabel });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score || b.dossier.id.localeCompare(a.dossier.id));
+  if (scored.length === 0) return { kind: "none" };
+
+  const bestScore = scored[0].score;
+  const strong = scored.filter((s) => s.score >= bestScore - 5 && s.score >= 75);
+  const weakTies = scored.filter((s) => s.score === 55);
+
+  if (strong.length > 1) {
+    return {
+      kind: "ambiguous",
+      matches: strong.slice(0, 6).map((s) => ({ dossier: s.dossier, label: s.label })),
+    };
+  }
+  if (weakTies.length > 1 && bestScore === 55) {
+    return {
+      kind: "ambiguous",
+      matches: weakTies.slice(0, 6).map((s) => ({ dossier: s.dossier, label: s.label })),
+    };
+  }
+
+  return { kind: "found", dossier: scored[0].dossier };
+}
+
+/** Retire LCIF et noms emprunteurs du texte (consigne mail). */
+export function stripDossierRefsFromText(text: string, dossier: Dossier): string {
+  let t = text;
+  t = t.replace(new RegExp(dossier.id, "i"), " ");
+  const assures = Array.isArray(dossier.formData?.assures) ? dossier.formData.assures : [];
+  for (const a of assures) {
+    const parts = [a?.prenom, a?.nom].filter(Boolean) as string[];
+    const full = parts.join(" ");
+    for (const p of [full, ...parts]) {
+      if (p && p.length >= 2) {
+        const esc = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        t = t.replace(new RegExp(esc, "gi"), " ");
+      }
+    }
+  }
+  return t.replace(/\s+/g, " ").trim();
+}
+
+export function primaryBorrowerLabel(d: Dossier): string {
+  const a = d.formData?.assures?.[0];
+  return [a?.prenom, a?.nom].filter(Boolean).join(" ") || d.id;
 }
 
 export function rememberChatDossier(chatId: string, dossierId: string) {
@@ -86,12 +206,7 @@ export async function buildPortfolioSummaryAsync(limit = 12): Promise<string> {
     .join("\n");
 }
 
-export type TelegramChatIntent =
-  | "HELP"
-  | "LIST_DOSSIERS"
-  | "DOSSIER_INFO"
-  | "STAFF_DIRECTIVE"
-  | "ASK_QUESTION";
+export type TelegramChatIntent = "HELP" | "LIST_DOSSIERS" | "STAFF_DIRECTIVE" | "ASK_QUESTION";
 
 export function classifyTelegramIntent(text: string, hasReplyToAlert: boolean): TelegramChatIntent {
   const t = text.trim();
@@ -99,24 +214,17 @@ export function classifyTelegramIntent(text: string, hasReplyToAlert: boolean): 
 
   if (/^\/help\b/i.test(t) || /^\/aide\b/i.test(t)) return "HELP";
   if (/^\/dossiers\b/i.test(t)) return "LIST_DOSSIERS";
-  if (/^\/dossier\b/i.test(t)) return "DOSSIER_INFO";
-
-  if (hasReplyToAlert) return "STAFF_DIRECTIVE";
+  if (hasReplyToAlert && looksLikeStaffDirective(t)) return "STAFF_DIRECTIVE";
 
   const lcif = extractLcifId(t);
   if (lcif) {
-    const directiveVerbs =
-      /\b(demande|envoie|envoyer|relance|écris|ecris|mail|dis-lui|precise|explique|transmet|renvoyer|renvoie)\b/i;
-    const questionVerbs =
-      /\b(état|etat|statut|documents?|manque|résumé|resume|qui|quoi|comment|pourquoi|dernier|échange|escalade)\b/i;
     const afterId = t.replace(new RegExp(lcif, "i"), "").trim();
-    if (afterId.length < 4) return "DOSSIER_INFO";
-    if (directiveVerbs.test(lower) && !questionVerbs.test(lower)) return "STAFF_DIRECTIVE";
-    if (questionVerbs.test(lower)) return "ASK_QUESTION";
-    if (afterId.length > 15) return "STAFF_DIRECTIVE";
+    if (afterId.length < 3) return "ASK_QUESTION";
+    if (looksLikeStaffDirective(afterId) || looksLikeStaffDirective(t)) return "STAFF_DIRECTIVE";
     return "ASK_QUESTION";
   }
 
+  if (looksLikeStaffDirective(t)) return "STAFF_DIRECTIVE";
   return "ASK_QUESTION";
 }
 
@@ -159,23 +267,30 @@ export async function handleStaffDirectiveFromTelegram(
   return executeCamilleStaffDirective(dossier, instruction, { channel: "telegram" });
 }
 
+export async function answerCamillePortfolioBrief(): Promise<string> {
+  const portfolio = await buildPortfolioSummaryAsync(15);
+  return answerCamilleTelegramQuestion(
+    "Quels dossiers ont eu une activité récente et quelles nouveautés dois-je surveiller en priorité ? Synthèse pour l'équipe.",
+    { dossier: null, portfolioLines: portfolio },
+  );
+}
+
 export function getHelpTelegramText(): string {
   return [
-    "<b>Camille — LCIF Assurance</b> (24h/24)",
+    "<b>Camille — LCIF Assurance</b>",
     "",
-    "<b>Questions</b>",
-    "• État d'un dossier : <code>LCIF-123456 quel est l'état ?</code>",
-    "• Fiche dossier : <code>/dossier LCIF-123456</code>",
-    "• Liste récente : <code>/dossiers</code>",
-    "• Question générale sans numéro (dossiers récents utilisés)",
+    "<b>Je vous préviens</b> à chaque nouveauté sur un dossier (mail client, pièces, réponse Camille, escalade…).",
     "",
-    "<b>Actions client</b>",
-    "• <code>LCIF-123456 Demande les PDF banque…</code>",
-    "• Ou répondre à une alerte 🟠",
+    "<b>Vous me posez n'importe quelle question</b>, en langage libre :",
+    "• par numéro : <code>LCIF-123456 où en est-on ?</code>",
+    "• par nom : <code>Marie Lascaud — que manque-t-il ?</code> ou <code>dossier Lascaud</code>",
+    "• sans précision → <b>dernier dossier</b> dont on a parlé",
     "",
-    "<b>Alertes automatiques</b>",
-    "🟠 Escalade · 📩 Mail client · 📁 Nouveau dossier",
+    "<b>Envoyer un mail au client</b> : consigne claire + numéro ou nom",
+    "(ex. <code>Lascaud demande les PDF banque</code>) ou réponse à une alerte escalade.",
     "",
-    "/help — cette aide",
+    "<code>/dossiers</code> — liste · <code>/actif</code> — dernier dossier",
+    "",
+    "<i>24h/24</i>",
   ].join("\n");
 }

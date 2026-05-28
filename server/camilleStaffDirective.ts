@@ -128,6 +128,17 @@ ${text.slice(0, 4000)}
       meta: { channel: options?.channel, instructionPreview: text.slice(0, 200), to: clientEmail },
     });
 
+    void import("./telegramNotify")
+      .then(({ notifyTelegramCamilleReplied }) =>
+        notifyTelegramCamilleReplied({
+          dossier,
+          subject,
+          gmailId: `staff_directive_${Date.now()}`,
+          extra: "Suite à votre consigne Telegram.",
+        }),
+      )
+      .catch(() => undefined);
+
     return { ok: true, action: "SEND_TO_CLIENT", summary };
   } catch (e: any) {
     return {

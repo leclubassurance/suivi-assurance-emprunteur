@@ -331,7 +331,7 @@ export function createApp() {
       void import("./telegramNotify")
         .then(({ notifyTelegramNewDossier }) =>
           notifyTelegramNewDossier({
-            dossierId: newDossier.id,
+            dossier: newDossier,
             clientEmail: formData.assures?.[0]?.email || "",
             clientName: [formData.assures?.[0]?.prenom, formData.assures?.[0]?.nom]
               .filter(Boolean)
