@@ -5,6 +5,7 @@ import { RAILWAY_BUILD_ID } from "./server/buildInfo";
 import { createApp } from "./server/app";
 import { initFirebaseSync } from "./server/firebaseSync";
 import { startScheduler } from "./server/scheduler";
+import { scheduleCamilleKnowledgeSync } from "./server/camilleKnowledgeDrive";
 
 const PORT = Number(process.env.PORT) || 3000;
 const app = createApp();
@@ -62,6 +63,7 @@ async function startServer() {
   // Ne pas bloquer le port HTTP : Firebase / scheduler en arrière-plan (évite 502 Railway)
   void initFirebaseSync().catch((err) => console.error("initFirebaseSync failed", err));
   startScheduler();
+  scheduleCamilleKnowledgeSync(path.join(process.cwd(), "data"));
 }
 
 startServer().catch((err) => {

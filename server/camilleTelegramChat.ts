@@ -4,6 +4,7 @@ import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock } from "./camilleMail";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { generateContentWithRetry } from "./geminiClient";
+import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
 import { executeCamilleStaffDirective } from "./camilleStaffDirective";
 
 const chatLastDossierId = new Map<string, string>();
@@ -238,11 +239,13 @@ export async function answerCamilleTelegramQuestion(
 
   const dossierBlock = options?.dossier ? buildDossierDetailBlock(options.dossier) : "Aucun dossier ciblé.";
   const portfolio = options?.portfolioLines || (await buildPortfolioSummaryAsync(10));
+  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
 
   const response = await generateContentWithRetry({
     model: "gemini-2.5-flash",
     contents: [
       { role: "user", parts: [{ text: INTERNAL_ASSISTANT_PROMPT }] },
+      { role: "user", parts: [{ text: knowledgeBlock }] },
       {
         role: "user",
         parts: [

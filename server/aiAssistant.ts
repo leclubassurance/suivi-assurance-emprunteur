@@ -6,6 +6,7 @@ import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
 import { sanitizeCamilleClientMessage } from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
+import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
 
 export async function processIncomingClientEmail(
@@ -24,6 +25,7 @@ export async function processIncomingClientEmail(
     const ctx = buildCamilleContextBlock(dossier, options?.newAttachmentNames || []);
     const staffHandling = isStaffActivelyHandling(dossier);
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
+    const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
     const missingBlocking = ctx.missingBlocking.map((c) => c.label);
     const newAttachmentsLine =
       ctx.newAttachmentNames.length > 0
@@ -34,6 +36,7 @@ export async function processIncomingClientEmail(
       model: "gemini-2.5-flash",
       contents: [
         { role: "user", parts: [{ text: CAMILLE_PERSONA_PROMPT }] },
+        { role: "user", parts: [{ text: knowledgeBlock }] },
         { role: "user", parts: [{ text: `
 Dossier : ${dossier.id}
 Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""} <${clientEmail}>
@@ -144,6 +147,8 @@ export async function generateCamillePreDossierHelpEmail(params: {
     return { subject, html: wrapCamilleHtmlReply(generic, prenom, "") };
   }
 
+  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
+
   const helpPrompt = `
 Tu es Camille, assistante de Charles, au Club Immobilier Français.
 Tu aides un client à compléter le formulaire en ligne et à retrouver les documents.
@@ -163,6 +168,7 @@ Réponds en JSON:
     model: "gemini-2.5-flash",
     contents: [
       { role: "user", parts: [{ text: helpPrompt }] },
+      { role: "user", parts: [{ text: knowledgeBlock }] },
       {
         role: "user",
         parts: [

@@ -10,6 +10,7 @@ import {
   AdminActivityBar,
   AdminWorkQueuePanel,
   AdminCamillePanel,
+  AdminCamilleKnowledgePanel,
   useAdminOpsData,
 } from "./AdminOpsPanel";
 
@@ -787,6 +788,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     <h3 className="font-bold mb-4 text-slate-800 flex items-center gap-2">
                       <ListTodo className="w-4 h-4 text-indigo-600" /> Checklist & notes
                     </h3>
+                    <AdminCamilleKnowledgePanel />
                     <AdminCamillePanel dossier={selectedDossier} />
                     <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
                       <div className="font-black mb-1">Automatisation Gmail</div>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Eye, Euro, Landmark, Wallet, X } from "lucide-react";
+import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Eye, Euro, Landmark, Wallet, X, BookOpen, RefreshCw, FolderPlus } from "lucide-react";
+import { getAccessToken } from "../../lib/auth";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import type { Dossier } from "../../types";
@@ -262,6 +263,120 @@ export function useAdminOpsData() {
   }, [loadMetrics]);
 
   return { metrics, reloadMetrics: loadMetrics };
+}
+
+export function AdminCamilleKnowledgePanel() {
+  const [status, setStatus] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const res = await fetch(getApiUrl("/api/admin/camille-knowledge/status"));
+      setStatus(await res.json());
+    } catch {
+      setStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  const authHeaders = (): HeadersInit => {
+    const t = getAccessToken();
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  };
+
+  const setupFolder = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(getApiUrl("/api/admin/camille-knowledge/setup"), {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (data.folderId) {
+        await navigator.clipboard.writeText(data.envLine || "");
+        (window as any).showAppToast?.(
+          data.created
+            ? "Dossier créé — ID copié pour Railway (CAMILLE_KNOWLEDGE_DRIVE_FOLDER_ID)."
+            : "Dossier trouvé — ID copié pour Railway.",
+          "success",
+        );
+        if (data.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");
+      } else {
+        (window as any).showAppToast?.(data.error || "Échec création dossier", "error");
+      }
+      await loadStatus();
+    } catch {
+      (window as any).showAppToast?.("Erreur création dossier Drive", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const syncDocs = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(getApiUrl("/api/admin/camille-knowledge/sync"), {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (data.success !== false) {
+        (window as any).showAppToast?.(
+          `${data.fileCount ?? 0} fichier(s) indexé(s) pour Camille.`,
+          "success",
+        );
+      } else {
+        (window as any).showAppToast?.(data.error || "Sync échouée", "error");
+      }
+      await loadStatus();
+    } catch {
+      (window as any).showAppToast?.("Erreur synchronisation", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cache = status?.cache;
+
+  return (
+    <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-100 space-y-3">
+      <div className="flex items-center gap-2">
+        <BookOpen className="w-4 h-4 text-indigo-800" />
+        <p className="text-xs font-black text-indigo-900">Documentation Camille (Drive)</p>
+      </div>
+      <p className="text-[11px] text-indigo-800 leading-relaxed">
+        Dossier <strong>Documentation Camille</strong> pour vos fiches produits PDF. FAQ métier déjà intégrée
+        dans l&apos;app ; les PDF complètent les réponses clients.
+      </p>
+      {cache && (
+        <p className="text-[10px] text-indigo-700">
+          Dernière sync : {cache.syncedAt?.slice(0, 16) || "—"} · {cache.fileCount ?? 0} fichier(s)
+          {status?.configuredFolderId ? ` · ID configuré` : " · ID à définir sur Railway"}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={setupFolder}
+          className="text-[11px] font-bold px-3 py-2 rounded-lg bg-indigo-700 text-white flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <FolderPlus className="w-3.5 h-3.5" /> Créer / ouvrir dossier Drive
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={syncDocs}
+          className="text-[11px] font-bold px-3 py-2 rounded-lg border border-indigo-300 bg-white text-indigo-900 flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Synchroniser
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {

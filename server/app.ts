@@ -1225,6 +1225,69 @@ export function createApp() {
     }
   });
 
+  /** Crée ou retrouve le dossier Drive « Documentation Camille » + ligne variable Railway. */
+  const camilleKnowledgeSetupHandler = async (req: express.Request, res: express.Response) => {
+    const authHeader = req.headers.authorization;
+    const token =
+      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+    try {
+      const { ensureCamilleKnowledgeFolder } = await import("./camilleKnowledgeDrive");
+      const result = await ensureCamilleKnowledgeFolder(token || null);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      res.json({
+        success: true,
+        ...result,
+        hint:
+          "Copiez envLine dans Railway (Variables), redéployez, puis déposez vos PDF dans ce dossier Drive.",
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  };
+  app.post("/api/admin/camille-knowledge/setup", camilleKnowledgeSetupHandler);
+  app.get("/api/admin/camille-knowledge/setup", camilleKnowledgeSetupHandler);
+  app.get("/api/admin/camille-knowledge/setup-auto", async (_req, res) => {
+    try {
+      const { ensureCamilleKnowledgeFolder } = await import("./camilleKnowledgeDrive");
+      const result = await ensureCamilleKnowledgeFolder(null);
+      if (!result.ok) return res.status(400).json(result);
+      res.json({ success: true, mode: "service_account", ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/camille-knowledge/sync", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token =
+      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+    try {
+      const { syncCamilleKnowledgeFromDrive } = await import("./camilleKnowledgeDrive");
+      const cache = await syncCamilleKnowledgeFromDrive(token || null, DATA_DIR);
+      res.json({ success: true, ...cache });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/camille-knowledge/status", async (_req, res) => {
+    try {
+      const { getCamilleKnowledgeCache, resolveCamilleKnowledgeFolderIdFromEnv } = await import(
+        "./camilleKnowledgeDrive"
+      );
+      const cache = getCamilleKnowledgeCache(DATA_DIR);
+      res.json({
+        success: true,
+        configuredFolderId: resolveCamilleKnowledgeFolderIdFromEnv(),
+        cache: cache || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   app.get("/api/admin/drive-check", async (req, res) => {
     const authHeader = req.headers.authorization;
     const token =
