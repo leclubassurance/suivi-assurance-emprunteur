@@ -48,7 +48,9 @@ export default function ProjetStep({ formData, setFormData, errors, onNext }: Pr
       >
         <div className="text-center mb-8">
            <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-[#111318] mb-3">Votre Projet</h2>
-           <p className="text-slate-500 font-medium mt-1 text-[15px]">Précisez le capital restant dû de votre ou vos prêt(s).</p>
+           <p className="text-slate-500 font-medium mt-1 text-[15px]">
+             Indiquez le <strong>capital restant dû à ce jour</strong> : en clair, combien il vous reste à rembourser actuellement (valeur affichée dans votre application bancaire).
+           </p>
         </div>
 
         <div className="bg-white border border-slate-200/60 rounded-[28px] p-6 md:p-8 shadow-sm space-y-6">
@@ -118,7 +120,9 @@ export default function ProjetStep({ formData, setFormData, errors, onNext }: Pr
               </div>
               <p className="text-[13px] text-slate-500 mt-3 flex gap-2">
                 <span className="text-[15px]">💡</span>
-                <span>Vous pouvez trouver cette information sur votre espace bancaire en ligne ou sur votre dernier relevé de compte.</span>
+                <span>
+                  Vous le trouverez dans votre application bancaire (rubrique <strong>Crédit</strong> / <strong>Prêt immobilier</strong>) ou sur votre échéancier. À défaut, une estimation suffit.
+                </span>
               </p>
             </div>
           ))}
