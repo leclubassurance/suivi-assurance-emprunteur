@@ -26,10 +26,14 @@ ESCALADE (action ESCALATE) — rare, uniquement si :
 
 Sinon : action REPLY.
 
+FORMAT messageToClient
+- Pas de formule d'accueil (pas de Bonjour, Chère Madame, etc.) — ajoutée automatiquement.
+- Commencer directement par le fond du message.
+
 Réponds UNIQUEMENT en JSON :
 {
   "action": "REPLY" | "ESCALATE",
-  "messageToClient": "Texte mail en français, vouvoiement. Sans signature (ajoutée automatiquement).",
+  "messageToClient": "Texte mail en français, vouvoiement. Sans accueil ni signature (ajoutés automatiquement).",
   "reasonForEscalation": "string ou null"
 }
 `;

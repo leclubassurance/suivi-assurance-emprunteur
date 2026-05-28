@@ -1,5 +1,6 @@
 import { addEvent, type Dossier } from "./dossierModel";
 import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
+import { sanitizeCamilleClientMessage } from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
 import { acknowledgeStaffOutboundToClient } from "./camilleStaffHandoff";
 import { logAiAudit } from "./aiAuditLog";
@@ -19,7 +20,8 @@ Règles mail client:
 - Vouvoiement, 5 à 14 lignes, bienveillant, professionnel.
 - Ne jamais nommer d'assureur ni de téléphone.
 - Ne jamais dire "document illisible/mauvais".
-- Si la consigne demande de demander des PDF banque: offre de prêt + tableau d'amortissement complets.
+- Si la consigne demande de demander des PDF banque: uniquement si offre/tableau pas déjà présents (voir contexte).
+- Pas de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.
 - Si la consigne dit que le conseiller gère ou "ne pas envoyer": action NO_EMAIL.
 
 JSON uniquement:
@@ -116,8 +118,10 @@ ${text.slice(0, 4000)}
       return { ok: false, action: "FAILED", summary: "Brouillon client vide.", error: "empty_body" };
     }
 
+    const nom = String(dossier.formData?.assures?.[0]?.nom || "").trim();
+    const { text: clientMessage } = sanitizeCamilleClientMessage(plain, dossier);
     const subject = `Votre dossier ${dossier.id} — Le Club Immobilier Français`;
-    const html = wrapCamilleHtmlReply(plain, prenom);
+    const html = wrapCamilleHtmlReply(clientMessage, prenom, nom);
     const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
     const send = await sendEmailReplyWithGmailAPI(null, clientEmail, subject, html);
 

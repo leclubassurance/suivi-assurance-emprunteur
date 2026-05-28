@@ -1,7 +1,6 @@
 import type { Dossier } from "./dossierModel";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
-import { assessCertainLoanDocProblems } from "./loanDocCertainty";
-import { buildCamilleContextBlock } from "./camilleMail";
+import { resolveLoanDocPresence } from "./loanDocPresence";
 import { isDossierStale } from "./rules";
 import {
   hasStudyBeenSent,
@@ -69,8 +68,6 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
     const { name, email } = borrower(d);
     const esc = d.camilleEscalation;
     const checklist = computeDocumentChecklist(d.formData?.documents || []);
-    const ctx = buildCamilleContextBlock(d);
-    const docProb = assessCertainLoanDocProblems(d);
     const studySent = hasStudyBeenSent(d);
     const lastStudy = getLastStudyOutbound(d);
     const lastIn = getLastClientInbound(d);
@@ -124,7 +121,9 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
       });
     }
 
-    if (!studySent && !ctx.loanDocsOk) {
+    const loanPresence = resolveLoanDocPresence(d);
+
+    if (!studySent && !loanPresence.filesPresent) {
       const missing = checklist
         .filter((c) => (c.key === "offre" || c.key === "amort") && !c.ok)
         .map((c) => c.label);
@@ -140,7 +139,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
           "Relancer le client (Camille ou mail manuel) pour l'offre de prêt + tableau d'amortissement en PDF depuis l'espace banque.",
         updatedAt: d.updatedAt,
       });
-    } else if (!studySent && docProb.certain) {
+    } else if (!studySent && loanPresence.needsResubmit) {
       push(items, {
         dossierId: d.id,
         clientName: name,
@@ -175,7 +174,11 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
       }
     }
 
-    if (!studySent && ctx.loanDocsOk && !docProb.certain && (d.status === "EN_COURS" || d.status === "NOUVEAU")) {
+    if (
+      !studySent &&
+      loanPresence.exploitable &&
+      (d.status === "EN_COURS" || d.status === "NOUVEAU")
+    ) {
       push(items, {
         dossierId: d.id,
         clientName: name,

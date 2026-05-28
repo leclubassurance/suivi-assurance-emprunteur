@@ -1,30 +1,18 @@
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
+import { resolveLoanDocPresence } from "./loanDocPresence";
+import { stripRedundantSalutations } from "./camilleClientMessage";
 
-function stripLeadingGreeting(bodyText: string) {
-  const raw = String(bodyText || "").trim();
-  if (!raw) return "";
-  const lines = raw.split(/\r?\n/);
-  let i = 0;
-  // Remove 1-3 leading greeting lines like "Bonjour", "Bonjour X,", "Bonjour Monsieur Y,"
-  while (i < lines.length && i < 3) {
-    const l = lines[i].trim();
-    if (!l) {
-      i++;
-      continue;
-    }
-    if (/^bonjour\b/i.test(l)) {
-      i++;
-      continue;
-    }
-    break;
-  }
-  return lines.slice(i).join("\n").trim();
-}
-
-export function wrapCamilleHtmlReply(bodyText: string, clientPrenom?: string) {
+export function wrapCamilleHtmlReply(
+  bodyText: string,
+  clientPrenom?: string,
+  clientNom?: string,
+) {
   const greeting = clientPrenom ? `Bonjour ${clientPrenom},` : "Bonjour,";
-  const cleaned = stripLeadingGreeting(bodyText);
+  const cleaned = stripRedundantSalutations(bodyText, {
+    prenom: clientPrenom,
+    nom: clientNom,
+  });
   const inner = cleaned.replace(/\n/g, "<br/>");
 
   return `<div style="font-family: Arial, sans-serif; color: #334155; max-width: 600px; line-height: 1.55; font-size: 14px;">
@@ -41,7 +29,7 @@ export function wrapCamilleHtmlReply(bodyText: string, clientPrenom?: string) {
 export function buildCamilleContextBlock(dossier: any, newAttachmentNames: string[] = []) {
   const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
   const missingBlocking = checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib"));
-  const loanDocs = checklist.filter((c) => c.key === "offre" || c.key === "amort");
+  const loan = resolveLoanDocPresence(dossier);
   const docs = (dossier.formData?.documents || []) as any[];
   const qualityIssues = docs
     .filter((d) => d?.quality && d.quality.ok === false)
@@ -80,7 +68,8 @@ export function buildCamilleContextBlock(dossier: any, newAttachmentNames: strin
   return {
     checklist,
     missingBlocking,
-    loanDocsOk: loanDocs.every((c) => c.ok),
+    loanDocsPresent: loan.filesPresent,
+    loanDocsOk: loan.exploitable,
     newAttachmentNames,
     qualityIssues,
     docsReliability,

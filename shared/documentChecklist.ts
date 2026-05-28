@@ -120,6 +120,19 @@ export function computeDocumentChecklist(documents: any[] = []): ChecklistItem[]
     }
   }
 
+  if (matched.offre.length === 0 && matched.amort.length === 0) {
+    const loanPdfs = docs.filter((d) => {
+      const cat = getCategory(d);
+      if (cat === "cni" || cat === "rib") return false;
+      const name = String(d.name || d.id || "").toLowerCase();
+      return /\.pdf$/i.test(name) || String(d.type || "").toLowerCase().includes("pdf");
+    });
+    if (loanPdfs.length >= 2) {
+      matched.offre.push(String(loanPdfs[0].name || loanPdfs[0].id || "document"));
+      matched.amort.push(String(loanPdfs[1].name || loanPdfs[1].id || "document"));
+    }
+  }
+
   return [
     {
       key: "cni",

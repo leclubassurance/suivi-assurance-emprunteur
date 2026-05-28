@@ -2,6 +2,7 @@ import type { Dossier } from "./dossierModel";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock } from "./camilleMail";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
+import { resolveLoanDocPresence } from "./loanDocPresence";
 
 export function escapeTelegramHtml(s: string) {
   return String(s || "")
@@ -46,6 +47,7 @@ export function formatDossierTelegramCard(d: Dossier): string {
   const checklist = computeDocumentChecklist(d.formData?.documents || []);
   const ctx = buildCamilleContextBlock(d);
   const docProb = assessCertainLoanDocProblems(d);
+  const loan = resolveLoanDocPresence(d);
   const esc = d.camilleEscalation as any;
 
   const missing = checklist.filter((c) => !c.ok);
@@ -58,7 +60,11 @@ export function formatDossierTelegramCard(d: Dossier): string {
     ? "⚠️ <b>Documents prêt à refaire</b> (PDF complets depuis la banque, pas de scan)"
     : "✅ Format documents OK côté prêt";
 
-  const loanOk = ctx.loanDocsOk ? "✅ Offre + tableau reçus" : "⏳ Offre ou tableau manquant";
+  const loanOk = !loan.filesPresent
+    ? "⏳ Offre ou tableau manquant"
+    : loan.exploitable
+      ? "✅ Offre + tableau exploitables"
+      : "📎 Offre + tableau reçus (vérif. en cours)";
   const escLine =
     esc?.lastAt && !esc?.resolvedAt
       ? `🟠 <b>Escalade active</b> — ${escapeTelegramHtml(esc.reason || "intervention")}`

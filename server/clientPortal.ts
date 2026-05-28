@@ -1,13 +1,16 @@
 import crypto from "crypto";
 import type { Dossier } from "./dossierModel";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
-import { buildCamilleContextBlock } from "./camilleMail";
-import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import {
   hasStudyBeenSent,
   resolveClientPortalStatusKey,
   getLastStudyOutbound,
 } from "./dossierLifecycle";
+import {
+  isLoanDocsStepComplete,
+  loanDocsStepHint,
+  resolveLoanDocPresence,
+} from "./loanDocPresence";
 
 export function ensureClientPortalToken(dossier: Dossier): string {
   const existing = dossier.clientPortal?.token;
@@ -69,8 +72,7 @@ export function buildClientPortalView(dossier: Dossier) {
   const a = dossier.formData?.assures?.[0];
   const prenom = a?.prenom || "Bonjour";
   const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
-  const ctx = buildCamilleContextBlock(dossier);
-  const docProb = assessCertainLoanDocProblems(dossier);
+  const loan = resolveLoanDocPresence(dossier);
   const studySent = hasStudyBeenSent(dossier);
   const lastStudy = getLastStudyOutbound(dossier);
   const statusKey = resolveClientPortalStatusKey(dossier);
@@ -81,12 +83,8 @@ export function buildClientPortalView(dossier: Dossier) {
     {
       key: "docs",
       label: "Offre de prêt et tableau d'amortissement",
-      done: ctx.loanDocsOk && !docProb.certain,
-      hint: docProb.certain
-        ? "Merci de renvoyer l'offre de prêt et le tableau d'amortissement en PDF complets, téléchargés depuis votre espace client bancaire (évitez les photos et captures d'écran)."
-        : ctx.loanDocsOk
-          ? "Documents reçus et exploitables"
-          : "Merci d'envoyer l'offre de prêt et le tableau d'amortissement en PDF depuis votre banque en ligne",
+      done: isLoanDocsStepComplete(dossier),
+      hint: loanDocsStepHint(dossier),
     },
     {
       key: "study",
@@ -108,21 +106,27 @@ export function buildClientPortalView(dossier: Dossier) {
     .filter((c) => c.key === "offre" || c.key === "amort" || c.key === "cni" || c.key === "rib")
     .map((c) => {
       const isLoanDoc = c.key === "offre" || c.key === "amort";
-      const received = c.ok && !(docProb.certain && isLoanDoc);
+      const loanFilePresent =
+        c.key === "offre" ? loan.offrePresent : c.key === "amort" ? loan.amortPresent : c.ok;
+      const received = isLoanDoc ? loanFilePresent : c.ok;
+      const requiredNow =
+        isLoanDoc &&
+        !studySent &&
+        (!loanFilePresent || (loan.needsResubmit && !loan.exploitable));
       return {
         key: c.key,
         label: c.label,
         received,
-        requiredNow: isLoanDoc && (!c.ok || docProb.certain),
+        requiredNow,
       };
     });
 
   const tips: string[] = [];
-  if (docProb.certain && !studySent) {
+  if (loan.needsResubmit) {
     tips.push(
       "Pour avancer, merci de renvoyer l'offre de prêt et le tableau d'amortissement en fichiers PDF complets, téléchargés depuis le site ou l'application de votre banque (pas de photo ni de capture d'écran).",
     );
-  } else if (!ctx.loanDocsOk && !studySent) {
+  } else if (!loan.filesPresent && !studySent) {
     tips.push(
       "Les documents indispensables pour l'étude sont l'offre de prêt et le tableau d'amortissement, au format PDF.",
     );

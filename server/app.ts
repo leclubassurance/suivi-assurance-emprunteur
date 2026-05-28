@@ -1188,6 +1188,21 @@ export function createApp() {
       const dossier = db.dossiers.find((d: any) => d.id === id);
       if (!dossier) return res.status(404).json({ error: "Dossier non trouvé" });
 
+      const force = Boolean((req.body as any)?.force);
+      if (
+        dossier.workspaceFolderId &&
+        dossier.workspaceStatus !== "FAILED" &&
+        !force
+      ) {
+        return res.json({
+          success: true,
+          folderId: dossier.workspaceFolderId,
+          spreadsheetId: dossier.workspaceSheetId,
+          warning:
+            "Un dossier Drive existe déjà pour ce client. Utilisez « Ouvrir Drive » ou force: true pour réexporter.",
+        });
+      }
+
       dossier.workspaceStatus = "PENDING";
       dossier.workspaceError = undefined;
       dossier.workspaceWarning = undefined;

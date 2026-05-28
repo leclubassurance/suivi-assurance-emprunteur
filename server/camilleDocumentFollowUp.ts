@@ -7,6 +7,12 @@ import {
   assessCertainLoanDocProblems,
   type LoanDocProblemAssessment,
 } from "./loanDocCertainty";
+import { resolveLoanDocPresence } from "./loanDocPresence";
+import {
+  refineLoanDocFollowUpAssessment,
+  sanitizeCamilleClientMessage,
+  shouldScheduleLoanDocFollowUp,
+} from "./camilleClientMessage";
 
 export { assessCertainLoanDocProblems } from "./loanDocCertainty";
 
@@ -31,19 +37,42 @@ function problemsSummaryForPrompt(assessment: LoanDocProblemAssessment): string 
     .join("\n");
 }
 
-function buildStaticFollowUpBody(prenom: string, dossierId: string, assessment: LoanDocProblemAssessment): string {
+function buildStaticFollowUpBody(
+  dossierId: string,
+  assessment: LoanDocProblemAssessment,
+  loan: ReturnType<typeof resolveLoanDocPresence>,
+): string {
   const needOffer = assessment.problems.some((p) => p.category === "offre");
   const needTableau = assessment.problems.some((p) => p.category === "tableau");
-  const lines = [
-    `Merci pour l’envoi de votre dossier ${dossierId}.`,
-    ``,
-    `Pour que Charles puisse chiffrer précisément votre économie, il nous manque encore des documents exploitables :`,
-  ];
-  if (needOffer) lines.push(`- l’offre de prêt complète, en PDF téléchargé depuis votre espace bancaire (pas une photo ni une capture d’écran)`);
-  if (needTableau)
+  const lines = loan.filesPresent
+    ? [
+        `Merci pour l’envoi de votre dossier ${dossierId}.`,
+        ``,
+        `Nous avons bien reçu vos documents de prêt. Pour que Charles puisse finaliser votre étude, il nous faut des versions exploitables :`,
+      ]
+    : [
+        `Merci pour l’envoi de votre dossier ${dossierId}.`,
+        ``,
+        `Pour que Charles puisse chiffrer précisément votre économie, il nous manque encore :`,
+      ];
+  if (needOffer && !loan.offrePresent) {
+    lines.push(
+      `- l’offre de prêt complète, en PDF téléchargé depuis votre espace bancaire (pas une photo ni une capture d’écran)`,
+    );
+  } else if (needOffer && loan.offrePresent) {
+    lines.push(
+      `- l’offre de prêt en PDF complet depuis votre espace bancaire (remplacez la version reçue si c’était une photo ou une capture)`,
+    );
+  }
+  if (needTableau && !loan.amortPresent) {
     lines.push(
       `- le tableau d’amortissement / échéancier complet, en PDF depuis votre banque (toutes les échéances visibles)`,
     );
+  } else if (needTableau && loan.amortPresent) {
+    lines.push(
+      `- le tableau d’amortissement / échéancier complet en PDF depuis votre banque (toutes les échéances visibles)`,
+    );
+  }
   lines.push(
     ``,
     `Dans votre application bancaire : rubrique « Crédit » ou « Prêt immobilier », puis « Documents » ou « Échéancier ».`,
@@ -58,25 +87,33 @@ export async function generateCamilleDocumentFollowUpEmail(
   dossier: any,
   assessment: LoanDocProblemAssessment,
 ): Promise<{ subject: string; html: string }> {
-  const prenom = String(dossier?.formData?.assures?.[0]?.prenom || "").trim();
+  const assure = dossier?.formData?.assures?.[0];
+  const prenom = String(assure?.prenom || "").trim();
+  const nom = String(assure?.nom || "").trim();
   const dossierId = String(dossier?.id || "");
-  const subject = `Votre dossier ${dossierId} — documents à compléter`;
+  const loan = resolveLoanDocPresence(dossier);
+  const subject = loan.filesPresent
+    ? `Votre dossier ${dossierId} — documents à préciser`
+    : `Votre dossier ${dossierId} — documents à compléter`;
+
+  const wrap = (body: string) => wrapCamilleHtmlReply(body, prenom, nom);
 
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
     return {
       subject,
-      html: wrapCamilleHtmlReply(buildStaticFollowUpBody(prenom, dossierId, assessment), prenom),
+      html: wrap(buildStaticFollowUpBody(dossierId, assessment, loan)),
     };
   }
 
   const prompt = `
 Tu es Camille, assistante de Charles au Club Immobilier Français.
-Le client vient de déposer son dossier. Nous avons détecté avec CERTITUDE un problème sur des documents clés (voir signaux).
 Rédige un mail court (6 à 12 lignes), bienveillant, vouvoiement.
 
 RÈGLES :
+- NE PAS inclure de formule d'accueil (pas de Bonjour, pas de Madame/Monsieur) — ajoutée automatiquement.
 - Ne jamais dire "illisible", "mauvaise qualité", "document refusé".
-- Demander l'offre de prêt et/ou le tableau d'amortissement complets en PDF depuis l'espace bancaire.
+- Si offre ET tableau sont déjà présents : dire que nous les avons reçus et demander uniquement un renvoi en PDF banque complets (pas photo/capture), sans dire qu'ils "manquent".
+- Si un seul manque : ne demander que celui qui manque.
 - Expliquer brièvement où les trouver (app bancaire / conseiller).
 - Proposer de répondre à ce mail avec les PDF en pièce jointe.
 - Pas de téléphone, pas de nom d'assureur.
@@ -93,7 +130,13 @@ JSON uniquement : { "messageToClient": "..." }
           role: "user",
           parts: [
             {
-              text: `Dossier: ${dossierId}\nPrénom client: ${prenom || "—"}\n\nProblèmes certains (interne):\n${problemsSummaryForPrompt(assessment)}`,
+              text: `Dossier: ${dossierId}
+Offre de prêt déjà reçue: ${loan.offrePresent ? "OUI" : "NON"}
+Tableau d'amortissement déjà reçu: ${loan.amortPresent ? "OUI" : "NON"}
+Les deux présents: ${loan.filesPresent ? "OUI" : "NON"}
+
+Problèmes certains (interne):
+${problemsSummaryForPrompt(assessment)}`,
             },
           ],
         },
@@ -101,9 +144,10 @@ JSON uniquement : { "messageToClient": "..." }
       config: { responseMimeType: "application/json", temperature: 0.4 },
     });
     const parsed = JSON.parse(response.text || "{}");
-    const plain = String(parsed?.messageToClient || "").trim();
-    if (plain) {
-      return { subject, html: wrapCamilleHtmlReply(plain, prenom) };
+    const raw = String(parsed?.messageToClient || "").trim();
+    if (raw) {
+      const { text } = sanitizeCamilleClientMessage(raw, dossier);
+      return { subject, html: wrap(text) };
     }
   } catch (e: any) {
     console.warn(`[Camille] Brouillon relance docs IA échoué: ${e?.message || String(e)}`);
@@ -111,7 +155,7 @@ JSON uniquement : { "messageToClient": "..." }
 
   return {
     subject,
-    html: wrapCamilleHtmlReply(buildStaticFollowUpBody(prenom, dossierId, assessment), prenom),
+    html: wrap(buildStaticFollowUpBody(dossierId, assessment, loan)),
   };
 }
 
@@ -134,7 +178,26 @@ function sleep(ms: number) {
 export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
   if (!isProactiveDocFollowUpEnabled() || !isAiAutoReplyEnabled()) return;
 
-  const assessment = assessCertainLoanDocProblems(dossier);
+  const scheduleCheck = shouldScheduleLoanDocFollowUp(dossier);
+  if (!scheduleCheck.allowed) {
+    if (
+      scheduleCheck.reason === "docs_present_ok" ||
+      scheduleCheck.reason === "docs_exploitable"
+    ) {
+      addEvent(dossier, {
+        type: "AI_DECISION",
+        actor: { kind: "AI", label: "Camille" },
+        message: "Relance documents non envoyée (offre + tableau déjà présents et exploitables).",
+        meta: { template: "CAMILLE_DOC_FOLLOWUP_SKIPPED", reason: scheduleCheck.reason },
+      });
+    }
+    return;
+  }
+
+  const assessment = refineLoanDocFollowUpAssessment(
+    dossier,
+    assessCertainLoanDocProblems(dossier),
+  );
   const toEmail = String(dossier?.formData?.assures?.[0]?.email || "").trim();
   if (!toEmail) return;
 
@@ -176,7 +239,23 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
       if (!existing) return;
       if (dossierAlreadySentDocFollowUp(existing)) return;
 
-      const fresh = assessCertainLoanDocProblems(existing);
+      const sendCheck = shouldScheduleLoanDocFollowUp(existing);
+      if (!sendCheck.allowed) {
+        addEvent(existing, {
+          type: "AI_DECISION",
+          actor: { kind: "AI", label: "Camille" },
+          message: "Relance documents annulée (documents déjà présents ou exploitables).",
+          meta: { template: "CAMILLE_DOC_FOLLOWUP_CANCELLED", reason: sendCheck.reason },
+        });
+        existing.updatedAt = new Date().toISOString();
+        await writeDB(db, existing);
+        return;
+      }
+
+      const fresh = refineLoanDocFollowUpAssessment(
+        existing,
+        assessCertainLoanDocProblems(existing),
+      );
       if (!fresh.certain) {
         addEvent(existing, {
           type: "AI_DECISION",

@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
+import { sanitizeCamilleClientMessage } from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
@@ -51,7 +52,11 @@ ${staffOutbound}
 clientSafeReason: ${ctx.clientSafeReason || "N/A"}
 
 Pièces bloquantes encore manquantes : ${missingBlocking.join(", ") || "Aucune — dossier complet côté CNI/RIB"}
-Offre de prêt + tableau déjà reçus : ${ctx.loanDocsOk ? "OUI" : "NON (ne pas relancer le client là-dessus sauf s'il demande)"}
+Offre de prêt + tableau présents dans le dossier : ${ctx.loanDocsPresent ? "OUI" : "NON"}
+Exploitables pour l'étude (PDF banque OK) : ${ctx.loanDocsOk ? "OUI" : "NON"}
+Si présents mais pas exploitables : demander uniquement un renvoi PDF banque, sans dire qu'ils manquent.
+Si présents et exploitables : NE PAS demander offre/tableau (sauf si le client pose une question précise).
+Ne jamais mettre de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.
 
 Pièces jointes reçues DANS CET EMAIL : ${newAttachmentsLine}
 
@@ -88,9 +93,16 @@ Décide REPLY ou ESCALATE.` }] }
       if (!plain) {
         return { status: "escalated", reason: "Réponse IA vide" };
       }
+      const nom = dossier.formData?.assures?.[0]?.nom || "";
+      const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier);
+      if (blockedDocRequest) {
+        console.log(
+          `[AI] Demande de pièces prêt bloquée (déjà présentes) pour ${dossier.id}`,
+        );
+      }
       return {
         status: "replied",
-        text: wrapCamilleHtmlReply(plain, prenom),
+        text: wrapCamilleHtmlReply(text, prenom, nom),
       };
     }
   } catch (error) {
@@ -110,8 +122,6 @@ export async function generateCamillePreDossierHelpEmail(params: {
   // If Gemini is not configured, return a safe generic reply.
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
     const generic = [
-      `Bonjour${prenom ? ` ${prenom}` : ""},`,
-      ``,
       `Je peux vous aider à récupérer les documents nécessaires.`,
       ``,
       `Pour lancer l’étude, il nous faut :`,
@@ -123,7 +133,7 @@ export async function generateCamillePreDossierHelpEmail(params: {
       ``,
       `Dès que vous les avez, vous pouvez les déposer dans le formulaire et répondre à ce mail si besoin.`,
     ].join("\n");
-    return { subject, html: wrapCamilleHtmlReply(generic, prenom) };
+    return { subject, html: wrapCamilleHtmlReply(generic, prenom, "") };
   }
 
   const helpPrompt = `
@@ -169,11 +179,14 @@ Réponds en JSON:
 
   const plain = String(decision?.messageToClient || "").trim();
   if (!plain) {
-    const fallback = `Bonjour${prenom ? ` ${prenom}` : ""},\n\nJe peux vous aider à retrouver l’offre de prêt et le tableau d’amortissement (échéancier complet) dans votre espace bancaire.\nSouvent: “Crédit / Prêt immobilier” → “Documents” ou “Échéancier”.\nSi vous ne les voyez pas, demandez à votre conseiller bancaire de vous les envoyer en PDF.\n\nDéposez ensuite les PDFs dans le formulaire — je reste disponible si besoin.`;
-    return { subject, html: wrapCamilleHtmlReply(fallback, prenom) };
+    const fallback = `Je peux vous aider à retrouver l’offre de prêt et le tableau d’amortissement (échéancier complet) dans votre espace bancaire.\nSouvent: “Crédit / Prêt immobilier” → “Documents” ou “Échéancier”.\nSi vous ne les voyez pas, demandez à votre conseiller bancaire de vous les envoyer en PDF.\n\nDéposez ensuite les PDFs dans le formulaire — je reste disponible si besoin.`;
+    return { subject, html: wrapCamilleHtmlReply(fallback, prenom, "") };
   }
 
-  return { subject, html: wrapCamilleHtmlReply(plain, prenom) };
+  const { text } = sanitizeCamilleClientMessage(plain, {
+    formData: { assures: [{ prenom, email: params.clientEmail }] },
+  });
+  return { subject, html: wrapCamilleHtmlReply(text, prenom, "") };
 }
 
 const CHARLES_VICTOR_PERSONA = `

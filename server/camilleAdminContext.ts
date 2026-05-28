@@ -2,7 +2,7 @@ import type { Dossier } from "./dossierModel";
 import { buildDossierDetailBlock } from "./camilleTelegramChat";
 import { buildCamilleContextBlock } from "./camilleMail";
 import { getAiAuditTrail } from "./aiAuditLog";
-import { assessCertainLoanDocProblems } from "./loanDocCertainty";
+import { resolveLoanDocPresence } from "./loanDocPresence";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import {
   hasStudyBeenSent,
@@ -15,7 +15,7 @@ export function buildCamilleAdminContext(dossier: Dossier) {
   const a = dossier.formData?.assures?.[0];
   const clientName = [a?.prenom, a?.nom].filter(Boolean).join(" ") || "Client";
   const ctx = buildCamilleContextBlock(dossier);
-  const docProb = assessCertainLoanDocProblems(dossier);
+  const loan = resolveLoanDocPresence(dossier);
   const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
   const esc = dossier.camilleEscalation;
   const audit = getAiAuditTrail(dossier).slice(0, 8);
@@ -35,10 +35,10 @@ export function buildCamilleAdminContext(dossier: Dossier) {
     suggestedNextStep = "Escalade ouverte — consigne Telegram ou mail depuis l'admin.";
   } else if (needsStatusStudySent(dossier)) {
     suggestedNextStep = "Étude déjà envoyée (visible dans les échanges) : passer le statut en MAIL ENVOYÉ pour le portail client.";
-  } else if (docProb.certain && !studySent) {
+  } else if (loan.needsResubmit) {
     suggestedNextStep =
       "Demander offre de prêt + tableau d'amortissement en PDF complets depuis l'espace banque (pas de scan/capture).";
-  } else if (!ctx.loanDocsOk && !studySent) {
+  } else if (!loan.filesPresent && !studySent) {
     suggestedNextStep = "Obtenir offre de prêt + tableau d'amortissement.";
   } else if (!studySent) {
     suggestedNextStep = "Préparer et envoyer l'étude personnalisée par email.";
@@ -57,8 +57,12 @@ export function buildCamilleAdminContext(dossier: Dossier) {
       `${dossier.id} — ${clientName}`,
       `Statut : ${dossier.status}`,
       esc?.lastAt && !esc?.resolvedAt ? `Escalade : ${esc.reason || "oui"}` : "Pas d'escalade",
-      ctx.loanDocsOk ? "Docs prêt : OK" : "Docs prêt : incomplets",
-      docProb.certain ? "Docs prêt : scan/photo à refaire" : "Format docs : OK",
+      !loan.filesPresent
+        ? "Docs prêt : manquants"
+        : loan.exploitable
+          ? "Docs prêt : OK"
+          : "Docs prêt : reçus (vérif. ou format)",
+      loan.needsResubmit ? "Docs prêt : scan/photo à refaire" : "Format docs : OK",
       studySent ? `Étude envoyée (portail client : ${portalKey})` : "Étude : pas encore envoyée",
       getLastStudyOutbound(dossier)
         ? `Dernier mail étude : ${getLastStudyOutbound(dossier)!.subject.slice(0, 70)}`

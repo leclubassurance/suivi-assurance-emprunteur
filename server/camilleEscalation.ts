@@ -1,5 +1,6 @@
 import { addEvent, scheduleTask, type Dossier } from "./dossierModel";
 import { wrapCamilleHtmlReply } from "./camilleMail";
+import { resolveLoanDocPresence } from "./loanDocPresence";
 
 async function sendGmail(
   accessToken: string | null,
@@ -51,11 +52,15 @@ function isEscalationCooldownActive(dossier: Dossier, now = Date.now()): boolean
   return now - t < escalationCooldownMs();
 }
 
-function buildClientHandoffBody(prenom: string) {
+function buildClientHandoffBody(prenom: string, dossier?: Dossier) {
+  const loan = dossier ? resolveLoanDocPresence(dossier) : null;
+  const docLine = loan?.filesPresent
+    ? `Charles, votre conseiller en assurance emprunteur, reviendra vers vous personnellement pour poursuivre votre étude.`
+    : `Charles, votre conseiller en assurance emprunteur, reviendra vers vous personnellement pour vérifier que nous disposons des bons documents (offre de prêt et tableau d'amortissement complets en PDF depuis votre espace bancaire) afin de poursuivre votre étude.`;
   return [
     `Merci pour votre message, nous avons bien pris note.`,
     ``,
-    `Charles, votre conseiller en assurance emprunteur, reviendra vers vous personnellement pour vérifier que nous disposons des bons documents (offre de prêt et tableau d'amortissement complets en PDF depuis votre espace bancaire) afin de poursuivre votre étude.`,
+    docLine,
     ``,
     `Nous vous recontacterons très prochainement par email.`,
   ].join("\n");
@@ -122,7 +127,8 @@ export async function handleCamilleEscalation(params: {
   const telegramFirst = isTelegramEnabled();
 
   if (!telegramFirst) {
-    const clientHtml = wrapCamilleHtmlReply(buildClientHandoffBody(prenom), prenom);
+    const nom = String(dossier.formData?.assures?.[0]?.nom || "").trim();
+    const clientHtml = wrapCamilleHtmlReply(buildClientHandoffBody(prenom, dossier), prenom, nom);
     const clientSend = await sendGmail(accessToken, clientEmail, replySubject, clientHtml);
     if (clientSend?.ok) {
       notifiedClient = true;

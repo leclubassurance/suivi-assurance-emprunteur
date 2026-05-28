@@ -724,12 +724,27 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       />
                       Auto (2 min)
                     </label>
-                      <button
-                        onClick={handleExportDrive}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2"
-                      >
-                        <FileText className="w-4 h-4" /> Drive
-                      </button>
+                      {!(selectedDossier as any).workspaceFolderId ||
+                      (selectedDossier as any).workspaceStatus === "FAILED" ? (
+                        <button
+                          onClick={handleExportDrive}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2"
+                        >
+                          <FileText className="w-4 h-4" />
+                          {(selectedDossier as any).workspaceStatus === "FAILED"
+                            ? "Recréer Drive"
+                            : "Créer dossier Drive"}
+                        </button>
+                      ) : (
+                        <a
+                          href={`https://drive.google.com/drive/folders/${(selectedDossier as any).workspaceFolderId}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold py-2.5 px-4 rounded-xl border border-indigo-200 text-xs transition-all flex items-center gap-2"
+                        >
+                          <FileText className="w-4 h-4" /> Ouvrir Drive
+                        </a>
+                      )}
                       <button
                         type="button"
                         onClick={handleDriveCheck}
@@ -860,7 +875,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               {(selectedDossier as any).workspaceError}
                               {isStaleLegacyDriveError((selectedDossier as any).workspaceError) && (
                                 <span className="block mt-1 text-amber-800 font-semibold">
-                                  Message obsolète (ancien dossier Drive). Cliquez sur « Drive » pour réexporter, ou « Vérifier Drive » pour valider la configuration.
+                                  Message obsolète (ancien dossier Drive). Utilisez « Recréer Drive » si l'export a échoué, ou « Vérifier Drive » pour valider la configuration.
                                 </span>
                               )}
                             </span>
