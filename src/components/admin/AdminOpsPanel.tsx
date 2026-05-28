@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Clock, Eye, Euro, Landmark, Wallet } from "lucide-react";
+import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Eye, Euro, Landmark, Wallet } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
 import type { Dossier } from "../../types";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
@@ -76,7 +76,6 @@ export function AdminActivityBar({ metrics }: { metrics: Metrics | null }) {
     { label: "Escalades", value: metrics.openEscalations, icon: AlertTriangle },
     { label: "Mails client", value: metrics.clientMessages7d, icon: Mail },
     { label: "Docs prêt OK", value: `${metrics.loanDocsOkRate}%`, icon: FileWarning },
-    { label: "PDF à refaire", value: metrics.certainDocProblemCount, icon: Clock },
   ];
 
   return (
@@ -107,7 +106,7 @@ export function AdminActivityBar({ metrics }: { metrics: Metrics | null }) {
           <span className="group-open:rotate-90 transition-transform">▸</span>
           Activité opérationnelle (file, mails, qualité docs)
         </summary>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
           {opsCards.map((c) => (
             <div key={c.label} className="rounded-lg bg-white/5 px-3 py-2">
               <div className="flex items-center gap-1.5 text-[9px] uppercase font-bold text-white/50">
