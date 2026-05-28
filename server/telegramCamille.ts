@@ -1,6 +1,5 @@
 import { readDB, writeDB } from "./db";
 import { addEvent, type Dossier } from "./dossierModel";
-import { executeCamilleStaffDirective } from "./camilleStaffDirective";
 
 /** message_id Telegram → dossier (mémoire courte, complété par Firestore via dossier.camilleEscalation) */
 const alertMessageToDossier = new Map<string, string>();
@@ -22,6 +21,10 @@ function getAllowedChatIds(): string[] {
     .split(/[,;\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+export function getAllowedChatIdsForNotify(): string[] {
+  return getAllowedChatIds();
 }
 
 function apiUrl(method: string) {
@@ -157,6 +160,24 @@ async function findDossierForTelegramReply(
   return null;
 }
 
+async function isReplyToEscalationAlert(chatId: string, replyToMessageId?: number): Promise<boolean> {
+  if (!replyToMessageId) return false;
+  const key = `${chatId}:${replyToMessageId}`;
+  if (alertMessageToDossier.has(key)) return true;
+  const db = await readDB();
+  for (const d of db.dossiers) {
+    const esc = d.camilleEscalation as any;
+    if (
+      esc &&
+      String(esc.telegramChatId) === String(chatId) &&
+      Number(esc.telegramAlertMessageId) === Number(replyToMessageId)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   const message = update?.message;
   if (!message?.chat?.id) return;
@@ -172,10 +193,23 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
     return;
   }
 
+  const {
+    classifyTelegramIntent,
+    extractLcifId,
+    findDossierById,
+    rememberChatDossier,
+    getRememberedDossierId,
+    answerCamilleTelegramQuestion,
+    handleStaffDirectiveFromTelegram,
+    buildDossierDetailBlock,
+    buildPortfolioSummaryAsync,
+    getHelpTelegramText,
+  } = await import("./camilleTelegramChat");
+
   if (text === "/start" || text.startsWith("/start ")) {
     await sendTelegramRaw(
       chatId,
-      `Bonjour. Je suis le relais Camille (LCIF assurance emprunteur).\n\n<b>Votre chat_id :</b> <code>${chatId}</code>\n\nCopiez cette valeur dans Railway → <code>TELEGRAM_ALLOWED_CHAT_IDS</code>, puis redéployez.\n\nEnsuite : répondez à une alerte 🟠 avec votre consigne, ou envoyez :\n<code>LCIF-123456 Demande les PDF banque</code>`,
+      `Bonjour, je suis <b>Camille</b> (LCIF assurance emprunteur), disponible 24h/24.\n\n<b>chat_id :</b> <code>${chatId}</code>\n\nTapez <code>/help</code> pour les commandes.\n\nExemples :\n• <code>LCIF-123456 quel est l'état ?</code>\n• <code>/dossiers</code>\n• <code>LCIF-123456 Demande les PDF banque</code>`,
     );
     return;
   }
@@ -184,7 +218,7 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   if (!allowed.includes(chatId)) {
     await sendTelegramRaw(
       chatId,
-      `⛔ Chat non autorisé.\n\n<b>Votre chat_id :</b> <code>${chatId}</code>\n\nAjoutez-le dans Railway → TELEGRAM_ALLOWED_CHAT_IDS, redéployez, puis /start`,
+      `⛔ Chat non autorisé.\n\n<b>chat_id :</b> <code>${chatId}</code>\n\nRailway → TELEGRAM_ALLOWED_CHAT_IDS`,
     );
     return;
   }
@@ -192,62 +226,94 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   if (!text) return;
 
   const replyId = message.reply_to_message?.message_id as number | undefined;
-  const dossier = await findDossierForTelegramReply(chatId, replyId, text);
+  const replyToAlert = await isReplyToEscalationAlert(chatId, replyId);
+  const intent = classifyTelegramIntent(text, replyToAlert);
 
-  if (!dossier) {
-    if (text.startsWith("/")) {
+  if (intent === "HELP") {
+    await sendTelegramMessage(chatId, getHelpTelegramText());
+    return;
+  }
+
+  if (intent === "LIST_DOSSIERS") {
+    const list = await buildPortfolioSummaryAsync(15);
+    await sendTelegramMessage(
+      chatId,
+      `<b>Dossiers récents</b>\n<pre>${escapeHtml(list)}</pre>`,
+    );
+    return;
+  }
+
+  let dossier: Dossier | null = await findDossierForTelegramReply(chatId, replyId, text);
+  const lcifFromText = extractLcifId(text);
+  if (!dossier && lcifFromText) dossier = await findDossierById(lcifFromText);
+  if (!dossier && intent === "ASK_QUESTION") {
+    const remembered = getRememberedDossierId(chatId);
+    if (remembered) dossier = await findDossierById(remembered);
+  }
+  if (dossier) rememberChatDossier(chatId, dossier.id);
+
+  if (intent === "DOSSIER_INFO") {
+    if (!dossier) {
+      await sendTelegramMessage(chatId, "Dossier introuvable. Indiquez <code>LCIF-123456</code>.");
+      return;
+    }
+    const detail = buildDossierDetailBlock(dossier);
+    await sendTelegramMessage(chatId, `<b>${escapeHtml(dossier.id)}</b>\n<pre>${escapeHtml(detail)}</pre>`);
+    return;
+  }
+
+  if (intent === "STAFF_DIRECTIVE") {
+    if (!dossier) {
       await sendTelegramMessage(
         chatId,
-        "Commandes :\n/start — aide\n\nPour agir : répondez à une alerte escalade, ou envoyez :\n<code>LCIF-XXXXXX votre consigne</code>",
+        "Précisez le dossier : <code>LCIF-123456</code> + votre consigne, ou répondez à une alerte 🟠.",
       );
+      return;
+    }
+    let instruction = text;
+    if (lcifFromText) instruction = text.replace(new RegExp(lcifFromText, "i"), "").trim();
+    if (!instruction && replyToAlert) instruction = text;
+    if (!instruction) {
+      await sendTelegramMessage(chatId, "Ajoutez votre consigne après le numéro de dossier.");
+      return;
+    }
+
+    await sendTelegramMessage(chatId, `⏳ <b>${escapeHtml(dossier.id)}</b> — j'envoie au client…`);
+    const result = await handleStaffDirectiveFromTelegram(dossier, instruction, chatId);
+
+    const db = await readDB();
+    const stored = db.dossiers.find((d: any) => d.id === dossier!.id);
+    if (stored) {
+      stored.updatedAt = new Date().toISOString();
+      await writeDB(db, stored);
+    }
+
+    if (result.ok) {
+      const icon = result.action === "SEND_TO_CLIENT" ? "✅" : "✔️";
+      await sendTelegramMessage(
+        chatId,
+        `${icon} <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`,
+      );
+      addEvent(dossier, {
+        type: "AI_DECISION",
+        actor: { kind: "ADMIN", label: "Telegram" },
+        message: `Consigne Telegram (${result.action}).`,
+        meta: { instructionPreview: instruction.slice(0, 300) },
+      });
     } else {
       await sendTelegramMessage(
         chatId,
-        "Je n'ai pas trouvé de dossier. Répondez à une alerte 🟠 ou précisez <code>LCIF-123456</code> + votre consigne.",
+        `❌ <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`,
       );
     }
     return;
   }
 
-  let instruction = text;
-  const lcif = text.match(/LCIF-\d{6}/i)?.[0];
-  if (lcif) {
-    instruction = text.replace(new RegExp(lcif, "i"), "").trim();
-  }
-  if (!instruction) {
-    await sendTelegramMessage(chatId, "Précisez votre consigne après le numéro de dossier.");
-    return;
-  }
-
-  await sendTelegramMessage(chatId, `⏳ Dossier <b>${dossier.id}</b> — Camille traite votre consigne…`);
-
-  const result = await executeCamilleStaffDirective(dossier, instruction, { channel: "telegram" });
-
-  const db = await readDB();
-  const stored = db.dossiers.find((d: any) => d.id === dossier.id);
-  if (stored) {
-    stored.updatedAt = new Date().toISOString();
-    await writeDB(db, stored);
-  }
-
-  if (result.ok) {
-    const icon = result.action === "SEND_TO_CLIENT" ? "✅" : "✔️";
-    await sendTelegramMessage(
-      chatId,
-      `${icon} <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`,
-    );
-    addEvent(dossier, {
-      type: "AI_DECISION",
-      actor: { kind: "ADMIN", label: "Telegram" },
-      message: `Consigne Telegram exécutée (${result.action}).`,
-      meta: { instructionPreview: instruction.slice(0, 300) },
-    });
-  } else {
-    await sendTelegramMessage(
-      chatId,
-      `❌ <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`,
-    );
-  }
+  await sendTelegramMessage(chatId, "⏳ Je regarde…");
+  const portfolio = await buildPortfolioSummaryAsync(10);
+  const answer = await answerCamilleTelegramQuestion(text, { dossier, portfolioLines: portfolio });
+  const plain = answer.replace(/</g, "‹").replace(/>/g, "›");
+  await sendTelegramMessage(chatId, plain);
 }
 
 export async function registerTelegramWebhook(publicBaseUrl: string) {

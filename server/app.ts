@@ -328,6 +328,18 @@ export function createApp() {
       await writeDB(db, newDossier);
       appendLog(`Succès d'écriture du dossier ${newDossier.id} dans la base de données.`);
 
+      void import("./telegramNotify")
+        .then(({ notifyTelegramNewDossier }) =>
+          notifyTelegramNewDossier({
+            dossierId: newDossier.id,
+            clientEmail: formData.assures?.[0]?.email || "",
+            clientName: [formData.assures?.[0]?.prenom, formData.assures?.[0]?.nom]
+              .filter(Boolean)
+              .join(" "),
+          }),
+        )
+        .catch(() => undefined);
+
       const toEmail = formData.assures?.[0]?.email;
       const ccEmails = Array.isArray(formData.assures)
         ? formData.assures

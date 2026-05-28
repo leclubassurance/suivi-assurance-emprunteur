@@ -389,6 +389,19 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         inboundCount++;
         const alreadyHandled = getProcessedIds(dossier).has(msgMeta.id);
 
+        if (!alreadyHandled) {
+          void import("./telegramNotify")
+            .then(({ notifyTelegramClientInbound }) =>
+              notifyTelegramClientInbound({
+                dossierId: dossier.id,
+                clientEmail: senderEmail,
+                subject,
+                excerpt: String(text || "").slice(0, 500),
+              }),
+            )
+            .catch(() => undefined);
+        }
+
         if (!alreadyHandled && isAiAutoReplyEnabled()) {
           if (aiLockedDossierIds.has(dossier.id)) {
             markProcessed(dossier, msgMeta.id);
