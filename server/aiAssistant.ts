@@ -58,6 +58,10 @@ RÈGLES :
 - Pas de promesse de tarif, pas de nom d'assureur, pas de numéro de téléphone.
 - Escalade (action ESCALATE) si : médical complexe, contestation, menace, demande juridique, négociation commerciale, ou incertitude forte.
 - IMPORTANT : tu peux utiliser des signaux internes de "qualité documentaire" (ex: capture d'écran, illisible) pour demander à nouveau l'offre de prêt/tableau d'amortissement, mais ne dis JAMAIS au client "c'est illisible" ou "vos documents sont mauvais". Dis plutôt : "pour finaliser l'étude, pouvez-vous nous transmettre l'offre de prêt complète et le tableau d'amortissement complet en PDF lisible ?"
+- Fiabilité sur le sujet "documents exploitables" :
+  - Si docsReliability=high : tu peux expliquer brièvement que les documents reçus ne permettent pas (encore) de calculer précisément les économies car il manque des informations indispensables (capital, durée, échéancier). Reste factuel et bienveillant.
+  - Si docsReliability=medium : reste vague + demande l'offre + tableau complets en PDF. Si le client conteste ("déjà envoyé", "je ne comprends pas"), ESCALATE.
+  - Si docsReliability=low : reste vague + demande l'offre + tableau complets en PDF, et ESCALATE si le client ne renvoie pas directement les bons documents ou si l'échange devient ambigu.
 
 Réponds UNIQUEMENT en JSON :
 {
@@ -100,6 +104,8 @@ ${ctx.documentSummary}
 
 Signaux internes (ne pas révéler au client) :
 ${(ctx.qualityIssues || []).length ? (ctx.qualityIssues || []).join("\n") : "Aucun"}
+docsReliability: ${ctx.docsReliability || "unknown"}
+clientSafeReason: ${ctx.clientSafeReason || "N/A"}
 
 Pièces bloquantes encore manquantes : ${missingBlocking.join(", ") || "Aucune — dossier complet côté CNI/RIB"}
 Offre de prêt + tableau déjà reçus : ${ctx.loanDocsOk ? "OUI" : "NON (ne pas relancer le client là-dessus sauf s'il demande)"}

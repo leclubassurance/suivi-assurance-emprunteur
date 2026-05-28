@@ -47,12 +47,41 @@ export function buildCamilleContextBlock(dossier: any, newAttachmentNames: strin
     .map((d) => `${d.name || d.id}: ${(d.quality.reasons || []).join(", ")}`)
     .slice(0, 6);
 
+  const offerDocs = docs.filter((d) => d?.category === "offre");
+  const tableauDocs = docs.filter((d) => d?.category === "tableau");
+  const offerSignals = offerDocs.map((d) => d?.loanSignal).filter(Boolean);
+  const tableauSignals = tableauDocs.map((d) => d?.loanSignal).filter(Boolean);
+
+  // Reliability for "docs exploitability" topic:
+  // - high: both offer+tableau present and their PDF signals are ok (or no signal but quality ok)
+  // - medium: present but some warnings
+  // - low: missing or strong mismatch signals
+  const offerOk = offerDocs.length > 0 && offerDocs.some((d) => d?.loanSignal?.ok || d?.quality?.ok);
+  const tableauOk = tableauDocs.length > 0 && tableauDocs.some((d) => d?.loanSignal?.ok || d?.quality?.ok);
+  const strongMismatch =
+    offerDocs.some((d) => d?.loanSignal && d.loanSignal.ok === false) ||
+    tableauDocs.some((d) => d?.loanSignal && d.loanSignal.ok === false) ||
+    qualityIssues.length >= 2;
+
+  const docsReliability: "low" | "medium" | "high" =
+    offerOk && tableauOk && !strongMismatch ? "high" : strongMismatch ? "low" : "medium";
+
+  // Client-safe explanation snippets (never mention "bad/illegible", but explain need for exact docs)
+  const clientSafeReason =
+    docsReliability === "high"
+      ? "certains éléments indispensables ne figurent pas clairement dans les documents reçus"
+      : docsReliability === "medium"
+        ? "nous avons besoin des documents complets pour éviter toute approximation"
+        : "nous avons besoin des versions complètes au bon format pour finaliser l’étude";
+
   return {
     checklist,
     missingBlocking,
     loanDocsOk: loanDocs.every((c) => c.ok),
     newAttachmentNames,
     qualityIssues,
+    docsReliability,
+    clientSafeReason,
     documentSummary: checklist
       .map((c) => {
         const files = c.matchedFiles?.length ? ` (${c.matchedFiles.join(", ")})` : "";
