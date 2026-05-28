@@ -86,7 +86,10 @@ export default function PreparationStep({ onNext }: { onNext: () => void }) {
               <CheckCircle2 className="w-8 h-8 text-[#2563eb]" />
             </div>
             <h3 className="font-bold text-[#111318] text-[17px] mb-2 leading-snug">C'est tout !</h3>
-            <p className="text-slate-500 text-[14px]">Vous pourrez les prendre en photo ou les importer en PDF à la dernière étape.</p>
+            <p className="text-slate-500 text-[14px]">
+              Idéalement, récupérez-les en <strong>PDF</strong> depuis votre espace bancaire (plus propre et plus lisible).
+              Si vous devez scanner, assurez-vous d’un document net, complet et bien cadré.
+            </p>
           </div>
         </div>
 

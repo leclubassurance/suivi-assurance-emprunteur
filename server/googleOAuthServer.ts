@@ -22,9 +22,18 @@ export function createServerOAuthClient() {
 
 export async function getServerAccessToken(): Promise<string> {
   const client = createServerOAuthClient();
-  const token = await client.getAccessToken();
-  const accessToken = typeof token === "string" ? token : token?.token;
-  if (!accessToken) throw new Error("Impossible d'obtenir un access_token via refresh_token.");
-  return accessToken;
+  try {
+    const token = await client.getAccessToken();
+    const accessToken = typeof token === "string" ? token : token?.token;
+    if (!accessToken) throw new Error("access_token vide");
+    return accessToken;
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    // unauthorized_client / invalid_grant usually means the refresh token is tied to a different OAuth client,
+    // or scopes are missing / consent not granted.
+    throw new Error(
+      `OAuth serveur: échec refresh_token (${msg}). Vérifiez GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN sur Railway, et regénérez le refresh token avec les scopes Gmail+Drive si besoin.`,
+    );
+  }
 }
 

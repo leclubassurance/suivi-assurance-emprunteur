@@ -37,40 +37,48 @@ export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmi
 
   const handleFiles = (files: FileList | null, category: string) => {
     if (!files || files.length === 0) return;
-    const file = files[0];
-    
-    if (file.size > 50 * 1024 * 1024) {
-      showToast(`Le fichier ${file.name} est trop volumineux (max 50 MB)`, 'error');
-      return;
+
+    const items = Array.from(files);
+    const maxBytes = 50 * 1024 * 1024;
+
+    // For most categories, we keep a single active document.
+    const isMulti = category === "tableau";
+    const filteredDocs = isMulti ? formData.documents : formData.documents.filter((d) => !d.id.startsWith(category));
+
+    const nextDocs: AppFile[] = [...filteredDocs];
+
+    for (const file of items) {
+      if (file.size > maxBytes) {
+        showToast(`Le fichier ${file.name} est trop volumineux (max 50 MB)`, "error");
+        continue;
+      }
+
+      const newFile: AppFile = {
+        id: `${category}-${generateId()}`,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        uploadedAt: new Date().toISOString(),
+        status: "uploading",
+        rawFile: file,
+      } as any;
+      nextDocs.push(newFile);
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setFormData((prev) => ({
+          ...prev,
+          documents: prev.documents.map((d) =>
+            d.id === newFile.id
+              ? ({ ...d, status: "success", base64Content: e.target?.result as string, rawFile: file } as any)
+              : d,
+          ),
+        }));
+      };
+      reader.readAsDataURL(file);
     }
-    
-    // Remove existing file for this category
-    const filteredDocs = formData.documents.filter(d => (!d.id.startsWith(category)));
-    
-    const newFile: AppFile = {
-      id: `${category}-${generateId()}`,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      uploadedAt: new Date().toISOString(),
-      status: 'uploading',
-      rawFile: file
-    } as any;
-    
-    setFormData(prev => ({ ...prev, documents: [...filteredDocs, newFile] }));
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setFormData(prev => ({
-        ...prev,
-        documents: prev.documents.map(d => 
-          d.id === newFile.id 
-            ? { ...d, status: 'success', base64Content: e.target?.result as string, rawFile: file } as any
-            : d
-        )
-      }));
-    };
-    reader.readAsDataURL(file);
+
+    setFormData((prev) => ({ ...prev, documents: nextDocs }));
   };
 
   const removeDocument = (id: string) => {
@@ -117,7 +125,8 @@ export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmi
 
         <div className="space-y-5">
           {categories.map(category => {
-            const existingDoc = formData.documents.find(d => d.id.startsWith(category.id));
+            const existingDocs = formData.documents.filter(d => d.id.startsWith(category.id));
+            const existingDoc = existingDocs[0];
             const isDragging = dragActiveStates[category.id] || false;
 
             return (
@@ -130,7 +139,28 @@ export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmi
                   </div>
 
                   <div className="md:w-1/2 w-full">
-                    {!existingDoc ? (
+                    {category.id === "tableau" ? (
+                      <div 
+                        className={`border-2 border-dashed rounded-[20px] p-4 text-center transition-all bg-slate-50 relative ${isDragging ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}
+                        onDragEnter={(e) => handleDrag(category.id, e)}
+                        onDragLeave={(e) => handleDrag(category.id, e)}
+                        onDragOver={(e) => handleDrag(category.id, e)}
+                        onDrop={(e) => handleDrop(category.id, e)}
+                      >
+                        <Upload className="w-5 h-5 mx-auto mb-2 text-slate-400" />
+                        <label className="cursor-pointer flex flex-col items-center justify-center gap-1 relative z-10 w-full h-full">
+                          <span className="font-bold text-slate-700 hover:text-slate-900 text-[14px]">Cliquez ou glissez</span>
+                          <span className="text-slate-400 text-[12px] font-medium hidden sm:block">Plusieurs fichiers possibles (PDF recommandé)</span>
+                          <input 
+                            type="file" 
+                            className="hidden" 
+                            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xlsx"
+                            multiple
+                            onChange={(e) => handleFiles(e.target.files, category.id)}
+                          />
+                        </label>
+                      </div>
+                    ) : !existingDoc ? (
                       <div 
                         className={`border-2 border-dashed rounded-[20px] p-4 text-center transition-all bg-slate-50 relative ${isDragging ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}
                         onDragEnter={(e) => handleDrag(category.id, e)}
@@ -190,6 +220,27 @@ export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmi
                     )}
                   </div>
                 </div>
+
+                {category.id === "tableau" && existingDocs.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {existingDocs.map((doc) => (
+                      <div key={doc.id} className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-[16px] px-4 py-3">
+                        <div className="min-w-0 text-left">
+                          <div className="font-bold text-[13px] text-slate-800 truncate" title={doc.name}>{doc.name}</div>
+                          <div className="text-[11px] font-bold text-slate-400">{(doc.size / 1024 / 1024).toFixed(2)} MB</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeDocument(doc.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-colors"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="w-[18px] h-[18px]" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
