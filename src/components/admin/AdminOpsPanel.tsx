@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Eye, Euro, Landmark, Wallet, X, BookOpen, RefreshCw, FolderPlus } from "lucide-react";
-import { getAccessToken } from "../../lib/auth";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import type { Dossier } from "../../types";
@@ -282,17 +281,11 @@ export function AdminCamilleKnowledgePanel() {
     loadStatus();
   }, [loadStatus]);
 
-  const authHeaders = (): HeadersInit => {
-    const t = getAccessToken();
-    return t ? { Authorization: `Bearer ${t}` } : {};
-  };
-
   const setupFolder = async () => {
     setBusy(true);
     try {
       const res = await fetch(getApiUrl("/api/admin/camille-knowledge/setup"), {
         method: "POST",
-        headers: authHeaders(),
       });
       const data = await res.json();
       if (data.folderId) {
@@ -320,7 +313,6 @@ export function AdminCamilleKnowledgePanel() {
     try {
       const res = await fetch(getApiUrl("/api/admin/camille-knowledge/sync"), {
         method: "POST",
-        headers: authHeaders(),
       });
       const data = await res.json();
       if (data.success !== false) {

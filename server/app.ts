@@ -1226,13 +1226,10 @@ export function createApp() {
   });
 
   /** Crée ou retrouve le dossier Drive « Documentation Camille » + ligne variable Railway. */
-  const camilleKnowledgeSetupHandler = async (req: express.Request, res: express.Response) => {
-    const authHeader = req.headers.authorization;
-    const token =
-      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+  const camilleKnowledgeSetupHandler = async (_req: express.Request, res: express.Response) => {
     try {
       const { ensureCamilleKnowledgeFolder } = await import("./camilleKnowledgeDrive");
-      const result = await ensureCamilleKnowledgeFolder(token || null);
+      const result = await ensureCamilleKnowledgeFolder(null);
       if (!result.ok) {
         return res.status(400).json(result);
       }
@@ -1259,13 +1256,10 @@ export function createApp() {
     }
   });
 
-  app.post("/api/admin/camille-knowledge/sync", async (req, res) => {
-    const authHeader = req.headers.authorization;
-    const token =
-      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+  app.post("/api/admin/camille-knowledge/sync", async (_req, res) => {
     try {
       const { syncCamilleKnowledgeFromDrive } = await import("./camilleKnowledgeDrive");
-      const cache = await syncCamilleKnowledgeFromDrive(token || null, DATA_DIR);
+      const cache = await syncCamilleKnowledgeFromDrive(null, DATA_DIR);
       res.json({ success: true, ...cache });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });

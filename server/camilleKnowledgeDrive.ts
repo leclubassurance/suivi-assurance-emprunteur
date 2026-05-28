@@ -76,15 +76,44 @@ function saveCacheToDisk(dataDir: string, cache: CamilleKnowledgeCache) {
   }
 }
 
-async function getDriveClient(accessToken?: string | null) {
-  let client = await createDriveClient(accessToken);
-  if (!client) {
-    const resolved = await resolveDriveAccessToken(null);
-    if (resolved.mode === "service_account" && resolved.client) {
-      client = resolved.client;
+function isDriveAuthError(err: unknown): boolean {
+  const e = err as { message?: string; code?: number; response?: { status?: number } };
+  const msg = String(e?.message || err || "").toLowerCase();
+  const status = e?.response?.status ?? e?.code;
+  return (
+    status === 401 ||
+    status === 403 ||
+    msg.includes("invalid authentication") ||
+    msg.includes("invalid credentials") ||
+    msg.includes("login cookie")
+  );
+}
+
+/**
+ * Documentation Camille = opération serveur 24/7 → compte de service en priorité.
+ * Un token OAuth admin expiré ne doit pas bloquer setup/sync.
+ */
+async function getDriveClient(_accessToken?: string | null) {
+  const serviceClient = await createDriveClient(null);
+  if (serviceClient?.authMode === "service_account") {
+    return serviceClient;
+  }
+
+  const token = _accessToken;
+  if (token && !token.startsWith("mock-gdrive")) {
+    try {
+      const oauthClient = await createDriveClient(token);
+      if (oauthClient) {
+        await oauthClient.drive.about.get({ fields: "user(emailAddress)" });
+        return oauthClient;
+      }
+    } catch (err) {
+      if (!isDriveAuthError(err)) throw err;
+      console.warn("[Camille knowledge] Token OAuth admin invalide — repli compte de service.");
     }
   }
-  return client;
+
+  return serviceClient || null;
 }
 
 async function findFolderByName(
@@ -158,7 +187,11 @@ export async function ensureCamilleKnowledgeFolder(
         envLine: `CAMILLE_KNOWLEDGE_DRIVE_FOLDER_ID="${envId}"`,
       };
     } catch (e: any) {
-      return { ok: false, error: `ID dossier invalide ou inaccessible : ${e?.message || e}` };
+      const hint =
+        client.authMode === "service_account"
+          ? " Vérifiez que le dossier est partagé avec l'email du compte de service (Éditeur)."
+          : " Reconnectez Google dans l'admin ou configurez GOOGLE_SERVICE_ACCOUNT_JSON sur Railway.";
+      return { ok: false, error: `ID dossier invalide ou inaccessible : ${e?.message || e}.${hint}` };
     }
   }
 
@@ -330,7 +363,7 @@ export async function syncCamilleKnowledgeFromDrive(
         if (row.mimeType === GOOGLE_DOC_MIME || row.mimeType === GOOGLE_SHEET_MIME) {
           text = await exportGoogleFile(client.drive, row.id, row.mimeType!);
         } else {
-          const buf = await downloadDriveFileToBuffer(row.id, accessToken);
+          const buf = await downloadDriveFileToBuffer(row.id, null);
           if (buf?.length) {
             text = await extractTextFromBuffer(row.name, row.mimeType, buf);
           }
