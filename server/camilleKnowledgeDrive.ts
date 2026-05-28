@@ -3,7 +3,7 @@ import path from "path";
 import { buildStaticCamilleKnowledgeBlock } from "../shared/lcifKnowledge";
 import { extractPdfTextFromBuffer } from "./pdfTextExtract";
 import { resolveDriveParentFolderId } from "./driveConfig";
-import { createDriveClient, resolveDriveAccessToken } from "./googleAutomation";
+import { createDriveClient } from "./googleAutomation";
 import { downloadDriveFileToBuffer, uploadBufferToDriveFolder } from "./gmailDriveUpload";
 
 export const CAMILLE_KNOWLEDGE_FOLDER_NAME = "Documentation Camille";
