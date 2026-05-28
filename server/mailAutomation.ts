@@ -96,11 +96,16 @@ function getParisParts(d: Date) {
   return { weekday, hour, minute };
 }
 
+function isBusinessHoursGateEnabled() {
+  const v = (process.env.AI_BUSINESS_HOURS_ENABLED || "false").toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
 function isWithinBusinessHours(now = new Date()) {
   const { weekday, hour } = getParisParts(now);
   const isWeekend = weekday.startsWith("sam") || weekday.startsWith("dim");
   if (isWeekend) return false;
-  // default: Mon–Fri 09:00–19:00 Paris time
+  // Mon–Fri 09:00–19:00 Paris time
   return hour >= 9 && hour < 19;
 }
 
@@ -370,7 +375,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         if (!alreadyHandled && isAiAutoReplyEnabled()) {
           markProcessed(dossier, msgMeta.id);
           try {
-            if (!isWithinBusinessHours()) {
+            if (isBusinessHoursGateEnabled() && !isWithinBusinessHours()) {
               const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
               const outOfHours = [
                 `Bonjour,`,
