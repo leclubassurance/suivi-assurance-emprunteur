@@ -78,6 +78,14 @@ export interface Dossier {
   emails?: EmailMessage[];
   notes?: { id: string; at: string; author: string; text: string }[];
   processedGmailIds?: string[];
+  camilleEscalation?: {
+    lastAt: string;
+    lastGmailId?: string;
+    reason?: string;
+    remiNotifiedAt?: string;
+    clientNotifiedAt?: string;
+    followUpScheduledAt?: string;
+  };
   studyDraft?: {
     kind: string;
     computedAt: string;
@@ -113,6 +121,7 @@ export function ensureDossierShape(d: any): Dossier {
     emails: Array.isArray(d.emails) ? d.emails : [],
     notes: Array.isArray(d.notes) ? d.notes : [],
     processedGmailIds: Array.isArray(d.processedGmailIds) ? d.processedGmailIds : [],
+    camilleEscalation: d.camilleEscalation,
   };
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,

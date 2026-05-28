@@ -7,6 +7,9 @@ import { syncGmailInbox } from "./mailAutomation";
 import { processIncomingClientEmail } from "./aiAssistant";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
+import { sendEscalationReminderToRemi } from "./camilleEscalation";
+
+let gmailSyncInProgress = false;
 
 export type SchedulerRunResult = {
   processed: number;
@@ -45,13 +48,47 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
       task.attempts += 1;
       task.lastAttemptAt = new Date().toISOString();
 
-      const to = getPrimaryClientEmail(dossier);
-      if (!to) {
-        task.lastError = "Client email introuvable";
-        continue;
-      }
-
       try {
+        if (task.type === "INTERNAL_ALERT") {
+          const kind = String(task.payload?.kind || "");
+          if (kind === "ESCALATION_FOLLOWUP") {
+            const stillWaiting =
+              dossier.status === "EN_ATTENTE_CLIENT" && Boolean(dossier.camilleEscalation?.lastAt);
+            if (!stillWaiting) {
+              task.status = "DONE";
+              addEvent(dossier, {
+                type: "REMINDER_SENT",
+                actor: { kind: "SYSTEM" },
+                message: "Rappel escalade annulé (dossier repris ou statut changé).",
+              });
+              continue;
+            }
+            const r = await sendEscalationReminderToRemi(dossier, task.payload || {});
+            if (r.ok) {
+              task.status = "DONE";
+              sent += 1;
+              addEvent(dossier, {
+                type: "EMAIL_SENT",
+                actor: { kind: "SYSTEM" },
+                message: "Rappel escalade Camille envoyé à Rémi.",
+              });
+            } else {
+              task.lastError = r.error || "Échec rappel escalade";
+              failed += 1;
+            }
+          } else {
+            task.status = "DONE";
+            task.lastError = `INTERNAL_ALERT inconnu: ${kind || "—"}`;
+          }
+          continue;
+        }
+
+        const to = getPrimaryClientEmail(dossier);
+        if (!to) {
+          task.lastError = "Client email introuvable";
+          continue;
+        }
+
         if (task.type === "FOLLOWUP_MISSING_DOCS") {
           const missing = detectMissingDocs(dossier);
           if (missing.length === 0) {
@@ -126,12 +163,17 @@ export function startScheduler() {
   const gmailIntervalMs = Number((process.env as any).GMAIL_AUTOSYNC_INTERVAL_MS || 120_000);
   if (gmailEnabled) {
     setInterval(() => {
+      if (gmailSyncInProgress) return;
       // accessToken=null => refresh_token OAuth serveur (ou DWD si activé)
       if (!hasServerOAuthRefreshToken() && !canUseDomainWideDelegation()) return;
+      gmailSyncInProgress = true;
       readDB()
         .then((db) => syncGmailInbox(null, db, processIncomingClientEmail))
         .then(({ db }) => writeDB(db))
-        .catch(() => undefined);
+        .catch((err) => console.error("[Gmail autosync]", err?.message || err))
+        .finally(() => {
+          gmailSyncInProgress = false;
+        });
     }, gmailIntervalMs);
   }
 }

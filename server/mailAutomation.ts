@@ -278,6 +278,8 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
   }
 
   const processedIds = new Set<string>();
+  /** Un seul traitement IA par dossier et par sync (évite 5 escalades sur l'historique Gmail). */
+  const aiLockedDossierIds = new Set<string>();
   let inboundCount = 0;
   let aiReplies = 0;
   let attachmentsSaved = 0;
@@ -373,7 +375,12 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         const alreadyHandled = getProcessedIds(dossier).has(msgMeta.id);
 
         if (!alreadyHandled && isAiAutoReplyEnabled()) {
+          if (aiLockedDossierIds.has(dossier.id)) {
+            markProcessed(dossier, msgMeta.id);
+            continue;
+          }
           markProcessed(dossier, msgMeta.id);
+          aiLockedDossierIds.add(dossier.id);
           try {
             if (isBusinessHoursGateEnabled() && !isWithinBusinessHours()) {
               const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
@@ -432,37 +439,17 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
                 dossier.status = 'EN_COURS';
               }
             } else if (aiDecision?.status === 'escalated') {
-              upsertCommunication(dossier, {
-                id: `msg_esc_${msgMeta.id}`,
-                direction: 'inbound',
-                from: 'Camille (IA)',
-                subject: 'ALERTE — intervention humaine requise',
-                text: `Raison : ${aiDecision.reason || 'Escalade'}\n\nClient : ${clientEmail}`,
-                date: new Date().toISOString(),
+              const { handleCamilleEscalation } = await import("./camilleEscalation");
+              await handleCamilleEscalation({
+                dossier,
+                accessToken,
+                clientEmail,
+                clientPrenom: dossier.formData?.assures?.[0]?.prenom,
+                subject,
+                reason: String(aiDecision.reason || "Escalade"),
+                clientMessageText: text,
+                gmailId: msgMeta.id,
               });
-              addEvent(dossier, {
-                type: 'AI_DECISION',
-                actor: { kind: 'AI', label: 'Camille' },
-                message: 'Escalade vers un conseiller.',
-                meta: { reason: aiDecision.reason },
-              });
-              dossier.status = 'EN_ATTENTE_CLIENT';
-
-              // Notifie le conseiller par email (24/7) pour éviter de rater une escalade
-              const to = getAiEscalationEmail();
-              if (to) {
-                const subjectEsc = `ALERTE Camille — ${dossier.id} (${clientEmail})`;
-                const body = [
-                  `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#0f172a">`,
-                  `<p><strong>Dossier :</strong> ${dossier.id}</p>`,
-                  `<p><strong>Client :</strong> ${clientEmail}</p>`,
-                  `<p><strong>Raison :</strong> ${aiDecision.reason || "Escalade"}</p>`,
-                  `<p><strong>Extrait email :</strong></p>`,
-                  `<pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:8px">${String(text || "").slice(0, 1500)}</pre>`,
-                  `</div>`,
-                ].join("");
-                sendEmailReplyWithGmailAPI(null, to, subjectEsc, body).catch(() => undefined);
-              }
             }
           } catch (err: any) {
             console.error('[AI] Erreur traitement email:', err);
