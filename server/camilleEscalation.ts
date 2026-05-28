@@ -115,25 +115,46 @@ export async function handleCamilleEscalation(params: {
   }
 
   const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
-  const clientHtml = wrapCamilleHtmlReply(buildClientHandoffBody(prenom), prenom);
   let notifiedClient = false;
   let notifiedRemi = false;
 
-  const clientSend = await sendGmail(accessToken, clientEmail, replySubject, clientHtml);
-  if (clientSend?.ok) {
-    notifiedClient = true;
-    addEvent(dossier, {
-      type: "EMAIL_SENT",
-      actor: { kind: "AI", label: "Camille" },
-      message: "Escalade : passage à Charles communiqué au client.",
-      meta: { template: "CAMILLE_ESCALATION_CLIENT", to: clientEmail, gmailId },
-    });
+  const { isTelegramEnabled, sendTelegramEscalationAlert } = await import("./telegramCamille");
+  const telegramFirst = isTelegramEnabled();
+
+  if (!telegramFirst) {
+    const clientHtml = wrapCamilleHtmlReply(buildClientHandoffBody(prenom), prenom);
+    const clientSend = await sendGmail(accessToken, clientEmail, replySubject, clientHtml);
+    if (clientSend?.ok) {
+      notifiedClient = true;
+      addEvent(dossier, {
+        type: "EMAIL_SENT",
+        actor: { kind: "AI", label: "Camille" },
+        message: "Escalade : passage à Charles communiqué au client.",
+        meta: { template: "CAMILLE_ESCALATION_CLIENT", to: clientEmail, gmailId },
+      });
+    } else {
+      addEvent(dossier, {
+        type: "EMAIL_FAILED",
+        actor: { kind: "AI", label: "Camille" },
+        message: "Échec envoi mail client (escalade).",
+        meta: { template: "CAMILLE_ESCALATION_CLIENT", error: clientSend?.error },
+      });
+    }
   } else {
     addEvent(dossier, {
-      type: "EMAIL_FAILED",
+      type: "AI_DECISION",
       actor: { kind: "AI", label: "Camille" },
-      message: "Échec envoi mail client (escalade).",
-      meta: { template: "CAMILLE_ESCALATION_CLIENT", error: clientSend?.error },
+      message: "Escalade : en attente de consigne équipe (Telegram) avant mail client.",
+      meta: { telegramFirst: true, gmailId },
+    });
+  }
+
+  if (telegramFirst) {
+    await sendTelegramEscalationAlert({
+      dossier,
+      clientEmail,
+      reason: reason || "Escalade",
+      excerpt: String(clientMessageText || "").slice(0, 1500),
     });
   }
 
@@ -231,6 +252,7 @@ export async function sendEscalationReminderToRemi(dossier: Dossier, payload: Re
   const send = await sendGmail(null, remiTo, subject, html);
   if (send?.ok) {
     const { notifyEscalationSideChannels } = await import("./escalationAlerts");
+    const { isTelegramEnabled, sendTelegramEscalationAlert } = await import("./telegramCamille");
     void notifyEscalationSideChannels({
       dossierId: dossier.id,
       clientEmail,
@@ -238,6 +260,15 @@ export async function sendEscalationReminderToRemi(dossier: Dossier, payload: Re
       excerpt: String(payload?.excerpt || "—"),
       reminder: true,
     });
+    if (isTelegramEnabled()) {
+      await sendTelegramEscalationAlert({
+        dossier,
+        clientEmail,
+        reason,
+        excerpt: String(payload?.excerpt || "—"),
+        reminder: true,
+      });
+    }
     addEvent(dossier, {
       type: "EMAIL_SENT",
       actor: { kind: "SYSTEM" },

@@ -146,6 +146,39 @@ export function createApp() {
 
   // --- API ROUTES ---
 
+  app.post("/api/telegram/webhook", async (req, res) => {
+    try {
+      const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+      if (secret && req.headers["x-telegram-bot-api-secret-token"] !== secret) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const { handleTelegramWebhookUpdate } = await import("./telegramCamille");
+      await handleTelegramWebhookUpdate(req.body);
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[Telegram webhook]", e?.message || e);
+      res.status(500).json({ error: e?.message || "webhook error" });
+    }
+  });
+
+  /** Une fois le bot créé : GET /api/telegram/setup-webhook?secret=... pour enregistrer l'URL Railway */
+  app.get("/api/telegram/setup-webhook", async (req, res) => {
+    const setupSecret = String(process.env.TELEGRAM_SETUP_SECRET || "").trim();
+    if (!setupSecret || req.query.secret !== setupSecret) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const base =
+      String(process.env.APP_URL || process.env.VITE_API_URL || "").trim() ||
+      `https://${req.get("host")}`;
+    try {
+      const { registerTelegramWebhook } = await import("./telegramCamille");
+      const url = await registerTelegramWebhook(base);
+      res.json({ ok: true, webhookUrl: url });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   app.get("/api/health", async (_req, res) => {
     await ensureBackgroundServicesStarted();
     const resolved = resolveDriveParentFolderId();
@@ -172,6 +205,7 @@ export function createApp() {
       serviceAccountEmail: sa.clientEmail,
       serviceAccountSource: sa.source,
       serviceAccountParseError: sa.parseError,
+      telegram: (await import("./telegramCamille")).isTelegramEnabled(),
     });
   });
 

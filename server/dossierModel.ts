@@ -87,6 +87,8 @@ export interface Dossier {
     followUpScheduledAt?: string;
     resolvedAt?: string;
     resolvedBy?: string;
+    telegramChatId?: string;
+    telegramAlertMessageId?: number;
   };
   /** Camille en mode soutien (ne pas contredire l'équipe) jusqu'à cette date ISO */
   camilleStaffHandledUntil?: string;
