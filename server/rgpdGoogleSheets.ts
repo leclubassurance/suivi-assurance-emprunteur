@@ -34,8 +34,23 @@ function env(name: string): string | undefined {
   return process.env[name]?.trim() || undefined;
 }
 
+/** Normalise l'ID (URL complète, lien Drive, ou ID + paramètres collés par erreur). */
+export function normalizeSpreadsheetId(raw: string): string {
+  let id = raw.trim();
+  const fromSheetsUrl = id.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (fromSheetsUrl?.[1]) return fromSheetsUrl[1];
+  const fromDriveUrl = id.match(/\/open\?id=([a-zA-Z0-9-_]+)/);
+  if (fromDriveUrl?.[1]) return fromDriveUrl[1];
+  const fromD = id.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if (fromD?.[1]) return fromD[1];
+  return id.split("?")[0].split("#")[0].trim();
+}
+
 export function getRgpdSpreadsheetId(): string | undefined {
-  return env("RGPD_GOOGLE_SPREADSHEET_ID");
+  const raw = env("RGPD_GOOGLE_SPREADSHEET_ID");
+  if (!raw) return undefined;
+  const id = normalizeSpreadsheetId(raw);
+  return id || undefined;
 }
 
 function registerTabName(): string {

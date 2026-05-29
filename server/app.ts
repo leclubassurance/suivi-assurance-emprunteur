@@ -1321,34 +1321,43 @@ export function createApp() {
   });
 
   app.get("/api/admin/rgpd/status", async (_req, res) => {
-    const { getRgpdSpreadsheetId } = await import("./rgpdGoogleSheets");
+    const { getRgpdSpreadsheetId, normalizeSpreadsheetId } = await import("./rgpdGoogleSheets");
+    const configuredRaw = process.env.RGPD_GOOGLE_SPREADSHEET_ID?.trim() || null;
+    const spreadsheetId = getRgpdSpreadsheetId() || null;
     res.json({
       success: true,
-      spreadsheetId: getRgpdSpreadsheetId() || null,
+      spreadsheetId,
+      spreadsheetIdNormalized:
+        configuredRaw && spreadsheetId && configuredRaw !== spreadsheetId
+          ? true
+          : configuredRaw
+            ? spreadsheetId === normalizeSpreadsheetId(configuredRaw)
+            : false,
       registerTab: process.env.RGPD_SHEET_REGISTER || "Registre traitements",
       consentTab: process.env.RGPD_SHEET_CONSENTS || "Journal consentements",
       policyVersion: (await import("../shared/privacyConsent")).PRIVACY_POLICY_VERSION,
     });
   });
 
-  app.post("/api/admin/rgpd/sync-register", async (_req, res) => {
+  const rgpdSyncRegisterHandler = async (_req: express.Request, res: express.Response) => {
     try {
       const { syncRgpdRegisterToSheet, getRgpdSpreadsheetId } = await import("./rgpdGoogleSheets");
       const result = await syncRgpdRegisterToSheet();
       if (!result.ok) {
         return res.status(result.error?.includes("non configuré") ? 400 : 502).json(result);
       }
+      const spreadsheetId = getRgpdSpreadsheetId();
       res.json({
         success: true,
-        spreadsheetId: getRgpdSpreadsheetId(),
-        url: getRgpdSpreadsheetId()
-          ? `https://docs.google.com/spreadsheets/d/${getRgpdSpreadsheetId()}`
-          : undefined,
+        spreadsheetId,
+        url: spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : undefined,
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }
-  });
+  };
+  app.get("/api/admin/rgpd/sync-register", rgpdSyncRegisterHandler);
+  app.post("/api/admin/rgpd/sync-register", rgpdSyncRegisterHandler);
 
   app.get("/api/admin/drive-check", async (req, res) => {
     const authHeader = req.headers.authorization;

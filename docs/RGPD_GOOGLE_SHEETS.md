@@ -21,7 +21,9 @@ RGPD_SHEET_CONSENTS="Journal consentements"
 RGPD_REGISTER_SYNC_ON_START="true"
 ```
 
-L’ID se trouve dans l’URL : `https://docs.google.com/spreadsheets/d/XXXXXXXX/edit` → `XXXXXXXX`.
+L’ID se trouve dans l’URL : `https://docs.google.com/spreadsheets/d/XXXXXXXX/edit` → `XXXXXXXX` uniquement.
+
+Ne collez pas les paramètres après `?` (ex. lien Drive `…/d/XXX?dmr=1…`) : l’app nettoie l’ID, mais sur Railway mettez de préférence **uniquement** `XXXXXXXX`.
 
 ## Création de la feuille (manuel)
 
@@ -33,7 +35,7 @@ L’ID se trouve dans l’URL : `https://docs.google.com/spreadsheets/d/XXXXXXXX
 ## Vérification
 
 - `GET /api/admin/rgpd/status` — ID configuré, version de la politique.
-- `POST /api/admin/rgpd/sync-register` — force la mise à jour du registre.
+- `GET` ou `POST /api/admin/rgpd/sync-register` — force la mise à jour du registre (GET utilisable depuis le navigateur).
 
 ## Côté dossier (Firestore / base)
 
