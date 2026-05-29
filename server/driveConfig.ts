@@ -52,6 +52,13 @@ export function resolveDriveParentFolderId(): ResolvedDriveParent {
 }
 
 /** Retire les erreurs Drive obsolètes (ancien ID) pour ne pas bloquer l’admin. */
+export function isDriveFolderNotFoundError(err: unknown): boolean {
+  const e = err as { code?: number; message?: string; response?: { status?: number } };
+  const status = e?.code ?? e?.response?.status;
+  const msg = String(e?.message || err || "");
+  return status === 404 || /file not found|not found/i.test(msg);
+}
+
 export function sanitizeLegacyDriveWorkspaceState<T extends Record<string, unknown>>(dossier: T): T {
   const err = typeof dossier.workspaceError === "string" ? dossier.workspaceError : "";
   if (!err.includes(LEGACY_DRIVE_PARENT_ID) || dossier.workspaceFolderId) {

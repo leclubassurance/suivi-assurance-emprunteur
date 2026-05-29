@@ -195,8 +195,9 @@ export async function deleteDossierFromGoogleWorkspace(folderId: string, accessT
   try {
     await drive.files.delete({ fileId: folderId, supportsAllDrives: true });
     return true;
-  } catch (error) {
-    console.error('Failed to delete Google Drive dossier folder', error);
+  } catch (error: any) {
+    const msg = error?.message || String(error);
+    console.warn(`[Drive] Dossier Drive non supprimé (${folderId}): ${msg}`);
     return false;
   }
 }

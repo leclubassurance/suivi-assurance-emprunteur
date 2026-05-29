@@ -17,6 +17,26 @@ function truncate(s: unknown, max: number): string | undefined {
   return `${t.slice(0, max)}…`;
 }
 
+/** Firestore rejette les valeurs `undefined` (contrairement à JSON.stringify seul). */
+export function stripUndefinedForFirestore<T>(value: T): T {
+  if (value === undefined) return value;
+  if (value === null) return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripUndefinedForFirestore(item))
+      .filter((item) => item !== undefined) as T;
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (val === undefined) continue;
+      out[key] = stripUndefinedForFirestore(val);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 function stripDocForStorage(doc: any) {
   if (!doc || typeof doc !== "object") return normalizeDocumentForPersistence(doc);
   const { localPath, base64, data, content, rawText, extractedText, ...rest } = doc;
@@ -34,11 +54,14 @@ export function compactDossierForPersistence(dossier: unknown): Record<string, u
   if (Array.isArray(d.communications)) {
     d.communications = (d.communications as any[])
       .slice(-MAX_COMMS)
-      .map((c) => ({
-        ...c,
-        text: truncate(c.text, MAX_COMM_TEXT),
-        html: c.html ? truncate(c.html, MAX_COMM_HTML) : undefined,
-      }));
+      .map((c) => {
+        const row: Record<string, unknown> = {
+          ...c,
+          text: truncate(c.text, MAX_COMM_TEXT),
+        };
+        if (c.html) row.html = truncate(c.html, MAX_COMM_HTML);
+        return row;
+      });
   }
 
   if (Array.isArray(d.eventLog)) {
@@ -75,7 +98,7 @@ export function compactDossierForPersistence(dossier: unknown): Record<string, u
         subject: truncate(c.subject, 200),
         text: truncate(c.text, 800),
         date: c.date,
-        attachments: Array.isArray(c.attachments) ? c.attachments.slice(0, 8) : undefined,
+        ...(Array.isArray(c.attachments) ? { attachments: c.attachments.slice(0, 8) } : {}),
       }));
     }
     if (Array.isArray(d.eventLog)) d.eventLog = (d.eventLog as any[]).slice(-25);
@@ -91,5 +114,5 @@ export function compactDossierForPersistence(dossier: unknown): Record<string, u
     }
   }
 
-  return d;
+  return stripUndefinedForFirestore(d);
 }

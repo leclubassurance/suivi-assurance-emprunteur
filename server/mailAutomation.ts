@@ -160,8 +160,15 @@ async function resolveGmailDriveUploadTarget(dossier: any, accessToken: string) 
 
   const { ensureGmailAttachmentsSubfolder } = await import('./gmailDriveUpload');
   const subfolderId = await ensureGmailAttachmentsSubfolder(folderId, accessToken);
+  if (!subfolderId) {
+    console.warn(
+      `[Gmail→Drive] workspaceFolderId invalide pour ${dossier?.id || "?"} (${folderId}), réinitialisation`,
+    );
+    delete dossier.workspaceFolderId;
+    return { driveSubfolderId: null, driveAccessToken: accessToken };
+  }
   return {
-    driveSubfolderId: subfolderId || folderId,
+    driveSubfolderId: subfolderId,
     driveAccessToken: accessToken,
   };
 }

@@ -1,5 +1,6 @@
 import { Readable } from "stream";
 import { createDriveClient, resolveDriveAccessToken } from "./googleAutomation";
+import { isDriveFolderNotFoundError } from "./driveConfig";
 
 export type DriveUploadResult = {
   fileId: string;
@@ -149,7 +150,13 @@ export async function ensureGmailAttachmentsSubfolder(
     });
     return created.data.id || null;
   } catch (err: any) {
+    if (isDriveFolderNotFoundError(err)) {
+      console.warn(
+        `[Gmail→Drive] Dossier Drive introuvable (${parentFolderId}) — recréez le dossier client depuis l’admin.`,
+      );
+      return null;
+    }
     console.error("[Gmail→Drive] Sous-dossier PJ:", err?.message || err);
-    return parentFolderId;
+    return null;
   }
 }
