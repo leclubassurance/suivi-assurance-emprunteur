@@ -74,6 +74,50 @@ export function stripRedundantSalutations(
   return rest;
 }
 
+/** Le mail promet une étude à venir alors qu'elle a déjà été envoyée. */
+export function messagePromisesFutureStudy(plain: string): boolean {
+  const lower = String(plain || "").toLowerCase();
+  return (
+    /(étude\s+personnalisée|étude\s+des\s+économies|votre\s+étude).{0,100}(sera\s+prête|vous\s+recontacter|revenir\s+vers|prépar|finalis|prochainement)/i.test(
+      lower,
+    ) ||
+    /(recontacter|revenir\s+vers\s+vous|nous\s+reviendrons).{0,100}(étude|économies)/i.test(lower) ||
+    /charles\s+(prépare|finalise)\s+(votre\s+)?étude/i.test(lower) ||
+    /poursuiv(re|ons)\s+(votre\s+)?étude/i.test(lower)
+  );
+}
+
+export function buildPostStudyClientAckMessage(dossier: any): string {
+  const a = dossier?.formData?.assures?.[0];
+  const prenom = String(a?.prenom || "").trim();
+  const lastIn = String(
+    [...(dossier.communications || [])]
+      .filter((c: any) => c.direction === "inbound")
+      .sort(
+        (x: any, y: any) =>
+          new Date(y.date || 0).getTime() - new Date(x.date || 0).getTime(),
+      )[0]?.text || "",
+  ).toLowerCase();
+
+  const agreed =
+    /d.accord|je\s+suis\s+d.accord|ok\s+pour|accepte|changement\s+d.assurance|faire\s+le\s+changement/i.test(
+      lastIn,
+    );
+
+  const lines = [
+    `Merci pour votre message${prenom ? `, ${prenom}` : ""}.`,
+    ``,
+    agreed
+      ? `Nous avons bien pris note de votre accord pour poursuivre le changement d'assurance.`
+      : `Nous avons bien pris note de votre message.`,
+    `Votre étude personnalisée (économies possibles) vous a déjà été transmise par email ; consultez également vos courriers indésirables si besoin.`,
+    `Charles et notre équipe vous recontactent très prochainement pour la suite du dossier (mise en place et pièces éventuelles de souscription).`,
+    ``,
+    `Pour toute question précise, répondez simplement à ce mail.`,
+  ];
+  return lines.join("\n");
+}
+
 /** Détecte une demande de pièces prêt alors qu'elles sont déjà dans le dossier (sans problème certain). */
 export function messageRequestsMissingLoanDocs(plain: string): boolean {
   const lower = String(plain || "").toLowerCase();
@@ -211,6 +255,12 @@ export function sanitizeCamilleClientMessage(
     ].join("\n");
     text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
     return { text, blockedDocRequest };
+  }
+
+  if (hasStudyBeenSent(dossier) && (blockedDocRequest || messagePromisesFutureStudy(text))) {
+    text = buildPostStudyClientAckMessage(dossier);
+    text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
+    return { text, blockedDocRequest: true };
   }
 
   if (blockedDocRequest) {

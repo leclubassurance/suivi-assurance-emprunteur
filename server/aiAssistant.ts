@@ -74,6 +74,7 @@ Pièces à demander au client (selon phase) : ${
     ? missingLoanLabels.join(", ") || "Aucune — CNI/RIB déjà reçus ou non requis pour l'instant"
     : missingLoanLabels.join(", ") || "Aucune — offre et tableau OK côté analyse"
 }
+Étude déjà envoyée au client (studySent) : ${studySent ? "OUI — ne jamais promettre une étude à venir" : "NON"}
 NE PAS mentionner CNI/RIB avant envoi de l'étude économiques (sauf si studySent=true ci-dessus).
 Offre de prêt + tableau présents dans le dossier : ${ctx.loanDocsPresent ? "OUI" : "NON"}
 Offre validée par analyse : ${ctx.loanOffreExploitable ? "OUI" : "NON"}
@@ -81,6 +82,7 @@ Tableau validé par analyse : ${ctx.loanAmortExploitable ? "OUI" : "NON"}
 Exploitables pour l'étude (les deux validés) : ${ctx.loanDocsOk ? "OUI" : "NON"}
 Si présents mais pas exploitables : demander uniquement un renvoi PDF banque, sans dire qu'ils manquent.
 Si présents et exploitables : NE PAS demander offre/tableau (sauf si le client pose une question précise).
+Si studySent=OUI : le client a déjà reçu l'étude par email — accuser réception de son message (ex. accord pour changer d'assurance) et annoncer la suite avec Charles, sans dire qu'une étude va être envoyée.
 Ne jamais mettre de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.
 
 Pièces jointes reçues DANS CET EMAIL : ${newAttachmentsLine}

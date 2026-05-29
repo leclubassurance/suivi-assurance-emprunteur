@@ -1,6 +1,7 @@
 import { addEvent, scheduleTask, type Dossier } from "./dossierModel";
 import { wrapCamilleHtmlReply } from "./camilleMail";
 import { resolveLoanDocPresence } from "./loanDocPresence";
+import { hasStudyBeenSent } from "./dossierLifecycle";
 
 async function sendGmail(
   accessToken: string | null,
@@ -53,9 +54,20 @@ function isEscalationCooldownActive(dossier: Dossier, now = Date.now()): boolean
 }
 
 function buildClientHandoffBody(prenom: string, dossier?: Dossier) {
+  if (dossier && hasStudyBeenSent(dossier)) {
+    return [
+      `Merci pour votre message, nous avons bien pris note.`,
+      ``,
+      `Votre étude personnalisée vous a déjà été communiquée par email.`,
+      `Charles, votre conseiller en assurance emprunteur, reviendra vers vous personnellement pour la suite de votre dossier (mise en place du changement d'assurance et prochaines étapes).`,
+      ``,
+      `Nous vous recontacterons très prochainement par email.`,
+    ].join("\n");
+  }
+
   const loan = dossier ? resolveLoanDocPresence(dossier) : null;
   const docLine = loan?.filesPresent
-    ? `Charles, votre conseiller en assurance emprunteur, reviendra vers vous personnellement pour poursuivre votre étude.`
+    ? `Charles, votre conseiller en assurance emprunteur, reviendra vers vous personnellement pour finaliser l'analyse de votre dossier et vous présenter les économies possibles.`
     : `Charles, votre conseiller en assurance emprunteur, reviendra vers vous personnellement pour vérifier que nous disposons des bons documents (offre de prêt et tableau d'amortissement complets en PDF depuis votre espace bancaire) afin de poursuivre votre étude.`;
   return [
     `Merci pour votre message, nous avons bien pris note.`,
