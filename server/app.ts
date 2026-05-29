@@ -1727,6 +1727,59 @@ export function createApp() {
     res.json(computeActivityMetrics(db.dossiers, periodDays));
   });
 
+  app.get("/api/admin/ops-daily-report", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const {
+      buildOpsDailyReport,
+      loadPersistedOpsReport,
+      parisYesterdayYmd,
+      shiftParisYmd,
+    } = await import("./opsDailyReport");
+    const reportYmd = String(req.query.date || parisYesterdayYmd());
+    const persisted = loadPersistedOpsReport(reportYmd);
+    let report = persisted || buildOpsDailyReport(db.dossiers, reportYmd);
+    const withAi = String(req.query.ai || "") === "1";
+    if (withAi && !persisted?.ai) {
+      const { enrichOpsDailyReportWithAi } = await import("./opsDailyReportAi");
+      report = await enrichOpsDailyReportWithAi(report, db.dossiers);
+    }
+    res.json({
+      report,
+      availableDates: {
+        requested: reportYmd,
+        yesterday: parisYesterdayYmd(),
+        dayBefore: shiftParisYmd(parisYesterdayYmd(), -1),
+      },
+      persisted: Boolean(persisted),
+    });
+  });
+
+  app.post("/api/admin/ops-daily-report/run", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const body = (req.body || {}) as {
+      date?: string;
+      deliver?: boolean;
+      sendEmail?: boolean;
+      sendTelegram?: boolean;
+    };
+    const { runOpsDailyReport } = await import("./opsDailyReport");
+    const result = await runOpsDailyReport({
+      reportYmd: body.date,
+      deliver: Boolean(body.deliver),
+      sendEmail: body.sendEmail !== false,
+      sendTelegram: body.sendTelegram !== false,
+    });
+    res.json({
+      ok: true,
+      reportYmd: result.reportYmd,
+      metrics: result.metrics,
+      incidentCount: result.incidents.length,
+      delivery: result.delivery,
+      markdownPreview: result.markdown.slice(0, 4000),
+    });
+  });
+
   app.get("/api/admin/dossiers/:id/camille-context", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();

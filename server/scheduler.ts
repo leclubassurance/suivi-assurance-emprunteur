@@ -217,5 +217,8 @@ export function startScheduler() {
         });
     }, gmailIntervalMs);
   }
+
+  const { startOpsDailyReportScheduler } = require("./opsDailyReport") as typeof import("./opsDailyReport");
+  startOpsDailyReportScheduler();
 }
 

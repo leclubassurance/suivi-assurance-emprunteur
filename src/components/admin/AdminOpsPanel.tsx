@@ -1,5 +1,21 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Eye, Euro, Landmark, Wallet, X, BookOpen, RefreshCw, FolderPlus } from "lucide-react";
+import {
+  Inbox,
+  TrendingUp,
+  AlertTriangle,
+  Mail,
+  FileWarning,
+  Eye,
+  Euro,
+  Landmark,
+  Wallet,
+  X,
+  BookOpen,
+  RefreshCw,
+  FolderPlus,
+  FileBarChart,
+  Send,
+} from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
@@ -263,6 +279,127 @@ export function useAdminOpsData() {
   }, [loadMetrics]);
 
   return { metrics, reloadMetrics: loadMetrics };
+}
+
+export function AdminOpsDailyReportPanel() {
+  const [reportYmd, setReportYmd] = useState("");
+  const [preview, setPreview] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadPreview = useCallback(async (ymd?: string) => {
+    setBusy(true);
+    try {
+      const q = ymd ? `?date=${encodeURIComponent(ymd)}&ai=1` : "?ai=1";
+      const res = await fetch(getApiUrl(`/api/admin/ops-daily-report${q}`));
+      const data = await res.json();
+      setPreview(data);
+      if (data?.report?.reportYmd) setReportYmd(data.report.reportYmd);
+    } catch {
+      setPreview(null);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPreview();
+  }, [loadPreview]);
+
+  const runReport = async (deliver: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch(getApiUrl("/api/admin/ops-daily-report/run"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: reportYmd || undefined,
+          deliver,
+          sendEmail: deliver,
+          sendTelegram: deliver,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        (window as any).showAppToast?.(data.error || "Échec rapport ops", "error");
+        return;
+      }
+      (window as any).showAppToast?.(
+        deliver
+          ? `Rapport ${data.reportYmd} envoyé (${data.incidentCount} incident(s))`
+          : `Rapport ${data.reportYmd} régénéré (${data.incidentCount} incident(s))`,
+        "success",
+      );
+      await loadPreview(data.reportYmd);
+    } catch {
+      (window as any).showAppToast?.("Erreur rapport ops", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const m = preview?.report?.metrics;
+  const incidents = preview?.report?.incidents || [];
+
+  return (
+    <div className="p-4 rounded-xl bg-slate-800 border border-slate-700 space-y-3 mb-4 text-white">
+      <div className="flex items-center gap-2 flex-wrap">
+        <FileBarChart className="w-4 h-4 text-emerald-400" />
+        <p className="text-xs font-black text-emerald-100">Rapport ops quotidien</p>
+        <input
+          type="date"
+          value={reportYmd}
+          onChange={(e) => setReportYmd(e.target.value)}
+          className="ml-auto text-[11px] bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white"
+        />
+      </div>
+      {m && (
+        <p className="text-[10px] text-slate-300 leading-relaxed">
+          {m.periodLabel} · {m.dossiersWithActivity} dossier(s) actifs · 🔴 {m.incidentsCritical} · 🟠{" "}
+          {m.incidentsWarning} · escalades ouvertes {m.openEscalationsEndOfDay}
+        </p>
+      )}
+      {preview?.report?.ai?.executiveSummary && (
+        <p className="text-[10px] text-emerald-200/90 leading-relaxed whitespace-pre-wrap border-t border-slate-600 pt-2">
+          {preview.report.ai.executiveSummary}
+        </p>
+      )}
+      {incidents.length > 0 && (
+        <ul className="text-[10px] text-slate-400 space-y-1 max-h-24 overflow-y-auto">
+          {incidents.slice(0, 5).map((inc: any) => (
+            <li key={inc.id}>
+              <span className="text-slate-200">{inc.dossierId}</span> — {inc.title}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => loadPreview(reportYmd || undefined)}
+          className="text-[10px] font-bold uppercase px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-50 flex items-center gap-1"
+        >
+          <RefreshCw className="w-3 h-3" /> Actualiser
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => runReport(false)}
+          className="text-[10px] font-bold uppercase px-3 py-2 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 disabled:opacity-50"
+        >
+          Régénérer
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => runReport(true)}
+          className="text-[10px] font-bold uppercase px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 flex items-center gap-1"
+        >
+          <Send className="w-3 h-3" /> Envoyer
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function AdminCamilleKnowledgePanel() {
