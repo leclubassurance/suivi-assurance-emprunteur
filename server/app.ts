@@ -1327,16 +1327,22 @@ export function createApp() {
     res.json({
       success: true,
       spreadsheetId,
+      spreadsheetUrl: spreadsheetId
+        ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
+        : null,
       spreadsheetIdNormalized:
-        configuredRaw && spreadsheetId && configuredRaw !== spreadsheetId
-          ? true
-          : configuredRaw
-            ? spreadsheetId === normalizeSpreadsheetId(configuredRaw)
-            : false,
+        configuredRaw && spreadsheetId ? configuredRaw !== spreadsheetId : false,
       registerTab: process.env.RGPD_SHEET_REGISTER || "Registre traitements",
       consentTab: process.env.RGPD_SHEET_CONSENTS || "Journal consentements",
       policyVersion: (await import("../shared/privacyConsent")).PRIVACY_POLICY_VERSION,
+      serviceAccountEmail: (await import("./serviceAccount")).getServiceAccountClientEmail(),
     });
+  });
+
+  app.get("/api/admin/rgpd/diagnose", async (_req, res) => {
+    const { diagnoseRgpdSpreadsheet } = await import("./rgpdGoogleSheets");
+    const diag = await diagnoseRgpdSpreadsheet();
+    res.json({ success: true, ...diag });
   });
 
   const rgpdSyncRegisterHandler = async (_req: express.Request, res: express.Response) => {

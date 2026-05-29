@@ -35,7 +35,14 @@ Ne collez pas les paramètres après `?` (ex. lien Drive `…/d/XXX?dmr=1…`) :
 ## Vérification
 
 - `GET /api/admin/rgpd/status` — ID configuré, version de la politique.
+- `GET /api/admin/rgpd/diagnose` — vérifie que l’ID est bien une **Google Sheet** (pas un dossier / Excel) et que le compte de service y accède.
 - `GET` ou `POST /api/admin/rgpd/sync-register` — force la mise à jour du registre (GET utilisable depuis le navigateur).
+
+### Erreur « Request contains an invalid argument »
+
+1. L’ID Railway doit venir de **`https://docs.google.com/spreadsheets/d/XXXX/edit`**, pas d’un lien Drive `…/open?id=…` ou `…/d/XXX?dmr=…`.
+2. Le fichier doit être une **Google Sheets native** (menu Fichier → Nouveau → Google Sheets), pas un `.xlsx` uploadé seul.
+3. Partager la feuille en **Éditeur** avec l’email du **compte de service** (`client_email` dans le JSON Railway).
 
 ## Côté dossier (Firestore / base)
 
