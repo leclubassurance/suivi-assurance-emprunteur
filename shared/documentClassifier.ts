@@ -18,12 +18,25 @@ export function classifyFileName(filename: string): DocumentCategory | null {
     n.includes("passeport") ||
     (n.includes("carte") && n.includes("identit")) ||
     n.includes("id_recto") ||
-    n.includes("id_verso")
+    n.includes("id_verso") ||
+    n.includes("recto") ||
+    n.includes("verso") ||
+    (n.includes("justificatif") && n.includes("ident")) ||
+    n.includes("titre de sejour") ||
+    n.includes("sejour")
   ) {
     return "cni";
   }
 
-  if (n.includes("rib") || n.includes("iban") || n.includes("releve identite bancaire")) {
+  if (
+    n.includes("rib") ||
+    n.includes("iban") ||
+    n.includes("releve identite bancaire") ||
+    n.includes("releve de compte") ||
+    n.includes("coordonnees bancaires") ||
+    n.includes("attestation bancaire") ||
+    (n.includes("bancaire") && !n.includes("pret") && !n.includes("credit") && !n.includes("emprunt"))
+  ) {
     return "rib";
   }
 

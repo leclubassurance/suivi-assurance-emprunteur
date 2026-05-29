@@ -37,7 +37,12 @@ export function enrichLoanDocSignal(
   meta?: { fileName?: string },
 ): LoanDocSignalShape {
   const expectedKind = expected;
-  const matchesExpected = base.ok && base.kind === expected;
+  const matchesExpected =
+    base.ok &&
+    (base.kind === expected ||
+      (expected === "offre" &&
+        base.kind === "tableau" &&
+        !(base.reasons || []).some((r) => /tableau d'amortissement seul/i.test(r))));
   const detectedLabel = KIND_LABELS[base.kind] || KIND_LABELS.unknown;
   const readLabel = textSourceLabel(base.textSource);
   const chars = base.extractedChars ?? 0;
@@ -58,7 +63,11 @@ export function enrichLoanDocSignal(
       expected === "offre"
         ? "Nous avons bien identifié votre offre de prêt ; Charles peut s'appuyer dessus pour l'étude."
         : "Nous avons bien identifié votre tableau d'amortissement ; Charles peut s'appuyer dessus pour l'étude.";
-  } else if (base.kind !== "unknown" && base.kind !== expected) {
+  } else if (
+    base.kind !== "unknown" &&
+    base.kind !== expected &&
+    !(expected === "offre" && matchesExpected)
+  ) {
     adminLabel = `À vérifier — ressemble à un ${KIND_LABELS[base.kind]}, pas à une ${KIND_LABELS[expected]}`;
     summary = `Le fichier reçu en « ${KIND_LABELS[expected]} » semble plutôt être un ${KIND_LABELS[base.kind]}.`;
     clientHint = `Pour avancer, merci de renvoyer le bon document : ${KIND_LABELS[expected]} en PDF depuis votre espace bancaire.`;

@@ -118,6 +118,19 @@ export function buildPostStudyClientAckMessage(dossier: any): string {
   return lines.join("\n");
 }
 
+export function messageRequestsMissingIdentityDocs(plain: string): boolean {
+  const lower = String(plain || "").toLowerCase();
+  const asks =
+    /(\bcni\b|carte d.identit|pi[eè]ce d.identit|passeport|\brib\b|iban|relev[eé] d.identit[eé] bancaire)/i.test(
+      lower,
+    );
+  const intent =
+    /(manque|envoy|transmet|transmettre|joindre|fournir|besoin|merci de|veuillez|attend)/i.test(
+      lower,
+    );
+  return asks && intent;
+}
+
 /** Détecte une demande de pièces prêt alors qu'elles sont déjà dans le dossier (sans problème certain). */
 export function messageRequestsMissingLoanDocs(plain: string): boolean {
   const lower = String(plain || "").toLowerCase();
@@ -255,6 +268,25 @@ export function sanitizeCamilleClientMessage(
     text = buildPostStudyClientAckMessage(dossier);
     text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
     return { text, blockedDocRequest: true };
+  }
+
+  if (hasStudyBeenSent(dossier) && messageRequestsMissingIdentityDocs(text)) {
+    const checklist = computeDocumentChecklistForDossier(dossier);
+    const cniOk = checklist.find((c) => c.key === "cni")?.ok;
+    const ribOk = checklist.find((c) => c.key === "rib")?.ok;
+    if (cniOk && ribOk) {
+      const prenom = String(a?.prenom || "").trim();
+      text = [
+        `Merci pour votre message${prenom ? `, ${prenom}` : ""}.`,
+        ``,
+        `Nous avons bien reçu votre pièce d'identité et votre RIB ; merci beaucoup.`,
+        `Charles et notre équipe poursuivent la mise en place de votre dossier et vous recontactent très prochainement.`,
+        ``,
+        `Pour toute précision, répondez simplement à ce mail.`,
+      ].join("\n");
+      text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
+      return { text, blockedDocRequest: true };
+    }
   }
 
   if (blockedDocRequest) {

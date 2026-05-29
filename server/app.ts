@@ -1707,9 +1707,17 @@ export function createApp() {
     const periodDays = Number(req.query.days || 7);
     const { computeActivityMetrics } = await import("./activityMetrics");
     let kpiBackfilled = 0;
+    const { refreshStudyKpiFromCommunications, getLoanCapitalFromDossier } = await import(
+      "./studyEmailKpi",
+    );
     for (const d of db.dossiers) {
-      if (!d.studyKpi?.extractedAt) {
-        const { refreshStudyKpiFromCommunications } = await import("./studyEmailKpi");
+      const kpi = d.studyKpi;
+      const loan = getLoanCapitalFromDossier(d);
+      const gross = Number(kpi?.grossSavingsEur) || 0;
+      const suspectKpi =
+        kpi?.confidence === "low" ||
+        (gross > 0 && loan > 0 && gross > loan * 1.2);
+      if (!kpi?.extractedAt || suspectKpi) {
         if (refreshStudyKpiFromCommunications(d)) kpiBackfilled += 1;
       }
     }
@@ -1781,6 +1789,18 @@ export function createApp() {
       reprocessed: reprocess,
       aiReplies,
     });
+  });
+
+  app.post("/api/admin/dossiers/:id/refresh-study-kpi", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    delete dossier.studyKpi;
+    const { refreshStudyKpiFromCommunications } = await import("./studyEmailKpi");
+    const ok = refreshStudyKpiFromCommunications(dossier);
+    if (ok) await writeDB(db, dossier);
+    res.json({ ok, studyKpi: dossier.studyKpi || null });
   });
 
   app.get("/api/admin/dossiers/:id/ai-audit", async (req, res) => {
@@ -1943,6 +1963,45 @@ export function createApp() {
       res.json({ success: true, checklist: computeDocumentChecklistForDossier(dossier) });
     } catch (err: any) {
       res.status(400).json({ error: err?.message || String(err) });
+    }
+  });
+
+  app.patch("/api/admin/dossiers/:id/documents/:docId", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const { id, docId } = req.params;
+      const category = String((req.body as any)?.category || "").trim().toLowerCase();
+      if (!category) return res.status(400).json({ error: "category requis" });
+
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      const doc = (dossier.formData?.documents || []).find(
+        (d: any) => String(d.id) === docId || String(d.name) === docId,
+      );
+      if (!doc) return res.status(404).json({ error: "Document introuvable" });
+
+      doc.category = category;
+      const { reanalyzeDossierLoanDocuments } = await import("./reanalyzeLoanDocuments");
+      await reanalyzeDossierLoanDocuments(dossier, UPLOADS_DIR);
+
+      dossier.updatedAt = new Date().toISOString();
+      addEvent(dossier, {
+        type: "NOTE_ADDED",
+        actor: { kind: "ADMIN", label: "Rémi" },
+        message: `Type du document « ${doc.name} » défini sur : ${category}`,
+      });
+      await writeDB(db, dossier);
+
+      const { computeDocumentChecklistForDossier } = await import("../shared/documentChecklist");
+      res.json({
+        success: true,
+        document: doc,
+        checklist: computeDocumentChecklistForDossier(dossier),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
     }
   });
 

@@ -300,6 +300,29 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleReclassifyDocument = async (docId: string, category: string) => {
+    if (!selectedDossier) return;
+    try {
+      const res = await fetch(
+        getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/documents/${encodeURIComponent(docId)}`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Impossible de reclasser le document", "error");
+        return;
+      }
+      showToast(`Type mis à jour : ${category}`, "success");
+      loadDossiers();
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
   const handleDeleteQuote = async () => {
     if (!selectedDossier) return;
     try {
@@ -987,12 +1010,16 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                           st === "ok" ? "OK" : st === "review" ? "À vérifier" : "MANQUANT";
                         const fileClass =
                           st === "review" ? "text-amber-900/90" : st === "ok" ? "text-emerald-800/90" : "text-slate-600";
+                        const canValidateManually =
+                          item.key === "cni" || item.key === "rib"
+                            ? st !== "ok" && !manualOk
+                            : (st === "review" || manualOk) && item.ok;
                         return (
                         <div key={item.key} className={`p-3 rounded-xl border ${boxClass}`}>
                           <div className="flex items-center justify-between gap-3 flex-wrap">
                             <div className="text-sm font-semibold text-slate-800">{item.label}</div>
                             <div className="flex items-center gap-2 shrink-0">
-                              {(st === "review" || manualOk) && item.ok && (
+                              {canValidateManually && (
                                 manualOk ? (
                                   <button
                                     type="button"
@@ -1024,10 +1051,50 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                           {st === "ok" && item.reviewHint && (
                             <p className="mt-1.5 text-[11px] text-emerald-800 leading-snug">{item.reviewHint}</p>
                           )}
-                          {item.ok && item.matchedFiles && item.matchedFiles.length > 0 && (
-                            <p className={`mt-1.5 text-[11px] truncate ${fileClass}`} title={item.matchedFiles.join(", ")}>
-                              Fichier : {item.matchedFiles.join(", ")}
-                            </p>
+                          {item.files && item.files.length > 0 ? (
+                            <ul className="mt-2 space-y-1.5">
+                              {item.files.map((f) => {
+                                const fSt = f.status;
+                                const fBadge =
+                                  fSt === "ok"
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : fSt === "review"
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "bg-slate-100 text-slate-600";
+                                return (
+                                  <li
+                                    key={f.docId}
+                                    className="text-[11px] rounded-lg border border-slate-200/80 bg-white/80 px-2.5 py-1.5"
+                                  >
+                                    <div className="flex justify-between gap-2 items-start">
+                                      <span className="font-medium text-slate-800 truncate" title={f.name}>
+                                        {f.name}
+                                      </span>
+                                      <span className={`shrink-0 text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${fBadge}`}>
+                                        {fSt === "ok" ? "OK" : fSt === "review" ? "À vérifier" : "—"}
+                                      </span>
+                                    </div>
+                                    {f.category && f.category !== item.key && (
+                                      <p className="text-[10px] text-slate-500 mt-0.5">Type : {f.category}</p>
+                                    )}
+                                    {f.reviewHint && (
+                                      <p className="text-[10px] text-amber-800 mt-0.5 leading-snug">{f.reviewHint}</p>
+                                    )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          ) : (
+                            item.ok &&
+                            item.matchedFiles &&
+                            item.matchedFiles.length > 0 && (
+                              <p
+                                className={`mt-1.5 text-[11px] truncate ${fileClass}`}
+                                title={item.matchedFiles.join(", ")}
+                              >
+                                Fichier : {item.matchedFiles.join(", ")}
+                              </p>
+                            )
                           )}
                         </div>
                         );
@@ -1403,6 +1470,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       >
                         <option value="auto">Type : détection auto</option>
                         <option value="offre">Offre de prêt</option>
+                        <option value="fiche">Fiche standardisée (FSI)</option>
                         <option value="tableau">Tableau d&apos;amortissement</option>
                         <option value="cni">Pièce d&apos;identité</option>
                         <option value="rib">RIB</option>
@@ -1445,11 +1513,28 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               </div>
                               <p className="text-xs text-slate-500">
                                 {(doc.size / 1024).toFixed(1)} KB
+                                {(doc as any).category ? ` · ${(doc as any).category}` : ""}
                                 {(doc as any).loanSignal?.ocrUsed ? " · OCR" : ""}
                                 {(doc as any).loanSignal?.textSource
                                   ? ` · ${(doc as any).loanSignal.textSource === "pdf_native" ? "PDF" : "OCR"}`
                                   : ""}
                               </p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <label className="text-[10px] font-bold text-slate-600">Type :</label>
+                                <select
+                                  className="text-[10px] border border-slate-200 rounded-md px-2 py-1 bg-white"
+                                  value={String((doc as any).category || "autre")}
+                                  onChange={(e) => handleReclassifyDocument(String(doc.id), e.target.value)}
+                                >
+                                  <option value="offre">Offre de prêt</option>
+                                  <option value="fiche">Fiche standardisée</option>
+                                  <option value="tableau">Tableau d&apos;amortissement</option>
+                                  <option value="cni">Pièce d&apos;identité</option>
+                                  <option value="rib">RIB</option>
+                                  <option value="devis">Devis</option>
+                                  <option value="autre">Autre</option>
+                                </select>
+                              </div>
                               {(doc as any).loanSignal?.summary && (
                                 <p
                                   className={`text-[11px] mt-1 leading-snug ${

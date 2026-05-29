@@ -12,12 +12,17 @@ import { hasStudyBeenSent } from "./dossierLifecycle";
 import { tryCamilleDocClarificationInsteadOfEscalation } from "./camilleDocAutoReply";
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
 import { getConversationTailForAi, hasUnansweredClientInbound } from "./gmailConversation";
+import { buildMultiDossierClientContext } from "./clientMultipleDossiers";
 
 export async function processIncomingClientEmail(
   dossier: any,
   emailText: string,
   clientEmail: string,
-  options?: { newAttachmentNames?: string[] },
+  options?: {
+    newAttachmentNames?: string[];
+    emailSubject?: string;
+    allDossiers?: any[];
+  },
 ) {
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
     console.warn("[AI] GEMINI_API_KEY manquante sur Railway — pas de réponse automatique.");
@@ -40,6 +45,15 @@ export async function processIncomingClientEmail(
         : "Aucune pièce jointe dans cet email";
     const conversationTail = getConversationTailForAi(dossier, 8);
     const needsReply = hasUnansweredClientInbound(dossier);
+    const multiDossier =
+      options?.allDossiers && options.allDossiers.length > 0
+        ? buildMultiDossierClientContext({
+            allDossiers: options.allDossiers,
+            dossier,
+            emailSubject: options.emailSubject,
+            emailBody: emailText,
+          })
+        : null;
 
     const response = await generateContentWithRetry({
       model: "gemini-2.5-flash",
@@ -91,6 +105,7 @@ Fil de conversation récent (ordre chronologique) :
 ${conversationTail}
 
 Message client sans réponse outbound après lui : ${needsReply ? "OUI — répondre maintenant" : "non"}
+${multiDossier?.promptBlock || ""}
 
 Email du client :
 """

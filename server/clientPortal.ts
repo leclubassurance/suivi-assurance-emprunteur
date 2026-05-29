@@ -133,22 +133,44 @@ export function buildClientPortalView(dossier: Dossier) {
     },
   ];
 
-  const documents = checklist
-    .filter((c) => c.key === "offre" || c.key === "amort" || c.key === "cni" || c.key === "rib")
-    .map((c) => {
-      const isLoanDoc = c.key === "offre" || c.key === "amort";
-      const loanFilePresent =
-        c.key === "offre" ? loan.offrePresent : c.key === "amort" ? loan.amortPresent : c.ok;
-      const received = isLoanDoc ? loanFilePresent : c.ok;
-      /** Ne demander au client que ce qui manque vraiment — pas un doute OCR (équipe valide en admin). */
-      const requiredNow = isLoanDoc && !studySent && !loanFilePresent;
-      return {
+  const documents: {
+    key: string;
+    label: string;
+    received: boolean;
+    requiredNow: boolean;
+  }[] = [];
+
+  for (const c of checklist.filter(
+    (x) => x.key === "offre" || x.key === "amort" || x.key === "cni" || x.key === "rib",
+  )) {
+    const isLoanDoc = c.key === "offre" || c.key === "amort";
+    const loanFilePresent =
+      c.key === "offre" ? loan.offrePresent : c.key === "amort" ? loan.amortPresent : c.ok;
+    const slotReceived = isLoanDoc ? loanFilePresent : c.ok;
+    const slotRequired = isLoanDoc && !studySent && !loanFilePresent;
+
+    const fileRows = c.files?.length ? c.files : [];
+    if (fileRows.length <= 1) {
+      documents.push({
         key: c.key,
         label: c.label,
+        received: slotReceived,
+        requiredNow: slotRequired,
+      });
+      continue;
+    }
+
+    for (let i = 0; i < fileRows.length; i++) {
+      const f = fileRows[i];
+      const received = f.status === "ok";
+      documents.push({
+        key: `${c.key}-${f.docId || i}`,
+        label: `${c.label} — ${f.name}`,
         received,
-        requiredNow,
-      };
-    });
+        requiredNow: slotRequired && !received,
+      });
+    }
+  }
 
   const tips: string[] = [];
   if (loan.needsResubmit && loan.docProb.certain) {

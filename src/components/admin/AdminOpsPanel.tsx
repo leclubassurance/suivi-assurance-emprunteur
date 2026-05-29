@@ -377,6 +377,12 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
   const [audit, setAudit] = useState<any[]>([]);
   const [showPortalPreview, setShowPortalPreview] = useState(false);
   const [resumingCamille, setResumingCamille] = useState(false);
+  const [refreshingKpi, setRefreshingKpi] = useState(false);
+  const [studyKpi, setStudyKpi] = useState<any>((dossier as any).studyKpi ?? null);
+
+  useEffect(() => {
+    setStudyKpi((dossier as any).studyKpi ?? null);
+  }, [dossier]);
 
   const reloadCamilleContext = useCallback(async () => {
     const [cRes, aRes] = await Promise.all([
@@ -409,6 +415,32 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
     return token
       ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
       : { "Content-Type": "application/json" };
+  };
+
+  const handleRefreshStudyKpi = async () => {
+    setRefreshingKpi(true);
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/refresh-study-kpi`), {
+        method: "POST",
+        headers: await authHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        showToast("Impossible de recalculer le KPI (mail d'étude introuvable ou HTML incomplet)", "error");
+        return;
+      }
+      setStudyKpi(data.studyKpi);
+      (dossier as any).studyKpi = data.studyKpi;
+      showToast(
+        `KPI mis à jour : ${data.studyKpi?.grossSavingsEur ?? 0} € économie brute`,
+        "success",
+      );
+      await reloadCamilleContext();
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setRefreshingKpi(false);
+    }
   };
 
   const handleResumeCamille = async () => {
@@ -450,17 +482,32 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
 
   if (!ctx) return <p className="text-xs text-slate-400">Chargement contexte Camille…</p>;
 
-  const sk = (dossier as any).studyKpi;
-
   return (
     <div className="space-y-4">
-      {sk && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950">
-          <p className="font-black mb-1">KPI mail d&apos;étude (Gmail)</p>
-          <p>Économie brute : <strong>{sk.grossSavingsEur} €</strong></p>
-          <p>Courtage : <strong>{sk.feesCourtageEur} €</strong> · Capital prêt : <strong>{sk.loanCapitalEur} €</strong></p>
+      <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950">
+        <div className="flex justify-between items-start gap-2 mb-1 flex-wrap">
+          <p className="font-black">KPI mail d&apos;étude (Gmail)</p>
+          <button
+            type="button"
+            disabled={refreshingKpi}
+            onClick={handleRefreshStudyKpi}
+            className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-800 text-white hover:bg-emerald-900 disabled:opacity-50"
+          >
+            {refreshingKpi ? "…" : "Recalculer"}
+          </button>
         </div>
-      )}
+        {studyKpi ? (
+          <>
+            <p>Économie brute : <strong>{studyKpi.grossSavingsEur} €</strong></p>
+            <p>Courtage : <strong>{studyKpi.feesCourtageEur} €</strong> · Capital prêt : <strong>{studyKpi.loanCapitalEur} €</strong></p>
+            {studyKpi.confidence && (
+              <p className="text-[10px] text-emerald-800 mt-1">Confiance extraction : {studyKpi.confidence}</p>
+            )}
+          </>
+        ) : (
+          <p className="text-emerald-800">Aucun KPI extrait — synchronisez Gmail ou envoyez l&apos;étude depuis ce dossier.</p>
+        )}
+      </div>
 
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
         <p className="text-xs font-black text-slate-800 mb-1">Page de suivi client (lien personnel)</p>
@@ -500,17 +547,15 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
       <div className="p-4 rounded-xl bg-violet-50 border border-violet-100">
         <div className="flex justify-between items-start gap-2 mb-2 flex-wrap">
           <p className="text-xs font-black text-violet-900">Ce que Camille sait</p>
-          {(ctx.camilleStaffUntil || ctx.lastClientMessage) && (
-            <button
-              type="button"
-              disabled={resumingCamille}
-              onClick={handleResumeCamille}
-              className="text-[10px] font-black uppercase tracking-wide px-3 py-1.5 rounded-lg bg-violet-700 text-white hover:bg-violet-800 disabled:opacity-50"
-              title="Réactive Camille et tente une réponse au dernier mail client"
-            >
-              {resumingCamille ? "En cours…" : "Réactiver Camille"}
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={resumingCamille}
+            onClick={handleResumeCamille}
+            className="text-[10px] font-black uppercase tracking-wide px-3 py-1.5 rounded-lg bg-violet-700 text-white hover:bg-violet-800 disabled:opacity-50"
+            title="Réactive les réponses automatiques et relance le traitement du dernier mail client (si présent)"
+          >
+            {resumingCamille ? "En cours…" : "Réactiver Camille"}
+          </button>
         </div>
         {ctx.camilleStaffUntil && new Date(ctx.camilleStaffUntil) > new Date() && (
           <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">

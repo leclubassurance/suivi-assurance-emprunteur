@@ -70,7 +70,10 @@ export function classifyLoanDocText(
 
   if (expected === "offre") {
     if (offerHits.length < 1) reasons.push("Mots-clés 'offre de prêt' non détectés");
-    if (tableHits.length >= 2) reasons.push("Ressemble plutôt à un tableau d'amortissement");
+    // Une offre de prêt contient souvent un tableau d'amortissement en annexe — ne pas rejeter.
+    if (tableHits.length >= 2 && offerHits.length === 0) {
+      reasons.push("Ressemble plutôt à un tableau d'amortissement seul");
+    }
   } else {
     if (tableHits.length < 1) reasons.push("Mots-clés 'tableau d'amortissement' non détectés");
   }
@@ -172,13 +175,28 @@ export async function analyzeLoanPdf(
     }
   }
 
-  // Type détecté vs catégorie attendue
+  // Type détecté vs catégorie attendue (offre avec tableau intégré = offre valide)
   if (classified.kind !== "unknown" && classified.kind !== expected) {
     if (expected === "offre" && classified.kind === "tableau") {
-      if (!classified.reasons.some((r) => /tableau d'amortissement/i.test(r))) {
-        classified.reasons.push("Ressemble plutôt à un tableau d'amortissement");
+      const offerWords = [
+        "offre de pret",
+        "conditions particulieres",
+        "taux nominal",
+        "taeg",
+        "frais de dossier",
+        "fiche standardisee",
+      ];
+      const offerHits = findKeywords(text, offerWords);
+      if (offerHits.length >= 1) {
+        classified.kind = "offre";
+        classified.reasons = classified.reasons.filter(
+          (r) => !/Ressemble plutôt à un tableau/i.test(r),
+        );
+        classified.ok = classified.reasons.length === 0;
+      } else if (!classified.reasons.some((r) => /tableau d'amortissement/i.test(r))) {
+        classified.reasons.push("Ressemble plutôt à un tableau d'amortissement seul");
+        classified.ok = false;
       }
-      classified.ok = false;
     }
   }
 

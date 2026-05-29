@@ -3,7 +3,8 @@
 import { normalizeDocumentForPersistence } from "./documentStoragePolicy";
 
 const MAX_COMM_TEXT = 3500;
-const MAX_COMM_HTML = 1500;
+/** Études HTML (~8 ko) : tronquer trop tôt casse l'extraction KPI (bloc 36px + frais). */
+const MAX_COMM_HTML = 12_000;
 const MAX_COMMS = 35;
 const MAX_EVENTS = 60;
 const MAX_GMAIL_IDS = 250;

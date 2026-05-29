@@ -5,7 +5,6 @@ export type StudyKpiRecord = {
   grossSavingsEur: number;
   feesCourtageEur: number;
   feesAssureurEur?: number;
-  loanCapitalEur: number;
   scenario?: "A" | "B" | "C";
   confidence: "high" | "medium" | "low";
   source: "gmail_outbound";
@@ -17,18 +16,37 @@ export type StudyKpiRecord = {
 const STUDY_SUBJECT_RE =
   /\b(étude|etude)(\s+personnalisée|\s+personnalisee)?\b|économies|economies|économiser|economiser|assurance emprunteur/i;
 
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  eacute: "é",
+  Eacute: "É",
+  egrave: "è",
+  agrave: "à",
+  ucirc: "û",
+  icirc: "î",
+  ocirc: "ô",
+  ccedil: "ç",
+  euro: "€",
+};
+
+function decodeHtmlEntities(s: string): string {
+  return String(s || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&([a-zA-Z]+);/g, (_, name) => NAMED_HTML_ENTITIES[name] ?? `&${name};`)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 function stripHtml(html: string): string {
-  return String(html || "")
+  return decodeHtmlEntities(String(html || ""))
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function parseEuroToken(raw: string): number | null {
+export function parseEuroToken(raw: string): number | null {
   const s = String(raw || "")
     .replace(/\u00a0/g, " ")
     .replace(/[^\d,.\s]/g, "")
@@ -42,12 +60,84 @@ function parseEuroToken(raw: string): number | null {
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
 }
 
-function firstAmountAfter(labelRe: RegExp, blob: string): number | null {
+function firstAmountAfter(labelRe: RegExp, blob: string, windowChars = 140): number | null {
   const m = blob.match(labelRe);
   if (!m || m.index == null) return null;
-  const tail = blob.slice(m.index + m[0].length, m.index + m[0].length + 120);
+  const tail = blob.slice(m.index + m[0].length, m.index + m[0].length + windowChars);
   const amt = tail.match(/(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/);
   return amt ? parseEuroToken(amt[1]) : null;
+}
+
+/** Montant affiché en grand (bloc bleu) — source la plus fiable. */
+function extractGrossFromHeroHtml(rawHtml: string): number | null {
+  const html = decodeHtmlEntities(rawHtml);
+  const hero = html.match(
+    /font-size:\s*36px[\s\S]{0,220}?>([^<]+)</i,
+  );
+  if (hero?.[1]) {
+    const n = parseEuroToken(hero[1]);
+    if (n != null) return n;
+  }
+  const afterLabel = html.match(
+    /[ÉE]conomie brute estim[ée]e[\s\S]{0,500}?font-size:\s*36px[\s\S]{0,120}?>([^<]+)</i,
+  );
+  if (afterLabel?.[1]) {
+    const n = parseEuroToken(afterLabel[1]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/** Ligne de tableau « Économie brute » (pas « Assurance actuelle »). */
+function extractGrossFromStudyTableHtml(rawHtml: string): number | null {
+  const html = decodeHtmlEntities(rawHtml);
+  const row = html.match(
+    /<td[^>]*>\s*[ÉE]conomie brute\s*<\/td>\s*<td[^>]*>\s*([^<]+)\s*<\/td>/i,
+  );
+  if (row?.[1]) {
+    const n = parseEuroToken(row[1]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+function extractGrossFromTextBlob(blob: string): number | null {
+  const fromEstimee = firstAmountAfter(/[ée]conomie brute estim[ée]e/i, blob, 100);
+  if (fromEstimee != null) return fromEstimee;
+
+  const rowMatch = blob.match(
+    /[ée]conomie brute\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+  );
+  if (rowMatch?.[1]) {
+    const idx = rowMatch.index ?? 0;
+    const before = blob.slice(Math.max(0, idx - 40), idx).toLowerCase();
+    if (!/actuelle|nouvelle assurance/.test(before)) {
+      const n = parseEuroToken(rowMatch[1]);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
+
+function extractFeesCourtageFromHtml(rawHtml: string, blob: string): number | null {
+  const html = decodeHtmlEntities(rawHtml);
+  const patterns = [
+    /Frais de courtage\s*:?\s*<\/span>\s*<span[^>]*>([^<]+)</i,
+    /Frais de courtage[\s\S]{0,80}?<span[^>]*>([^<]+€[^<]*)</i,
+    /Frais de courtage[\s\S]{0,120}?(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+  ];
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m?.[1]) {
+      const n = parseEuroToken(m[1]);
+      if (n != null && !/_{2,}|___/.test(m[1])) return n;
+    }
+  }
+  return (
+    firstAmountAfter(/frais de courtage/i, blob) ??
+    firstAmountAfter(/frais courtage/i, blob) ??
+    null
+  );
 }
 
 export function getLoanCapitalFromDossier(dossier: Dossier | any): number {
@@ -94,32 +184,39 @@ export function parseStudyEconomyFromEmailHtml(
     };
   }
 
-  let gross =
-    firstAmountAfter(/économie brute estimée/i, blob) ??
-    firstAmountAfter(/économie brute/i, blob) ??
-    firstAmountAfter(/ECONOMIE GENEREE/i, blob);
+  let gross: number | null = null;
+  let grossSource: "hero" | "table" | "text" | null = null;
 
-  const htmlGross = rawHtml.match(
-    /Économie brute[\s\S]{0,400}?font-size:\s*36px[\s\S]{0,80}?>([^<]+)</i,
-  );
-  if (htmlGross?.[1]) {
-    const fromHtml = parseEuroToken(htmlGross[1]);
-    if (fromHtml != null) gross = fromHtml;
+  if (rawHtml.length > 0) {
+    gross = extractGrossFromHeroHtml(rawHtml);
+    if (gross != null) grossSource = "hero";
+    if (gross == null) {
+      gross = extractGrossFromStudyTableHtml(rawHtml);
+      if (gross != null) grossSource = "table";
+    }
   }
 
-  let feesCourtage: number | null = null;
-  const courtageHtml = rawHtml.match(
-    /Frais de courtage\s*:?\s*<\/span>\s*<span[^>]*>([^<]+)</i,
-  );
-  if (courtageHtml?.[1]) {
-    feesCourtage = parseEuroToken(courtageHtml[1]);
+  if (gross == null) {
+    gross = extractGrossFromTextBlob(blob);
+    if (gross != null) grossSource = "text";
   }
-  if (feesCourtage == null) {
-    const courtageRow = rawHtml.match(
-      /Frais de courtage[\s\S]{0,120}?(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
-    );
-    if (courtageRow?.[1]) feesCourtage = parseEuroToken(courtageRow[1]);
+
+  const insuranceTotal =
+    firstAmountAfter(/assurance actuelle/i, blob, 80) ??
+    firstAmountAfter(/assurance actuelle \(durée restante\)/i, blob, 80);
+  if (
+    gross != null &&
+    insuranceTotal != null &&
+    Math.abs(gross - insuranceTotal) < 0.02 &&
+    grossSource !== "hero"
+  ) {
+    gross = extractGrossFromTextBlob(blob.replace(/assurance actuelle[\s\S]{0,120}?\d[\d\s,.]*€/i, " "));
+    if (gross == null || Math.abs(gross - insuranceTotal) < 0.02) {
+      gross = null;
+    }
   }
+
+  let feesCourtage = rawHtml.length > 0 ? extractFeesCourtageFromHtml(rawHtml, blob) : null;
   if (feesCourtage == null) {
     feesCourtage =
       firstAmountAfter(/frais de courtage/i, blob) ??
@@ -137,7 +234,13 @@ export function parseStudyEconomyFromEmailHtml(
   else if ((gross ?? 0) < 500) scenario = "B";
 
   const confidence: "high" | "medium" | "low" =
-    gross != null && gross > 0 ? "high" : gross === 0 && scenario === "C" ? "high" : "medium";
+    gross != null && gross > 0 && grossSource === "hero"
+      ? "high"
+      : gross != null && gross > 0
+        ? "medium"
+        : gross === 0 && scenario === "C"
+          ? "high"
+          : "low";
 
   return {
     grossSavingsEur: gross ?? 0,
@@ -147,6 +250,18 @@ export function parseStudyEconomyFromEmailHtml(
     confidence,
     subject,
   };
+}
+
+function isBetterKpi(
+  next: Omit<StudyKpiRecord, "gmailId" | "extractedAt" | "source" | "loanCapitalEur">,
+  prev: StudyKpiRecord | undefined,
+): boolean {
+  if (!prev) return true;
+  const rank = { high: 3, medium: 2, low: 1 };
+  if ((rank[next.confidence] || 0) > (rank[prev.confidence] || 0)) return true;
+  if ((rank[next.confidence] || 0) < (rank[prev.confidence] || 0)) return false;
+  if (next.grossSavingsEur > 0 && prev.grossSavingsEur <= 0) return true;
+  return false;
 }
 
 export function applyStudyKpiFromGmailOutbound(
@@ -168,8 +283,17 @@ export function applyStudyKpiFromGmailOutbound(
   if (!parsed) return false;
 
   const prev = dossier.studyKpi as StudyKpiRecord | undefined;
-  if (prev?.gmailId === params.gmailId) return true;
-  if (prev?.extractedAt && new Date(params.date).getTime() < new Date(prev.extractedAt).getTime()) {
+  if (prev?.gmailId === params.gmailId && prev && !isBetterKpi(parsed, prev)) {
+    return true;
+  }
+  if (
+    prev?.extractedAt &&
+    prev.gmailId !== params.gmailId &&
+    new Date(params.date).getTime() < new Date(prev.extractedAt).getTime()
+  ) {
+    return false;
+  }
+  if (prev && prev.gmailId !== params.gmailId && !isBetterKpi(parsed, prev)) {
     return false;
   }
 
@@ -186,7 +310,7 @@ export function applyStudyKpiFromGmailOutbound(
   addEvent(dossier, {
     type: "NOTE_ADDED",
     actor: { kind: "SYSTEM" },
-    message: `KPI étude extraits du mail Gmail (${parsed.grossSavingsEur} € économie brute).`,
+    message: `KPI étude extraits du mail Gmail (${parsed.grossSavingsEur} € économie brute, confiance ${parsed.confidence}).`,
     meta: {
       template: "STUDY_KPI_EXTRACTED",
       gmailId: params.gmailId,
@@ -210,10 +334,11 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
   for (const c of comms) {
     const html = String(c.html || "");
     const text = String(c.text || "");
+    const body = html.length >= text.length ? html : text;
     if (
       applyStudyKpiFromGmailOutbound(dossier, {
         subject: String(c.subject || ""),
-        html,
+        html: body,
         text,
         gmailId: String(c.gmailId || c.id || ""),
         date: String(c.date || dossier.updatedAt),

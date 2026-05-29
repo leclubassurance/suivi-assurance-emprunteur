@@ -11,6 +11,14 @@ export { getAdminChecklistOverrides, applyAdminChecklistOverrides } from "./admi
 
 export type ChecklistDocStatus = "missing" | "review" | "ok";
 
+export type ChecklistFileRow = {
+  docId: string;
+  name: string;
+  category: string;
+  status: ChecklistDocStatus;
+  reviewHint?: string;
+};
+
 export type ChecklistItem = {
   key: string;
   label: string;
@@ -18,6 +26,8 @@ export type ChecklistItem = {
   ok: boolean;
   status: ChecklistDocStatus;
   matchedFiles?: string[];
+  /** Détail par fichier (admin / portail étendu) */
+  files?: ChecklistFileRow[];
   reviewHint?: string;
 };
 
@@ -40,7 +50,96 @@ function getCategory(d: any): string | null {
   return inferDocumentCategory(d);
 }
 
-function enrichDocuments(documents: any[] = []) {
+function loanDocsSatisfied(enriched: any[]): boolean {
+  const hasOffre = enriched.some((d) => {
+    const c = getCategory(d);
+    return c === "offre" || c === "fiche" || docId(d).startsWith("offre-") || docId(d).startsWith("fiche-");
+  });
+  const hasTableau = enriched.some(
+    (d) => getCategory(d) === "tableau" || docId(d).startsWith("tableau-"),
+  );
+  return hasOffre && hasTableau;
+}
+
+/** Après étude : offre + tableau OK → les PJ Gmail sans nom explicite sont souvent CNI + RIB. */
+function enrichPostStudyIdentitySlots(enriched: any[]): any[] {
+  if (!loanDocsSatisfied(enriched)) return enriched;
+
+  const hasCni = enriched.some((d) => getCategory(d) === "cni");
+  const hasRib = enriched.some((d) => getCategory(d) === "rib");
+  if (hasCni && hasRib) return enriched;
+
+  let unknown = enriched.filter((d) => !getCategory(d));
+  if (unknown.length === 0) return enriched;
+
+  const assignCategory = (doc: any, category: "cni" | "rib") => {
+    enriched = enriched.map((d) =>
+      d.id === doc.id && d.name === doc.name ? { ...d, category } : d,
+    );
+    unknown = unknown.filter((u) => u.id !== doc.id || u.name !== doc.name);
+  };
+
+  for (const doc of [...unknown]) {
+    const guess = classifyFileName(doc.name || "");
+    if (guess === "cni" && !hasCni && !enriched.some((d) => getCategory(d) === "cni")) {
+      assignCategory(doc, "cni");
+    } else if (guess === "rib" && !hasRib && !enriched.some((d) => getCategory(d) === "rib")) {
+      assignCategory(doc, "rib");
+    }
+  }
+
+  const stillUnknown = enriched.filter((d) => !getCategory(d));
+  const stillNeedsCni = !enriched.some((d) => getCategory(d) === "cni");
+  const stillNeedsRib = !enriched.some((d) => getCategory(d) === "rib");
+
+  const isImageLike = (doc: any) => {
+    const name = docName(doc);
+    const type = String(doc?.type || "").toLowerCase();
+    return (
+      /\.(jpe?g|png|heic|webp|tif|tiff)$/i.test(name) ||
+      type.startsWith("image/") ||
+      /^img[_-]|^scan[_-]|^photo[_-]|^image[_-]/i.test(name)
+    );
+  };
+
+  if (stillNeedsCni && stillUnknown.length > 0) {
+    const pick =
+      stillUnknown.find((d) => classifyFileName(d.name || "") === "cni") ||
+      stillUnknown.find(isImageLike) ||
+      stillUnknown[0];
+    if (pick) assignCategory(pick, "cni");
+  }
+
+  const afterCni = enriched.filter((d) => !getCategory(d));
+  if (stillNeedsRib && afterCni.length > 0) {
+    const pick =
+      afterCni.find((d) => classifyFileName(d.name || "") === "rib") ||
+      afterCni.find((d) => !isImageLike(d)) ||
+      afterCni[0];
+    if (pick) assignCategory(pick, "rib");
+  }
+
+  return enriched;
+}
+
+function isStudyLikelySent(dossier: { status?: string; studyKpi?: { extractedAt?: string }; communications?: any[] }): boolean {
+  if (dossier?.studyKpi?.extractedAt) return true;
+  const st = String(dossier?.status || "").toUpperCase();
+  if (["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(st)) return true;
+  for (const c of dossier?.communications || []) {
+    if (c?.direction !== "outbound") continue;
+    const blob = `${c.subject || ""} ${c.text || ""}`.toLowerCase();
+    if (
+      /charles victor|club immobilier/.test(blob) &&
+      /économie|economie|étude|etude|optimisée|optimisee/.test(blob)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function enrichDocuments(documents: any[] = [], options?: { studySent?: boolean }) {
   let enriched = documents.map((d) => {
     const category = inferDocumentCategory(d);
     return category ? { ...d, category } : { ...d };
@@ -85,15 +184,19 @@ function enrichDocuments(documents: any[] = []) {
     }
   }
 
+  if (options?.studySent) {
+    enriched = enrichPostStudyIdentitySlots(enriched);
+  }
+
   return enriched;
 }
 
 /** Checklist basée sur id/catégorie/nom de fichier (formulaire + Gmail). */
 export function computeDocumentChecklist(
   documents: any[] = [],
-  options?: { adminOverrides?: Record<string, AdminChecklistOverride> },
+  options?: { adminOverrides?: Record<string, AdminChecklistOverride>; studySent?: boolean },
 ): ChecklistItem[] {
-  const docs = enrichDocuments(documents);
+  const docs = enrichDocuments(documents, { studySent: options?.studySent });
 
   const matched: Record<string, string[]> = { cni: [], rib: [], offre: [], amort: [] };
 
@@ -108,7 +211,6 @@ export function computeDocumentChecklist(
     }
 
     if (category === "fiche") {
-      matched.offre.push(name);
       continue;
     }
 
@@ -126,8 +228,10 @@ export function computeDocumentChecklist(
     if (n.includes("rib") || n.includes("iban") || id.startsWith("rib-")) {
       matched.rib.push(name);
     }
-    if (id.startsWith("offre-") || id.startsWith("fiche-")) {
+    if (id.startsWith("offre-")) {
       matched.offre.push(name);
+    } else if (id.startsWith("fiche-")) {
+      // fiche gérée à part (ne compte pas comme offre si une vraie offre existe)
     } else if (id.startsWith("tableau-")) {
       matched.amort.push(name);
     } else {
@@ -150,6 +254,15 @@ export function computeDocumentChecklist(
     }
   }
 
+  const offreDocNames = docs
+    .filter((d) => getCategory(d) === "offre")
+    .map((d) => String(d.name || d.id || "document"));
+  const ficheDocNames = docs
+    .filter((d) => getCategory(d) === "fiche")
+    .map((d) => String(d.name || d.id || "document"));
+  const hasRealOffre = offreDocNames.length > 0;
+  const offreMatched = hasRealOffre ? offreDocNames : ficheDocNames;
+
   const base: ChecklistItem[] = [
     {
       key: "cni",
@@ -168,9 +281,13 @@ export function computeDocumentChecklist(
     {
       key: "offre",
       label: "Offre de prêt",
-      ok: matched.offre.length > 0,
-      status: matched.offre.length > 0 ? "ok" : "missing",
-      matchedFiles: matched.offre,
+      ok: offreMatched.length > 0,
+      status: offreMatched.length > 0 ? "ok" : "missing",
+      matchedFiles: offreMatched,
+      reviewHint:
+        !hasRealOffre && ficheDocNames.length > 0
+          ? "Fiche standardisée reçue — en attente de l'offre de prêt complète (PDF banque)"
+          : undefined,
     },
     {
       key: "amort",
@@ -181,7 +298,8 @@ export function computeDocumentChecklist(
     },
   ];
 
-  const reviewed = applyChecklistReviewStatus(base, docs);
+  let reviewed = applyChecklistReviewStatus(base, docs);
+  reviewed = attachPerFileRows(reviewed, docs);
   if (options?.adminOverrides && Object.keys(options.adminOverrides).length > 0) {
     return applyAdminChecklistOverrides(reviewed, options.adminOverrides);
   }
@@ -192,9 +310,13 @@ export function computeDocumentChecklist(
 export function computeDocumentChecklistForDossier(dossier: {
   formData?: { documents?: any[] };
   adminChecklistOverrides?: Record<string, AdminChecklistOverride>;
+  status?: string;
+  studyKpi?: { extractedAt?: string };
+  communications?: any[];
 }): ChecklistItem[] {
   return computeDocumentChecklist(dossier?.formData?.documents || [], {
     adminOverrides: getAdminChecklistOverrides(dossier),
+    studySent: isStudyLikelySent(dossier),
   });
 }
 
@@ -214,9 +336,92 @@ function reviewHintForProblem(kind: string): string {
 }
 
 function loanDocsForCategory(documents: any[], loanCat: "offre" | "tableau") {
+  const hasRealOffre = documents.some((d) => inferDocumentCategory(d) === "offre");
   return documents.filter((d) => {
     const c = inferDocumentCategory(d);
-    return c === loanCat || (loanCat === "offre" && c === "fiche");
+    if (loanCat === "offre") {
+      if (c === "offre") return true;
+      if (c === "fiche" && !hasRealOffre) return true;
+      return false;
+    }
+    return c === loanCat;
+  });
+}
+
+function fileStatusFromDoc(doc: any, slot: "offre" | "tableau" | "cni" | "rib"): ChecklistDocStatus {
+  const cat = inferDocumentCategory(doc) || "autre";
+  if (slot === "offre" || slot === "amort") {
+    const sig = doc?.loanSignal;
+    if (sig?.ok && sig?.matchesExpected !== false) return "ok";
+    if (sig && (sig.ok === false || sig.matchesExpected === false)) return "review";
+    if (doc?.quality?.ok === false) return "review";
+    return "ok";
+  }
+  if (cat === slot) return doc?.quality?.ok === false ? "review" : "ok";
+  return "review";
+}
+
+function fileReviewHint(doc: any, slot: "offre" | "tableau" | "cni" | "rib"): string | undefined {
+  if (slot === "offre" || slot === "amort") {
+    return doc?.loanSignal?.adminLabel || doc?.loanSignal?.summary || undefined;
+  }
+  if (doc?.quality?.ok === false) return "Qualité du fichier à vérifier";
+  return undefined;
+}
+
+function slotDocumentsForKey(documents: any[], key: string): any[] {
+  if (key === "cni") return documents.filter((d) => inferDocumentCategory(d) === "cni");
+  if (key === "rib") return documents.filter((d) => inferDocumentCategory(d) === "rib");
+  if (key === "amort") {
+    return documents.filter(
+      (d) => inferDocumentCategory(d) === "tableau" || docId(d).startsWith("tableau-"),
+    );
+  }
+  if (key === "offre") {
+    const offre = documents.filter((d) => inferDocumentCategory(d) === "offre");
+    const fiche = documents.filter((d) => inferDocumentCategory(d) === "fiche");
+    return offre.length > 0 ? [...offre, ...fiche] : [...fiche, ...offre];
+  }
+  return [];
+}
+
+function attachPerFileRows(items: ChecklistItem[], documents: any[]): ChecklistItem[] {
+  return items.map((item) => {
+    const slotDocs = slotDocumentsForKey(documents, item.key);
+    if (slotDocs.length === 0) return item;
+
+    const slot = item.key === "amort" ? "tableau" : item.key;
+    const files: ChecklistFileRow[] = slotDocs.map((d) => {
+      const cat = String(inferDocumentCategory(d) || d.category || "autre");
+      const st = fileStatusFromDoc(d, slot as "offre" | "tableau" | "cni" | "rib");
+      return {
+        docId: String(d.id || d.name || ""),
+        name: String(d.name || d.id || "document"),
+        category: cat,
+        status: st,
+        reviewHint:
+          cat === "fiche"
+            ? "Fiche standardisée d'information (complément, pas l'offre de prêt seule)"
+            : fileReviewHint(d, slot as "offre" | "tableau" | "cni" | "rib"),
+      };
+    });
+
+    const anyOk = files.some((f) => f.status === "ok");
+    const anyReview = files.some((f) => f.status === "review");
+    let status = item.status;
+    let ok = item.ok;
+    if (item.key === "offre" || item.key === "amort") {
+      ok = anyOk;
+      status = !anyOk && files.length > 0 ? "review" : anyReview && !anyOk ? "review" : anyOk ? "ok" : "missing";
+    }
+
+    return {
+      ...item,
+      ok,
+      status,
+      files,
+      matchedFiles: files.map((f) => f.name),
+    };
   });
 }
 

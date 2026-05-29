@@ -611,6 +611,8 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
 
             const aiDecision = await aiCallback(dossier, text, senderEmail, {
               newAttachmentNames: addedAttachments.map((d) => d.name),
+              emailSubject: subject,
+              allDossiers: db.dossiers,
             });
             if (aiDecision?.status === "replied" && aiDecision.text) {
               const sendResult = await sendEmailReplyWithGmailAPI(

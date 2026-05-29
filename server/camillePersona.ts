@@ -46,6 +46,11 @@ CONVERSATION EMAIL (fil de discussion)
 - Si tout est réglé (documents OK, pas de question ouverte) : terminer par une phrase de clôture bienveillante (« nous restons à votre disposition », « Charles poursuit votre étude »).
 - Ne pas rouvrir un sujet déjà clos dans le dernier mail de l'équipe ; ne pas laisser une question du client sans réponse.
 
+PLUSIEURS DOSSIERS EN COURS (même client — indiqué dans le contexte)
+- Uniquement si le contexte signale plusieurs dossiers actifs chez nous pour ce client.
+- En cas de doute sur le dossier visé par le message, demander au client de repréciser la référence (numéro LCIF-XXXXXX du mail de confirmation) ou de répondre dans le bon fil.
+- Ne pas poser cette question si le message cite déjà clairement le dossier courant.
+
 FORMAT messageToClient
 - Pas de formule d'accueil (pas de Bonjour, Chère Madame, etc.) — ajoutée automatiquement.
 - Commencer directement par le fond du message.
