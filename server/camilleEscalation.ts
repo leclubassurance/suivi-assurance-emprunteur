@@ -40,7 +40,7 @@ export function getAiEscalationEmail(): string | null {
   return raw && raw.includes("@") ? raw : null;
 }
 
-function getEscalationState(dossier: Dossier): CamilleEscalationState | null {
+export function getEscalationState(dossier: Dossier): CamilleEscalationState | null {
   const s = dossier.camilleEscalation;
   return s && typeof s === "object" ? (s as CamilleEscalationState) : null;
 }

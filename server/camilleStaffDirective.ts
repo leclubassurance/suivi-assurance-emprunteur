@@ -2,7 +2,7 @@ import { addEvent, type Dossier } from "./dossierModel";
 import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
 import { sanitizeCamilleClientMessage } from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
-import { acknowledgeStaffOutboundToClient } from "./camilleStaffHandoff";
+import { acknowledgeStaffOutboundToClient, resumeCamilleForDossier } from "./camilleStaffHandoff";
 import { logAiAudit } from "./aiAuditLog";
 
 export type StaffDirectiveResult = {
@@ -12,13 +12,20 @@ export type StaffDirectiveResult = {
   error?: string;
 };
 
-const DIRECTIVE_PROMPT = `
+function buildDirectivePrompt(options?: {
+  staffAuthorizesInsurerName?: boolean;
+}) {
+  const insurerRule = options?.staffAuthorizesInsurerName
+    ? `- Ne nommer un assureur / compagnie QUE si la consigne équipe l'autorise explicitement — alors s'appuyer UNIQUEMENT sur le bloc « Connaissance dossier » (devis PDF), sans inventer.`
+    : `- Ne jamais nommer d'assureur ni de téléphone.`;
+
+  return `
 Tu es Camille (Le Club Immobilier Français). Un conseiller interne (Rémi/Charles) t'envoie une CONSIGNE en français pour ce dossier.
 Tu dois produire le mail à envoyer au client, ou indiquer qu'aucun mail n'est nécessaire.
 
 Règles mail client:
 - Vouvoiement, 5 à 14 lignes, bienveillant, professionnel.
-- Ne jamais nommer d'assureur ni de téléphone.
+${insurerRule}
 - Ne jamais dire "document illisible/mauvais".
 - Si la consigne demande de demander des PDF banque: uniquement si offre/tableau pas déjà présents (voir contexte).
 - NE JAMAIS demander CNI/RIB sauf si l'étude économiques a déjà été envoyée au client (voir contexte).
@@ -33,11 +40,16 @@ JSON uniquement:
   "telegramSummary": "1 phrase pour confirmer à l'équipe ce qui a été fait"
 }
 `;
+}
 
 export async function executeCamilleStaffDirective(
   dossier: Dossier,
   instruction: string,
-  options?: { channel?: string },
+  options?: {
+    channel?: string;
+    dossierKnowledge?: string;
+    staffAuthorizesInsurerName?: boolean;
+  },
 ): Promise<StaffDirectiveResult> {
   const text = String(instruction || "").trim();
   if (!text) {
@@ -55,12 +67,16 @@ export async function executeCamilleStaffDirective(
   }
 
   const ctx = buildCamilleContextBlock(dossier, []);
+  const isEscalationEmail = options?.channel === "escalation_email";
+  const directivePrompt = buildDirectivePrompt({
+    staffAuthorizesInsurerName: options?.staffAuthorizesInsurerName,
+  });
 
   try {
     const response = await generateContentWithRetry({
       model: "gemini-2.5-flash",
       contents: [
-        { role: "user", parts: [{ text: DIRECTIVE_PROMPT }] },
+        { role: "user", parts: [{ text: directivePrompt }] },
         {
           role: "user",
           parts: [
@@ -78,6 +94,9 @@ ${ctx.documentAnalysisReport || "—"}
 certainDocProblems: ${ctx.certainDocProblems}
 loanDocsOk: ${ctx.loanDocsOk}
 staffActivelyHandling: ${Boolean(dossier.camilleStaffHandledUntil)}
+
+Connaissance dossier (devis, étude, question client — source de vérité si la consigne autorise une réponse factuelle):
+${options?.dossierKnowledge || "—"}
 
 Consigne équipe:
 """
@@ -101,10 +120,14 @@ ${text.slice(0, 4000)}
     const summary = String(decision.telegramSummary || "").trim() || "Consigne traitée.";
 
     if (action === "NO_EMAIL") {
-      acknowledgeStaffOutboundToClient(dossier, { source: options?.channel || "staff_directive" });
+      if (!isEscalationEmail) {
+        acknowledgeStaffOutboundToClient(dossier, { source: options?.channel || "staff_directive" });
+      } else {
+        resumeCamilleForDossier(dossier, "escalation_email_no_send");
+      }
       addEvent(dossier, {
         type: "AI_DECISION",
-        actor: { kind: "ADMIN", label: "Rémi (Telegram)" },
+        actor: { kind: "ADMIN", label: isEscalationEmail ? "Rémi (email)" : "Rémi (Telegram)" },
         message: `Consigne sans envoi client: ${text.slice(0, 120)}`,
         meta: { channel: options?.channel },
       });
@@ -141,11 +164,17 @@ ${text.slice(0, 4000)}
       };
     }
 
-    acknowledgeStaffOutboundToClient(dossier, { source: options?.channel || "staff_directive" });
+    if (!isEscalationEmail) {
+      acknowledgeStaffOutboundToClient(dossier, { source: options?.channel || "staff_directive" });
+    } else {
+      resumeCamilleForDossier(dossier, "escalation_email_sent");
+    }
     addEvent(dossier, {
       type: "EMAIL_SENT",
       actor: { kind: "AI", label: "Camille" },
-      message: "Mail client envoyé suite à consigne équipe (Telegram).",
+      message: isEscalationEmail
+        ? "Mail client envoyé suite à consigne équipe (réponse escalade email)."
+        : "Mail client envoyé suite à consigne équipe (Telegram).",
       meta: { channel: options?.channel, instructionPreview: text.slice(0, 200), to: clientEmail },
     });
 
@@ -166,7 +195,9 @@ ${text.slice(0, 4000)}
           dossier,
           subject,
           gmailId: `staff_directive_${Date.now()}`,
-          extra: "Suite à votre consigne Telegram.",
+          extra: isEscalationEmail
+            ? "Suite à votre réponse sur l'email d'escalade."
+            : "Suite à votre consigne Telegram.",
         }),
       )
       .catch(() => undefined);

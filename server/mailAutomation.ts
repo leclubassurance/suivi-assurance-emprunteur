@@ -17,12 +17,12 @@ import {
   mergeDocumentsIntoDossier,
 } from './gmailAttachments';
 
-function extractEmail(fromRaw: string) {
+export function extractEmail(fromRaw: string) {
   const emailMatch = fromRaw.match(/<([^>]+)>/);
   return (emailMatch ? emailMatch[1] : fromRaw).trim().toLowerCase();
 }
 
-function decodeEmailBodies(payload: any): { text: string; html: string } {
+export function decodeEmailBodies(payload: any): { text: string; html: string } {
   let text = "";
   let html = "";
 
@@ -689,6 +689,18 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
     }
   }
 
+  let staffEscalationHandled = 0;
+  try {
+    const { syncStaffEscalationReplyEmails } = await import("./camilleEscalationReply");
+    staffEscalationHandled = await syncStaffEscalationReplyEmails(gmail, db, processedIds, {
+      getProcessedIds,
+      markProcessed,
+      upsertCommunication,
+    });
+  } catch (err: any) {
+    console.warn(`[Gmail] Sync réponses escalade équipe: ${err?.message || err}`);
+  }
+
   dossierTouchUpdatedAt(db);
   return {
     db,
@@ -698,6 +710,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
     attachmentsSaved,
     driveAttachmentsUploaded,
     attachmentDebug,
+    staffEscalationHandled,
   };
   } finally {
     gmailSyncRunning = false;
