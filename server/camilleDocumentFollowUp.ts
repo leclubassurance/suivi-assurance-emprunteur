@@ -7,9 +7,10 @@ import {
   assessCertainLoanDocProblems,
   type LoanDocProblemAssessment,
 } from "./loanDocCertainty";
+import { buildCamilleContextBlock } from "./camilleMail";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 import {
-  refineLoanDocFollowUpAssessment,
+  assessLoanDocFollowUpAssessment,
   sanitizeCamilleClientMessage,
   shouldScheduleLoanDocFollowUp,
 } from "./camilleClientMessage";
@@ -123,6 +124,8 @@ RÈGLES :
 - Expliquer brièvement où les trouver (app bancaire / conseiller).
 - Proposer de répondre à ce mail avec les PDF en pièce jointe.
 - Pas de téléphone, pas de nom d'assureur.
+- NE JAMAIS demander CNI, passeport ou RIB (demandés uniquement après l'étude économiques, à la souscription).
+- S'appuyer sur l'analyse OCR ci-dessous pour dire précisément ce qui manque ou doit être renvoyé en PDF banque.
 
 JSON uniquement : { "messageToClient": "..." }
 `;
@@ -140,9 +143,14 @@ JSON uniquement : { "messageToClient": "..." }
 Offre de prêt déjà reçue: ${loan.offrePresent ? "OUI" : "NON"}
 Tableau d'amortissement déjà reçu: ${loan.amortPresent ? "OUI" : "NON"}
 Les deux présents: ${loan.filesPresent ? "OUI" : "NON"}
+Exploitables pour l'étude: ${loan.exploitable ? "OUI" : "NON"}
 
-Problèmes certains (interne):
-${problemsSummaryForPrompt(assessment)}`,
+Analyse OCR (à traduire pour le client, sans dire « illisible »):
+${buildCamilleContextBlock(dossier).documentAnalysisReport || "—"}
+
+Problèmes détectés (interne):
+${problemsSummaryForPrompt(assessment)}
+${assessment.uncertainSignals.length ? `\nSignaux: ${assessment.uncertainSignals.join("; ")}` : ""}`,
             },
           ],
         },
@@ -200,25 +208,11 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
     return;
   }
 
-  const assessment = refineLoanDocFollowUpAssessment(
-    dossier,
-    assessCertainLoanDocProblems(dossier),
-  );
+  const assessment = assessLoanDocFollowUpAssessment(dossier);
   const toEmail = String(dossier?.formData?.assures?.[0]?.email || "").trim();
   if (!toEmail) return;
 
-  if (!assessment.certain) {
-    if (assessment.uncertainSignals.length) {
-      addEvent(dossier, {
-        type: "AI_DECISION",
-        actor: { kind: "AI", label: "Camille" },
-        message: "Relance documents non envoyée (signaux incertains — traitement manuel).",
-        meta: {
-          template: "CAMILLE_DOC_FOLLOWUP_SKIPPED",
-          uncertainSignals: assessment.uncertainSignals,
-        },
-      });
-    }
+  if (!assessment.certain && assessment.uncertainSignals.length === 0) {
     return;
   }
 
@@ -283,10 +277,7 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
         return;
       }
 
-      const fresh = refineLoanDocFollowUpAssessment(
-        existing,
-        assessCertainLoanDocProblems(existing),
-      );
+      const fresh = assessLoanDocFollowUpAssessment(existing);
       if (!fresh.certain) {
         addEvent(existing, {
           type: "AI_DECISION",

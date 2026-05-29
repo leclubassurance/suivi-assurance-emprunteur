@@ -1,6 +1,7 @@
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildLoanDocsAnalysisReport } from "../shared/loanDocAnalysis";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
+import { hasStudyBeenSent } from "./dossierLifecycle";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 import { stripRedundantSalutations } from "./camilleClientMessage";
 import { LCIF_EMAIL_LOGO_IMG } from "../shared/emailBrand";
@@ -30,7 +31,12 @@ export function wrapCamilleHtmlReply(
 
 export function buildCamilleContextBlock(dossier: any, newAttachmentNames: string[] = []) {
   const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
-  const missingBlocking = checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib"));
+  const studySent = hasStudyBeenSent(dossier);
+  const missingBlocking = studySent
+    ? checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib"))
+    : checklist.filter(
+        (c) => (c.key === "offre" || c.key === "amort") && (c.status === "missing" || c.status === "review"),
+      );
   const loan = resolveLoanDocPresence(dossier);
   const docs = (dossier.formData?.documents || []) as any[];
   const qualityIssues = docs

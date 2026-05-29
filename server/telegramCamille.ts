@@ -219,9 +219,12 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
     findDossierById,
     rememberChatDossier,
     getRememberedDossierId,
+    getDefaultDossierForChat,
     getHelpTelegramText,
     buildPortfolioSummaryAsync,
     answerCamillePortfolioBrief,
+    primaryBorrowerLabel,
+    looksLikeStaffDirective,
   } = await import("./camilleTelegramChat");
   const { escapeTelegramHtml } = await import("./telegramUi");
 
@@ -315,9 +318,7 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
     return;
   }
 
-  const { resolveDossierFromText, stripDossierRefsFromText, primaryBorrowerLabel } = await import(
-    "./camilleTelegramChat",
-  );
+  const { resolveDossierFromText, stripDossierRefsFromText } = await import("./camilleTelegramChat");
 
   let dossier: Dossier | null = await findDossierForTelegramReply(chatId, replyId, text);
   const lcifFromText = extractLcifId(text);
@@ -328,36 +329,45 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
     if (resolved.kind === "ambiguous") {
       await sendTelegramMessage(
         chatId,
-        `<b>Plusieurs dossiers correspondent :</b>\n${resolved.matches.map((m) => `• ${escapeHtml(m.label)}`).join("\n")}\n\nPrécisez le numéro <code>LCIF-…</code> ou le nom complet.`,
+        `<b>Plusieurs dossiers :</b>\n${resolved.matches.map((m) => `• ${escapeHtml(m.label)}`).join("\n")}\n\nIndiquez le <code>LCIF-…</code> en une phrase (ex. <code>LCIF-128201 envoie-lui le mail</code>).`,
       );
       return;
     }
     if (resolved.kind === "found") dossier = resolved.dossier;
   }
 
+  if (!dossier) {
+    dossier = await getDefaultDossierForChat(chatId);
+  }
+
   if (dossier) rememberChatDossier(chatId, dossier.id);
 
-  if (intent === "STAFF_DIRECTIVE") {
-    if (!dossier) {
-      await sendTelegramMessage(
-        chatId,
-        "Précisez le dossier (<code>LCIF-…</code> ou nom emprunteur) ou répondez à une alerte Camille.",
-      );
-      return;
-    }
+  const wantsEmail =
+    intent === "STAFF_DIRECTIVE" || looksLikeStaffDirective(text) || (replyToCamille && text.length >= 3);
+
+  if (wantsEmail && dossier) {
     let instruction = stripDossierRefsFromText(text, dossier);
-    if (!instruction) instruction = text;
+    if (!instruction || instruction.length < 8) {
+      instruction =
+        text.trim() ||
+        "Rédige un mail au client pour préciser les documents de prêt nécessaires (offre + tableau en PDF banque), en t'appuyant sur l'analyse OCR. Ne pas demander CNI ni RIB.";
+    }
     await runStaffDirectiveFlow(chatId, dossier, instruction);
     return;
   }
 
-  let question = text;
-  if (dossier) {
-    const after = stripDossierRefsFromText(text, dossier);
-    if (after.length < 5) {
-      const who = primaryBorrowerLabel(dossier);
-      question = `Quelles sont les nouveautés et l'état actuel du dossier ${dossier.id} (${who}) ? Que dois-je savoir ?`;
-    }
+  if (!dossier) {
+    await sendTelegramMessage(
+      chatId,
+      "Je n'ai pas encore de dossier actif. Attendez une alerte, ou écrivez <code>LCIF-123456 …</code> avec votre question.",
+    );
+    return;
+  }
+
+  let question = stripDossierRefsFromText(text, dossier);
+  if (!question || question.length < 5) {
+    const who = primaryBorrowerLabel(dossier);
+    question = `État du dossier ${dossier.id} (${who}) : pièces, mails récents, prochaine action pour l'équipe.`;
   }
 
   await sendTelegramMessage(chatId, "⏳ …");

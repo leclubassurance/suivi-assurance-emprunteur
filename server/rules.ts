@@ -1,5 +1,9 @@
 import { Dossier } from "./dossierModel";
-import { getBlockingMissingLabels } from "../shared/documentChecklist";
+import {
+  getPostStudyIdentityReminderLabels,
+  getPreStudyLoanReminderLabels,
+} from "../shared/documentChecklist";
+import { hasStudyBeenSent } from "./dossierLifecycle";
 
 export function getPrimaryClientEmail(dossier: Dossier): string | null {
   const email = dossier.formData?.assures?.[0]?.email;
@@ -8,7 +12,11 @@ export function getPrimaryClientEmail(dossier: Dossier): string | null {
 }
 
 export function detectMissingDocs(dossier: Dossier): string[] {
-  return getBlockingMissingLabels(dossier.formData?.documents || []);
+  const docs = dossier.formData?.documents || [];
+  if (hasStudyBeenSent(dossier)) {
+    return getPostStudyIdentityReminderLabels(docs);
+  }
+  return getPreStudyLoanReminderLabels(docs);
 }
 
 export function isDossierStale(dossier: Dossier, days: number) {

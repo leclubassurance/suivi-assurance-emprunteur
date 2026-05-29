@@ -267,3 +267,32 @@ export function getBlockingMissingLabels(documents: any[] = []) {
     .filter((i) => !i.ok && (i.key === "cni" || i.key === "rib"))
     .map((i) => i.label);
 }
+
+/** Relances automatiques avant étude : uniquement offre + tableau (pas CNI/RIB). */
+export function getPreStudyLoanReminderLabels(documents: any[] = []) {
+  const checklist = computeDocumentChecklist(documents);
+  const labels: string[] = [];
+  for (const item of checklist) {
+    if (item.key !== "offre" && item.key !== "amort") continue;
+    if (item.status === "ok") continue;
+    if (item.status === "missing") {
+      labels.push(
+        item.key === "offre"
+          ? "Offre de prêt (PDF complet depuis votre espace bancaire)"
+          : "Tableau d'amortissement / échéancier complet (PDF banque)",
+      );
+    } else if (item.status === "review") {
+      labels.push(
+        item.reviewHint
+          ? `${item.label} — ${item.reviewHint}`
+          : `${item.label} — merci de renvoyer un PDF complet depuis votre banque`,
+      );
+    }
+  }
+  return labels;
+}
+
+/** Après envoi de l'étude : pièces d'identité et RIB pour la souscription. */
+export function getPostStudyIdentityReminderLabels(documents: any[] = []) {
+  return getBlockingMissingLabels(documents);
+}

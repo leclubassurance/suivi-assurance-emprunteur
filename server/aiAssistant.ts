@@ -7,6 +7,9 @@ import { sanitizeCamilleClientMessage } from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
+import { getPreStudyLoanReminderLabels } from "../shared/documentChecklist";
+import { hasStudyBeenSent } from "./dossierLifecycle";
+import { tryCamilleDocClarificationInsteadOfEscalation } from "./camilleDocAutoReply";
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
 
 export async function processIncomingClientEmail(
@@ -26,7 +29,10 @@ export async function processIncomingClientEmail(
     const staffHandling = isStaffActivelyHandling(dossier);
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
     const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
-    const missingBlocking = ctx.missingBlocking.map((c) => c.label);
+    const studySent = hasStudyBeenSent(dossier);
+    const missingLoanLabels = studySent
+      ? ctx.missingBlocking.map((c) => c.label)
+      : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
     const newAttachmentsLine =
       ctx.newAttachmentNames.length > 0
         ? ctx.newAttachmentNames.join(", ")
@@ -60,7 +66,12 @@ emails récents équipe vers client:
 ${staffOutbound}
 clientSafeReason: ${ctx.clientSafeReason || "N/A"}
 
-Pièces bloquantes encore manquantes : ${missingBlocking.join(", ") || "Aucune — dossier complet côté CNI/RIB"}
+Pièces à demander au client (selon phase) : ${
+  studySent
+    ? missingLoanLabels.join(", ") || "Aucune — CNI/RIB déjà reçus ou non requis pour l'instant"
+    : missingLoanLabels.join(", ") || "Aucune — offre et tableau OK côté analyse"
+}
+NE PAS mentionner CNI/RIB avant envoi de l'étude économiques (sauf si studySent=true ci-dessus).
 Offre de prêt + tableau présents dans le dossier : ${ctx.loanDocsPresent ? "OUI" : "NON"}
 Offre validée par analyse : ${ctx.loanOffreExploitable ? "OUI" : "NON"}
 Tableau validé par analyse : ${ctx.loanAmortExploitable ? "OUI" : "NON"}
@@ -96,6 +107,14 @@ Décide REPLY ou ESCALATE.` }] }
     }
 
     if (decision.action === "ESCALATE") {
+      const docReply = await tryCamilleDocClarificationInsteadOfEscalation(dossier, {
+        clientMessage: emailText,
+        reason: decision.reasonForEscalation,
+      });
+      if (docReply.sent && docReply.html) {
+        console.log(`[AI] Escalade évitée — mail documents envoyé pour ${dossier.id}`);
+        return { status: "replied", text: docReply.html };
+      }
       console.log(`[AI] Escalade requise pour le dossier ${dossier.id}`);
       return { status: "escalated", reason: decision.reasonForEscalation };
     } else if (decision.action === "REPLY") {

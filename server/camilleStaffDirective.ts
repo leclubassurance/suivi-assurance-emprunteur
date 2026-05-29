@@ -21,6 +21,8 @@ Règles mail client:
 - Ne jamais nommer d'assureur ni de téléphone.
 - Ne jamais dire "document illisible/mauvais".
 - Si la consigne demande de demander des PDF banque: uniquement si offre/tableau pas déjà présents (voir contexte).
+- NE JAMAIS demander CNI/RIB sauf si l'étude économiques a déjà été envoyée au client (voir contexte).
+- S'appuyer sur documentAnalysisReport pour les demandes de pièces.
 - Pas de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.
 - Si la consigne dit que le conseiller gère ou "ne pas envoyer": action NO_EMAIL.
 
@@ -69,7 +71,12 @@ Canal consigne: ${options?.channel || "telegram"}
 
 Contexte pièces:
 ${ctx.documentSummary}
+
+Analyse OCR:
+${ctx.documentAnalysisReport || "—"}
+
 certainDocProblems: ${ctx.certainDocProblems}
+loanDocsOk: ${ctx.loanDocsOk}
 staffActivelyHandling: ${Boolean(dossier.camilleStaffHandledUntil)}
 
 Consigne équipe:

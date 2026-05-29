@@ -5,6 +5,7 @@ import { buildCamilleContextBlock } from "./camilleMail";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { generateContentWithRetry } from "./geminiClient";
 import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
+import { getLastClientInbound } from "./dossierLifecycle";
 import { executeCamilleStaffDirective } from "./camilleStaffDirective";
 
 const chatLastDossierId = new Map<string, string>();
@@ -17,20 +18,34 @@ Tu as des données dossier structurées ci-dessous. Ne invente rien ; si une inf
 Réponds en français, clair et utile (5 à 20 lignes selon la question).
 Texte simple : puces avec •, pas de HTML ni markdown.
 
-Pour envoyer un mail au client, Rémi doit formuler une consigne explicite (ex. « envoie-lui… », « demande… ») ou répondre à une alerte escalade avec une instruction — tu n'envoies pas de mail dans cette réponse, tu expliques seulement si on te le demande sans consigne claire.
+Quand Rémi demande d'écrire au client, tu rédiges le mail (via un autre module) — ici tu confirmes seulement l'état du dossier si c'est une question.
 
 Ne jamais citer de nom d'assureur. Pas de téléphone client.
 `;
 
-/** Consigne explicite pour envoyer un mail client (pas une simple question). */
+/** Consigne pour envoyer un mail client (langage naturel). */
 export function looksLikeStaffDirective(text: string): boolean {
   const t = text.trim();
   const lower = t.toLowerCase();
-  if (/\b(qu'est-ce|quest ce|que demande|a demandé|demande-t-il|demande t il)\b/i.test(lower)) return false;
-  if (/^(envoie|mail|écris|ecris|demande|relance|dis-lui|transmet|renvoie|écris-lui|ecris-lui)\b/i.test(t)) return true;
-  if (/\b(mail au client|envoie au client|écris au client|ecris au client)\b/i.test(lower)) return true;
+  if (/\b(qu'est-ce|quest ce|que demande|a demandé|demande-t-il|demande t il|il a demandé|est-ce que)\b/i.test(lower)) {
+    return false;
+  }
+  if (/^(envoie|mail|écris|ecris|demande|relance|dis-lui|transmet|renvoie|écris-lui|ecris-lui|préviens|previens)\b/i.test(t)) {
+    return true;
+  }
+  if (/\b(mail au client|envoie au client|écris au client|ecris au client|envoie-lui|écris-lui)\b/i.test(lower)) {
+    return true;
+  }
   if (/\b(demande (lui|leur|au client)|relance (le|la|les) client)\b/i.test(lower)) return true;
-  if (/\b(demande|envoie|envoyer|relance|écris|ecris|transmet|renvoie|renvoyer)\b/i.test(lower)) return true;
+  if (/\b(tu peux|peux-tu|pourrais-tu|je veux que tu)\b.*\b(envoyer|écrire|mail|relancer|demander)\b/i.test(lower)) {
+    return true;
+  }
+  if (
+    /\b(envoie|envoyer|écris|ecris|relance|relancer|demande|demander|transmet|renvoie|renvoyer)\b/i.test(lower) &&
+    /\b(lui|leur|client|mail|pdf|offre|tableau|document|pi[eè]ce)\b/i.test(lower)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -159,6 +174,30 @@ export function getRememberedDossierId(chatId: string): string | null {
   return chatLastDossierId.get(chatId) || null;
 }
 
+/** Dossier actif pour la conversation : mémoire chat → dernier mail client → dossier le plus récent. */
+export async function getDefaultDossierForChat(chatId: string): Promise<Dossier | null> {
+  const remembered = getRememberedDossierId(chatId);
+  if (remembered) {
+    const d = await findDossierById(remembered);
+    if (d) return d;
+  }
+
+  const db = await readDB();
+  const dossiers = [...(db.dossiers || [])];
+  if (!dossiers.length) return null;
+
+  let best: { d: Dossier; score: number } | null = null;
+  for (const d of dossiers) {
+    let score = new Date(d.updatedAt || d.createdAt || 0).getTime();
+    const lastIn = getLastClientInbound(d);
+    if (lastIn?.date) score = Math.max(score, new Date(lastIn.date).getTime()) + 1e9;
+    const esc = d.camilleEscalation as { lastAt?: string; resolvedAt?: string } | undefined;
+    if (esc?.lastAt && !esc?.resolvedAt) score += 2e12;
+    if (!best || score > best.score) best = { d, score };
+  }
+  return best?.d || null;
+}
+
 export async function findDossierById(id: string): Promise<Dossier | null> {
   const db = await readDB();
   const lcif = id.toUpperCase();
@@ -211,11 +250,10 @@ export type TelegramChatIntent = "HELP" | "LIST_DOSSIERS" | "STAFF_DIRECTIVE" | 
 
 export function classifyTelegramIntent(text: string, hasReplyToAlert: boolean): TelegramChatIntent {
   const t = text.trim();
-  const lower = t.toLowerCase();
 
   if (/^\/help\b/i.test(t) || /^\/aide\b/i.test(t)) return "HELP";
   if (/^\/dossiers\b/i.test(t)) return "LIST_DOSSIERS";
-  if (hasReplyToAlert && looksLikeStaffDirective(t)) return "STAFF_DIRECTIVE";
+  if (hasReplyToAlert && t.length >= 3) return "STAFF_DIRECTIVE";
 
   const lcif = extractLcifId(t);
   if (lcif) {
@@ -280,20 +318,18 @@ export async function answerCamillePortfolioBrief(): Promise<string> {
 
 export function getHelpTelegramText(): string {
   return [
-    "<b>Camille — LCIF Assurance</b>",
+    "<b>Camille — votre assistante</b>",
     "",
-    "<b>Je vous préviens</b> à chaque nouveauté sur un dossier (mail client, pièces, réponse Camille, escalade…).",
+    "Parlez-moi comme à une collègue — je garde le <b>dossier en cours</b> automatiquement (dernier client actif ou alerte).",
     "",
-    "<b>Vous me posez n'importe quelle question</b>, en langage libre :",
-    "• par numéro : <code>LCIF-123456 où en est-on ?</code>",
-    "• par nom : <code>Marie Lascaud — que manque-t-il ?</code> ou <code>dossier Lascaud</code>",
-    "• sans précision → <b>dernier dossier</b> dont on a parlé",
+    "<b>Exemples :</b>",
+    "• <code>Où en est-on ?</code>",
+    "• <code>Demande-lui l'offre et le tableau en PDF banque</code>",
+    "• <code>Envoie un mail pour préciser les documents</code>",
+    "• <code>LCIF-128201 — le client a répondu</code>",
     "",
-    "<b>Envoyer un mail au client</b> : consigne claire + numéro ou nom",
-    "(ex. <code>Lascaud demande les PDF banque</code>) ou réponse à une alerte escalade.",
+    "Répondez à une <b>alerte</b> avec votre consigne → j'envoie le mail au client.",
     "",
-    "<code>/dossiers</code> — liste · <code>/actif</code> — dernier dossier",
-    "",
-    "<i>24h/24</i>",
+    "<code>/dossiers</code> liste · <code>/actif</code> change de dossier mémorisé",
   ].join("\n");
 }

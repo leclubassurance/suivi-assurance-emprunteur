@@ -158,7 +158,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         detail:
           "Fichiers reçus mais illisibles pour l'analyse — il faut des PDF complets depuis la banque en ligne.",
         action:
-          "Demander au client les PDF banque complets (offre + tableau), via Telegram à Camille ou depuis l'onglet Envoi mail.",
+          "Demandez à Camille sur Telegram : « Envoie un mail pour préciser les PDF banque » — elle le fait automatiquement (sans CNI/RIB avant l'étude).",
         updatedAt: d.updatedAt,
       }, d);
     }

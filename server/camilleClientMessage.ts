@@ -1,5 +1,8 @@
-import type { LoanDocProblemAssessment } from "./loanDocCertainty";
+import { computeDocumentChecklist } from "../shared/documentChecklist";
+import type { LoanDocProblemAssessment, CertainLoanDocProblem } from "./loanDocCertainty";
+import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { resolveLoanDocPresence } from "./loanDocPresence";
+import { hasStudyBeenSent } from "./dossierLifecycle";
 
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -112,6 +115,51 @@ export function refineLoanDocFollowUpAssessment(
   };
 }
 
+/** Problèmes certains + slots OCR « à préciser » → mail client, pas alerte Rémi. */
+export function assessLoanDocFollowUpAssessment(dossier: any): LoanDocProblemAssessment {
+  const base = refineLoanDocFollowUpAssessment(dossier, assessCertainLoanDocProblems(dossier));
+  if (base.certain || hasStudyBeenSent(dossier)) return base;
+
+  const loan = resolveLoanDocPresence(dossier);
+  if (loan.exploitable || loan.studySent) return base;
+
+  const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
+  const extra: CertainLoanDocProblem[] = [];
+
+  for (const key of ["offre", "amort"] as const) {
+    const item = checklist.find((c) => c.key === key);
+    if (!item || item.status === "ok") continue;
+    const category = key === "offre" ? "offre" : "tableau";
+    const fileName = item.matchedFiles?.[0] || item.label;
+    if (item.status === "missing") {
+      extra.push({
+        kind: "wrong_doc_kind",
+        category,
+        fileName,
+        detail: "document manquant pour l'étude",
+      });
+    } else if (item.status === "review") {
+      extra.push({
+        kind: "wrong_doc_kind",
+        category,
+        fileName,
+        detail: item.reviewHint || "à préciser — PDF banque conseillé",
+      });
+    }
+  }
+
+  const problems = [...base.problems, ...extra].filter(
+    (p, i, arr) =>
+      arr.findIndex((x) => x.category === p.category && x.kind === p.kind) === i,
+  );
+
+  return {
+    certain: problems.length > 0,
+    problems,
+    uncertainSignals: base.uncertainSignals,
+  };
+}
+
 export function shouldScheduleLoanDocFollowUp(dossier: any): {
   allowed: boolean;
   reason?: string;
@@ -144,8 +192,26 @@ export function sanitizeCamilleClientMessage(
   });
 
   const loan = resolveLoanDocPresence(dossier);
-  const blockedDocRequest =
+  let blockedDocRequest =
     loan.filesPresent && !loan.needsResubmit && messageRequestsMissingLoanDocs(text);
+
+  if (
+    !hasStudyBeenSent(dossier) &&
+    /(\bcni\b|passeport|\brib\b|iban|relevé d.identité)/i.test(text) &&
+    /(manque|envoy|transmet|besoin|merci de|veuillez)/i.test(text)
+  ) {
+    blockedDocRequest = true;
+    text = [
+      `Merci pour votre message${String(a?.prenom || "").trim() ? `, ${String(a?.prenom).trim()}` : ""}.`,
+      ``,
+      `Pour l'étude de votre assurance emprunteur, nous avons surtout besoin de l'offre de prêt et du tableau d'amortissement complets en PDF depuis votre espace bancaire.`,
+      `La pièce d'identité et le RIB vous seront demandés plus tard, uniquement si vous souhaitez poursuivre la souscription après présentation de l'étude.`,
+      ``,
+      `Si vous avez une question précise, répondez à ce mail.`,
+    ].join("\n");
+    text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
+    return { text, blockedDocRequest };
+  }
 
   if (blockedDocRequest) {
     const prenom = String(a?.prenom || "").trim();
