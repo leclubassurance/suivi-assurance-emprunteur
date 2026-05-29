@@ -141,9 +141,7 @@ export function buildClientPortalView(dossier: Dossier) {
         c.key === "offre" ? loan.offrePresent : c.key === "amort" ? loan.amortPresent : c.ok;
       const received = isLoanDoc ? loanFilePresent : c.ok;
       const requiredNow =
-        isLoanDoc &&
-        !studySent &&
-        (!loanFilePresent || (loan.needsResubmit && !loan.exploitable));
+        isLoanDoc && !studySent && (!loanFilePresent || loan.needsResubmit);
       return {
         key: c.key,
         label: c.label,

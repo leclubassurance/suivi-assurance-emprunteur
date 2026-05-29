@@ -172,11 +172,6 @@ export async function analyzeLoanPdf(
     }
   }
 
-  if (buf.length < 40_000 && !imageOnly && !classified.reasons.some((r) => r.includes("léger"))) {
-    classified.reasons.push("PDF très léger (qualité possiblement insuffisante)");
-    classified.ok = false;
-  }
-
   // Type détecté vs catégorie attendue
   if (classified.kind !== "unknown" && classified.kind !== expected) {
     if (expected === "offre" && classified.kind === "tableau") {

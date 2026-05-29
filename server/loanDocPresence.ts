@@ -50,7 +50,8 @@ export function resolveLoanDocPresence(dossier: Dossier | any) {
   const offreExploitable = isLoanSlotExploitable(docs, "offre");
   const amortExploitable = isLoanSlotExploitable(docs, "tableau");
   const exploitable = offreExploitable && amortExploitable;
-  const needsResubmit = filesPresent && !exploitable && !studySent;
+  /** Relance client uniquement si problème objectif (image, capture) — pas si l'OCR est incertain. */
+  const needsResubmit = filesPresent && !exploitable && !studySent && docProb.certain;
 
   return {
     offrePresent,
@@ -67,11 +68,12 @@ export function resolveLoanDocPresence(dossier: Dossier | any) {
   };
 }
 
-/** Étape portail « offre + tableau » : validée si exploitables ou étude déjà envoyée. */
+/** Étape portail « offre + tableau » : validée si exploitables, étude envoyée, ou PDF reçus sans blocage objectif. */
 export function isLoanDocsStepComplete(dossier: Dossier | any): boolean {
   const loan = resolveLoanDocPresence(dossier);
   if (loan.studySent) return true;
   if (loan.exploitable) return true;
+  if (loan.filesPresent && !loan.docProb.certain) return true;
   return false;
 }
 
@@ -82,6 +84,9 @@ export function loanDocsStepHint(dossier: Dossier | any): string {
   }
   if (loan.filesPresent && loan.needsResubmit) {
     return "Nous avons bien reçu vos fichiers. Pour finaliser l'analyse, merci de renvoyer l'offre de prêt et le tableau d'amortissement en PDF complets, téléchargés depuis votre espace client bancaire (évitez les photos et captures d'écran).";
+  }
+  if (loan.filesPresent && isLoanDocsStepComplete(dossier)) {
+    return "Documents reçus — notre équipe finalise l'analyse de votre dossier";
   }
   if (loan.filesPresent) {
     return "Documents reçus — notre équipe vérifie leur contenu";

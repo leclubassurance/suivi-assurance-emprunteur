@@ -1657,6 +1657,23 @@ export function createApp() {
         dossier.clientPortal = { token: String(req.params.token), createdAt: new Date().toISOString() };
       }
       dossier.clientPortal.lastAccessAt = new Date().toISOString();
+
+      const loanDocs = (dossier.formData?.documents || []).filter((d: any) => {
+        const c = String(d?.category || "");
+        return c === "offre" || c === "fiche" || c === "tableau";
+      });
+      const missingLoanAnalysis = loanDocs.some(
+        (d: any) => !d?.loanSignal && /\.pdf$/i.test(String(d?.name || "")),
+      );
+      if (missingLoanAnalysis && loanDocs.length >= 2) {
+        try {
+          const { reanalyzeDossierLoanDocuments } = await import("./reanalyzeLoanDocuments");
+          await reanalyzeDossierLoanDocuments(dossier, UPLOADS_DIR);
+        } catch (reErr: any) {
+          appendLog(`[Portail] Réanalyse docs prêt ${dossier.id}: ${reErr?.message || reErr}`);
+        }
+      }
+
       await writeDB(db, dossier);
       res.json(buildClientPortalView(dossier));
     } catch (e: any) {
