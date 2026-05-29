@@ -531,19 +531,23 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   const handleDeleteAction = async (id: string) => {
     try {
-      const res = await fetch(getApiUrl(`/api/dossiers/${id}`), {
+      const res = await fetch(getApiUrl(`/api/dossiers/${encodeURIComponent(id)}`), {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" }
+        headers: await authHeaders(),
       });
-      if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success !== false) {
         showToast("Dossier supprimé avec succès", "success");
         setSelectedDossier(null);
         loadDossiers();
       } else {
-        showToast("Erreur lors de la suppression", "error");
+        showToast(
+          typeof data?.error === "string" ? data.error : "Erreur lors de la suppression",
+          "error",
+        );
       }
-    } catch {
-      showToast("Erreur réseau", "error");
+    } catch (err: any) {
+      showToast(err?.message || "Erreur réseau — vérifiez la connexion au serveur", "error");
     }
   };
 

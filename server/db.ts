@@ -6,6 +6,7 @@ import {
   isFirestoreReady,
   readAllDossiersFromFirestore,
   syncDossierToFirebase,
+  deleteDossierFromFirebase,
   importLocalJsonToFirestoreIfRequested,
 } from "./firebaseSync";
 import { Dossier, ensureDossierShape } from "./dossierModel";
@@ -113,4 +114,21 @@ export async function writeDB(db: DBShape, modifiedDossier?: Dossier): Promise<v
 
 export function getDataStoreMode(): "firestore" | "local" {
   return useFirestorePrimary() ? "firestore" : "local";
+}
+
+/** Supprime un dossier sans resynchroniser toute la collection (évite timeout admin). */
+export async function deleteDossierFromStore(id: string): Promise<void> {
+  await ensureDbLayerReady();
+
+  if (useFirestorePrimary()) {
+    if (!isFirestoreReady()) {
+      throw new Error("Impossible de supprimer : Firestore non connecté.");
+    }
+    await deleteDossierFromFirebase(id);
+    return;
+  }
+
+  const db = readLocalDBSync();
+  db.dossiers = db.dossiers.filter((d) => d.id !== id);
+  writeLocalDBSync(db);
 }

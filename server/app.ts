@@ -16,10 +16,9 @@ import {
 } from "./aiAssistant";
 import {
   initFirebaseSync,
-  deleteDossierFromFirebase,
   getFirebaseStatus,
 } from "./firebaseSync";
-import { readDB, writeDB, getDataStoreMode } from "./db";
+import { readDB, writeDB, getDataStoreMode, deleteDossierFromStore } from "./db";
 import { addEvent, ensureDossierShape, newId, scheduleTask } from "./dossierModel";
 import { runSchedulerOnce, startScheduler } from "./scheduler";
 import { isEmailConfigured, sendEmail } from "./emailProvider";
@@ -1186,34 +1185,48 @@ export function createApp() {
   app.delete("/api/dossiers/:id", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;
-    const db = await readDBAsync();
-
-    const dossier = db.dossiers.find((d: any) => d.id === id);
-    if (dossier) {
-      try {
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith("Bearer ") && dossier.workspaceFolderId) {
-          const accessToken = authHeader.split(" ")[1];
-          await deleteDossierFromGoogleWorkspace(dossier.workspaceFolderId, accessToken);
-        }
-      } catch (gErr: any) {
-        appendLog(`Warning: Failed to delete Google Workspace folder for dossier ${id}: ${gErr.message || gErr}`);
+    try {
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) {
+        return res.status(404).json({ success: false, error: "Dossier introuvable." });
       }
-    }
 
-    db.dossiers = db.dossiers.filter((d: any) => d.id !== id);
-    await writeDB(db);
-    try {
-      await deleteDossierFromFirebase(id);
-    } catch (err) {
-      console.error("Failed to delete dossier from Firestore", err);
+      if (dossier.workspaceFolderId) {
+        try {
+          const authHeader = req.headers.authorization;
+          let driveToken: string | null =
+            authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
+          if (!driveToken && hasServerOAuthRefreshToken()) {
+            driveToken = await getServerAccessToken();
+          }
+          if (driveToken) {
+            await deleteDossierFromGoogleWorkspace(dossier.workspaceFolderId, driveToken);
+          }
+        } catch (gErr: any) {
+          appendLog(
+            `[Delete] Dossier Drive non supprimé pour ${id}: ${gErr?.message || gErr} (dossier retiré de la base).`,
+          );
+        }
+      }
+
+      await deleteDossierFromStore(id);
+
+      try {
+        fs.rmSync(path.join(UPLOADS_DIR, id), { recursive: true, force: true });
+      } catch (err) {
+        console.error("Failed to remove uploads dir", err);
+      }
+
+      appendLog(`Dossier ${id} supprimé.`);
+      res.json({ success: true });
+    } catch (err: any) {
+      appendLog(`[Delete] Échec suppression ${id}: ${err?.message || err}`);
+      res.status(500).json({
+        success: false,
+        error: err?.message || "Échec de la suppression du dossier.",
+      });
     }
-    try {
-      fs.rmSync(path.join(UPLOADS_DIR, id), { recursive: true, force: true });
-    } catch (err) {
-      console.error("Failed to remove uploads dir", err);
-    }
-    res.json({ success: true });
   });
 
   app.get("/api/admin/google-status", (_req, res) => {
