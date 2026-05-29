@@ -117,7 +117,8 @@ export async function ensureGmailAttachmentsSubfolder(
   accessToken?: string | null,
 ): Promise<string | null> {
   const client = await createDriveClient(accessToken);
-  if (!client) return null;
+  // Ne pas bloquer l'usage du dossier parent si l'auth Drive échoue temporairement.
+  if (!client) return parentFolderId;
 
   const subfolderName = "Pieces jointes email";
   try {
@@ -157,6 +158,7 @@ export async function ensureGmailAttachmentsSubfolder(
       return null;
     }
     console.error("[Gmail→Drive] Sous-dossier PJ:", err?.message || err);
-    return null;
+    // Erreur autre que 404: on conserve le dossier parent (évite de "perdre" workspaceFolderId).
+    return parentFolderId;
   }
 }
