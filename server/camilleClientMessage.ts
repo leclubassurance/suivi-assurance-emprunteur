@@ -182,14 +182,8 @@ export function assessLoanDocFollowUpAssessment(dossier: any): LoanDocProblemAss
         fileName,
         detail: "document manquant pour l'étude",
       });
-    } else if (item.status === "review") {
-      extra.push({
-        kind: "wrong_doc_kind",
-        category,
-        fileName,
-        detail: item.reviewHint || "à préciser — PDF banque conseillé",
-      });
     }
+    // status « review » : vérification admin uniquement — pas de relance client auto
   }
 
   const problems = [...base.problems, ...extra].filter(

@@ -75,12 +75,16 @@ export function resolveLoanDocPresence(dossier: Dossier | any) {
   };
 }
 
-/** Étape portail « offre + tableau » : validée si exploitables, étude envoyée, ou PDF reçus sans blocage objectif. */
+/**
+ * Étape portail « offre + tableau » : validée dès que les deux PDF sont reçus,
+ * sauf blocage objectif (image, capture, scan illisible). L'OCR « mauvais type »
+ * ne bloque pas le client — vérification équipe en admin.
+ */
 export function isLoanDocsStepComplete(dossier: Dossier | any): boolean {
   const loan = resolveLoanDocPresence(dossier);
   if (loan.studySent) return true;
+  if (loan.filesPresent && !loan.needsResubmit) return true;
   if (loan.exploitable) return true;
-  if (loan.filesPresent && !loan.docProb.certain) return true;
   return false;
 }
 

@@ -80,12 +80,9 @@ export function assessCertainLoanDocProblems(dossier: any): LoanDocProblemAssess
     }
 
     if (hasWrongKindSignal(doc)) {
-      problems.push({
-        kind: "wrong_doc_kind",
-        category,
-        fileName,
-        detail: "document reçu ne correspond pas à une offre de prêt",
-      });
+      uncertainSignals.push(
+        `${fileName}: l'analyse automatique hésite sur le type de document (vérification équipe, pas de relance client automatique)`,
+      );
       continue;
     }
 

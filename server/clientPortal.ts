@@ -140,8 +140,8 @@ export function buildClientPortalView(dossier: Dossier) {
       const loanFilePresent =
         c.key === "offre" ? loan.offrePresent : c.key === "amort" ? loan.amortPresent : c.ok;
       const received = isLoanDoc ? loanFilePresent : c.ok;
-      const requiredNow =
-        isLoanDoc && !studySent && (!loanFilePresent || loan.needsResubmit);
+      /** Ne demander au client que ce qui manque vraiment — pas un doute OCR (équipe valide en admin). */
+      const requiredNow = isLoanDoc && !studySent && !loanFilePresent;
       return {
         key: c.key,
         label: c.label,
@@ -151,13 +151,17 @@ export function buildClientPortalView(dossier: Dossier) {
     });
 
   const tips: string[] = [];
-  if (loan.needsResubmit) {
+  if (loan.needsResubmit && loan.docProb.certain) {
     tips.push(
       "Pour avancer, merci de renvoyer l'offre de prêt et le tableau d'amortissement en fichiers PDF complets, téléchargés depuis le site ou l'application de votre banque (pas de photo ni de capture d'écran).",
     );
   } else if (!loan.filesPresent && !studySent) {
     tips.push(
       "Les documents indispensables pour l'étude sont l'offre de prêt et le tableau d'amortissement, au format PDF.",
+    );
+  } else if (loan.filesPresent && !studySent && isLoanDocsStepComplete(dossier)) {
+    tips.push(
+      "Nous avons bien reçu votre offre de prêt et votre tableau d'amortissement. Notre équipe finalise l'analyse de votre dossier.",
     );
   }
   if (studySent && lastStudy) {
