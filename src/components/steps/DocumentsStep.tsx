@@ -11,10 +11,19 @@ interface Props {
   onSubmit: () => void;
   isSubmitting?: boolean;
   submitStatus?: string;
+  onOpenPrivacy?: () => void;
 }
 
-export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmitting, submitStatus }: Props) {
+export default function DocumentsStep({
+  formData,
+  setFormData,
+  onSubmit,
+  isSubmitting,
+  submitStatus,
+  onOpenPrivacy,
+}: Props) {
   const [dragActiveStates, setDragActiveStates] = useState<Record<string, boolean>>({});
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   const handleDrag = (category: string, e: React.DragEvent) => {
     e.preventDefault();
@@ -249,10 +258,32 @@ export default function DocumentsStep({ formData, setFormData, onSubmit, isSubmi
 
       {/* Submission */}
       <div className="pt-8 border-t border-slate-200 flex flex-col items-center">
+         <label className="flex items-start gap-3 max-w-xl mb-6 text-left cursor-pointer">
+           <input
+             type="checkbox"
+             checked={privacyAccepted}
+             onChange={(e) => setPrivacyAccepted(e.target.checked)}
+             className="mt-1 h-4 w-4 rounded border-slate-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+           />
+           <span className="text-[13px] leading-relaxed text-slate-600">
+             J&apos;ai lu la{' '}
+             <button
+               type="button"
+               onClick={(e) => {
+                 e.preventDefault();
+                 onOpenPrivacy?.();
+               }}
+               className="font-semibold text-[#1E3A8A] underline hover:text-[#172554]"
+             >
+               politique de confidentialité
+             </button>
+             {' '}et j&apos;accepte que mes données, y compris les pièces jointes, soient traitées pour l&apos;étude de mon dossier d&apos;assurance emprunteur.
+           </span>
+         </label>
          <button 
            onClick={onSubmit} 
-           disabled={!requiredOk || isSubmitting || isAnyFileUploading} 
-           className={`flex items-center justify-center gap-3 px-10 py-5 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto ${!requiredOk || isSubmitting || isAnyFileUploading ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-[#111318] text-white hover:bg-slate-800'}`}
+           disabled={!requiredOk || !privacyAccepted || isSubmitting || isAnyFileUploading} 
+           className={`flex items-center justify-center gap-3 px-10 py-5 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto ${!requiredOk || !privacyAccepted || isSubmitting || isAnyFileUploading ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-[#111318] text-white hover:bg-slate-800'}`}
          >
            {isSubmitting ? (submitStatus || 'Envoi en cours...') : isAnyFileUploading ? 'Lecture du fichier...' : 'Valider mon dossier'} 
            {!isSubmitting && !isAnyFileUploading && <ArrowRight className="w-[18px] h-[18px]" strokeWidth={2.5} />}

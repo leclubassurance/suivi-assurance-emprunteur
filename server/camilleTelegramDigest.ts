@@ -8,6 +8,11 @@ import {
   registerTelegramDossierContext,
 } from "./telegramCamille";
 import { escapeTelegramHtml } from "./telegramUi";
+import {
+  markTelegramNotified,
+  telegramNotifyKey,
+  wasTelegramNotifiedRecently,
+} from "./telegramNotifyDedup";
 
 export type DossierNewsKind =
   | "new_dossier"
@@ -36,24 +41,10 @@ function notifyEnabled() {
   return v !== "false" && v !== "0";
 }
 
-function newsDedupKey(dossierId: string, kind: DossierNewsKind, eventId?: string) {
-  return `${dossierId}:${kind}:${eventId || ""}`;
-}
-
-function shouldSkipDuplicate(dossier: Dossier, key: string, kind: DossierNewsKind): boolean {
-  const staff = (dossier as any).camilleTelegramStaff as { lastNewsKey?: string; lastNewsAt?: string } | undefined;
-  if (!staff?.lastNewsKey || staff.lastNewsKey !== key) return false;
-  if (kind === "escalation") return false;
-  const last = new Date(staff.lastNewsAt || 0).getTime();
-  return Date.now() - last < 90_000;
-}
-
-function markNotified(dossier: Dossier, key: string) {
-  (dossier as any).camilleTelegramStaff = {
-    ...((dossier as any).camilleTelegramStaff || {}),
-    lastNewsKey: key,
-    lastNewsAt: new Date().toISOString(),
-  };
+function dedupIntervalMs(kind: DossierNewsKind): number {
+  if (kind === "escalation") return 6 * 60 * 60 * 1000;
+  if (kind === "client_message" || kind === "client_documents") return 24 * 60 * 60 * 1000;
+  return 2 * 60 * 60 * 1000;
 }
 
 const DIGEST_PROMPT = `
@@ -140,8 +131,8 @@ export async function notifyRemiDossierNews(
 ): Promise<void> {
   if (!notifyEnabled()) return;
 
-  const key = newsDedupKey(dossier.id, kind, details.eventId);
-  if (shouldSkipDuplicate(dossier, key, kind)) return;
+  const key = telegramNotifyKey(dossier.id, kind, details.eventId);
+  if (wasTelegramNotifiedRecently(dossier, key, dedupIntervalMs(kind))) return;
 
   const html = await buildNewsMessage(dossier, kind, details);
   const chatIds = getAllowedChatIdsForNotify();
@@ -159,5 +150,5 @@ export async function notifyRemiDossierNews(
     }
   }
 
-  markNotified(dossier, key);
+  markTelegramNotified(dossier, key);
 }

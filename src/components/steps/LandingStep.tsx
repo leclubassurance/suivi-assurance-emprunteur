@@ -1,7 +1,17 @@
 import React from 'react';
 import { ArrowRight, Euro, Scale, Search, CircleDollarSign, ShieldCheck, Quote } from 'lucide-react';
 
-export default function LandingStep({ onStart, onAdminAccess }: { onStart: () => void, onAdminAccess: () => void }) {
+export default function LandingStep({
+  onStart,
+  onAdminAccess,
+  onLegalMentions,
+  onLegalPrivacy,
+}: {
+  onStart: () => void;
+  onAdminAccess: () => void;
+  onLegalMentions?: () => void;
+  onLegalPrivacy?: () => void;
+}) {
   return (
     <div className="flex flex-col w-full px-4 py-8 mx-auto max-w-6xl gap-6 font-sans pb-28 md:pb-8">
       
@@ -255,9 +265,21 @@ export default function LandingStep({ onStart, onAdminAccess }: { onStart: () =>
 
       <footer className="text-center pb-8 pt-4 flex flex-col items-center gap-3">
         <div className="flex items-center gap-4 text-[13px] font-bold text-slate-400">
-          <button type="button" className="hover:text-slate-600 transition-colors">Mentions légales</button>
+          <button
+            type="button"
+            onClick={onLegalMentions}
+            className="hover:text-slate-600 transition-colors"
+          >
+            Mentions légales
+          </button>
           <span>·</span>
-          <button type="button" className="hover:text-slate-600 transition-colors">Confidentialité</button>
+          <button
+            type="button"
+            onClick={onLegalPrivacy}
+            className="hover:text-slate-600 transition-colors"
+          >
+            Confidentialité
+          </button>
           <span>·</span>
           <button type="button" onDoubleClick={onAdminAccess} className="hover:text-slate-600 transition-colors opacity-30 hover:opacity-100" title="Double‑clic">Admin</button>
         </div>
@@ -266,7 +288,11 @@ export default function LandingStep({ onStart, onAdminAccess }: { onStart: () =>
         </p>
         <p className="text-slate-400 text-[12px]">© {new Date().getFullYear()} Le Club Immobilier Français.</p>
         <p className="text-slate-400 text-[11px] max-w-lg mx-auto leading-relaxed px-4">
-          RGPD : ce site utilise la mémoire locale de votre navigateur pour conserver temporairement votre brouillon. Vos données ne sont transmises qu&apos;à la validation finale.
+          Vos données sont traitées conformément à notre{' '}
+          <button type="button" onClick={onLegalPrivacy} className="underline hover:text-slate-600">
+            politique de confidentialité
+          </button>
+          . Un brouillon peut être conservé localement dans votre navigateur jusqu&apos;à l&apos;envoi du dossier.
         </p>
       </footer>
 

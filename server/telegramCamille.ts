@@ -235,11 +235,27 @@ async function answerAndSend(
   const { answerCamilleTelegramQuestion, buildPortfolioSummaryAsync, getRememberedDossierId, findDossierById } =
     await import("./camilleTelegramChat");
   const { escapeTelegramHtml, dossierCollaborationKeyboard } = await import("./telegramUi");
+  const {
+    looksLikeStaffDocExtractionRequest,
+    refreshLoanAnalysisIfNeeded,
+    buildStaffDocExtractionReply,
+  } = await import("./camilleTelegramStaff");
 
   let target = dossier;
   if (!target) {
     const remembered = getRememberedDossierId(chatId);
     if (remembered) target = await findDossierById(remembered);
+  }
+
+  if (target && looksLikeStaffDocExtractionRequest(userMessage)) {
+    await sendTelegramMessage(chatId, "⏳ Analyse OCR des pièces reçues…", { dossierId: target.id });
+    const refreshed = await refreshLoanAnalysisIfNeeded(target);
+    const reply = buildStaffDocExtractionReply(refreshed);
+    await sendTelegramMessage(chatId, `<pre>${escapeHtml(reply)}</pre>`, {
+      reply_markup: dossierCollaborationKeyboard(refreshed),
+      dossierId: refreshed.id,
+    });
+    return;
   }
 
   const portfolio = await buildPortfolioSummaryAsync(12);

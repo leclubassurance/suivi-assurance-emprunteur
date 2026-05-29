@@ -4,7 +4,7 @@ import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 import { stripRedundantSalutations } from "./camilleClientMessage";
-import { LCIF_EMAIL_LOGO_IMG } from "../shared/emailBrand";
+import { wrapLcifClientEmailHtml } from "../shared/emailBrand";
 
 export function wrapCamilleHtmlReply(
   bodyText: string,
@@ -18,15 +18,10 @@ export function wrapCamilleHtmlReply(
   });
   const inner = cleaned.replace(/\n/g, "<br/>");
 
-  return `<div style="font-family: Arial, sans-serif; color: #334155; max-width: 600px; line-height: 1.55; font-size: 14px;">
-  ${LCIF_EMAIL_LOGO_IMG}
-  <p style="color: #1E3A8A; font-weight: bold; margin: 0 0 12px 0;">${greeting}</p>
-  <div>${inner}</div>
-  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #EFF6FF;">
-    <p style="margin: 0; color: #1E3A8A; font-weight: bold;">Camille</p>
-    <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748B;">Assistante de Charles — Le Club Immobilier Français</p>
-  </div>
-</div>`;
+  return wrapLcifClientEmailHtml(
+    `<p style="color: #1E3A8A; font-weight: bold; margin: 0 0 12px 0;">${greeting}</p>
+  <div>${inner}</div>`,
+  );
 }
 
 export function buildCamilleContextBlock(dossier: any, newAttachmentNames: string[] = []) {

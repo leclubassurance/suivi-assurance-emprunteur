@@ -1,20 +1,15 @@
 import { Dossier } from "./dossierModel";
-import { LCIF_EMAIL_LOGO_IMG } from "../shared/emailBrand";
+import { wrapLcifClientEmailHtml } from "../shared/emailBrand";
 
 function baseLayout(innerHtml: string) {
-  return `
-<div style="font-family: Arial, sans-serif; color: #0f172a; max-width: 640px; margin: 0 auto; border: 1px solid #E2E8F0; padding: 20px; border-radius: 10px; background: #ffffff;">
-  <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
-    ${LCIF_EMAIL_LOGO_IMG}
-    <div style="margin-left:auto;font-size:12px;color:#64748B;">Assurance emprunteur</div>
-  </div>
-  ${innerHtml}
-  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #E2E8F0; color:#64748B; font-size:12px; line-height:1.45">
+  return wrapLcifClientEmailHtml(
+    `${innerHtml}
+  <div style="margin-top: 20px; padding-top: 12px; border-top: 1px solid #E2E8F0; color:#64748B; font-size:12px; line-height:1.45">
     Le Club Immobilier Français<br/>
     17 Passage Leroy, 44000 Nantes<br/>
     N° ORIAS : 24002253
-  </div>
-</div>`;
+  </div>`,
+  );
 }
 
 export function templateMissingDocsFollowup(dossier: Dossier, missing: string[], stage: number = 1) {
@@ -35,7 +30,6 @@ export function templateMissingDocsFollowup(dossier: Dossier, missing: string[],
     <p style="margin:0 0 16px 0;color:#334155;font-size:14px;line-height:1.55">
       Vous pouvez simplement répondre à ce mail en joignant les documents.
     </p>
-    <p style="margin:0;color:#1E3A8A;font-size:14px;font-weight:bold">Camille, l'assistante de Charles</p>
   `;
   return baseLayout(inner);
 }
@@ -47,7 +41,6 @@ export function templateGenericFollowup(dossier: Dossier, text: string) {
     <p style="margin:0 0 16px 0;color:#334155;font-size:14px;line-height:1.55">
       ${text}
     </p>
-    <p style="margin:0;color:#1E3A8A;font-size:14px;font-weight:bold">Camille, l'assistante de Charles</p>
   `;
   return baseLayout(inner);
 }

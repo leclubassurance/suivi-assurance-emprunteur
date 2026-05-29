@@ -12,6 +12,7 @@ import {
 import fs from "fs";
 import path from "path";
 import { ensureDossierShape } from "./dossierModel";
+import { compactDossierForPersistence } from "./dossierFirestoreCompact";
 
 const DOSSIERS_COLLECTION = "dossiers";
 
@@ -164,8 +165,9 @@ export async function syncDossierToFirebase(dossier: unknown) {
   await initFirebaseSync();
   if (!firestoreDb) return;
   try {
-    const cleanDossier = JSON.parse(JSON.stringify(dossier));
-    await setDoc(doc(firestoreDb, DOSSIERS_COLLECTION, cleanDossier.id), cleanDossier);
+    const shaped = ensureDossierShape(dossier);
+    const cleanDossier = compactDossierForPersistence(shaped);
+    await setDoc(doc(firestoreDb, DOSSIERS_COLLECTION, cleanDossier.id as string), cleanDossier);
   } catch (err: any) {
     console.error("[Firebase] Error syncing dossier:", (dossier as any)?.id, err.message);
     throw err;

@@ -11,6 +11,7 @@ import { getPreStudyLoanReminderLabels } from "../shared/documentChecklist";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { tryCamilleDocClarificationInsteadOfEscalation } from "./camilleDocAutoReply";
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
+import { getConversationTailForAi, hasUnansweredClientInbound } from "./gmailConversation";
 
 export async function processIncomingClientEmail(
   dossier: any,
@@ -37,6 +38,8 @@ export async function processIncomingClientEmail(
       ctx.newAttachmentNames.length > 0
         ? ctx.newAttachmentNames.join(", ")
         : "Aucune pièce jointe dans cet email";
+    const conversationTail = getConversationTailForAi(dossier, 8);
+    const needsReply = hasUnansweredClientInbound(dossier);
 
     const response = await generateContentWithRetry({
       model: "gemini-2.5-flash",
@@ -81,6 +84,11 @@ Si présents et exploitables : NE PAS demander offre/tableau (sauf si le client 
 Ne jamais mettre de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.
 
 Pièces jointes reçues DANS CET EMAIL : ${newAttachmentsLine}
+
+Fil de conversation récent (ordre chronologique) :
+${conversationTail}
+
+Message client sans réponse outbound après lui : ${needsReply ? "OUI — répondre maintenant" : "non"}
 
 Email du client :
 """

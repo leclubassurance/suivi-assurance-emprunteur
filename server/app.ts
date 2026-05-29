@@ -1710,6 +1710,25 @@ export function createApp() {
     res.status(410).send("Deprecated. Use /api/dossiers/:id/documents/:docId/download");
   });
 
+  app.post("/api/admin/dossiers/:id/compact-firestore", async (req, res) => {
+    try {
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+      const { compactDossierForPersistence } = await import("./dossierFirestoreCompact");
+      const before = JSON.stringify(dossier).length;
+      const compacted = compactDossierForPersistence(dossier);
+      const after = JSON.stringify(compacted).length;
+      Object.assign(dossier, compacted);
+      dossier.updatedAt = new Date().toISOString();
+      await writeDB(db, dossier);
+      res.json({ success: true, dossierId: dossier.id, bytesBefore: before, bytesAfter: after });
+    } catch (err: any) {
+      console.error("compact-firestore", err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/dossiers/:id/reanalyze-documents", async (req, res) => {
     await ensureBackgroundServicesStarted();
     try {

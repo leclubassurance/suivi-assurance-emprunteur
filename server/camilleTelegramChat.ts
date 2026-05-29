@@ -21,6 +21,9 @@ Texte simple : puces avec •, pas de HTML ni markdown.
 Quand Rémi demande d'écrire au client, tu rédiges le mail (via un autre module) — ici tu confirmes seulement l'état du dossier si c'est une question.
 
 Ne jamais citer de nom d'assureur. Pas de téléphone client.
+
+Si un « Rapport OCR pièces prêt » est fourni, base-toi exclusivement dessus pour les documents.
+Ne dis jamais que les fichiers sont des images si le rapport indique PDF ou OCR réussi avec des caractères lus.
 `;
 
 /** Consigne pour envoyer un mail client (langage naturel). */
@@ -229,6 +232,7 @@ export function buildDossierDetailBlock(d: Dossier): string {
     `Docs prêt OK (offre+tableau présents): ${ctx.loanDocsOk ? "oui" : "non"}`,
     `Problème doc certain: ${docProb.certain ? "oui — " + docProb.problems.map((p) => p.kind).join(", ") : "non"}`,
     `Escalade active: ${esc?.lastAt && !esc?.resolvedAt ? "oui (" + (esc.reason || "") + ")" : "non"}`,
+    `Rapport OCR pièces prêt:\n${ctx.documentAnalysisReport || "—"}`,
     `Derniers échanges:\n${lastComms || "—"}`,
   ];
   return lines.join("\n");

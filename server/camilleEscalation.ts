@@ -268,13 +268,26 @@ export async function sendEscalationReminderToRemi(dossier: Dossier, payload: Re
       reminder: true,
     });
     if (isTelegramEnabled()) {
-      await sendTelegramEscalationAlert({
-        dossier,
-        clientEmail,
-        reason,
-        excerpt: String(payload?.excerpt || "—"),
-        reminder: true,
-      });
+      const esc = getEscalationState(dossier) as CamilleEscalationState & {
+        telegramReminderAt?: string;
+      };
+      const lastTg = esc?.telegramReminderAt
+        ? new Date(esc.telegramReminderAt).getTime()
+        : 0;
+      const minGap = 24 * 60 * 60 * 1000;
+      if (!lastTg || Date.now() - lastTg >= minGap) {
+        await sendTelegramEscalationAlert({
+          dossier,
+          clientEmail,
+          reason,
+          excerpt: String(payload?.excerpt || "—"),
+          reminder: true,
+          gmailId: String(payload?.gmailId || esc?.lastGmailId || ""),
+        });
+        if (dossier.camilleEscalation) {
+          (dossier.camilleEscalation as any).telegramReminderAt = new Date().toISOString();
+        }
+      }
     }
     addEvent(dossier, {
       type: "EMAIL_SENT",

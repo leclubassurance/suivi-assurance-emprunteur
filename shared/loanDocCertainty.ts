@@ -17,6 +17,9 @@ function isLoanCategory(cat: unknown): cat is "offre" | "tableau" {
 function isImageDoc(doc: any): boolean {
   const name = String(doc?.name || "").toLowerCase();
   const type = String(doc?.type || "").toLowerCase();
+  if (type.includes("pdf") || /\.pdf$/i.test(name)) return false;
+  const src = doc?.loanSignal?.textSource;
+  if (src === "pdf_native" || src === "ocr") return false;
   return /\.(png|jpe?g|webp|heic)$/i.test(name) || type.startsWith("image/");
 }
 
@@ -25,6 +28,8 @@ function isScreenshotName(name: string): boolean {
 }
 
 function hasScanPdfSignal(doc: any): boolean {
+  const chars = doc?.loanSignal?.extractedChars ?? 0;
+  if (chars >= 80) return false;
   const reasons: string[] = [
     ...(doc?.loanSignal?.reasons || []),
     ...(doc?.quality?.reasons || []),
@@ -61,7 +66,7 @@ export function assessCertainLoanDocProblems(dossier: any): LoanDocProblemAssess
       continue;
     }
 
-    if (isScreenshotName(fileName)) {
+    if (isScreenshotName(fileName) && isImageDoc(doc)) {
       problems.push({ kind: "screenshot_filename", category, fileName });
       continue;
     }

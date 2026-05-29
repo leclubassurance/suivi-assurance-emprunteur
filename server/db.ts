@@ -86,6 +86,11 @@ export async function readDB(): Promise<DBShape> {
 export async function writeDB(db: DBShape, modifiedDossier?: Dossier): Promise<void> {
   await ensureDbLayerReady();
 
+  if (modifiedDossier) {
+    const { normalizeDossierDocumentsForPersistence } = await import("./documentStoragePolicy");
+    normalizeDossierDocumentsForPersistence(modifiedDossier);
+  }
+
   if (useFirestorePrimary()) {
     if (!isFirestoreReady()) {
       throw new Error("Impossible d'écrire : Firestore non connecté.");

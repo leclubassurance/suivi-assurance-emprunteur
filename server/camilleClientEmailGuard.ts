@@ -1,5 +1,6 @@
 import type { Dossier } from "./dossierModel";
 import { isStaffActivelyHandling } from "./camilleStaffHandoff";
+import { hasUnansweredClientInbound } from "./gmailConversation";
 
 const inFlightDossierIds = new Set<string>();
 const scheduledDocFollowUpTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -41,6 +42,7 @@ export function recentCamilleClientEmailWithinMs(dossier: Dossier | any, withinM
 
 export function canCamilleEmailClient(
   dossier: Dossier | any,
+  options?: { allowIfUnansweredInbound?: boolean },
 ): { ok: boolean; reason?: string } {
   if (!dossier?.id) return { ok: false, reason: "no_dossier" };
   if (isStaffActivelyHandling(dossier)) {
@@ -49,6 +51,8 @@ export function canCamilleEmailClient(
   if (inFlightDossierIds.has(dossier.id)) {
     return { ok: false, reason: "in_flight" };
   }
+  const unanswered = options?.allowIfUnansweredInbound && hasUnansweredClientInbound(dossier);
+  if (unanswered) return { ok: true };
   const cooldown = getCamilleClientEmailCooldownMs();
   if (recentCamilleClientEmailWithinMs(dossier, cooldown)) {
     return { ok: false, reason: "cooldown" };

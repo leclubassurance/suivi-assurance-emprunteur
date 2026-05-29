@@ -18,6 +18,8 @@ import AdminLogin from './components/admin/AdminLogin';
 import AdminDashboard from './components/admin/AdminDashboard';
 import ClientPortalPage from './components/portal/ClientPortalPage';
 import ClientPortalDemoPage from './components/portal/ClientPortalDemoPage';
+import MentionsLegalesPage from './pages/MentionsLegalesPage';
+import PolitiqueConfidentialitePage from './pages/PolitiqueConfidentialitePage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
 import { AlertCircle } from 'lucide-react';
 import { showToast } from './lib/toast';
@@ -25,7 +27,18 @@ import { getApiUrl } from './lib/utils';
 
 const STORAGE_KEY = 'insurance-form-draft';
 
+export type LegalView = 'mentions' | 'privacy' | null;
+
+function resolveLegalViewFromPath(path: string): LegalView {
+  if (path === '/mentions-legales') return 'mentions';
+  if (path === '/politique-confidentialite' || path === '/confidentialite') return 'privacy';
+  return null;
+}
+
 export default function App() {
+  const [legalView, setLegalView] = useState<LegalView>(() =>
+    typeof window !== 'undefined' ? resolveLegalViewFromPath(window.location.pathname) : null,
+  );
   const [currentStep, setCurrentStep] = useState<Step>(Step.LANDING);
   const [formData, setFormData] = useState<InsuranceFormData>(INITIAL_FORM_DATA);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -36,17 +49,44 @@ export default function App() {
   const [portalToken, setPortalToken] = useState<string | null>(null);
   const [portalDemo, setPortalDemo] = useState(false);
 
+  const goHome = () => {
+    setLegalView(null);
+    setPortalDemo(false);
+    setPortalToken(null);
+    setCurrentStep(Step.LANDING);
+    window.history.pushState({}, '', '/');
+  };
+
+  const openLegal = (view: Exclude<LegalView, null>) => {
+    const path = view === 'mentions' ? '/mentions-legales' : '/politique-confidentialite';
+    setLegalView(view);
+    window.history.pushState({}, '', path);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   useEffect(() => {
-    const path = window.location.pathname;
-    if (path === "/demo/suivi" || path === "/apercu-suivi-client") {
-      setPortalDemo(true);
-      return;
-    }
-    const m = path.match(/^\/suivi\/([a-f0-9]{32,64})$/i);
-    if (m) {
-      setPortalToken(m[1]);
-      setCurrentStep(Step.CLIENT_PORTAL);
-    }
+    const syncRoute = () => {
+      const path = window.location.pathname;
+      const legal = resolveLegalViewFromPath(path);
+      if (legal) {
+        setLegalView(legal);
+        return;
+      }
+      setLegalView(null);
+      if (path === "/demo/suivi" || path === "/apercu-suivi-client") {
+        setPortalDemo(true);
+        return;
+      }
+      setPortalDemo(false);
+      const m = path.match(/^\/suivi\/([a-f0-9]{32,64})$/i);
+      if (m) {
+        setPortalToken(m[1]);
+        setCurrentStep(Step.CLIENT_PORTAL);
+      }
+    };
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
   }, []);
 
   // Load from LocalStorage on mount
@@ -273,6 +313,14 @@ export default function App() {
     return <ClientPortalDemoPage />;
   }
 
+  if (legalView === 'mentions') {
+    return <MentionsLegalesPage onBack={goHome} />;
+  }
+
+  if (legalView === 'privacy') {
+    return <PolitiqueConfidentialitePage onBack={goHome} />;
+  }
+
   return (
     <div className="min-h-[100dvh] flex flex-col w-full h-full">
       
@@ -328,6 +376,8 @@ export default function App() {
           <LandingStep 
             onStart={() => goToStep(Step.PREPARATION)} 
             onAdminAccess={goToAdmin}
+            onLegalMentions={() => openLegal('mentions')}
+            onLegalPrivacy={() => openLegal('privacy')}
           />
         )}
         
@@ -371,6 +421,7 @@ export default function App() {
             onSubmit={handleSubmit}
             isSubmitting={isSubmitting}
             submitStatus={submitStatus}
+            onOpenPrivacy={() => openLegal('privacy')}
           />
         )}
 

@@ -3,6 +3,7 @@ import path from 'path';
 import type { gmail_v1 } from 'googleapis';
 import { classifyFileName, type DocumentCategory } from '../shared/documentClassifier';
 import { assessDocumentQuality } from '../shared/documentQuality';
+import { normalizeDocumentForPersistence } from './documentStoragePolicy';
 
 export function getUploadsBaseDir() {
   if (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT) {
@@ -265,7 +266,7 @@ export function mergeDocumentsIntoDossier(dossier: any, newDocs: SavedGmailAttac
 
     if (existingNames.has(nameKey) || existingFp.has(fp) || dupByCategory) continue;
 
-    dossier.formData.documents.push(doc);
+    dossier.formData.documents.push(normalizeDocumentForPersistence(doc));
     existingNames.add(nameKey);
     existingFp.add(fp);
     added.push(doc);

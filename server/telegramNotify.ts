@@ -75,7 +75,9 @@ export async function notifyTelegramEscalation(params: {
     subject: params.reminder ? "Rappel — intervention requise" : params.reason,
     excerpt: params.excerpt,
     extra: params.clientEmail,
-    eventId: params.gmailId || `esc_${Date.now()}`,
+    eventId: params.reminder
+      ? `esc_reminder_${params.dossier.id}`
+      : params.gmailId || `esc_${params.dossier.id}`,
   });
 }
 

@@ -58,6 +58,11 @@ function decodeBody(payload: any): string {
   return decodeEmailBodies(payload).text;
 }
 
+function truncateCommText(s: unknown, max = 3500): string {
+  const t = String(s || "");
+  return t.length <= max ? t : `${t.slice(0, max)}…`;
+}
+
 function upsertCommunication(dossier: any, msg: any) {
   if (!dossier.communications) dossier.communications = [];
   const idx = dossier.communications.findIndex(
@@ -72,7 +77,13 @@ function upsertCommunication(dossier: any, msg: any) {
         msg.attachments?.length > 0 ? msg.attachments : prev.attachments || [],
     };
   } else {
-    dossier.communications.push(msg);
+    dossier.communications.push({
+      ...msg,
+      text: msg.text != null ? truncateCommText(msg.text) : msg.text,
+    });
+  }
+  if (dossier.communications.length > 40) {
+    dossier.communications = dossier.communications.slice(-40);
   }
 }
 
@@ -440,80 +451,161 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
       if (isFromClient) {
         inboundCount++;
         const alreadyHandled = getProcessedIds(dossier).has(msgMeta.id);
+        const { hasUnansweredClientInbound } = await import("./gmailConversation");
+        const unanswered = hasUnansweredClientInbound(dossier, msgMeta.id);
 
         if (!alreadyHandled) {
-          const attNote =
-            addedAttachments.length > 0
-              ? `Pièces jointes : ${addedAttachments.map((d) => d.name).join(", ")}`
-              : undefined;
-          void import("./telegramNotify")
-            .then(({ notifyTelegramClientInbound }) =>
-              notifyTelegramClientInbound({
-                dossier,
-                clientEmail: senderEmail,
-                subject,
-                excerpt: String(text || "").slice(0, 500),
-                gmailId: msgMeta.id,
-                extra: attNote,
-              }),
-            )
-            .catch(() => undefined);
+          const {
+            wasTelegramNotifiedRecently,
+            markTelegramNotified,
+            telegramNotifyKey,
+          } = await import("./telegramNotifyDedup");
+          const tgKey = telegramNotifyKey(dossier.id, "client_message", msgMeta.id);
+          if (!wasTelegramNotifiedRecently(dossier, tgKey, 24 * 60 * 60 * 1000)) {
+            markTelegramNotified(dossier, tgKey);
+            const attNote =
+              addedAttachments.length > 0
+                ? `Pièces jointes : ${addedAttachments.map((d) => d.name).join(", ")}`
+                : undefined;
+            void import("./telegramNotify")
+              .then(({ notifyTelegramClientInbound }) =>
+                notifyTelegramClientInbound({
+                  dossier,
+                  clientEmail: senderEmail,
+                  subject,
+                  excerpt: String(text || "").slice(0, 500),
+                  gmailId: msgMeta.id,
+                  extra: attNote,
+                }),
+              )
+              .catch(() => undefined);
+          }
         }
 
-        if (!alreadyHandled && isAiAutoReplyEnabled()) {
-          if (aiLockedDossierIds.has(dossier.id)) {
-            markProcessed(dossier, msgMeta.id);
-            continue;
-          }
-          const sendGate = canCamilleEmailClient(dossier);
-          if (!sendGate.ok) {
-            markProcessed(dossier, msgMeta.id);
+        const shouldReply =
+          isAiAutoReplyEnabled() && (!alreadyHandled || unanswered);
+
+        if (shouldReply) {
+          if (aiLockedDossierIds.has(dossier.id)) continue;
+
+          const sendGate = canCamilleEmailClient(dossier, {
+            allowIfUnansweredInbound: true,
+          });
+
+          if (!sendGate.ok && sendGate.reason === "staff_handling") {
+            if (!alreadyHandled) markProcessed(dossier, msgMeta.id);
             addEvent(dossier, {
               type: "AI_DECISION",
               actor: { kind: "AI", label: "Camille" },
-              message: `Réponse auto non envoyée (${sendGate.reason}).`,
-              meta: { gmailId: msgMeta.id, reason: sendGate.reason },
+              message: "Réponse auto reportée (équipe en cours sur le fil).",
+              meta: { gmailId: msgMeta.id },
             });
             continue;
           }
-          if (!acquireCamilleClientEmailLock(dossier.id)) {
-            markProcessed(dossier, msgMeta.id);
-            continue;
-          }
-          markProcessed(dossier, msgMeta.id);
+
+          if (!acquireCamilleClientEmailLock(dossier.id)) continue;
+
           aiLockedDossierIds.add(dossier.id);
           try {
-            await writeDB(db, dossier);
+            const { normalizeDossierDocumentsForPersistence } = await import(
+              "./documentStoragePolicy"
+            );
+            normalizeDossierDocumentsForPersistence(dossier);
+            await writeDB(db, dossier).catch(() => undefined);
+
+            const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
+            const finishInbound = () => markProcessed(dossier, msgMeta.id);
+
             if (isBusinessHoursGateEnabled() && !isWithinBusinessHours()) {
-              const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
               const outOfHours = [
-                `Bonjour,`,
-                ``,
                 `Merci pour votre message. Nous avons bien reçu votre demande.`,
-                `Notre équipe vous répondra dès la prochaine plage d’ouverture.`,
-                ``,
-                `Bien cordialement,`,
-                `Camille`,
-                `Le Club Immobilier Français`,
+                `Notre équipe vous répondra dès la prochaine plage d'ouverture.`,
               ].join("\n");
-              await sendEmailReplyWithGmailAPI(accessToken, clientEmail, replySubject, outOfHours);
+              const { wrapCamilleHtmlReply } = await import("./camilleMail");
+              const nom = dossier.formData?.assures?.[0]?.nom || "";
+              const prenom = dossier.formData?.assures?.[0]?.prenom || "";
+              const html = wrapCamilleHtmlReply(outOfHours, prenom, nom);
+              const sent = await sendEmailReplyWithGmailAPI(
+                accessToken,
+                clientEmail,
+                replySubject,
+                html,
+              );
+              if (sent.ok) {
+                finishInbound();
+                upsertCommunication(dossier, {
+                  id: `msg_ack_${msgMeta.id}`,
+                  gmailId: sent.messageId,
+                  direction: "outbound",
+                  from: "Camille (IA)",
+                  to: clientEmail,
+                  subject: replySubject,
+                  text: outOfHours,
+                  date: new Date().toISOString(),
+                });
+                addEvent(dossier, {
+                  type: "AI_DECISION",
+                  actor: { kind: "AI", label: "Camille" },
+                  message: "Accusé de réception hors horaires envoyé au client.",
+                  meta: { gmailId: msgMeta.id },
+                });
+              }
+              continue;
+            }
+
+            if (!sendGate.ok && sendGate.reason === "cooldown") {
+              const ack = [
+                `Merci pour votre message, nous avons bien reçu votre email.`,
+                `Nous revenons vers vous très prochainement avec une réponse détaillée.`,
+              ].join("\n");
+              const { wrapCamilleHtmlReply } = await import("./camilleMail");
+              const nom = dossier.formData?.assures?.[0]?.nom || "";
+              const prenom = dossier.formData?.assures?.[0]?.prenom || "";
+              const html = wrapCamilleHtmlReply(ack, prenom, nom);
+              const sent = await sendEmailReplyWithGmailAPI(
+                accessToken,
+                clientEmail,
+                replySubject,
+                html,
+              );
+              if (sent.ok) {
+                finishInbound();
+                upsertCommunication(dossier, {
+                  id: `msg_ack_${msgMeta.id}`,
+                  gmailId: sent.messageId,
+                  direction: "outbound",
+                  from: "Camille (IA)",
+                  to: clientEmail,
+                  subject: replySubject,
+                  text: ack,
+                  date: new Date().toISOString(),
+                });
+                addEvent(dossier, {
+                  type: "AI_DECISION",
+                  actor: { kind: "AI", label: "Camille" },
+                  message: "Accusé de réception envoyé (cooldown actif).",
+                  meta: { gmailId: msgMeta.id },
+                });
+              }
+              continue;
+            }
+
+            if (!sendGate.ok) {
               addEvent(dossier, {
-                type: 'AI_DECISION',
-                actor: { kind: 'AI', label: 'Camille' },
-                message: "Réponse hors horaires envoyée (accusé de réception).",
-                meta: { gmailId: msgMeta.id },
+                type: "AI_DECISION",
+                actor: { kind: "AI", label: "Camille" },
+                message: `Réponse auto non envoyée (${sendGate.reason}).`,
+                meta: { gmailId: msgMeta.id, reason: sendGate.reason },
               });
               continue;
             }
 
-            // Add a small human-like delay to avoid instant replies.
             await sleep(45_000 + Math.floor(Math.random() * 135_000));
 
             const aiDecision = await aiCallback(dossier, text, senderEmail, {
               newAttachmentNames: addedAttachments.map((d) => d.name),
             });
-            if (aiDecision?.status === 'replied' && aiDecision.text) {
-              const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+            if (aiDecision?.status === "replied" && aiDecision.text) {
               const sendResult = await sendEmailReplyWithGmailAPI(
                 accessToken,
                 clientEmail,
@@ -522,24 +614,25 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
               );
               if (sendResult.ok) {
                 aiReplies++;
+                finishInbound();
                 cancelScheduledDocFollowUp(dossier.id);
                 upsertCommunication(dossier, {
                   id: `msg_ai_${msgMeta.id}`,
                   gmailId: sendResult.messageId,
-                  direction: 'outbound',
-                  from: 'Camille (IA)',
+                  direction: "outbound",
+                  from: "Camille (IA)",
                   to: clientEmail,
                   subject: replySubject,
                   text: aiDecision.text,
                   date: new Date().toISOString(),
                 });
                 addEvent(dossier, {
-                  type: 'AI_DECISION',
-                  actor: { kind: 'AI', label: 'Camille' },
-                  message: 'Réponse automatique envoyée au client.',
+                  type: "AI_DECISION",
+                  actor: { kind: "AI", label: "Camille" },
+                  message: "Réponse automatique envoyée au client.",
                   meta: { gmailId: msgMeta.id },
                 });
-                dossier.status = 'EN_COURS';
+                dossier.status = "EN_COURS";
                 void import("./telegramNotify")
                   .then(({ notifyTelegramCamilleReplied }) =>
                     notifyTelegramCamilleReplied({
@@ -563,7 +656,8 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
                   )
                   .catch(() => undefined);
               }
-            } else if (aiDecision?.status === 'escalated') {
+            } else if (aiDecision?.status === "escalated") {
+              finishInbound();
               const { handleCamilleEscalation } = await import("./camilleEscalation");
               await handleCamilleEscalation({
                 dossier,
@@ -577,7 +671,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
               });
             }
           } catch (err: any) {
-            console.error('[AI] Erreur traitement email:', err);
+            console.error("[AI] Erreur traitement email:", err);
           } finally {
             releaseCamilleClientEmailLock(dossier.id);
           }
