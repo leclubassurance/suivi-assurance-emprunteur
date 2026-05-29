@@ -28,7 +28,9 @@ Règles mail client:
 ${insurerRule}
 - Ne jamais dire "document illisible/mauvais".
 - Si la consigne demande de demander des PDF banque: uniquement si offre/tableau pas déjà présents (voir contexte).
-- NE JAMAIS demander CNI/RIB sauf si l'étude économiques a déjà été envoyée au client (voir contexte).
+- NE JAMAIS demander CNI/RIB tant que le client n'a pas confirmé vouloir activer le changement d'assurance (clientAcceptedInsurance dans le contexte).
+- Après envoi de l'étude SANS accord client : relances possibles sur la réception de l'étude ou les questions — jamais CNI/RIB.
+- CNI/RIB uniquement si clientAcceptedInsurance=true ET consigne équipe ou pièces manquantes pour souscription.
 - S'appuyer sur documentAnalysisReport pour les demandes de pièces.
 - Pas de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.
 - Si la consigne dit que le conseiller gère ou "ne pas envoyer": action NO_EMAIL.
@@ -93,6 +95,9 @@ ${ctx.documentAnalysisReport || "—"}
 
 certainDocProblems: ${ctx.certainDocProblems}
 loanDocsOk: ${ctx.loanDocsOk}
+studySent: ${Boolean(ctx.studySent)}
+clientAcceptedInsurance: ${Boolean(ctx.clientAcceptedInsurance)}
+identityDocsMayBeRequested: ${Boolean(ctx.identityDocsMayBeRequested)}
 staffActivelyHandling: ${Boolean(dossier.camilleStaffHandledUntil)}
 
 Connaissance dossier (devis, étude, question client — source de vérité si la consigne autorise une réponse factuelle):

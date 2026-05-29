@@ -303,8 +303,8 @@ async function handleTelegramCallbackQuery(query: any) {
     return;
   }
 
-  if (parsed.action === "pdf" || parsed.action === "cni") {
-    const preset = PRESET_DIRECTIVES[parsed.action as "pdf" | "cni"];
+  if (parsed.action === "pdf" || parsed.action === "cni" || parsed.action === "etude") {
+    const preset = PRESET_DIRECTIVES[parsed.action as "pdf" | "cni" | "etude"];
     await runStaffDirectiveFlow(chatId, dossier, preset);
     return;
   }

@@ -2,6 +2,7 @@ import { computeDocumentChecklistForDossier } from "../shared/documentChecklist"
 import { buildLoanDocsAnalysisReport } from "../shared/loanDocAnalysis";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { hasStudyBeenSent } from "./dossierLifecycle";
+import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 import { stripRedundantSalutations } from "./camilleClientMessage";
 import { wrapLcifClientEmailHtml } from "../shared/emailBrand";
@@ -27,11 +28,16 @@ export function wrapCamilleHtmlReply(
 export function buildCamilleContextBlock(dossier: any, newAttachmentNames: string[] = []) {
   const checklist = computeDocumentChecklistForDossier(dossier);
   const studySent = hasStudyBeenSent(dossier);
-  const missingBlocking = studySent
+  const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
+  const missingBlocking = clientAccepted
     ? checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib"))
-    : checklist.filter(
-        (c) => (c.key === "offre" || c.key === "amort") && (c.status === "missing" || c.status === "review"),
-      );
+    : studySent
+      ? []
+      : checklist.filter(
+          (c) =>
+            (c.key === "offre" || c.key === "amort") &&
+            (c.status === "missing" || c.status === "review"),
+        );
   const loan = resolveLoanDocPresence(dossier);
   const docs = (dossier.formData?.documents || []) as any[];
   const qualityIssues = docs
@@ -94,5 +100,8 @@ export function buildCamilleContextBlock(dossier: any, newAttachmentNames: strin
     loanClientGuidance,
     loanOffreExploitable: loan.offreExploitable,
     loanAmortExploitable: loan.amortExploitable,
+    studySent,
+    clientAcceptedInsurance: clientAccepted,
+    identityDocsMayBeRequested: clientAccepted,
   };
 }

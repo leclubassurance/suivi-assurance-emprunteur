@@ -4,6 +4,7 @@ import {
   getPreStudyLoanReminderLabels,
 } from "../shared/documentChecklist";
 import { hasStudyBeenSent } from "./dossierLifecycle";
+import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 
 export function getPrimaryClientEmail(dossier: Dossier): string | null {
   const email = dossier.formData?.assures?.[0]?.email;
@@ -14,6 +15,7 @@ export function getPrimaryClientEmail(dossier: Dossier): string | null {
 export function detectMissingDocs(dossier: Dossier): string[] {
   const docs = dossier.formData?.documents || [];
   if (hasStudyBeenSent(dossier)) {
+    if (!clientHasAcceptedInsuranceChange(dossier)) return [];
     return getPostStudyIdentityReminderLabels(docs);
   }
   return getPreStudyLoanReminderLabels(docs);

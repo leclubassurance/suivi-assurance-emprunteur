@@ -11,6 +11,7 @@ import {
   loanDocsStepHint,
   resolveLoanDocPresence,
 } from "./loanDocPresence";
+import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 
 export function ensureClientPortalToken(dossier: Dossier): string {
   const existing = dossier.clientPortal?.token;
@@ -105,6 +106,7 @@ export function buildClientPortalView(dossier: Dossier) {
   const checklist = computeDocumentChecklistForDossier(dossier);
   const loan = resolveLoanDocPresence(dossier);
   const studySent = hasStudyBeenSent(dossier);
+  const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
   const lastStudy = getLastStudyOutbound(dossier);
   const statusKey = resolveClientPortalStatusKey(dossier);
   const statusInfo = STATUS_CLIENT[statusKey] || STATUS_CLIENT.EN_COURS;
@@ -144,10 +146,13 @@ export function buildClientPortalView(dossier: Dossier) {
     (x) => x.key === "offre" || x.key === "amort" || x.key === "cni" || x.key === "rib",
   )) {
     const isLoanDoc = c.key === "offre" || c.key === "amort";
+    const isIdentityDoc = c.key === "cni" || c.key === "rib";
     const loanFilePresent =
       c.key === "offre" ? loan.offrePresent : c.key === "amort" ? loan.amortPresent : c.ok;
     const slotReceived = isLoanDoc ? loanFilePresent : c.ok;
-    const slotRequired = isLoanDoc && !studySent && !loanFilePresent;
+    const slotRequired =
+      (isLoanDoc && !studySent && !loanFilePresent) ||
+      (isIdentityDoc && clientAccepted && !c.ok);
 
     const fileRows = c.files?.length ? c.files : [];
     if (fileRows.length <= 1) {

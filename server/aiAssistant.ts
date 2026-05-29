@@ -9,6 +9,7 @@ import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
 import { getPreStudyLoanReminderLabels } from "../shared/documentChecklist";
 import { hasStudyBeenSent } from "./dossierLifecycle";
+import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { tryCamilleDocClarificationInsteadOfEscalation } from "./camilleDocAutoReply";
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
 import { getConversationTailForAi, hasUnansweredClientInbound } from "./gmailConversation";
@@ -36,8 +37,11 @@ export async function processIncomingClientEmail(
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
     const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
     const studySent = hasStudyBeenSent(dossier);
+    const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
     const missingLoanLabels = studySent
-      ? ctx.missingBlocking.map((c) => c.label)
+      ? clientAccepted
+        ? ctx.missingBlocking.map((c) => c.label)
+        : []
       : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
     const newAttachmentsLine =
       ctx.newAttachmentNames.length > 0
@@ -85,11 +89,13 @@ clientSafeReason: ${ctx.clientSafeReason || "N/A"}
 
 Pièces à demander au client (selon phase) : ${
   studySent
-    ? missingLoanLabels.join(", ") || "Aucune — CNI/RIB déjà reçus ou non requis pour l'instant"
+    ? clientAccepted
+      ? missingLoanLabels.join(", ") || "Aucune — CNI/RIB déjà reçus ou non requis pour l'instant"
+      : "Aucune — attendre l'accord client pour le changement d'assurance (ne pas demander CNI/RIB)"
     : missingLoanLabels.join(", ") || "Aucune — offre et tableau OK côté analyse"
 }
 Étude déjà envoyée au client (studySent) : ${studySent ? "OUI — ne jamais promettre une étude à venir" : "NON"}
-NE PAS mentionner CNI/RIB avant envoi de l'étude économiques (sauf si studySent=true ci-dessus).
+Client a accepté le changement d'assurance (clientAcceptedInsurance) : ${clientAccepted ? "OUI — CNI/RIB autorisés si manquants" : "NON — interdiction absolue de demander CNI/RIB"}
 Offre de prêt + tableau présents dans le dossier : ${ctx.loanDocsPresent ? "OUI" : "NON"}
 Offre validée par analyse : ${ctx.loanOffreExploitable ? "OUI" : "NON"}
 Tableau validé par analyse : ${ctx.loanAmortExploitable ? "OUI" : "NON"}

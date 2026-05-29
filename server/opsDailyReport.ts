@@ -522,7 +522,7 @@ function scanDossierIncidents(params: {
           clientName: name,
           title: "Camille a demandé des docs prêt alors que checklist OK",
           detail: (row.summary || "").slice(0, 280),
-          suggestedAction: "Vérifier prompt Camille, pièces CNI/RIB post-étude, et historique compacté.",
+          suggestedAction: "Vérifier prompt Camille : CNI/RIB uniquement après accord client pour le changement.",
           evidence: [row.at],
           at: row.at,
         });
@@ -594,7 +594,7 @@ function buildProductNotes(incidents: OpsIncident[], metrics: OpsDailyMetrics): 
     notes.push({
       title: "Cohérence Camille",
       detail:
-        "Relances docs alors que offre+tableau validés : durcir le bloc prompt post-étude (CNI/RIB uniquement) et test sur dossiers récents.",
+        "Relances CNI/RIB sans accord client : durcir sanitize + consignes Telegram (relance étude sans pièces identité).",
       priority: "high",
     });
   }

@@ -124,7 +124,7 @@ RÈGLES :
 - Expliquer brièvement où les trouver (app bancaire / conseiller).
 - Proposer de répondre à ce mail avec les PDF en pièce jointe.
 - Pas de téléphone, pas de nom d'assureur.
-- NE JAMAIS demander CNI, passeport ou RIB (demandés uniquement après l'étude économiques, à la souscription).
+- NE JAMAIS demander CNI, passeport ou RIB tant que le client n'a pas confirmé vouloir activer le changement d'assurance (pas seulement après l'étude).
 - S'appuyer sur l'analyse OCR ci-dessous pour dire précisément ce qui manque ou doit être renvoyé en PDF banque.
 
 JSON uniquement : { "messageToClient": "..." }

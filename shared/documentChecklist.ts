@@ -522,7 +522,7 @@ export function getPreStudyLoanReminderLabels(documents: any[] = []) {
   return labels;
 }
 
-/** Après envoi de l'étude : pièces d'identité et RIB pour la souscription. */
+/** Après accord client pour le changement : pièces d'identité et RIB pour la souscription. */
 export function getPostStudyIdentityReminderLabels(documents: any[] = []) {
   return getBlockingMissingLabels(documents);
 }

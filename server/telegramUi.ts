@@ -3,6 +3,7 @@ import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock } from "./camilleMail";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { hasStudyBeenSent } from "./dossierLifecycle";
+import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 
 export function escapeTelegramHtml(s: string) {
@@ -35,7 +36,7 @@ function suggestNextAction(d: Dossier, docProb: ReturnType<typeof assessCertainL
     return "Relancer offre de prêt + tableau d'amortissement.";
   }
   if (missing.some((m) => m.key === "cni" || m.key === "rib")) {
-    return "Pièces identité / RIB à prévoir après présentation de l'étude.";
+    return "CNI / RIB : uniquement après accord client pour le changement d'assurance.";
   }
   return "Dossier suivi — vous pouvez poser une question ou envoyer une consigne.";
 }
@@ -125,19 +126,24 @@ export function dossierCollaborationKeyboard(dossier: Dossier | string) {
       { text: "✅ Pris en charge", callback_data: `ok:${id}` },
     ],
   ];
-  if (d && hasStudyBeenSent(d)) {
+  if (d && hasStudyBeenSent(d) && clientHasAcceptedInsuranceChange(d)) {
     rows[0].push({ text: "🪪 CNI + RIB", callback_data: `cni:${id}` });
+  }
+  if (d && hasStudyBeenSent(d)) {
+    rows[0].push({ text: "📧 Relance étude", callback_data: `etude:${id}` });
   }
   return { inline_keyboard: rows };
 }
 
 export const PRESET_DIRECTIVES = {
   pdf: "Rédige un mail bienveillant : demande l'offre de prêt et le tableau d'amortissement complets en PDF depuis l'espace bancaire (pas de capture d'écran).",
-  cni: "Rédige un mail : remercie le client et indique que CNI/passeport et RIB seront demandés après validation de l'étude des économies — ne les demande pas maintenant si l'étude n'est pas encore présentée.",
+  cni: "Rédige un mail : le client a accepté le changement d'assurance — demande poliment la pièce d'identité (CNI ou passeport) et le RIB pour la souscription.",
+  etude:
+    "Rédige un mail bienveillant pour savoir si le client a bien reçu l'étude des économies par email et s'il a des questions. Ne demande PAS CNI ni RIB : le client n'a pas encore confirmé vouloir activer le changement d'assurance.",
 } as const;
 
 export function parseCallbackData(data: string): { action: string; dossierId: string } | null {
-  const m = String(data || "").match(/^(pick|pdf|cni|sum|ok|info):(LCIF-\d{6})$/i);
+  const m = String(data || "").match(/^(pick|pdf|cni|etude|sum|ok|info):(LCIF-\d{6})$/i);
   if (!m) return null;
   return { action: m[1].toLowerCase(), dossierId: m[2].toUpperCase() };
 }

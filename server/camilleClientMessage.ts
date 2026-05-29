@@ -3,6 +3,7 @@ import type { LoanDocProblemAssessment, CertainLoanDocProblem } from "./loanDocC
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 import { hasStudyBeenSent } from "./dossierLifecycle";
+import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -90,19 +91,7 @@ export function messagePromisesFutureStudy(plain: string): boolean {
 export function buildPostStudyClientAckMessage(dossier: any): string {
   const a = dossier?.formData?.assures?.[0];
   const prenom = String(a?.prenom || "").trim();
-  const lastIn = String(
-    [...(dossier.communications || [])]
-      .filter((c: any) => c.direction === "inbound")
-      .sort(
-        (x: any, y: any) =>
-          new Date(y.date || 0).getTime() - new Date(x.date || 0).getTime(),
-      )[0]?.text || "",
-  ).toLowerCase();
-
-  const agreed =
-    /d.accord|je\s+suis\s+d.accord|ok\s+pour|accepte|changement\s+d.assurance|faire\s+le\s+changement/i.test(
-      lastIn,
-    );
+  const agreed = clientHasAcceptedInsuranceChange(dossier);
 
   const lines = [
     `Merci pour votre message${prenom ? `, ${prenom}` : ""}.`,
@@ -111,10 +100,28 @@ export function buildPostStudyClientAckMessage(dossier: any): string {
       ? `Nous avons bien pris note de votre accord pour poursuivre le changement d'assurance.`
       : `Nous avons bien pris note de votre message.`,
     `Votre étude personnalisée (économies possibles) vous a déjà été transmise par email ; consultez également vos courriers indésirables si besoin.`,
-    `Charles et notre équipe vous recontactent très prochainement pour la suite du dossier (mise en place et pièces éventuelles de souscription).`,
+    agreed
+      ? `Charles et notre équipe vous recontactent très prochainement pour la suite du dossier (mise en place et pièces éventuelles de souscription).`
+      : `Si vous avez des questions sur l'étude, répondez simplement à ce mail. Lorsque vous souhaiterez activer le changement d'assurance, indiquez-le nous par retour de mail : nous vous guiderons pour la suite.`,
     ``,
     `Pour toute question précise, répondez simplement à ce mail.`,
   ];
+  return lines.join("\n");
+}
+
+/** Relance douce post-étude : vérifier réception / questions — sans demander CNI/RIB. */
+export function buildStudyReceiptFollowUpMessage(dossier: any): string {
+  const a = dossier?.formData?.assures?.[0];
+  const prenom = String(a?.prenom || "").trim();
+  const lines = [
+    `Nous espérons que vous avez bien reçu l'email contenant votre étude personnalisée de vos économies.`,
+    `N'hésitez pas à nous indiquer si vous avez pu la consulter ou si vous avez des questions.`,
+    ``,
+    `Lorsque vous souhaiterez activer le changement d'assurance, répondez à ce mail pour nous le confirmer : nous vous indiquerons alors les prochaines étapes.`,
+    ``,
+    `Nous restons à votre entière disposition.`,
+  ];
+  if (prenom) lines.unshift(`Merci pour votre confiance${prenom ? `, ${prenom}` : ""}.`, ``);
   return lines.join("\n");
 }
 
@@ -271,6 +278,11 @@ export function sanitizeCamilleClientMessage(
   }
 
   if (hasStudyBeenSent(dossier) && messageRequestsMissingIdentityDocs(text)) {
+    if (!clientHasAcceptedInsuranceChange(dossier)) {
+      text = buildStudyReceiptFollowUpMessage(dossier);
+      text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
+      return { text, blockedDocRequest: true };
+    }
     const checklist = computeDocumentChecklistForDossier(dossier);
     const cniOk = checklist.find((c) => c.key === "cni")?.ok;
     const ribOk = checklist.find((c) => c.key === "rib")?.ok;
