@@ -4,7 +4,10 @@ import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download,
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
-import { computeDocumentChecklist } from "../../lib/documentChecklist";
+import {
+  computeDocumentChecklistForDossier,
+  getAdminChecklistOverrides,
+} from "../../lib/documentChecklist";
 import { QUALITE_OPTIONS, STATUT_PRO_OPTIONS, PROFESSION_RISQUE_OPTIONS, DEPLACEMENTS_PRO_OPTIONS } from "../../constants";
 import {
   AdminActivityBar,
@@ -380,6 +383,33 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleValidateChecklistItem = async (key: string, validate: boolean) => {
+    if (!selectedDossier) return;
+    try {
+      const method = validate ? "POST" : "DELETE";
+      const res = await fetch(
+        getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/checklist/${key}/validate`),
+        {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: validate ? JSON.stringify({ author: user.email }) : undefined,
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast(
+          validate ? "Document validé manuellement" : "Validation manuelle retirée",
+          "success",
+        );
+        loadDossiers();
+      } else {
+        showToast(data.error || "Impossible de mettre à jour le statut", "error");
+      }
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
   const handleExportDrive = async () => {
     if (!selectedDossier) return;
     const token = await getAccessToken();
@@ -509,7 +539,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   const getAlerts = (d: Dossier) => {
     const alerts: { title: string; detail: string }[] = [];
-    const checklist = computeDocumentChecklist(d.formData?.documents || []);
+    const checklist = computeDocumentChecklistForDossier(d);
     const missing = checklist.filter(i => !i.ok && (i.key === "cni" || i.key === "rib"));
     if (missing.length) {
       alerts.push({ title: "Pièces bloquantes manquantes", detail: missing.map(m => m.label).join(" · ") });
@@ -937,7 +967,9 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       </div>
                     )}
                     <div className="space-y-2 mb-6">
-                      {computeDocumentChecklist(selectedDossier.formData?.documents || []).map(item => {
+                      {computeDocumentChecklistForDossier(selectedDossier).map((item) => {
+                        const adminOverrides = getAdminChecklistOverrides(selectedDossier);
+                        const manualOk = adminOverrides[item.key]?.status === "ok";
                         const st = item.status ?? (item.ok ? "ok" : "missing");
                         const boxClass =
                           st === "ok"
@@ -957,10 +989,31 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                           st === "review" ? "text-amber-900/90" : st === "ok" ? "text-emerald-800/90" : "text-slate-600";
                         return (
                         <div key={item.key} className={`p-3 rounded-xl border ${boxClass}`}>
-                          <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
                             <div className="text-sm font-semibold text-slate-800">{item.label}</div>
-                            <div className={`text-xs font-black px-2 py-1 rounded-full shrink-0 ${badgeClass}`}>
-                              {badgeLabel}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {(st === "review" || manualOk) && item.ok && (
+                                manualOk ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleValidateChecklistItem(item.key, false)}
+                                    className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                                  >
+                                    Annuler validation
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleValidateChecklistItem(item.key, true)}
+                                    className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1"
+                                  >
+                                    <CheckCircle className="w-3 h-3" /> Valider
+                                  </button>
+                                )
+                              )}
+                              <div className={`text-xs font-black px-2 py-1 rounded-full ${badgeClass}`}>
+                                {manualOk ? "VALIDÉ (vous)" : badgeLabel}
+                              </div>
                             </div>
                           </div>
                           {item.reviewHint && st !== "ok" && (

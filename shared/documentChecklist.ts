@@ -1,5 +1,13 @@
 import { classifyFileName, inferDocumentCategory, categoryToChecklistKey } from "./documentClassifier";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
+import {
+  applyAdminChecklistOverrides,
+  getAdminChecklistOverrides,
+  type AdminChecklistOverride,
+} from "./adminDocValidation";
+
+export type { AdminChecklistOverride } from "./adminDocValidation";
+export { getAdminChecklistOverrides, applyAdminChecklistOverrides } from "./adminDocValidation";
 
 export type ChecklistDocStatus = "missing" | "review" | "ok";
 
@@ -81,7 +89,10 @@ function enrichDocuments(documents: any[] = []) {
 }
 
 /** Checklist basée sur id/catégorie/nom de fichier (formulaire + Gmail). */
-export function computeDocumentChecklist(documents: any[] = []): ChecklistItem[] {
+export function computeDocumentChecklist(
+  documents: any[] = [],
+  options?: { adminOverrides?: Record<string, AdminChecklistOverride> },
+): ChecklistItem[] {
   const docs = enrichDocuments(documents);
 
   const matched: Record<string, string[]> = { cni: [], rib: [], offre: [], amort: [] };
@@ -170,7 +181,21 @@ export function computeDocumentChecklist(documents: any[] = []): ChecklistItem[]
     },
   ];
 
-  return applyChecklistReviewStatus(base, docs);
+  const reviewed = applyChecklistReviewStatus(base, docs);
+  if (options?.adminOverrides && Object.keys(options.adminOverrides).length > 0) {
+    return applyAdminChecklistOverrides(reviewed, options.adminOverrides);
+  }
+  return reviewed;
+}
+
+/** Checklist avec validations manuelles admin (Firestore). */
+export function computeDocumentChecklistForDossier(dossier: {
+  formData?: { documents?: any[] };
+  adminChecklistOverrides?: Record<string, AdminChecklistOverride>;
+}): ChecklistItem[] {
+  return computeDocumentChecklist(dossier?.formData?.documents || [], {
+    adminOverrides: getAdminChecklistOverrides(dossier),
+  });
 }
 
 function loanCategoryForKey(key: string): "offre" | "tableau" | null {

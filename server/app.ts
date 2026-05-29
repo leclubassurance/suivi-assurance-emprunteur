@@ -1897,6 +1897,55 @@ export function createApp() {
     }
   });
 
+  app.post("/api/admin/dossiers/:id/checklist/:key/validate", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const { id, key } = req.params;
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      const { setAdminChecklistOverride } = await import("./adminChecklistValidation");
+      const body = (req.body || {}) as { note?: string; author?: string };
+      setAdminChecklistOverride(
+        dossier,
+        key,
+        {
+          status: "ok",
+          validatedAt: new Date().toISOString(),
+          validatedBy: body.author || "admin",
+          note: body.note,
+        },
+        { author: body.author },
+      );
+      await writeDB(db, dossier);
+
+      const { computeDocumentChecklistForDossier } = await import("../shared/documentChecklist");
+      res.json({ success: true, checklist: computeDocumentChecklistForDossier(dossier) });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || String(err) });
+    }
+  });
+
+  app.delete("/api/admin/dossiers/:id/checklist/:key/validate", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const { id, key } = req.params;
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      const { setAdminChecklistOverride } = await import("./adminChecklistValidation");
+      setAdminChecklistOverride(dossier, key, null, { author: "admin" });
+      await writeDB(db, dossier);
+
+      const { computeDocumentChecklistForDossier } = await import("../shared/documentChecklist");
+      res.json({ success: true, checklist: computeDocumentChecklistForDossier(dossier) });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/dossiers/:id/reanalyze-documents", async (req, res) => {
     await ensureBackgroundServicesStarted();
     try {

@@ -1,4 +1,4 @@
-import { computeDocumentChecklist } from "../shared/documentChecklist";
+import { computeDocumentChecklistForDossier } from "../shared/documentChecklist";
 import type { LoanDocProblemAssessment, CertainLoanDocProblem } from "./loanDocCertainty";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { resolveLoanDocPresence } from "./loanDocPresence";
@@ -123,7 +123,7 @@ export function assessLoanDocFollowUpAssessment(dossier: any): LoanDocProblemAss
   const loan = resolveLoanDocPresence(dossier);
   if (loan.exploitable || loan.studySent) return base;
 
-  const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
+  const checklist = computeDocumentChecklistForDossier(dossier);
   const extra: CertainLoanDocProblem[] = [];
 
   for (const key of ["offre", "amort"] as const) {

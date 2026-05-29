@@ -1,4 +1,7 @@
-import { computeDocumentChecklist } from "../shared/documentChecklist";
+import {
+  computeDocumentChecklist,
+  getAdminChecklistOverrides,
+} from "../shared/documentChecklist";
 import { inferDocumentCategory } from "../shared/documentClassifier";
 import { isLoanSlotExploitable } from "../shared/loanDocAnalysis";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
@@ -19,7 +22,9 @@ function isBlockingIdentityDoc(doc: any): boolean {
 /** Offre + tableau présents (fichiers reçus), indépendamment de la qualité PDF. */
 export function resolveLoanDocPresence(dossier: Dossier | any) {
   const docs = (dossier?.formData?.documents || []) as any[];
-  const checklist = computeDocumentChecklist(docs);
+  const checklist = computeDocumentChecklist(docs, {
+    adminOverrides: getAdminChecklistOverrides(dossier),
+  });
   const offreItem = checklist.find((c) => c.key === "offre");
   const amortItem = checklist.find((c) => c.key === "amort");
 
@@ -47,8 +52,10 @@ export function resolveLoanDocPresence(dossier: Dossier | any) {
   const filesPresent = offrePresent && amortPresent;
   const docProb = assessCertainLoanDocProblems(dossier);
   const studySent = hasStudyBeenSent(dossier);
-  const offreExploitable = isLoanSlotExploitable(docs, "offre");
-  const amortExploitable = isLoanSlotExploitable(docs, "tableau");
+  const offreExploitable =
+    offreItem?.status === "ok" || isLoanSlotExploitable(docs, "offre");
+  const amortExploitable =
+    amortItem?.status === "ok" || isLoanSlotExploitable(docs, "tableau");
   const exploitable = offreExploitable && amortExploitable;
   /** Relance client uniquement si problème objectif (image, capture) — pas si l'OCR est incertain. */
   const needsResubmit = filesPresent && !exploitable && !studySent && docProb.certain;

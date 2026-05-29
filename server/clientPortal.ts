@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import type { Dossier } from "./dossierModel";
-import { computeDocumentChecklist } from "../shared/documentChecklist";
+import { computeDocumentChecklistForDossier } from "../shared/documentChecklist";
 import {
   hasStudyBeenSent,
   resolveClientPortalStatusKey,
@@ -102,7 +102,7 @@ const STATUS_CLIENT: Record<string, { label: string; description: string }> = {
 export function buildClientPortalView(dossier: Dossier) {
   const a = dossier.formData?.assures?.[0];
   const prenom = a?.prenom || "Bonjour";
-  const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
+  const checklist = computeDocumentChecklistForDossier(dossier);
   const loan = resolveLoanDocPresence(dossier);
   const studySent = hasStudyBeenSent(dossier);
   const lastStudy = getLastStudyOutbound(dossier);

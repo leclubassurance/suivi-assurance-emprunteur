@@ -137,6 +137,16 @@ export interface Dossier {
   aiAuditTrail?: AiAuditEntry[];
   /** Preuve RGPD : acceptation politique de confidentialité à l'envoi du formulaire */
   privacyConsent?: PrivacyConsentRecord;
+  /** Validations manuelles checklist (offre, tableau, CNI, RIB). */
+  adminChecklistOverrides?: Record<
+    string,
+    {
+      status: "missing" | "review" | "ok";
+      validatedAt: string;
+      validatedBy?: string;
+      note?: string;
+    }
+  >;
 }
 
 export function newId(prefix: string) {
@@ -172,6 +182,7 @@ export function ensureDossierShape(d: any): Dossier {
     remiQueue: d.remiQueue,
     aiAuditTrail: Array.isArray(d.aiAuditTrail) ? d.aiAuditTrail : [],
     privacyConsent: d.privacyConsent,
+    adminChecklistOverrides: d.adminChecklistOverrides,
   };
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,

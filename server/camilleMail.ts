@@ -1,4 +1,4 @@
-import { computeDocumentChecklist } from "../shared/documentChecklist";
+import { computeDocumentChecklistForDossier } from "../shared/documentChecklist";
 import { buildLoanDocsAnalysisReport } from "../shared/loanDocAnalysis";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { hasStudyBeenSent } from "./dossierLifecycle";
@@ -25,7 +25,7 @@ export function wrapCamilleHtmlReply(
 }
 
 export function buildCamilleContextBlock(dossier: any, newAttachmentNames: string[] = []) {
-  const checklist = computeDocumentChecklist(dossier.formData?.documents || []);
+  const checklist = computeDocumentChecklistForDossier(dossier);
   const studySent = hasStudyBeenSent(dossier);
   const missingBlocking = studySent
     ? checklist.filter((c) => !c.ok && (c.key === "cni" || c.key === "rib"))
