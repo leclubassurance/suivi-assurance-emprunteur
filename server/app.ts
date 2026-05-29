@@ -1728,6 +1728,61 @@ export function createApp() {
     res.json(buildCamilleAdminContext(dossier));
   });
 
+  app.post("/api/admin/dossiers/:id/camille-resume", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id } = req.params;
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { resumeCamilleForDossier } = await import("./camilleStaffHandoff");
+    resumeCamilleForDossier(dossier, "admin_resume");
+
+    const reprocess = (req.body as any)?.reprocessLastInbound !== false;
+    if (reprocess) {
+      const lastIn = [...(dossier.communications || [])]
+        .filter((c: any) => c.direction === "inbound")
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
+        )[0];
+      if (lastIn?.gmailId && Array.isArray(dossier.processedGmailIds)) {
+        dossier.processedGmailIds = dossier.processedGmailIds.filter(
+          (gid: string) => gid !== lastIn.gmailId,
+        );
+      }
+    }
+
+    await writeDB(db, dossier);
+
+    let aiReplies = 0;
+    const authHeader = req.headers.authorization;
+    const token =
+      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+    if (reprocess && token) {
+      try {
+        const { syncGmailInbox } = await import("./mailAutomation");
+        const { processIncomingClientEmail } = await import("./aiAssistant");
+        const result = await syncGmailInbox(token, db, processIncomingClientEmail);
+        aiReplies = result.aiReplies || 0;
+        await writeDB(result.db);
+      } catch (err: any) {
+        return res.status(500).json({
+          success: false,
+          error: err?.message || String(err),
+          camilleStaffUntil: dossier.camilleStaffHandledUntil || null,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      camilleStaffUntil: dossier.camilleStaffHandledUntil || null,
+      reprocessed: reprocess,
+      aiReplies,
+    });
+  });
+
   app.get("/api/admin/dossiers/:id/ai-audit", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();

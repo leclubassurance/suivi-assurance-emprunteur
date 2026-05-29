@@ -1,4 +1,8 @@
 import { addEvent, type Dossier } from "./dossierModel";
+import { isOutboundConfirmation } from "./dossierLifecycle";
+
+const STUDY_OUTBOUND_SUBJECT_RE =
+  /\b(étude|etude)(\s+personnalisée|\s+personnalisee)?\b|économies|economies|votre étude/i;
 
 const STAFF_EMAIL_SUFFIX = "@leclubimmobilier.fr";
 
@@ -30,20 +34,34 @@ export function getRecentStaffOutboundSummary(dossier: Dossier, maxAgeHours = 16
   return lines.slice(-3).join("\n") || "Aucun email équipe récent enregistré.";
 }
 
-export function isStaffActivelyHandling(dossier: Dossier, withinHours = 72): boolean {
-  const until = dossier.camilleStaffHandledUntil;
-  if (until && new Date(until).getTime() > Date.now()) return true;
-
-  const cutoff = Date.now() - withinHours * 3600 * 1000;
-  for (const c of dossier.communications || []) {
-    if (c.direction !== "outbound") continue;
-    const t = new Date(c.date || 0).getTime();
-    if (t < cutoff) continue;
-    const from = String(c.from || "").toLowerCase();
-    if (from.includes("camille (ia)")) continue;
-    if (isStaffMailbox(from) || from.includes("leclub")) return true;
+/** Envoi équipe qui ne doit pas couper Camille (étude, accusé réception). */
+export function isAutomatedTeamOutboundSubject(subject: string, text?: string): boolean {
+  const s = String(subject || "");
+  if (isOutboundConfirmation(s, text)) return true;
+  if (STUDY_OUTBOUND_SUBJECT_RE.test(s)) return true;
+  if (/assurance emprunteur/i.test(s) && /personnalisée|personnalisee|économies|economies/i.test(s)) {
+    return true;
   }
   return false;
+}
+
+/**
+ * Camille en pause uniquement si `camilleStaffHandledUntil` est actif.
+ * (Plus de blocage 72h sur tout mail équipe — incompatible avec la prod auto.)
+ */
+export function isStaffActivelyHandling(dossier: Dossier): boolean {
+  const until = dossier.camilleStaffHandledUntil;
+  return Boolean(until && new Date(until).getTime() > Date.now());
+}
+
+export function resumeCamilleForDossier(dossier: Dossier, source = "admin_resume") {
+  delete dossier.camilleStaffHandledUntil;
+  addEvent(dossier, {
+    type: "AI_DECISION",
+    actor: { kind: "ADMIN", label: "Équipe" },
+    message: "Camille réactivée sur ce dossier.",
+    meta: { source },
+  });
 }
 
 /**
@@ -54,11 +72,21 @@ export function acknowledgeStaffOutboundToClient(
   meta?: { gmailId?: string; source?: string; subject?: string },
 ) {
   const now = new Date().toISOString();
-  const pauseHours = Number(process.env.CAMILLE_PAUSE_AFTER_STAFF_HOURS || "48");
-  const pauseMs =
-    Number.isFinite(pauseHours) && pauseHours > 0 ? pauseHours * 3600 * 1000 : 48 * 3600 * 1000;
+  const subject = String(meta?.subject || "");
+  const skipPause = isAutomatedTeamOutboundSubject(subject);
 
-  dossier.camilleStaffHandledUntil = new Date(Date.now() + pauseMs).toISOString();
+  if (!skipPause) {
+    const pauseHours = Number(process.env.CAMILLE_PAUSE_AFTER_STAFF_HOURS || "1");
+    const pauseMs =
+      Number.isFinite(pauseHours) && pauseHours > 0 ? pauseHours * 3600 * 1000 : 0;
+    if (pauseMs > 0) {
+      dossier.camilleStaffHandledUntil = new Date(Date.now() + pauseMs).toISOString();
+    } else {
+      delete dossier.camilleStaffHandledUntil;
+    }
+  } else {
+    delete dossier.camilleStaffHandledUntil;
+  }
   if (dossier.camilleEscalation) {
     dossier.camilleEscalation = {
       ...dossier.camilleEscalation,

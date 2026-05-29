@@ -45,14 +45,14 @@ export function canCamilleEmailClient(
   options?: { allowIfUnansweredInbound?: boolean },
 ): { ok: boolean; reason?: string } {
   if (!dossier?.id) return { ok: false, reason: "no_dossier" };
-  if (isStaffActivelyHandling(dossier)) {
-    return { ok: false, reason: "staff_handling" };
-  }
   if (inFlightDossierIds.has(dossier.id)) {
     return { ok: false, reason: "in_flight" };
   }
   const unanswered = options?.allowIfUnansweredInbound && hasUnansweredClientInbound(dossier);
   if (unanswered) return { ok: true };
+  if (isStaffActivelyHandling(dossier)) {
+    return { ok: false, reason: "staff_handling" };
+  }
   const cooldown = getCamilleClientEmailCooldownMs();
   if (recentCamilleClientEmailWithinMs(dossier, cooldown)) {
     return { ok: false, reason: "cooldown" };

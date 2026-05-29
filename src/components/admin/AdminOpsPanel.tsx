@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Inbox, TrendingUp, AlertTriangle, Mail, FileWarning, Eye, Euro, Landmark, Wallet, X, BookOpen, RefreshCw, FolderPlus } from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
+import { getAccessToken } from "../../lib/auth";
 import type { Dossier } from "../../types";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
 
@@ -375,21 +376,25 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
   const [ctx, setCtx] = useState<any>(null);
   const [audit, setAudit] = useState<any[]>([]);
   const [showPortalPreview, setShowPortalPreview] = useState(false);
+  const [resumingCamille, setResumingCamille] = useState(false);
+
+  const reloadCamilleContext = useCallback(async () => {
+    const [cRes, aRes] = await Promise.all([
+      fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/camille-context`)),
+      fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/ai-audit`)),
+    ]);
+    const c = await cRes.json();
+    const a = await aRes.json();
+    setCtx(c);
+    setAudit(a.entries || []);
+  }, [dossier.id]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [cRes, aRes] = await Promise.all([
-          fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/camille-context`)),
-          fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/ai-audit`)),
-        ]);
-        const c = await cRes.json();
-        const a = await aRes.json();
-        if (!cancelled) {
-          setCtx(c);
-          setAudit(a.entries || []);
-        }
+        await reloadCamilleContext();
+        if (cancelled) return;
       } catch {
         if (!cancelled) setCtx(null);
       }
@@ -397,7 +402,42 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
     return () => {
       cancelled = true;
     };
-  }, [dossier.id]);
+  }, [reloadCamilleContext]);
+
+  const authHeaders = async () => {
+    const token = await getAccessToken();
+    return token
+      ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+      : { "Content-Type": "application/json" };
+  };
+
+  const handleResumeCamille = async () => {
+    setResumingCamille(true);
+    try {
+      showToast("Réactivation Camille et relance sur le dernier mail client…", "info");
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/camille-resume`), {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ reprocessLastInbound: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Impossible de réactiver Camille", "error");
+        return;
+      }
+      await reloadCamilleContext();
+      showToast(
+        data.aiReplies > 0
+          ? `Camille a envoyé ${data.aiReplies} réponse(s) au client.`
+          : "Camille réactivée. Si rien ne part, cliquez sur « Synchroniser Gmail ».",
+        data.aiReplies > 0 ? "success" : "info",
+      );
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setResumingCamille(false);
+    }
+  };
 
   const copyPortal = async () => {
     const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/portal-link`));
@@ -458,9 +498,26 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
       )}
 
       <div className="p-4 rounded-xl bg-violet-50 border border-violet-100">
-        <div className="flex justify-between items-start gap-2 mb-2">
+        <div className="flex justify-between items-start gap-2 mb-2 flex-wrap">
           <p className="text-xs font-black text-violet-900">Ce que Camille sait</p>
+          {(ctx.camilleStaffUntil || ctx.lastClientMessage) && (
+            <button
+              type="button"
+              disabled={resumingCamille}
+              onClick={handleResumeCamille}
+              className="text-[10px] font-black uppercase tracking-wide px-3 py-1.5 rounded-lg bg-violet-700 text-white hover:bg-violet-800 disabled:opacity-50"
+              title="Réactive Camille et tente une réponse au dernier mail client"
+            >
+              {resumingCamille ? "En cours…" : "Réactiver Camille"}
+            </button>
+          )}
         </div>
+        {ctx.camilleStaffUntil && new Date(ctx.camilleStaffUntil) > new Date() && (
+          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
+            Mode équipe actif jusqu&apos;au {String(ctx.camilleStaffUntil).slice(0, 16).replace("T", " ")} — les
+            réponses auto peuvent être suspendues. Utilisez « Réactiver Camille ».
+          </p>
+        )}
         <pre className="text-[11px] text-violet-950 whitespace-pre-wrap font-sans leading-relaxed">{ctx.summary}</pre>
         <p className="text-xs font-semibold text-violet-800 mt-3">Prochaine étape suggérée</p>
         <p className="text-xs text-violet-700">{ctx.suggestedNextStep}</p>
