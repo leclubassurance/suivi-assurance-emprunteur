@@ -18,7 +18,7 @@ export default function LandingStep({
 }) {
   return (
     <div
-      className={`flex flex-col w-full px-3 sm:px-4 py-6 sm:py-8 mx-auto max-w-6xl gap-5 sm:gap-6 font-sans ${MOBILE_STICKY_FOOTER_CLASS}`}
+      className={`flex flex-col w-full max-w-[100vw] overflow-x-hidden px-3 sm:px-4 py-6 sm:py-8 mx-auto max-w-6xl gap-5 sm:gap-6 font-sans ${MOBILE_STICKY_FOOTER_CLASS}`}
     >
       
       <header className="flex items-center gap-4 sm:gap-6 px-1 sm:px-4 py-4 sm:py-5 mb-1 border-b border-slate-200/70">
@@ -84,7 +84,7 @@ export default function LandingStep({
           </div>
         </div>
 
-        <div className="lg:col-span-5 bg-[#1B315A] text-white rounded-[24px] sm:rounded-[32px] p-6 sm:p-8 flex flex-col shadow-xl">
+        <div className="lg:col-span-5 bg-[#1B315A] text-white rounded-[24px] sm:rounded-[32px] p-5 sm:p-8 flex flex-col shadow-xl min-w-0 overflow-hidden">
           <div className="flex items-center gap-3 text-[11px] uppercase tracking-[0.15em] text-blue-200 font-bold mb-5 sm:mb-6">
             <div className="w-6 h-6 rounded-full bg-blue-400/20 flex items-center justify-center shrink-0">
               <Euro className="w-3.5 h-3.5" />
@@ -99,42 +99,54 @@ export default function LandingStep({
             <span className="text-blue-100 text-[15px] sm:text-[16px]">227 575 € empruntés sur 21,5 ans.</span>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-5 sm:mb-6">
-            <div className="flex-1 bg-white/5 rounded-[16px] p-4 text-[13px] border border-white/5 min-w-0">
-              <div className="flex justify-between items-start gap-2 mb-4">
-                <span className="uppercase text-[10px] tracking-wider text-blue-200 font-semibold leading-tight">Assurance bancaire</span>
-                <span className="bg-white/10 px-1.5 py-0.5 rounded-[4px] text-[10px] font-bold tracking-wide shrink-0">AVANT</span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5 sm:mb-6 w-full min-w-0">
+            <div className="w-full min-w-0 bg-white/5 rounded-[16px] p-5 text-[14px] border border-white/5 [overflow-wrap:anywhere] [word-break:normal]">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <span className="text-[13px] font-semibold text-blue-100 leading-snug">
+                  Assurance bancaire
+                </span>
+                <span className="bg-white/10 px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wide shrink-0">
+                  Avant
+                </span>
               </div>
               <div className="mb-4">
-                <div className="text-blue-200/80 text-[11px] mb-1">Cotisation mensuelle</div>
-                <div className="font-medium"><span className="text-lg">78,82 €</span>/mois</div>
+                <div className="text-blue-200/90 text-[12px] mb-1">Cotisation mensuelle</div>
+                <div className="font-semibold text-[18px] leading-tight">
+                  78,82 €<span className="text-[14px] font-medium text-blue-100/90">/mois</span>
+                </div>
               </div>
               <div>
-                <div className="text-blue-200/80 text-[10px] uppercase mb-1 tracking-wider">Total restant dû</div>
-                <div className="font-medium text-blue-200/40 line-through">20 335 €</div>
+                <div className="text-blue-200/80 text-[11px] mb-1">Total restant dû</div>
+                <div className="font-medium text-blue-200/40 line-through text-[16px]">20 335 €</div>
               </div>
             </div>
 
-            <div className="flex-1 bg-white/5 rounded-[16px] p-4 text-[13px] border border-[#3b82f6]/40 relative shadow-[0_0_15px_rgba(59,130,246,0.1)] min-w-0">
+            <div className="w-full min-w-0 bg-white/5 rounded-[16px] p-5 text-[14px] border border-[#3b82f6]/40 relative shadow-[0_0_15px_rgba(59,130,246,0.1)] [overflow-wrap:anywhere] [word-break:normal]">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-400/10 to-transparent rounded-[16px]" aria-hidden />
               <div className="relative">
-                <div className="flex justify-between items-start gap-2 mb-4">
-                  <span className="uppercase text-[10px] tracking-wider text-blue-200 font-semibold leading-tight">Nouvelle assurance</span>
-                  <span className="bg-[#3b82f6] text-white px-1.5 py-0.5 rounded-[4px] text-[10px] font-bold shadow-sm tracking-wide shrink-0">APRÈS</span>
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <span className="text-[13px] font-semibold text-blue-100 leading-snug">
+                    Nouvelle assurance
+                  </span>
+                  <span className="bg-[#3b82f6] text-white px-2 py-0.5 rounded-[4px] text-[10px] font-bold uppercase tracking-wide shrink-0">
+                    Après
+                  </span>
                 </div>
                 <div className="mb-4">
-                  <div className="text-blue-200/80 text-[11px] mb-1">Cotisation mensuelle</div>
-                  <div className="font-medium"><span className="text-lg">31,46 €</span>/mois</div>
+                  <div className="text-blue-200/90 text-[12px] mb-1">Cotisation mensuelle</div>
+                  <div className="font-semibold text-[18px] leading-tight">
+                    31,46 €<span className="text-[14px] font-medium text-blue-100/90">/mois</span>
+                  </div>
                 </div>
                 <div>
-                  <div className="text-blue-200/80 text-[10px] uppercase mb-1 tracking-wider">Total restant dû</div>
-                  <div className="font-bold text-[15px]">8 116 €</div>
+                  <div className="text-blue-200/80 text-[11px] mb-1">Total restant dû</div>
+                  <div className="font-bold text-[17px]">8 116 €</div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-[20px] p-5 sm:p-6 mt-auto flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
+          <div className="bg-white rounded-[20px] p-5 sm:p-6 mt-auto flex flex-col lg:flex-row items-center justify-between gap-4 shadow-lg w-full min-w-0">
             <div className="text-[#1E3A8A] text-[13px] font-medium leading-[1.4] text-center sm:text-left">
               <div className="text-[#2563eb] font-bold text-[11px] uppercase tracking-wider mb-1.5">Économie immédiate</div>
               <div className="mb-0.5"><strong className="text-[14px] text-slate-800">−47 €/mois</strong></div>

@@ -6,11 +6,15 @@
 }
 
 @layer base {
+  html {
+    overflow-x: hidden;
+  }
   body {
     background-color: #F3F5F7;
     color: #0f172a;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
   }
 }
 
