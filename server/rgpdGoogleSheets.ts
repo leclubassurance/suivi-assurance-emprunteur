@@ -267,7 +267,7 @@ export async function syncRgpdRegisterToSheet(): Promise<{
   }
 
   const ready = await assertSpreadsheetReady(sheets, spreadsheetId);
-  if (!ready.ok) return { ok: false, error: ready.error };
+  if (ready.ok === false) return { ok: false, error: ready.error };
 
   try {
     const tab = registerTabName();
@@ -338,7 +338,7 @@ export async function appendPrivacyConsentToSheet(
   }
 
   const ready = await assertSpreadsheetReady(sheets, spreadsheetId);
-  if (!ready.ok) return { ok: false, error: ready.error };
+  if (ready.ok === false) return { ok: false, error: ready.error };
 
   try {
     const tab = consentTabName();
