@@ -57,6 +57,8 @@ function ensureBackgroundServicesStarted() {
     // Avoid long-running timers on serverless.
     startScheduler();
     schedulerStarted = true;
+    const { scheduleRgpdRegisterSyncOnBoot } = require("./rgpdGoogleSheets") as typeof import("./rgpdGoogleSheets");
+    scheduleRgpdRegisterSyncOnBoot((msg) => console.log(msg));
   }
   return firebaseInitPromise;
 }
@@ -230,6 +232,12 @@ export function createApp() {
     await ensureBackgroundServicesStarted();
     try {
       const formData = JSON.parse((req.body as any).formData);
+      const { parsePrivacyConsentFromForm } = await import("./privacyConsent");
+      const consentParsed = parsePrivacyConsentFromForm(formData, req);
+      if (consentParsed.ok === false) {
+        return res.status(400).json({ error: consentParsed.error });
+      }
+      const privacyConsentRecord = consentParsed.record;
       const db = await readDBAsync();
 
       const documents = mergeFormDocumentsWithUploads(
@@ -237,6 +245,7 @@ export function createApp() {
         (req.files as Express.Multer.File[]) || [],
       );
 
+      const { privacyConsent: _clientConsent, ...formDataWithoutConsent } = formData || {};
       const newDossier = ensureDossierShape({
         id:
           formData.id ||
@@ -246,7 +255,8 @@ export function createApp() {
         status: "NOUVEAU",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        formData: { ...formData, documents },
+        formData: { ...formDataWithoutConsent, documents },
+        privacyConsent: privacyConsentRecord,
         communications: [],
         tasks: [],
         emails: [],
@@ -257,6 +267,15 @@ export function createApp() {
         type: "DOSSIER_CREATED",
         actor: { kind: "SYSTEM" },
         message: "Dossier créé via formulaire client.",
+      });
+      addEvent(newDossier, {
+        type: "PRIVACY_CONSENT_RECORDED",
+        actor: { kind: "SYSTEM" },
+        message: "Consentement politique de confidentialité enregistré.",
+        meta: {
+          policyVersion: privacyConsentRecord.policyVersion,
+          acceptedAt: privacyConsentRecord.acceptedAt,
+        },
       });
 
       const {
@@ -345,6 +364,25 @@ export function createApp() {
         scheduleCamilleDocumentFollowUpIfNeeded(newDossier);
       } catch (followUpErr: any) {
         appendLog(`[Camille] Relance documents non programmée: ${followUpErr?.message || String(followUpErr)}`);
+      }
+
+      const primaryAssure = newDossier.formData?.assures?.[0] || {};
+      try {
+        const { appendPrivacyConsentToSheet } = await import("./rgpdGoogleSheets");
+        const sheetRes = await appendPrivacyConsentToSheet(newDossier.id, privacyConsentRecord, {
+          email: primaryAssure.email,
+          name: [primaryAssure.prenom, primaryAssure.nom].filter(Boolean).join(" ").trim(),
+        });
+        if (sheetRes.ok) {
+          newDossier.privacyConsent = {
+            ...privacyConsentRecord,
+            sheetsLoggedAt: new Date().toISOString(),
+          };
+        } else {
+          appendLog(`[RGPD] Journal Sheets (${newDossier.id}): ${sheetRes.error}`);
+        }
+      } catch (sheetErr: any) {
+        appendLog(`[RGPD] Journal Sheets erreur (${newDossier.id}): ${sheetErr?.message || sheetErr}`);
       }
 
       await writeDB(db, newDossier);
@@ -1276,6 +1314,36 @@ export function createApp() {
         success: true,
         configuredFolderId: resolveCamilleKnowledgeFolderIdFromEnv(),
         cache: cache || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/rgpd/status", async (_req, res) => {
+    const { getRgpdSpreadsheetId } = await import("./rgpdGoogleSheets");
+    res.json({
+      success: true,
+      spreadsheetId: getRgpdSpreadsheetId() || null,
+      registerTab: process.env.RGPD_SHEET_REGISTER || "Registre traitements",
+      consentTab: process.env.RGPD_SHEET_CONSENTS || "Journal consentements",
+      policyVersion: (await import("../shared/privacyConsent")).PRIVACY_POLICY_VERSION,
+    });
+  });
+
+  app.post("/api/admin/rgpd/sync-register", async (_req, res) => {
+    try {
+      const { syncRgpdRegisterToSheet, getRgpdSpreadsheetId } = await import("./rgpdGoogleSheets");
+      const result = await syncRgpdRegisterToSheet();
+      if (!result.ok) {
+        return res.status(result.error?.includes("non configuré") ? 400 : 502).json(result);
+      }
+      res.json({
+        success: true,
+        spreadsheetId: getRgpdSpreadsheetId(),
+        url: getRgpdSpreadsheetId()
+          ? `https://docs.google.com/spreadsheets/d/${getRgpdSpreadsheetId()}`
+          : undefined,
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });

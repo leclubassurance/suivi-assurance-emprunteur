@@ -1,6 +1,7 @@
 import { sanitizeLegacyDriveWorkspaceState } from "./driveConfig";
 import { inferDocumentCategory } from "../shared/documentClassifier";
 import type { AiAuditEntry } from "./aiAuditLog";
+import type { PrivacyConsentRecord } from "./privacyConsent";
 import type { TelegramMessageRef } from "./telegramDossierRefs";
 
 export type DossierStatus =
@@ -14,6 +15,7 @@ export type DossierStatus =
 
 export type DossierEventType =
   | "DOSSIER_CREATED"
+  | "PRIVACY_CONSENT_RECORDED"
   | "STATUS_CHANGED"
   | "NOTE_ADDED"
   | "DOCUMENT_UPLOADED"
@@ -133,6 +135,8 @@ export interface Dossier {
     dismissedKinds?: string[];
   };
   aiAuditTrail?: AiAuditEntry[];
+  /** Preuve RGPD : acceptation politique de confidentialité à l'envoi du formulaire */
+  privacyConsent?: PrivacyConsentRecord;
 }
 
 export function newId(prefix: string) {
@@ -167,6 +171,7 @@ export function ensureDossierShape(d: any): Dossier {
     camilleTelegramStaff: d.camilleTelegramStaff,
     remiQueue: d.remiQueue,
     aiAuditTrail: Array.isArray(d.aiAuditTrail) ? d.aiAuditTrail : [],
+    privacyConsent: d.privacyConsent,
   };
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,

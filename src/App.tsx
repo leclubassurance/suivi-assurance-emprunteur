@@ -24,6 +24,7 @@ import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/va
 import { AlertCircle } from 'lucide-react';
 import { showToast } from './lib/toast';
 import { getApiUrl } from './lib/utils';
+import { buildClientPrivacyConsentPayload } from '../shared/privacyConsent';
 
 const STORAGE_KEY = 'insurance-form-draft';
 
@@ -230,7 +231,11 @@ export default function App() {
         const { base64Content, rawFile, ...rest } = doc as any;
         return rest;
       });
-      const cleanedFormData = { ...formData, documents: strippedDocuments };
+      const cleanedFormData = {
+        ...formData,
+        documents: strippedDocuments,
+        privacyConsent: buildClientPrivacyConsentPayload(),
+      };
 
       const formPayload = new FormData();
       formPayload.append("formData", JSON.stringify(cleanedFormData));
@@ -322,7 +327,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-[100dvh] flex flex-col w-full h-full">
+    <div className="min-h-[100dvh] flex flex-col w-full overflow-x-hidden">
       
       {/* Header Progress for Steps */}
       {[Step.PREPARATION, Step.PROJET, Step.COORDONNEES, Step.INFO_PERSO, Step.DOCUMENTS].includes(currentStep) && (
@@ -371,7 +376,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="flex-1 w-full flex flex-col pt-4 md:pt-8 bg-transparent">
+      <main className="flex-1 w-full min-h-0 flex flex-col pt-4 md:pt-8 bg-transparent">
         {currentStep === Step.LANDING && (
           <LandingStep 
             onStart={() => goToStep(Step.PREPARATION)} 

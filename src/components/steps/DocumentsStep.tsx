@@ -4,6 +4,7 @@ import { InsuranceFormData, AppFile } from '../../types';
 import { Upload, FileText, FileImage, Trash2, CheckCircle2, ArrowRight } from 'lucide-react';
 import { generateId } from '../../lib/utils';
 import { showToast } from '../../lib/toast';
+import { PRIVACY_CONSENT_CHECKBOX_TEXT } from '../../../shared/privacyConsent';
 
 interface Props {
   formData: InsuranceFormData;
@@ -277,7 +278,10 @@ export default function DocumentsStep({
              >
                politique de confidentialité
              </button>
-             {' '}et j&apos;accepte que mes données, y compris les pièces jointes, soient traitées pour l&apos;étude de mon dossier d&apos;assurance emprunteur.
+             {PRIVACY_CONSENT_CHECKBOX_TEXT.replace(
+               "J'ai lu la politique de confidentialité",
+               "",
+             )}
            </span>
          </label>
          <button 

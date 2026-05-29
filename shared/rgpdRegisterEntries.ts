@@ -1,0 +1,154 @@
+/**
+ * Registre des activités de traitement (art. 30 RGPD) — plateforme assurance emprunteur LCIF.
+ * Synchronisé vers Google Sheets (onglet « Registre traitements »).
+ */
+
+import { PRIVACY_POLICY_VERSION } from "./privacyConsent";
+
+export type RgpdRegisterRow = {
+  treatmentName: string;
+  purpose: string;
+  dataCategories: string;
+  dataSubjects: string;
+  recipients: string;
+  transfersOutsideEu: string;
+  retention: string;
+  securityMeasures: string;
+  legalBasis: string;
+};
+
+export const RGPD_REGISTER_META = {
+  controller: "LE CLUB IMMOBILIER FRANÇAIS (SAS)",
+  platform: "Plateforme assurance emprunteur en ligne",
+  lastSyncedLabel: PRIVACY_POLICY_VERSION,
+} as const;
+
+export const RGPD_REGISTER_ENTRIES: RgpdRegisterRow[] = [
+  {
+    treatmentName: "Dépôt et instruction de dossier assurance emprunteur",
+    purpose:
+      "Collecte des pièces et informations pour étude précontractuelle, comparaison et proposition d'assurance emprunteur",
+    dataCategories:
+      "Identité, coordonnées, données de prêt, pièces PDF (offre, amortissement, CNI, RIB), données professionnelles et de risque déclarées",
+    dataSubjects: "Clients / prospects emprunteurs",
+    recipients:
+      "Collaborateurs LCIF habilités ; compagnies d'assurance partenaires si nécessaire au devis ; sous-traitants techniques (hébergement, stockage)",
+    transfersOutsideEu:
+      "Évités lorsque possible ; garanties contractuelles (CCT) si prestataire hors UE (ex. cloud, IA)",
+    retention:
+      "Instruction : durée du dossier ; sans suite : 3 ans ; contrat : 10 ans (prescription / métier assurance)",
+    securityMeasures: "HTTPS, contrôle d'accès admin, stockage Drive/Firestore, journalisation",
+    legalBasis: "Art. 6.1.b RGPD (mesures précontractuelles / contrat) ; art. 9 selon données sensibles déclarées",
+  },
+  {
+    treatmentName: "Espace de suivi client (lien personnel)",
+    purpose: "Permettre au client de consulter l'avancement de son dossier",
+    dataCategories: "Statut dossier, références LCIF, jeton d'accès, horodatages de consultation",
+    dataSubjects: "Clients",
+    recipients: "Client ; équipe LCIF",
+    transfersOutsideEu: "Selon hébergeur (Railway / Vercel) — CCT si hors UE",
+    retention: "Durée du dossier + archivage selon politique de conservation",
+    securityMeasures: "Jeton opaque, accès sans compte, HTTPS",
+    legalBasis: "Art. 6.1.b RGPD (exécution / intérêt du service demandé)",
+  },
+  {
+    treatmentName: "Échanges email (Gmail professionnel)",
+    purpose: "Réception, accusé, relances et envoi d'études / propositions",
+    dataCategories: "Adresse email, contenu des messages, pièces jointes, métadonnées",
+    dataSubjects: "Clients ; correspondants banque / assureur",
+    recipients: "Équipe LCIF ; destinataires des emails envoyés",
+    transfersOutsideEu: "Google Workspace — CCT / mesures Google",
+    retention: "Alignée dossier client et obligations métier (jusqu'à 10 ans pièces contractuelles)",
+    securityMeasures: "Compte professionnel dédié, mots de passe forts, accès restreint",
+    legalBasis: "Art. 6.1.b et 6.1.f RGPD",
+  },
+  {
+    treatmentName: "OCR et analyse automatisée de documents",
+    purpose: "Vérifier complétude et cohérence des pièces prêt ; assister l'équipe",
+    dataCategories: "Contenu extrait des PDF/images, signaux techniques (qualité, type de doc)",
+    dataSubjects: "Clients",
+    recipients: "Équipe LCIF ; sous-traitant IA (API) le cas échéant",
+    transfersOutsideEu: "Possible selon API IA — CCT et minimisation",
+    retention: "Résultats rattachés au dossier ; pas de réutilisation marketing",
+    securityMeasures: "Traitement serveur, pas de décision automatisée seule (validation humaine)",
+    legalBasis: "Art. 6.1.b RGPD ; intérêt légitime qualité de service (6.1.f)",
+  },
+  {
+    treatmentName: "Assistant Camille (réponses et relances)",
+    purpose: "Rédaction assistée de mails clients et relances sous contrôle humain",
+    dataCategories: "Contexte dossier, historique mails, statut pièces",
+    dataSubjects: "Clients",
+    recipients: "Équipe LCIF ; API IA si utilisée",
+    transfersOutsideEu: "Selon prestataire IA",
+    retention: "Traces d'audit limitées (journal admin) ; contenu dans dossier / Gmail",
+    securityMeasures: "Cooldown anti-spam, escalade humaine, logs d'audit IA",
+    legalBasis: "Art. 6.1.b RGPD ; 6.1.f pour amélioration du service",
+  },
+  {
+    treatmentName: "Notifications internes Telegram",
+    purpose: "Alerter l'équipe (nouveau dossier, mail client, escalade)",
+    dataCategories: "Identifiants dossier, extraits non sensibles, liens",
+    dataSubjects: "Clients (données limitées au nécessaire opérationnel)",
+    recipients: "Collaborateurs LCIF sur canaux autorisés",
+    transfersOutsideEu: "Telegram — vérifier localisation / politique Telegram",
+    retention: "Messages selon usage interne ; pas d'archivage client long terme sur Telegram",
+    securityMeasures: "Liste blanche chat_id, déduplication, pas de données inutiles",
+    legalBasis: "Art. 6.1.f RGPD (intérêt légitime opérationnel)",
+  },
+  {
+    treatmentName: "Stockage documentaire Google Drive",
+    purpose: "Archivage des pièces client et dossiers structurés",
+    dataCategories: "Fichiers déposés, métadonnées fichiers",
+    dataSubjects: "Clients",
+    recipients: "Équipe LCIF ; compte de service / compte assurance@…",
+    transfersOutsideEu: "Google Cloud — CCT",
+    retention: "Durée dossier + obligations légales assurance",
+    securityMeasures: "Dossiers dédiés, partage restreint, compte de service",
+    legalBasis: "Art. 6.1.b RGPD",
+  },
+  {
+    treatmentName: "Base dossiers (Firebase / Firestore)",
+    purpose: "Persistance des dossiers, statuts, tâches et synchronisation applicative",
+    dataCategories: "Données formulaire, statuts, communications compactées, consentement",
+    dataSubjects: "Clients",
+    recipients: "Application LCIF ; Google Firebase",
+    transfersOutsideEu: "Google — CCT ; région UE privilégiée si configurée",
+    retention: "Selon politique de conservation dossier",
+    securityMeasures: "Règles Firebase, compactage, accès API authentifié admin",
+    legalBasis: "Art. 6.1.b RGPD",
+  },
+  {
+    treatmentName: "Brouillon formulaire (localStorage navigateur)",
+    purpose: "Éviter la perte de saisie avant envoi",
+    dataCategories: "Champs formulaire partiels (sans pièces complètes côté serveur)",
+    dataSubjects: "Utilisateurs du site",
+    recipients: "Terminal de l'utilisateur uniquement",
+    transfersOutsideEu: "Non",
+    retention: "Jusqu'à envoi ou suppression par l'utilisateur",
+    securityMeasures: "Pas de serveur ; noms/prénoms/emails retirés du brouillon sauvegardé",
+    legalBasis: "Intérêt légitime / nécessité technique (pas de cookie non essentiel)",
+  },
+  {
+    treatmentName: "Journal des consentements politique de confidentialité",
+    purpose: "Preuve de l'acceptation de la politique à l'envoi du dossier",
+    dataCategories: "Horodatage, version politique, libellé case, IP, user-agent, id dossier",
+    dataSubjects: "Clients",
+    recipients: "Référent données LCIF ; Google Sheets interne",
+    transfersOutsideEu: "Google Sheets — CCT",
+    retention: "10 ans (preuve en cas de contrôle / litige)",
+    securityMeasures: "Feuille restreinte, accès compte professionnel / service account",
+    legalBasis: "Art. 6.1.c RGPD (obligation de preuve) et 6.1.b",
+  },
+];
+
+export const RGPD_REGISTER_HEADERS = [
+  "Nom du traitement",
+  "Finalité",
+  "Catégories de données",
+  "Personnes concernées",
+  "Destinataires",
+  "Transferts hors UE",
+  "Durées de conservation",
+  "Mesures de sécurité",
+  "Base légale",
+] as const;
