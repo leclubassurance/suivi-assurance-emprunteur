@@ -53,27 +53,46 @@ async function telegramApi(method: string, body: Record<string, unknown>) {
   return data.result;
 }
 
+export type TelegramSendOptions = {
+  reply_markup?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> };
+  /** Enregistre le message pour que « Répondre » cible ce dossier. */
+  dossierId?: string;
+};
+
 /** Envoi Telegram (token seul) — utilisé pour /start avant chat_id autorisé */
-export async function sendTelegramRaw(chatId: string, text: string) {
+export async function sendTelegramRaw(chatId: string, text: string, options?: TelegramSendOptions) {
   if (!getBotToken()) {
     console.warn("[Telegram] TELEGRAM_BOT_TOKEN manquant — impossible d'envoyer");
     return null;
   }
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    text: text.slice(0, 4000),
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+  };
+  if (options?.reply_markup) body.reply_markup = options.reply_markup;
+
   try {
-    return await telegramApi("sendMessage", {
-      chat_id: chatId,
-      text: text.slice(0, 4000),
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    });
+    const msg = await telegramApi("sendMessage", body);
+    if (msg?.message_id && options?.dossierId) {
+      registerTelegramDossierContext(chatId, msg.message_id, options.dossierId);
+    }
+    return msg;
   } catch (e: any) {
     console.error("[Telegram] sendMessage:", e?.message || String(e));
     try {
-      return await telegramApi("sendMessage", {
+      const fallbackBody: Record<string, unknown> = {
         chat_id: chatId,
         text: text.replace(/<[^>]+>/g, "").slice(0, 4000),
         disable_web_page_preview: true,
-      });
+      };
+      if (options?.reply_markup) fallbackBody.reply_markup = options.reply_markup;
+      const msg = await telegramApi("sendMessage", fallbackBody);
+      if (msg?.message_id && options?.dossierId) {
+        registerTelegramDossierContext(chatId, msg.message_id, options.dossierId);
+      }
+      return msg;
     } catch (e2: any) {
       console.error("[Telegram] sendMessage fallback:", e2?.message || String(e2));
       return null;
@@ -81,9 +100,13 @@ export async function sendTelegramRaw(chatId: string, text: string) {
   }
 }
 
-export async function sendTelegramMessage(chatId: string, text: string) {
+export async function sendTelegramMessage(
+  chatId: string,
+  text: string,
+  options?: TelegramSendOptions,
+) {
   if (!isTelegramEnabled()) return null;
-  return sendTelegramRaw(chatId, text);
+  return sendTelegramRaw(chatId, text, options);
 }
 
 function escapeHtml(s: string) {
@@ -151,7 +174,12 @@ async function isReplyToCamilleAlert(chatId: string, replyToMessageId?: number):
 
 async function runStaffDirectiveFlow(chatId: string, dossier: Dossier, instruction: string) {
   const { handleStaffDirectiveFromTelegram } = await import("./camilleTelegramChat");
-  await sendTelegramMessage(chatId, `⏳ <b>${escapeHtml(dossier.id)}</b> — j'envoie au client…`);
+  const { borrowerDisplayName } = await import("./telegramUi");
+  await sendTelegramMessage(
+    chatId,
+    `⏳ <b>${escapeHtml(borrowerDisplayName(dossier))}</b> — j'envoie au client…`,
+    { dossierId: dossier.id },
+  );
   const result = await handleStaffDirectiveFromTelegram(dossier, instruction, chatId);
   const db = await readDB();
   const stored = db.dossiers.find((d: any) => d.id === dossier.id);
@@ -161,7 +189,9 @@ async function runStaffDirectiveFlow(chatId: string, dossier: Dossier, instructi
   }
   if (result.ok) {
     const icon = result.action === "SEND_TO_CLIENT" ? "✅" : "✔️";
-    await sendTelegramMessage(chatId, `${icon} <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`);
+    await sendTelegramMessage(chatId, `${icon} <b>${escapeHtml(borrowerDisplayName(dossier))}</b>\n${escapeHtml(result.summary)}`, {
+      dossierId: dossier.id,
+    });
     addEvent(dossier, {
       type: "AI_DECISION",
       actor: { kind: "ADMIN", label: "Telegram" },
@@ -169,8 +199,32 @@ async function runStaffDirectiveFlow(chatId: string, dossier: Dossier, instructi
       meta: { channel: "telegram" },
     });
   } else {
-    await sendTelegramMessage(chatId, `❌ <b>${escapeHtml(dossier.id)}</b>\n${escapeHtml(result.summary)}`);
+    await sendTelegramMessage(chatId, `❌ <b>${escapeHtml(borrowerDisplayName(dossier))}</b>\n${escapeHtml(result.summary)}`, {
+      dossierId: dossier.id,
+    });
   }
+}
+
+async function sendDossierSelectedCard(chatId: string, dossier: Dossier) {
+  const { borrowerDisplayName, dossierCollaborationKeyboard, formatDossierTelegramCard } =
+    await import("./telegramUi");
+  const { rememberChatDossier } = await import("./camilleTelegramChat");
+  const name = borrowerDisplayName(dossier);
+  rememberChatDossier(chatId, dossier.id);
+  const card = formatDossierTelegramCard(dossier);
+  await sendTelegramMessage(
+    chatId,
+    [
+      `<b>👤 ${escapeHtml(name)}</b>`,
+      `<i>Dossier sélectionné — répondez à ce message</i> pour votre question ou consigne (j'associe automatiquement ce client).`,
+      ``,
+      card,
+    ].join("\n"),
+    {
+      reply_markup: dossierCollaborationKeyboard(dossier),
+      dossierId: dossier.id,
+    },
+  );
 }
 
 async function answerAndSend(
@@ -180,7 +234,7 @@ async function answerAndSend(
 ) {
   const { answerCamilleTelegramQuestion, buildPortfolioSummaryAsync, getRememberedDossierId, findDossierById } =
     await import("./camilleTelegramChat");
-  const { escapeTelegramHtml } = await import("./telegramUi");
+  const { escapeTelegramHtml, dossierCollaborationKeyboard } = await import("./telegramUi");
 
   let target = dossier;
   if (!target) {
@@ -194,11 +248,83 @@ async function answerAndSend(
     portfolioLines: portfolio,
   });
 
-  const footer = target ? `\n\n<i>Dossier : ${escapeTelegramHtml(target.id)}</i>` : "";
-  await sendTelegramMessage(chatId, `${escapeTelegramHtml(answer)}${footer}`);
+  const name = target ? (await import("./telegramUi")).borrowerDisplayName(target) : "";
+  const footer = target
+    ? `\n\n<i>${escapeTelegramHtml(name)} — répondez ici pour la suite.</i>`
+    : "";
+  await sendTelegramMessage(chatId, `${escapeTelegramHtml(answer)}${footer}`, {
+    reply_markup: target ? dossierCollaborationKeyboard(target) : undefined,
+    dossierId: target?.id,
+  });
+}
+
+async function handleTelegramCallbackQuery(query: any) {
+  const chatId = String(query?.message?.chat?.id || "");
+  const data = String(query?.data || "");
+  if (!chatId || !data) return;
+
+  try {
+    await telegramApi("answerCallbackQuery", { callback_query_id: query.id });
+  } catch {
+    /* ignore */
+  }
+
+  const { parseCallbackData, PRESET_DIRECTIVES, dossierCollaborationKeyboard } = await import("./telegramUi");
+  const { findDossierById, rememberChatDossier } = await import("./camilleTelegramChat");
+  const parsed = parseCallbackData(data);
+  if (!parsed) return;
+
+  const dossier = await findDossierById(parsed.dossierId);
+  if (!dossier) {
+    await sendTelegramMessage(chatId, "Ce dossier n'est plus en base.");
+    return;
+  }
+
+  rememberChatDossier(chatId, dossier.id);
+
+  if (parsed.action === "pick" || parsed.action === "info") {
+    await sendDossierSelectedCard(chatId, dossier);
+    return;
+  }
+
+  if (parsed.action === "pdf" || parsed.action === "cni") {
+    const preset = PRESET_DIRECTIVES[parsed.action as "pdf" | "cni"];
+    await runStaffDirectiveFlow(chatId, dossier, preset);
+    return;
+  }
+
+  if (parsed.action === "sum") {
+    await sendTelegramMessage(chatId, "⏳ …");
+    await answerAndSend(chatId, "Donne l'état complet de ce dossier et la prochaine action recommandée.", dossier);
+    return;
+  }
+
+  if (parsed.action === "ok") {
+    const db = await readDB();
+    const stored = db.dossiers.find((d: any) => d.id === dossier.id);
+    if (stored?.camilleEscalation) {
+      stored.camilleEscalation = {
+        ...stored.camilleEscalation,
+        resolvedAt: new Date().toISOString(),
+      };
+      stored.updatedAt = new Date().toISOString();
+      await writeDB(db, stored);
+    }
+    await sendTelegramMessage(
+      chatId,
+      `✅ Escalade clôturée pour <b>${escapeHtml((await import("./telegramUi")).borrowerDisplayName(dossier))}</b>.`,
+      { dossierId: dossier.id, reply_markup: dossierCollaborationKeyboard(dossier) },
+    );
+    return;
+  }
 }
 
 export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
+  if (update?.callback_query) {
+    await handleTelegramCallbackQuery(update.callback_query);
+    return;
+  }
+
   const message = update?.message;
   if (!message?.chat?.id) return;
   if (message.from?.is_bot) return;
@@ -284,10 +410,10 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
     const { resolveDossierFromText, primaryBorrowerLabel } = await import("./camilleTelegramChat");
     const resolved = await resolveDossierFromText(arg || text);
     if (resolved.kind === "ambiguous") {
-      await sendTelegramMessage(
-        chatId,
-        `<b>Plusieurs dossiers :</b>\n${resolved.matches.map((m) => `• ${escapeHtml(m.label)}`).join("\n")}\n\nPrécisez le numéro LCIF.`,
-      );
+      const { buildDossierPickerKeyboard } = await import("./telegramUi");
+      await sendTelegramMessage(chatId, "<b>Quel client ?</b>\n<i>Choisissez un nom ci-dessous.</i>", {
+        reply_markup: buildDossierPickerKeyboard(resolved.matches.map((m) => m.dossier)),
+      });
       return;
     }
     if (resolved.kind === "none") {
@@ -327,10 +453,10 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   if (!dossier) {
     const resolved = await resolveDossierFromText(text);
     if (resolved.kind === "ambiguous") {
-      await sendTelegramMessage(
-        chatId,
-        `<b>Plusieurs dossiers :</b>\n${resolved.matches.map((m) => `• ${escapeHtml(m.label)}`).join("\n")}\n\nIndiquez le <code>LCIF-…</code> en une phrase (ex. <code>LCIF-128201 envoie-lui le mail</code>).`,
-      );
+      const { buildDossierPickerKeyboard } = await import("./telegramUi");
+      await sendTelegramMessage(chatId, "<b>Quel client ?</b>\n<i>Appuyez sur le nom, puis répondez à mon message.</i>", {
+        reply_markup: buildDossierPickerKeyboard(resolved.matches.map((m) => m.dossier)),
+      });
       return;
     }
     if (resolved.kind === "found") dossier = resolved.dossier;
@@ -357,10 +483,18 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   }
 
   if (!dossier) {
-    await sendTelegramMessage(
-      chatId,
-      "Je n'ai pas encore de dossier actif. Attendez une alerte, ou écrivez <code>LCIF-123456 …</code> avec votre question.",
-    );
+    const db = await readDB();
+    const recent = [...(db.dossiers || [])]
+      .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+      .slice(0, 5);
+    if (recent.length > 0) {
+      const { buildDossierPickerKeyboard } = await import("./telegramUi");
+      await sendTelegramMessage(chatId, "<b>Sur quel client ?</b>", {
+        reply_markup: buildDossierPickerKeyboard(recent),
+      });
+    } else {
+      await sendTelegramMessage(chatId, "Aucun dossier en base pour l'instant.");
+    }
     return;
   }
 
@@ -377,7 +511,7 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
 export async function registerTelegramWebhook(publicBaseUrl: string) {
   if (!getBotToken()) throw new Error("TELEGRAM_BOT_TOKEN manquant");
   const url = `${publicBaseUrl.replace(/\/$/, "")}/api/telegram/webhook`;
-  const body: Record<string, unknown> = { url, allowed_updates: ["message"] };
+  const body: Record<string, unknown> = { url, allowed_updates: ["message", "callback_query"] };
   const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
   if (secret) body.secret_token = secret;
   await telegramApi("setWebhook", body);

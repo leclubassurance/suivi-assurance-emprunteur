@@ -125,9 +125,9 @@ function fallbackNewsHtml(
   ];
   if (details.subject) lines.push(`<i>${escapeTelegramHtml(details.subject.slice(0, 120))}</i>`);
   if (details.excerpt) lines.push(`<code>${escapeTelegramHtml(details.excerpt.slice(0, 300))}</code>`);
-  lines.push(``, `<i>Posez-moi une question sur ce dossier.</i>`);
+  lines.push(``, `<i>Répondez à ce message</i> — j'associe automatiquement ce dossier (pas besoin du numéro LCIF).`);
   if (kind === "escalation") {
-    lines.push(`<i>Répondez ici pour qu'j'envoie un mail au client selon votre consigne.</i>`);
+    lines.push(`<i>Ex. : « Demande les PDF banque » ou utilisez les boutons après avoir ouvert le fil.</i>`);
   }
   return lines.join("\n");
 }
@@ -148,7 +148,7 @@ export async function notifyRemiDossierNews(
 
   for (const chatId of chatIds) {
     try {
-      const msg = await sendTelegramMessage(chatId, html);
+      const msg = await sendTelegramMessage(chatId, html, { dossierId: dossier.id });
       if (msg?.message_id) {
         registerTelegramDossierContext(chatId, msg.message_id, dossier.id);
         const { rememberChatDossier } = await import("./camilleTelegramChat");

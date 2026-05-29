@@ -2,6 +2,7 @@ import type { Dossier } from "./dossierModel";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock } from "./camilleMail";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
+import { hasStudyBeenSent } from "./dossierLifecycle";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 
 export function escapeTelegramHtml(s: string) {
@@ -100,20 +101,34 @@ export function formatDossierTelegramCard(d: Dossier): string {
   ].join("\n");
 }
 
-export function dossierCollaborationKeyboard(dossierId: string) {
-  const id = dossierId.toUpperCase();
-  return {
-    inline_keyboard: [
-      [
-        { text: "📧 PDF banque", callback_data: `pdf:${id}` },
-        { text: "🪪 CNI + RIB", callback_data: `cni:${id}` },
-      ],
-      [
-        { text: "📋 Actualiser", callback_data: `sum:${id}` },
-        { text: "✅ Pris en charge", callback_data: `ok:${id}` },
-      ],
+export function borrowerDisplayName(d: Dossier): string {
+  const a = d.formData?.assures?.[0];
+  return [a?.prenom, a?.nom].filter(Boolean).join(" ") || "Client";
+}
+
+/** Choix du dossier : libellé = prénom nom uniquement (pas de LCIF sur le bouton). */
+export function buildDossierPickerKeyboard(dossiers: Dossier[]) {
+  const rows = dossiers.slice(0, 6).map((d) => {
+    const name = borrowerDisplayName(d).slice(0, 58);
+    return [{ text: `👤 ${name}`, callback_data: `pick:${d.id.toUpperCase()}` }];
+  });
+  return { inline_keyboard: rows };
+}
+
+export function dossierCollaborationKeyboard(dossier: Dossier | string) {
+  const d = typeof dossier === "string" ? null : dossier;
+  const id = (d?.id || String(dossier)).toUpperCase();
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [
+    [{ text: "📧 Mail — PDF banque", callback_data: `pdf:${id}` }],
+    [
+      { text: "📋 État du dossier", callback_data: `sum:${id}` },
+      { text: "✅ Pris en charge", callback_data: `ok:${id}` },
     ],
-  };
+  ];
+  if (d && hasStudyBeenSent(d)) {
+    rows[0].push({ text: "🪪 CNI + RIB", callback_data: `cni:${id}` });
+  }
+  return { inline_keyboard: rows };
 }
 
 export const PRESET_DIRECTIVES = {
@@ -122,7 +137,7 @@ export const PRESET_DIRECTIVES = {
 } as const;
 
 export function parseCallbackData(data: string): { action: string; dossierId: string } | null {
-  const m = String(data || "").match(/^(pdf|cni|sum|ok):(LCIF-\d{6})$/i);
+  const m = String(data || "").match(/^(pick|pdf|cni|sum|ok|info):(LCIF-\d{6})$/i);
   if (!m) return null;
   return { action: m[1].toLowerCase(), dossierId: m[2].toUpperCase() };
 }
