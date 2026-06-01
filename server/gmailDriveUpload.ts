@@ -74,7 +74,7 @@ export async function downloadDriveFileToBuffer(
   }
 }
 
-function escapeDriveQueryString(s: string) {
+export function escapeDriveQueryString(s: string) {
   return String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 

@@ -224,6 +224,63 @@ async function getParentFolderName(drive: any, parentId: string) {
   }
 }
 
+function escapeDriveQueryString(s: string) {
+  return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function sanitizeDriveNamePart(value: unknown): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48);
+}
+
+/** Un dossier Drive par LCIF — évite les conflits quand le même client a plusieurs dossiers. */
+export function buildWorkspaceFolderName(dossier: {
+  id?: string;
+  formData?: { assures?: { prenom?: string; nom?: string }[] };
+}): string {
+  const lcif = String(dossier.id || 'LCIF').toUpperCase();
+  const primary = dossier.formData?.assures?.[0] || {};
+  const prenom = sanitizeDriveNamePart(primary.prenom);
+  const nom = sanitizeDriveNamePart(primary.nom);
+  if (prenom && nom) return `Dossier_Assurance_${lcif}_${prenom}_${nom}`;
+  if (nom) return `Dossier_Assurance_${lcif}_${nom}`;
+  return `Dossier_Assurance_${lcif}`;
+}
+
+async function findWorkspaceFolderInParent(
+  drive: any,
+  parentId: string,
+  dossierId: string,
+): Promise<string | null> {
+  const lcif = escapeDriveQueryString(String(dossierId || '').toUpperCase());
+  if (!lcif) return null;
+  try {
+    const list = await drive.files.list({
+      q: [
+        `'${parentId}' in parents`,
+        "mimeType='application/vnd.google-apps.folder'",
+        'trashed=false',
+        `name contains '${lcif}'`,
+      ].join(' and '),
+      fields: 'files(id,name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 20,
+    });
+    const expectedPrefix = `Dossier_Assurance_${lcif}`;
+    const match = (list.data.files || []).find((f: { name?: string }) =>
+      String(f.name || '').startsWith(expectedPrefix),
+    );
+    return match?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 async function createFolder(drive: any, folderName: string, parentId?: string) {
   return drive.files.create({
     requestBody: {
@@ -258,9 +315,8 @@ export async function exportDossierToGoogleWorkspace(
       : client.connectedEmail;
 
   try {
-    const primaryAssure = dossier.formData?.assures?.[0] || {};
-    const clientNom = primaryAssure?.nom ? `${primaryAssure.prenom}_${primaryAssure.nom}` : dossier.id;
-    const folderName = `Dossier_Assurance_${clientNom}`;
+    const folderName = buildWorkspaceFolderName(dossier);
+    const dossierId = String(dossier.id || '').toUpperCase();
 
     const resolved = resolveDriveParentFolderId();
     const configuredParent = resolved.parentId; // toujours défini (dossier recommandé par défaut)
@@ -281,6 +337,52 @@ export async function exportDossierToGoogleWorkspace(
     };
 
     parentFolderName = await getParentFolderName(drive, configuredParent);
+    const existingInParent =
+      dossier.workspaceFolderId ||
+      (await findWorkspaceFolderInParent(drive, configuredParent, dossierId));
+    if (existingInParent) {
+      const folderId = existingInParent;
+      let uploaded = 0;
+      if (dossier.formData?.documents?.length > 0) {
+        for (const doc of dossier.formData.documents) {
+          if (!doc.localPath || !fs.existsSync(doc.localPath)) continue;
+          const up = await drive.files.create({
+            requestBody: {
+              name: doc.name,
+              parents: [folderId],
+            },
+            media: {
+              mimeType: doc.type || 'application/octet-stream',
+              body: fs.createReadStream(doc.localPath),
+            },
+            supportsAllDrives: true,
+            fields: 'id,webViewLink',
+          });
+          if (up.data?.id) {
+            doc.driveFileId = up.data.id;
+            doc.driveLink = up.data.webViewLink || `https://drive.google.com/file/d/${up.data.id}/view`;
+          }
+          uploaded++;
+        }
+      }
+      if (uploaded === 0 && dossier.formData?.documents?.length > 0) {
+        warning =
+          (warning ? `${warning} ` : '') +
+          'Fichiers non copiés : chemins absents sur le serveur (réessayez après un nouvel envoi formulaire).';
+      }
+      return {
+        success: true,
+        status: warning ? 'WARNING' : 'SUCCESS',
+        folderId,
+        warning:
+          (warning ? `${warning} ` : '') +
+          `Dossier Drive existant réutilisé (${folderName}).`,
+        connectedEmail: connectedEmail || undefined,
+        parentFolderName,
+        authMode: client.authMode,
+      };
+    }
+
     try {
       folderRes = await createFolder(drive, folderName, configuredParent);
     } catch (parentErr: any) {

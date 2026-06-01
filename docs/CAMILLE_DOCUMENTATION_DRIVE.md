@@ -30,7 +30,7 @@ Le dossier **`Documentation Camille`** est créé **à côté** des dossiers cli
 ```
 Dossiers Clients Assurance/
 ├── Documentation Camille/     ← vos fiches produits
-├── Dossier_Assurance_Dupont/
+├── Dossier_Assurance_LCIF-123456_Marie_Lasco/   ← un dossier par LCIF (même nom client = OK)
 └── …
 ```
 
