@@ -3,7 +3,11 @@ import fs from "fs";
 import path from "path";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock, wrapCamilleHtmlReply } from "./camilleMail";
-import { sanitizeCamilleClientMessage } from "./camilleClientMessage";
+import {
+  sanitizeCamilleClientMessage,
+  shouldUsePostStudyComplementaryDocsReply,
+  buildPostStudyComplementaryDocsMessage,
+} from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
@@ -32,7 +36,24 @@ export async function processIncomingClientEmail(
 
   try {
     const prenom = dossier.formData?.assures?.[0]?.prenom || "";
-    const ctx = buildCamilleContextBlock(dossier, options?.newAttachmentNames || []);
+    const attachmentNames = options?.newAttachmentNames || [];
+
+    if (
+      shouldUsePostStudyComplementaryDocsReply(dossier, {
+        inboundAttachmentNames: attachmentNames,
+        clientMessage: emailText,
+      })
+    ) {
+      const nom = dossier.formData?.assures?.[0]?.nom || "";
+      const plain = buildPostStudyComplementaryDocsMessage(dossier);
+      console.log(`[AI] Réponse pièces complémentaires post-étude pour ${dossier.id}`);
+      return {
+        status: "replied",
+        text: wrapCamilleHtmlReply(plain, prenom, nom),
+      };
+    }
+
+    const ctx = buildCamilleContextBlock(dossier, attachmentNames);
     const staffHandling = isStaffActivelyHandling(dossier);
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
     const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
@@ -103,6 +124,17 @@ Exploitables pour l'étude (les deux validés) : ${ctx.loanDocsOk ? "OUI" : "NON
 Si présents mais pas exploitables : demander uniquement un renvoi PDF banque, sans dire qu'ils manquent.
 Si présents et exploitables : NE PAS demander offre/tableau (sauf si le client pose une question précise).
 Si studySent=OUI : le client a déjà reçu l'étude par email — accuser réception de son message (ex. accord pour changer d'assurance) et annoncer la suite avec Charles, sans dire qu'une étude va être envoyée.
+${
+  studySent && attachmentNames.length > 0
+    ? `
+CAS — PIÈCES COMPLÉMENTAIRES APRÈS ÉTUDE (PJ dans cet email, client pas encore d'accord explicite) :
+- Remercier pour les documents complémentaires transmis après l'étude des économies.
+- Dire que vous vérifiez avec Charles si cela impacte l'étude déjà envoyée.
+- Demander si le client est satisfait(e) de l'étude reçue.
+- Si pas d'impact : demander s'il est d'accord pour poursuivre la substitution de l'assurance emprunteur.
+- NE PAS demander CNI/RIB dans ce mail.`
+    : ""
+}
 Ne jamais mettre de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.
 
 Pièces jointes reçues DANS CET EMAIL : ${newAttachmentsLine}
@@ -155,7 +187,10 @@ Décide REPLY ou ESCALATE.` }] }
         return { status: "escalated", reason: "Réponse IA vide" };
       }
       const nom = dossier.formData?.assures?.[0]?.nom || "";
-      const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier);
+      const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
+        inboundAttachmentNames: attachmentNames,
+        clientMessage: emailText,
+      });
       if (blockedDocRequest) {
         console.log(
           `[AI] Demande de pièces prêt bloquée (déjà présentes) pour ${dossier.id}`,

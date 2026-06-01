@@ -109,6 +109,52 @@ export function buildPostStudyClientAckMessage(dossier: any): string {
   return lines.join("\n");
 }
 
+/** Client envoie des pièces prêt après réception de l'étude (complément pour l'analyse). */
+export function shouldUsePostStudyComplementaryDocsReply(
+  dossier: any,
+  context?: { inboundAttachmentNames?: string[]; clientMessage?: string },
+): boolean {
+  if (!hasStudyBeenSent(dossier)) return false;
+  if (clientHasAcceptedInsuranceChange(dossier)) return false;
+
+  const names = (context?.inboundAttachmentNames || []).map((n) => String(n || "").trim()).filter(Boolean);
+  if (names.length === 0) return false;
+
+  const onlyIdentity = names.every((n) => {
+    const lower = n.toLowerCase();
+    const looksIdentity = /cni|rib|identit|passeport|iban/i.test(lower);
+    const looksLoan = /offre|tableau|amort|pret|prêt|échéancier|echeancier|banque/i.test(lower);
+    return looksIdentity && !looksLoan;
+  });
+  if (onlyIdentity) return false;
+
+  const msg = String(context?.clientMessage || "").toLowerCase();
+  if (/^(merci|bonjour|rebonjour|ok)\s*[.!]?$/i.test(msg.trim()) && names.length === 0) {
+    return false;
+  }
+
+  return true;
+}
+
+/** Accusé réception pièces complémentaires post-étude — satisfaction + substitution, pas de CNI/RIB. */
+export function buildPostStudyComplementaryDocsMessage(dossier: any): string {
+  const a = dossier?.formData?.assures?.[0];
+  const prenom = String(a?.prenom || "").trim();
+
+  const lines = [
+    `Merci pour votre message${prenom ? `, ${prenom}` : ""}.`,
+    ``,
+    `Nous vous remercions pour les documents complémentaires transmis suite à votre étude des économies.`,
+    `Je vais en discuter avec Charles afin de vérifier si cela a un impact sur l'étude qui vous a déjà été envoyée.`,
+    ``,
+    `Êtes-vous tout de même satisfait(e) de l'étude que vous avez reçue ?`,
+    `Si cela ne modifie pas les conclusions, seriez-vous d'accord pour poursuivre la substitution de votre assurance emprunteur ?`,
+    ``,
+    `Nous restons à votre entière disposition pour toute question.`,
+  ];
+  return lines.join("\n");
+}
+
 /** Relance douce post-étude : vérifier réception / questions — sans demander CNI/RIB. */
 export function buildStudyReceiptFollowUpMessage(dossier: any): string {
   const a = dossier?.formData?.assures?.[0];
@@ -242,12 +288,24 @@ export function shouldScheduleLoanDocFollowUp(dossier: any): {
 export function sanitizeCamilleClientMessage(
   plain: string,
   dossier: any,
+  context?: { inboundAttachmentNames?: string[]; clientMessage?: string },
 ): { text: string; blockedDocRequest: boolean } {
   const a = dossier?.formData?.assures?.[0];
   let text = stripRedundantSalutations(plain, {
     prenom: a?.prenom,
     nom: a?.nom,
   });
+
+  if (
+    shouldUsePostStudyComplementaryDocsReply(dossier, {
+      inboundAttachmentNames: context?.inboundAttachmentNames,
+      clientMessage: context?.clientMessage ?? plain,
+    })
+  ) {
+    text = buildPostStudyComplementaryDocsMessage(dossier);
+    text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
+    return { text, blockedDocRequest: true };
+  }
 
   const loan = resolveLoanDocPresence(dossier);
   let blockedDocRequest =
