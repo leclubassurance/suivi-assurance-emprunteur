@@ -205,12 +205,16 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
             : !data.hasDriveFolder && data.added?.length
               ? " Créez le dossier Drive (bouton Drive) puis relancez."
               : "";
+        const dedupeHint =
+          data.dedupeRemoved > 0
+            ? ` ${data.dedupeRemoved} doublon(s) retiré(s) du dossier.`
+            : "";
         const msg =
           data.added?.length > 0
-            ? `${data.added.length} fichier(s) ajouté(s) : ${data.added.join(", ")}.${driveHint}`
+            ? `${data.added.length} fichier(s) ajouté(s) : ${data.added.join(", ")}.${dedupeHint}${driveHint}`
             : data.attachmentPartsFound > 0
-              ? `${data.attachmentPartsFound} PJ détectée(s) — déjà en dossier ou non lisibles.${driveHint}${errHint}`
-              : `Aucune PJ (${data.scanned || 0} mail(s) scanné(s)).${driveHint}${errHint}`;
+              ? `${data.attachmentPartsFound} PJ détectée(s) — déjà en dossier ou non lisibles.${dedupeHint}${driveHint}${errHint}`
+              : `Aucune PJ (${data.scanned || 0} mail(s) scanné(s)).${dedupeHint}${driveHint}${errHint}`;
         showToast(msg, data.added?.length ? "success" : "info");
         loadDossiers();
       } else {
