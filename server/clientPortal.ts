@@ -1,17 +1,23 @@
 import crypto from "crypto";
 import type { Dossier } from "./dossierModel";
 import { computeDocumentChecklistForDossier } from "../shared/documentChecklist";
-import {
-  hasStudyBeenSent,
-  resolveClientPortalStatusKey,
-  getLastStudyOutbound,
-} from "./dossierLifecycle";
+import { hasStudyBeenSent, getLastStudyOutbound } from "./dossierLifecycle";
 import {
   isLoanDocsStepComplete,
   loanDocsStepHint,
   resolveLoanDocPresence,
 } from "./loanDocPresence";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
+import {
+  buildClientPortalSteps,
+  ensureSubscriptionProgressOnAcceptance,
+  resolveClientPortalStatusView,
+  resolveEffectiveSubscriptionPhase,
+  SUBSCRIPTION_PHASE_OPTIONS,
+  type SubscriptionPhase,
+} from "./subscriptionProgress";
+
+export { SUBSCRIPTION_PHASE_OPTIONS, type SubscriptionPhase };
 
 export function ensureClientPortalToken(dossier: Dossier): string {
   const existing = dossier.clientPortal?.token;
@@ -57,7 +63,7 @@ export function buildClientPortalEmailCtaHtml(portalUrl: string): string {
           Suivez l'avancement de votre demande en ligne
         </p>
         <p style="font-size:13px;margin:0 0 14px 0;color:#374151;line-height:1.55;">
-          Consultez à tout moment les étapes de votre dossier (documents reçus, préparation de l'étude, envoi par email).
+          Consultez les étapes de votre dossier : documents, étude des économies, votre décision, puis la finalisation de votre changement d'assurance.
           Ce lien personnel vous est réservé — aucun mot de passe n'est nécessaire.
         </p>
         <a href="${safeUrl}" style="display:inline-block;background-color:#1E3A8A;color:#FFFFFF;font-size:14px;font-weight:700;text-decoration:none;padding:12px 22px;border-radius:10px;">
@@ -75,32 +81,9 @@ export function findDossierByPortalToken(dossiers: Dossier[], token: string): Do
   return dossiers.find((d) => String(d.clientPortal?.token || "") === t) || null;
 }
 
-const STATUS_CLIENT: Record<string, { label: string; description: string }> = {
-  NOUVEAU: {
-    label: "Demande reçue",
-    description: "Votre dossier est enregistré. Notre équipe prépare votre étude.",
-  },
-  EN_COURS: {
-    label: "Analyse en cours",
-    description:
-      "Nous vérifions vos documents de prêt. Vous recevrez un email dès que votre étude personnalisée sera prête.",
-  },
-  EN_ATTENTE_CLIENT: {
-    label: "En attente de votre retour",
-    description: "Un email vous a été envoyé — merci de répondre ou d'envoyer les éléments demandés.",
-  },
-  "MAIL_ENVOYÉ": {
-    label: "Étude envoyée par email",
-    description:
-      "Votre étude personnalisée vous a été transmise par email. Consultez votre boîte de réception (et les spams).",
-  },
-  TRAITÉ: {
-    label: "Dossier finalisé",
-    description: "Votre demande a été traitée. Pour toute question, répondez à nos emails.",
-  },
-};
-
 export function buildClientPortalView(dossier: Dossier) {
+  ensureSubscriptionProgressOnAcceptance(dossier);
+
   const a = dossier.formData?.assures?.[0];
   const prenom = a?.prenom || "Bonjour";
   const checklist = computeDocumentChecklistForDossier(dossier);
@@ -108,32 +91,9 @@ export function buildClientPortalView(dossier: Dossier) {
   const studySent = hasStudyBeenSent(dossier);
   const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
   const lastStudy = getLastStudyOutbound(dossier);
-  const statusKey = resolveClientPortalStatusKey(dossier);
-  const statusInfo = STATUS_CLIENT[statusKey] || STATUS_CLIENT.EN_COURS;
-
-  const steps = [
-    { key: "received", label: "Demande enregistrée", done: true },
-    {
-      key: "docs",
-      label: "Offre de prêt et tableau d'amortissement",
-      done: isLoanDocsStepComplete(dossier),
-      hint: loanDocsStepHint(dossier),
-    },
-    {
-      key: "study",
-      label: "Étude des économies réalisée",
-      done: studySent,
-      hint: studySent
-        ? undefined
-        : "Notre équipe prépare votre comparaison d'assurance emprunteur",
-    },
-    {
-      key: "done",
-      label: "Étude transmise par email",
-      done: studySent,
-      hint: lastStudy?.subject ? `Dernier envoi : ${lastStudy.subject}` : undefined,
-    },
-  ];
+  const statusInfo = resolveClientPortalStatusView(dossier);
+  const steps = buildClientPortalSteps(dossier);
+  const subscriptionPhase = resolveEffectiveSubscriptionPhase(dossier);
 
   const documents: {
     key: string;
@@ -196,6 +156,16 @@ export function buildClientPortalView(dossier: Dossier) {
       `Votre étude vous a été envoyée par email${lastStudy.date ? ` le ${new Date(lastStudy.date).toLocaleDateString("fr-FR")}` : ""}. Pensez à vérifier vos courriers indésirables.`,
     );
   }
+  if (studySent && !clientAccepted) {
+    tips.push(
+      "Pour lancer la substitution de votre assurance, répondez à notre email en indiquant que vous souhaitez activer le changement après lecture de l'étude.",
+    );
+  }
+  if (subscriptionPhase && subscriptionPhase !== "awaiting_decision" && subscriptionPhase !== "completed") {
+    tips.push(
+      "La suite du dossier se fait sur une plateforme d'adhésion sécurisée : vous recevrez les instructions par email (validation des informations, questionnaire de santé, signatures).",
+    );
+  }
   tips.push(
     "Pour toute question, répondez directement aux emails du Club Immobilier Français : notre équipe vous accompagne personnellement.",
   );
@@ -209,6 +179,9 @@ export function buildClientPortalView(dossier: Dossier) {
     steps,
     documents,
     tips,
+    subscriptionPhase: subscriptionPhase || undefined,
+    subscriptionPhaseLabel:
+      SUBSCRIPTION_PHASE_OPTIONS.find((o) => o.value === subscriptionPhase)?.label || undefined,
     lastUpdateLabel: new Date(dossier.updatedAt || dossier.createdAt).toLocaleDateString("fr-FR", {
       day: "numeric",
       month: "long",

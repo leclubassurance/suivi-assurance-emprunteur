@@ -607,6 +607,11 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
               continue;
             }
 
+            const { ensureSubscriptionProgressOnAcceptance } = await import("./subscriptionProgress");
+            if (ensureSubscriptionProgressOnAcceptance(dossier)) {
+              await writeDB(db, dossier).catch(() => undefined);
+            }
+
             await sleep(45_000 + Math.floor(Math.random() * 135_000));
 
             const aiDecision = await aiCallback(dossier, text, senderEmail, {

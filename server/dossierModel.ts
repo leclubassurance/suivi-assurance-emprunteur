@@ -3,6 +3,7 @@ import { inferDocumentCategory } from "../shared/documentClassifier";
 import type { AiAuditEntry } from "./aiAuditLog";
 import type { PrivacyConsentRecord } from "./privacyConsent";
 import type { TelegramMessageRef } from "./telegramDossierRefs";
+import type { SubscriptionPhase } from "./subscriptionProgress";
 
 export type DossierStatus =
   | "NOUVEAU"
@@ -123,6 +124,13 @@ export interface Dossier {
     createdAt: string;
     lastAccessAt?: string;
   };
+  /** Suivi post-étude : décision client + étapes Kereis (mise à jour admin). */
+  subscriptionProgress?: {
+    phase: SubscriptionPhase;
+    updatedAt: string;
+    updatedBy?: string;
+    note?: string;
+  };
   camilleTelegramStaff?: {
     lastNewsKey?: string;
     lastNewsAt?: string;
@@ -178,6 +186,7 @@ export function ensureDossierShape(d: any): Dossier {
     studyDraft: d.studyDraft,
     studyKpi: d.studyKpi,
     clientPortal: d.clientPortal,
+    subscriptionProgress: d.subscriptionProgress,
     camilleTelegramStaff: d.camilleTelegramStaff,
     remiQueue: d.remiQueue,
     aiAuditTrail: Array.isArray(d.aiAuditTrail) ? d.aiAuditTrail : [],

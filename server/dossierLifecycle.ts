@@ -1,4 +1,5 @@
 import type { Dossier } from "./dossierModel";
+import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
 
 const STUDY_SUBJECT_RE =
   /\b(étude|etude)(\s+personnalisée|\s+personnalisee)?\b|économies|economies|votre étude/i;
@@ -79,14 +80,29 @@ export type ClientPortalStatusKey =
   | "EN_COURS"
   | "EN_ATTENTE_CLIENT"
   | "MAIL_ENVOYÉ"
+  | "DECISION_EN_ATTENTE"
+  | "ADHESION_EN_COURS"
   | "TRAITÉ";
 
-/** Statut client déduit des mails + statut admin (pas seulement le champ status). */
+/** Statut client déduit (étude, décision, parcours Kereis). */
 export function resolveClientPortalStatusKey(dossier: Dossier): ClientPortalStatusKey {
-  if (hasStudyBeenSent(dossier)) return "MAIL_ENVOYÉ";
   const st = String(dossier.status || "NOUVEAU");
-  if (st === "MAIL_ENVOYÉ" || st === "MAIL_ENVOYE") return "MAIL_ENVOYÉ";
   if (st === "TRAITÉ" || st === "TRAITE" || st === "CLOS") return "TRAITÉ";
+
+  const sub = resolveEffectiveSubscriptionPhase(dossier);
+  if (sub === "completed") return "TRAITÉ";
+  if (
+    sub &&
+    ["kereis_cgu", "kereis_validation", "kereis_health", "kereis_signatures", "kereis_justificatifs", "kereis_attestation"].includes(
+      sub,
+    )
+  ) {
+    return "ADHESION_EN_COURS";
+  }
+  if (sub === "decision_received") return "ADHESION_EN_COURS";
+  if (hasStudyBeenSent(dossier) || sub === "awaiting_decision") return "DECISION_EN_ATTENTE";
+
+  if (st === "MAIL_ENVOYÉ" || st === "MAIL_ENVOYE") return "MAIL_ENVOYÉ";
   if (st === "EN_ATTENTE_CLIENT") return "EN_ATTENTE_CLIENT";
   if (st === "NOUVEAU") return "NOUVEAU";
   return "EN_COURS";

@@ -1,7 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { X, ExternalLink } from "lucide-react";
+import { X, ExternalLink, Save } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
+import { showToast } from "../../lib/toast";
 import { ClientPortalContent, type ClientPortalData } from "../portal/ClientPortalContent";
+
+const PHASE_OPTIONS = [
+  { value: "awaiting_decision", label: "En attente décision client" },
+  { value: "decision_received", label: "Accord client — ouvrir Kereis" },
+  { value: "kereis_cgu", label: "Kereis — CGU / démarrage adhésion" },
+  { value: "kereis_validation", label: "Kereis — Validation infos" },
+  { value: "kereis_health", label: "Kereis — Questionnaire santé" },
+  { value: "kereis_signatures", label: "Kereis — Signatures" },
+  { value: "kereis_justificatifs", label: "Kereis — Justificatifs" },
+  { value: "kereis_attestation", label: "Kereis — Client : proposition / attestation" },
+  { value: "completed", label: "Dossier clos (client a terminé en ligne)" },
+];
 
 export default function AdminPortalPreviewModal({
   dossierId,
@@ -13,20 +26,31 @@ export default function AdminPortalPreviewModal({
   const [data, setData] = useState<ClientPortalData | null>(null);
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [phase, setPhase] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    const [previewRes, linkRes] = await Promise.all([
+      fetch(getApiUrl(`/api/admin/dossiers/${dossierId}/portal-preview`)),
+      fetch(getApiUrl(`/api/admin/dossiers/${dossierId}/portal-link`)),
+    ]);
+    if (previewRes.ok) {
+      const json = await previewRes.json();
+      setData(json);
+      setPhase(json.subscriptionPhase || "awaiting_decision");
+    }
+    if (linkRes.ok) {
+      const link = await linkRes.json();
+      setPortalUrl(link.url || null);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [previewRes, linkRes] = await Promise.all([
-          fetch(getApiUrl(`/api/admin/dossiers/${dossierId}/portal-preview`)),
-          fetch(getApiUrl(`/api/admin/dossiers/${dossierId}/portal-link`)),
-        ]);
-        if (!cancelled && previewRes.ok) setData(await previewRes.json());
-        if (!cancelled && linkRes.ok) {
-          const link = await linkRes.json();
-          setPortalUrl(link.url || null);
-        }
+        await load();
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -36,13 +60,38 @@ export default function AdminPortalPreviewModal({
     };
   }, [dossierId]);
 
+  const savePhase = async () => {
+    if (!phase) return;
+    setSaving(true);
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossierId}/subscription-progress`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phase, note: note.trim() || undefined }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.error || "Échec enregistrement", "error");
+        return;
+      }
+      setData(json.portal);
+      showToast("Suivi client mis à jour", "success");
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-slate-100 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[95vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 bg-white border-b">
           <div>
             <p className="text-sm font-black text-slate-900">Aperçu — page client</p>
-            <p className="text-xs text-slate-500 mt-0.5">Exactement ce que voit votre client via le lien de suivi.</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Étapes visibles par le client (étude → décision → adhésion Kereis).
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {portalUrl && (
@@ -60,6 +109,45 @@ export default function AdminPortalPreviewModal({
             </button>
           </div>
         </div>
+
+        {!loading && data && (
+          <div className="px-5 py-3 bg-white border-b space-y-2">
+            <p className="text-[11px] font-bold uppercase text-slate-500">Étape Kereis (vue client)</p>
+            <div className="flex flex-wrap gap-2 items-end">
+              <select
+                value={phase}
+                onChange={(e) => setPhase(e.target.value)}
+                className="flex-1 min-w-[200px] text-sm border border-slate-200 rounded-lg px-3 py-2"
+              >
+                {PHASE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={savePhase}
+                className="text-xs font-bold flex items-center gap-1 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                Enregistrer
+              </button>
+            </div>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Note interne (optionnel)"
+              className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2"
+            />
+            {data.subscriptionPhaseLabel && (
+              <p className="text-[10px] text-slate-500">Actuel côté client : {data.subscriptionPhaseLabel}</p>
+            )}
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-6 bg-[#f8f9fb]">
           {loading && <p className="text-center text-sm text-slate-500 py-12">Chargement de l&apos;aperçu…</p>}
           {!loading && data && <ClientPortalContent data={data} />}

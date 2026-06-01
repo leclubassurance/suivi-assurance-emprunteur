@@ -12,6 +12,8 @@ export type ClientPortalData = {
   documents: { key: string; label: string; received: boolean; requiredNow: boolean }[];
   tips: string[];
   lastUpdateLabel: string;
+  subscriptionPhase?: string;
+  subscriptionPhaseLabel?: string;
 };
 
 function docBadge(doc: ClientPortalData["documents"][0]) {

@@ -1687,6 +1687,9 @@ export function createApp() {
         }
       }
 
+      const { ensureSubscriptionProgressOnAcceptance } = await import("./subscriptionProgress");
+      ensureSubscriptionProgressOnAcceptance(dossier);
+
       await writeDB(db, dossier);
       res.json(buildClientPortalView(dossier));
     } catch (e: any) {
@@ -1872,6 +1875,34 @@ export function createApp() {
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     const { buildClientPortalView } = await import("./clientPortal");
     res.json(buildClientPortalView(dossier));
+  });
+
+  app.patch("/api/admin/dossiers/:id/subscription-progress", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { isValidSubscriptionPhase } = await import("./subscriptionProgress");
+    const phase = (req.body as any)?.phase;
+    if (!isValidSubscriptionPhase(phase)) {
+      return res.status(400).json({ error: "Phase invalide" });
+    }
+
+    dossier.subscriptionProgress = {
+      phase,
+      updatedAt: new Date().toISOString(),
+      updatedBy: String((req.body as any)?.updatedBy || "admin"),
+      note: typeof (req.body as any)?.note === "string" ? (req.body as any).note : undefined,
+    };
+    if (phase === "completed" && !["TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))) {
+      dossier.status = "TRAITÉ";
+    }
+    dossier.updatedAt = new Date().toISOString();
+    await writeDB(db, dossier);
+
+    const { buildClientPortalView } = await import("./clientPortal");
+    res.json({ ok: true, portal: buildClientPortalView(dossier) });
   });
 
   app.get("/api/admin/dossiers/:id/portal-link", async (req, res) => {
