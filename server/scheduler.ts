@@ -196,7 +196,7 @@ export function startScheduler() {
 
   // Autosync Gmail autonome (sans connexion admin) via service account + délégation domaine
   const gmailEnabled = ((process.env as any).GMAIL_AUTOSYNC_ENABLED || "true").toLowerCase() === "true";
-  const gmailIntervalMs = Number((process.env as any).GMAIL_AUTOSYNC_INTERVAL_MS || 120_000);
+  const gmailIntervalMs = Number((process.env as any).GMAIL_AUTOSYNC_INTERVAL_MS || 1_200_000);
   if (gmailEnabled) {
     setInterval(() => {
       if (gmailSyncInProgress) return;

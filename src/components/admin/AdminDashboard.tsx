@@ -103,7 +103,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     if (!autoSyncGmail) return;
     const interval = setInterval(() => {
       handleSyncGmail().catch(() => undefined);
-    }, 120000);
+    }, 1_200_000);
     return () => clearInterval(interval);
   }, [autoSyncGmail]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -926,7 +926,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                         checked={autoSyncGmail}
                         onChange={(e) => setAutoSyncGmail(e.target.checked)}
                       />
-                      Auto (2 min)
+                      Auto (20 min)
                     </label>
                       {!(selectedDossier as any).workspaceFolderId ||
                       (selectedDossier as any).workspaceStatus === "FAILED" ? (
