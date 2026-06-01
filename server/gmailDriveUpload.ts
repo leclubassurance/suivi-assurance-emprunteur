@@ -78,6 +78,49 @@ export function escapeDriveQueryString(s: string) {
   return String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
+/** Liste les fichiers d'un dossier Drive (nom en minuscules → id). */
+export async function listDriveFilesInFolder(
+  folderId: string,
+  accessToken?: string | null,
+): Promise<Map<string, { fileId: string; webViewLink?: string | null }>> {
+  const out = new Map<string, { fileId: string; webViewLink?: string | null }>();
+  if (!folderId) return out;
+
+  let client = (await createDriveClient(accessToken)) || null;
+  if (!client) {
+    const resolved = await resolveDriveAccessToken(null);
+    if (resolved.mode === "service_account" && resolved.client) {
+      client = resolved.client;
+    }
+  }
+  if (!client) return out;
+
+  let pageToken: string | undefined;
+  try {
+    do {
+      const list = await client.drive.files.list({
+        q: `'${folderId}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'`,
+        fields: "nextPageToken, files(id, name, webViewLink)",
+        pageSize: 1000,
+        pageToken,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      });
+      for (const f of list.data.files || []) {
+        if (!f.id || !f.name) continue;
+        const key = String(f.name).toLowerCase();
+        if (!out.has(key)) {
+          out.set(key, { fileId: f.id, webViewLink: f.webViewLink });
+        }
+      }
+      pageToken = list.data.nextPageToken || undefined;
+    } while (pageToken);
+  } catch (err: any) {
+    console.warn(`[Drive] Liste fichiers ${folderId}:`, err?.message || err);
+  }
+  return out;
+}
+
 /** Recherche un fichier par nom dans un dossier Drive client. */
 export async function findDriveFileIdInFolder(
   folderId: string,

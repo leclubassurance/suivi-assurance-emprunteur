@@ -127,6 +127,8 @@ export type GmailDownloadOptions = {
   driveSubfolderId?: string | null;
   /** Pièces déjà importées pour ce dossier (ne pas retélécharger ni ré-uploader Drive). */
   importedKeys?: Set<string>;
+  /** Fichiers déjà présents sur Drive (nom minuscule → id). */
+  driveFilesByName?: Map<string, { fileId: string; webViewLink?: string | null }>;
 };
 
 export function buildGmailImportKey(
@@ -135,6 +137,68 @@ export function buildGmailImportKey(
 ): string {
   const partId = part.attachmentId || `fn:${String(part.filename || '').toLowerCase()}`;
   return `${messageId}:${partId}`;
+}
+
+/** Variantes de clé (attachmentId vs nom) pour matcher anciens imports. */
+export function getGmailImportKeyVariants(
+  messageId: string,
+  part: { attachmentId?: string; filename: string },
+): string[] {
+  const variants = new Set<string>();
+  variants.add(buildGmailImportKey(messageId, part));
+  const fn = String(part.filename || "").toLowerCase();
+  if (fn) {
+    variants.add(`${messageId}:fn:${fn}`);
+    if (part.attachmentId) {
+      variants.add(buildGmailImportKey(messageId, { filename: part.filename }));
+    }
+  }
+  return [...variants];
+}
+
+export function isGmailPartImported(
+  importedKeys: Set<string>,
+  messageId: string,
+  part: { attachmentId?: string; filename: string },
+): boolean {
+  return getGmailImportKeyVariants(messageId, part).some((k) => importedKeys.has(k));
+}
+
+export function getImportedGmailMessageIds(dossier: any): Set<string> {
+  const ids = new Set<string>();
+  for (const id of dossier?.importedGmailMessageIds || []) {
+    if (id) ids.add(String(id));
+  }
+  for (const id of dossier?.processedGmailIds || []) {
+    if (id) ids.add(String(id));
+  }
+  for (const comm of dossier?.communications || []) {
+    if (comm?.gmailId && Array.isArray(comm.attachments) && comm.attachments.length > 0) {
+      ids.add(String(comm.gmailId));
+    }
+  }
+  return ids;
+}
+
+export function markGmailMessageAttachmentsHandled(
+  dossier: any,
+  messageId: string,
+  parts?: { attachmentId?: string; filename: string }[],
+) {
+  if (!messageId) return;
+  if (!Array.isArray(dossier.importedGmailMessageIds)) {
+    dossier.importedGmailMessageIds = [];
+  }
+  if (!dossier.importedGmailMessageIds.includes(messageId)) {
+    dossier.importedGmailMessageIds.push(messageId);
+  }
+  dossier.importedGmailMessageIds = dossier.importedGmailMessageIds.slice(-2500);
+
+  if (parts?.length) {
+    const keys: string[] = [];
+    for (const p of parts) keys.push(...getGmailImportKeyVariants(messageId, p));
+    registerImportedGmailAttachmentKeys(dossier, keys);
+  }
 }
 
 /** Registre des PJ Gmail déjà importées (persisté sur le dossier). */
@@ -146,10 +210,13 @@ export function getImportedGmailAttachmentKeys(dossier: any): Set<string> {
   for (const doc of dossier?.formData?.documents || []) {
     if (doc?.gmailImportKey) {
       keys.add(String(doc.gmailImportKey));
-      continue;
     }
     if (doc?.gmailMessageId && doc?.name) {
-      keys.add(buildGmailImportKey(String(doc.gmailMessageId), { filename: String(doc.name) }));
+      for (const k of getGmailImportKeyVariants(String(doc.gmailMessageId), {
+        filename: String(doc.name),
+      })) {
+        keys.add(k);
+      }
     }
   }
   for (const comm of dossier?.communications || []) {
@@ -158,7 +225,9 @@ export function getImportedGmailAttachmentKeys(dossier: any): Set<string> {
     for (const att of comm.attachments) {
       const name = att?.name;
       if (!name) continue;
-      keys.add(buildGmailImportKey(String(gmailId), { filename: String(name) }));
+      for (const k of getGmailImportKeyVariants(String(gmailId), { filename: String(name) })) {
+        keys.add(k);
+      }
     }
   }
   return keys;
@@ -222,7 +291,7 @@ export function registerImportedGmailAttachmentKeys(dossier: any, keys: string[]
     dossier.importedGmailAttachmentKeys = [];
   }
   const merged = new Set<string>([...dossier.importedGmailAttachmentKeys, ...keys]);
-  dossier.importedGmailAttachmentKeys = [...merged].slice(-400);
+  dossier.importedGmailAttachmentKeys = [...merged].slice(-5000);
 }
 
 export async function downloadGmailAttachments(
@@ -248,10 +317,24 @@ export async function downloadGmailAttachments(
   const importedKeys =
     options?.importedKeys ||
     (options?.dossier ? getImportedGmailAttachmentKeys(options.dossier) : new Set<string>());
+  const driveFilesByName = options?.driveFilesByName;
+  const dossierRef = options?.dossier;
+
+  const skipPartAsAlreadyImported = (part: CollectedPart) => {
+    if (isGmailPartImported(importedKeys, messageId, part)) return true;
+
+    const nameKey = String(part.filename || "").toLowerCase();
+    if (nameKey && driveFilesByName?.has(nameKey)) {
+      const variants = getGmailImportKeyVariants(messageId, part);
+      for (const k of variants) importedKeys.add(k);
+      if (dossierRef) registerImportedGmailAttachmentKeys(dossierRef, variants);
+      return true;
+    }
+    return false;
+  };
 
   for (const part of parts) {
-    const importKey = buildGmailImportKey(messageId, part);
-    if (importedKeys.has(importKey)) continue;
+    if (skipPartAsAlreadyImported(part)) continue;
 
     try {
       let buf: Buffer | null = null;
@@ -277,6 +360,7 @@ export async function downloadGmailAttachments(
       const safeName = part.filename.replace(/[^a-zA-Z0-9._-]/g, '_') || 'piece-jointe.bin';
       const localPath = path.join(dir, `${Date.now()}_${safeName}`);
       fs.writeFileSync(localPath, buf);
+      const importKey = buildGmailImportKey(messageId, part);
       const doc: SavedGmailAttachment = {
         id: `${idPrefix}-gmail_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         category: category || undefined,
@@ -316,25 +400,57 @@ export async function downloadGmailAttachments(
       }
 
       if (driveFolderId) {
-        const { uploadBufferToDriveFolder } = await import('./gmailDriveUpload');
-        const uploaded = await uploadBufferToDriveFolder(
-          driveFolderId,
-          part.filename,
-          part.mimeType,
-          buf,
-          driveToken,
+        const { uploadBufferToDriveFolder, findDriveFileIdInFolder } = await import(
+          "./gmailDriveUpload",
         );
-        if (uploaded) {
-          doc.driveFileId = uploaded.fileId;
-          doc.driveLink = uploaded.webViewLink || undefined;
-          driveUploaded += 1;
+        const nameKey = String(part.filename || "").toLowerCase();
+        const cached = nameKey ? driveFilesByName?.get(nameKey) : undefined;
+        let existingId = cached?.fileId || null;
+        if (!existingId) {
+          existingId = await findDriveFileIdInFolder(
+            driveFolderId,
+            part.filename,
+            driveToken,
+          );
+        }
+
+        if (existingId) {
+          doc.driveFileId = existingId;
+          doc.driveLink = cached?.webViewLink || doc.driveLink;
+          if (nameKey && driveFilesByName && !driveFilesByName.has(nameKey)) {
+            driveFilesByName.set(nameKey, {
+              fileId: existingId,
+              webViewLink: doc.driveLink,
+            });
+          }
         } else {
-          errors.push(`${part.filename}: enregistré localement mais échec upload Drive`);
+          const uploaded = await uploadBufferToDriveFolder(
+            driveFolderId,
+            part.filename,
+            part.mimeType,
+            buf,
+            driveToken,
+          );
+          if (uploaded) {
+            doc.driveFileId = uploaded.fileId;
+            doc.driveLink = uploaded.webViewLink || undefined;
+            driveUploaded += 1;
+            if (nameKey && driveFilesByName) {
+              driveFilesByName.set(nameKey, {
+                fileId: uploaded.fileId,
+                webViewLink: uploaded.webViewLink,
+              });
+            }
+          } else {
+            errors.push(`${part.filename}: enregistré localement mais échec upload Drive`);
+          }
         }
       }
 
       saved.push(doc);
-      importedKeys.add(importKey);
+      const variants = getGmailImportKeyVariants(messageId, part);
+      for (const k of variants) importedKeys.add(k);
+      if (dossierRef) registerImportedGmailAttachmentKeys(dossierRef, variants);
     } catch (err: any) {
       const msg = `${part.filename}: ${err?.message || err}`;
       console.error('[Gmail] PJ', msg);

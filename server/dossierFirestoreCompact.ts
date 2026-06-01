@@ -8,6 +8,8 @@ const MAX_COMM_HTML = 12_000;
 const MAX_COMMS = 35;
 const MAX_EVENTS = 60;
 const MAX_GMAIL_IDS = 250;
+const MAX_IMPORTED_ATTACHMENT_KEYS = 5000;
+const MAX_IMPORTED_GMAIL_MESSAGES = 2500;
 const MAX_AUDIT = 25;
 const TARGET_BYTES = 880_000;
 
@@ -74,7 +76,15 @@ export function compactDossierForPersistence(dossier: unknown): Record<string, u
   }
 
   if (Array.isArray(d.importedGmailAttachmentKeys)) {
-    d.importedGmailAttachmentKeys = (d.importedGmailAttachmentKeys as string[]).slice(-MAX_GMAIL_IDS);
+    d.importedGmailAttachmentKeys = (d.importedGmailAttachmentKeys as string[]).slice(
+      -MAX_IMPORTED_ATTACHMENT_KEYS,
+    );
+  }
+
+  if (Array.isArray(d.importedGmailMessageIds)) {
+    d.importedGmailMessageIds = (d.importedGmailMessageIds as string[]).slice(
+      -MAX_IMPORTED_GMAIL_MESSAGES,
+    );
   }
 
   if (Array.isArray(d.aiAuditTrail)) {

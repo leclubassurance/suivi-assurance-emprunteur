@@ -209,17 +209,48 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
           data.dedupeRemoved > 0
             ? ` ${data.dedupeRemoved} doublon(s) retiré(s) du dossier.`
             : "";
+        const driveUploadHint =
+          data.driveUploaded === 0 && data.attachmentPartsFound > 0
+            ? " Aucune nouvelle copie Drive."
+            : "";
         const msg =
           data.added?.length > 0
             ? `${data.added.length} fichier(s) ajouté(s) : ${data.added.join(", ")}.${dedupeHint}${driveHint}`
             : data.attachmentPartsFound > 0
-              ? `${data.attachmentPartsFound} PJ détectée(s) — déjà en dossier ou non lisibles.${dedupeHint}${driveHint}${errHint}`
+              ? `${data.attachmentPartsFound} PJ détectée(s) — déjà importées, ignorées.${dedupeHint}${driveUploadHint}${driveHint}${errHint}`
               : `Aucune PJ (${data.scanned || 0} mail(s) scanné(s)).${dedupeHint}${driveHint}${errHint}`;
         showToast(msg, data.added?.length ? "success" : "info");
         loadDossiers();
       } else {
         showToast(data.error || "Erreur récupération PJ", "error");
       }
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
+  const handleSeedGmailImports = async () => {
+    if (!selectedDossier) return;
+    const token = await getAccessToken();
+    if (!token) {
+      showToast("Connexion Google requise.", "error");
+      return;
+    }
+    try {
+      const res = await fetch(
+        getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/seed-gmail-imports`),
+        { method: "POST", headers: await authHeaders(), body: JSON.stringify({}) },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Échec enregistrement registre Gmail", "error");
+        return;
+      }
+      showToast(
+        `${data.messagesMarked || 0} mail(s) marqué(s) comme déjà importés (${data.scanned || 0} scannés). Les prochains syncs ne recréeront pas les PJ.`,
+        "success",
+      );
+      loadDossiers();
     } catch {
       showToast("Erreur réseau", "error");
     }
@@ -872,6 +903,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                         className="bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold py-2.5 px-4 rounded-xl border border-emerald-200 text-xs transition-all flex items-center gap-2"
                       >
                         <FileText className="w-4 h-4" /> Importer les pièces jointes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSeedGmailImports}
+                        className="bg-amber-50 hover:bg-amber-100 text-amber-950 font-bold py-2.5 px-4 rounded-xl border border-amber-200 text-xs transition-all"
+                        title="Après un gros nettoyage Drive : marque les mails comme déjà traités sans retélécharger"
+                      >
+                        Bloquer re-imports Gmail
                       </button>
                       <button
                         type="button"

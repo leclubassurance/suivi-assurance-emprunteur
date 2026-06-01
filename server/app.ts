@@ -1514,6 +1514,23 @@ export function createApp() {
     }
   });
 
+  app.post("/api/admin/dossiers/:id/seed-gmail-imports", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Connexion Google requise." });
+    }
+    const accessToken = authHeader.split(" ")[1];
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { seedDossierGmailImportRegistry } = await import("./mailAutomation");
+    const result = await seedDossierGmailImportRegistry(accessToken, dossier);
+    await writeDB(db, dossier);
+    res.json({ ok: true, ...result });
+  });
+
   app.post("/api/admin/dossiers/:id/dedupe-documents", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();

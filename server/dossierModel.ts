@@ -85,6 +85,8 @@ export interface Dossier {
   processedGmailIds?: string[];
   /** Clés `messageId:attachmentId` des PJ Gmail déjà importées (évite doublons au resync). */
   importedGmailAttachmentKeys?: string[];
+  /** Messages Gmail dont les PJ ont déjà été traitées (skip complet au resync). */
+  importedGmailMessageIds?: string[];
   camilleEscalation?: {
     lastAt: string;
     lastGmailId?: string;
@@ -185,6 +187,9 @@ export function ensureDossierShape(d: any): Dossier {
     processedGmailIds: Array.isArray(d.processedGmailIds) ? d.processedGmailIds : [],
     importedGmailAttachmentKeys: Array.isArray(d.importedGmailAttachmentKeys)
       ? d.importedGmailAttachmentKeys
+      : [],
+    importedGmailMessageIds: Array.isArray(d.importedGmailMessageIds)
+      ? d.importedGmailMessageIds
       : [],
     camilleEscalation: d.camilleEscalation,
     camilleStaffHandledUntil: d.camilleStaffHandledUntil,

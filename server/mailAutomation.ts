@@ -16,7 +16,9 @@ import {
   getDossierClientEmails,
   mergeDocumentsIntoDossier,
   getImportedGmailAttachmentKeys,
-  buildGmailImportKey,
+  getImportedGmailMessageIds,
+  isGmailPartImported,
+  markGmailMessageAttachmentsHandled,
 } from './gmailAttachments';
 
 export function extractEmail(fromRaw: string) {
@@ -227,6 +229,15 @@ export async function resyncDossierGmailAttachments(
 
   const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
   const importedKeys = getImportedGmailAttachmentKeys(dossier);
+  const importedMessages = getImportedGmailMessageIds(dossier);
+  let driveFilesByName = new Map<string, { fileId: string; webViewLink?: string | null }>();
+  if (driveCtx.driveSubfolderId) {
+    const { listDriveFilesInFolder } = await import("./gmailDriveUpload");
+    driveFilesByName = await listDriveFilesInFolder(
+      driveCtx.driveSubfolderId,
+      driveCtx.driveAccessToken,
+    );
+  }
 
   for (const clientEmail of emails) {
     for (const q of buildGmailQueriesForDossier(dossier, clientEmail)) {
@@ -235,6 +246,8 @@ export async function resyncDossierGmailAttachments(
         if (!msgMeta.id || seenMessageIds.has(msgMeta.id)) continue;
         seenMessageIds.add(msgMeta.id);
         scanned++;
+
+        if (importedMessages.has(msgMeta.id)) continue;
 
         const msgRes = await gmail.users.messages.get({
           userId: 'me',
@@ -245,10 +258,13 @@ export async function resyncDossierGmailAttachments(
         const parts = collectAttachmentParts(payload);
         attachmentPartsFound += parts.length;
 
-        const hasNewParts = parts.some(
-          (p) => !importedKeys.has(buildGmailImportKey(msgMeta.id, p)),
-        );
-        if (!hasNewParts) continue;
+        if (!parts.length) continue;
+
+        const hasNewParts = parts.some((p) => !isGmailPartImported(importedKeys, msgMeta.id, p));
+        if (!hasNewParts) {
+          markGmailMessageAttachmentsHandled(dossier, msgMeta.id, parts);
+          continue;
+        }
 
         const { saved, errors: dlErrors, driveUploaded: du } = await downloadGmailAttachments(
           gmail,
@@ -260,11 +276,13 @@ export async function resyncDossierGmailAttachments(
             driveAccessToken: driveCtx.driveAccessToken,
             driveSubfolderId: driveCtx.driveSubfolderId,
             importedKeys,
+            driveFilesByName,
           },
         );
         driveUploaded += du;
         errors.push(...dlErrors);
         const merged = mergeDocumentsIntoDossier(dossier, saved);
+        markGmailMessageAttachmentsHandled(dossier, msgMeta.id, parts);
         for (const doc of merged) {
           added.push(doc.name);
           addEvent(dossier, {
@@ -311,6 +329,46 @@ export async function resyncDossierGmailAttachments(
   return { added, scanned, attachmentPartsFound, driveUploaded, errors };
 }
 
+/**
+ * Marque les mails déjà vus comme traités (sans retélécharger les PJ).
+ * À utiliser une fois après nettoyage Drive pour stopper les ré-imports.
+ */
+export async function seedDossierGmailImportRegistry(
+  accessToken: string | null,
+  dossier: any,
+): Promise<{ scanned: number; messagesMarked: number }> {
+  const { auth } = await createGmailAuth(accessToken);
+  const gmail = google.gmail({ version: "v1", auth: auth as any });
+  const emails = getDossierClientEmails(dossier);
+  const seenMessageIds = new Set<string>();
+  let scanned = 0;
+  let messagesMarked = 0;
+
+  for (const clientEmail of emails) {
+    for (const q of buildGmailQueriesForDossier(dossier, clientEmail)) {
+      const listRes = await gmail.users.messages.list({ userId: "me", q, maxResults: 40 });
+      for (const msgMeta of listRes.data.messages || []) {
+        if (!msgMeta.id || seenMessageIds.has(msgMeta.id)) continue;
+        seenMessageIds.add(msgMeta.id);
+        scanned++;
+
+        const msgRes = await gmail.users.messages.get({
+          userId: "me",
+          id: msgMeta.id,
+          format: "full",
+        });
+        const parts = collectAttachmentParts(msgRes.data.payload);
+        if (!parts.length) continue;
+
+        markGmailMessageAttachmentsHandled(dossier, msgMeta.id, parts);
+        messagesMarked++;
+      }
+    }
+  }
+
+  return { scanned, messagesMarked };
+}
+
 let gmailSyncRunning = false;
 
 export async function syncGmailInbox(accessToken: string | null, db: any, aiCallback: Function) {
@@ -344,6 +402,10 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
   let attachmentsSaved = 0;
   let driveAttachmentsUploaded = 0;
   const attachmentDebug: Array<{ messageId: string; found: number; saved: number; drive: number }> = [];
+  const dossierDriveFilesCache = new Map<
+    string,
+    Map<string, { fileId: string; webViewLink?: string | null }>
+  >();
 
   for (const clientEmail of clientEmails) {
     const q = `(from:${clientEmail} OR to:${clientEmail}) newer_than:180d`;
@@ -391,44 +453,64 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
       let addedAttachments: any[] = [];
       if (isFromClient) {
         const importedKeys = getImportedGmailAttachmentKeys(dossier);
+        const importedMessages = getImportedGmailMessageIds(dossier);
         const attachmentParts = collectAttachmentParts(payload);
-        const hasNewParts = attachmentParts.some(
-          (p) => !importedKeys.has(buildGmailImportKey(msgMeta.id, p)),
-        );
 
-        if (hasNewParts) {
-          const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
-          const { saved, found, driveUploaded: du } = await downloadGmailAttachments(
-            gmail,
-            msgMeta.id,
-            payload,
-            dossier.id,
-            {
-              dossier,
-              driveAccessToken: driveCtx.driveAccessToken,
-              driveSubfolderId: driveCtx.driveSubfolderId,
-              importedKeys,
-            },
+        if (!importedMessages.has(msgMeta.id) && attachmentParts.length > 0) {
+          const hasNewParts = attachmentParts.some(
+            (p) => !isGmailPartImported(importedKeys, msgMeta.id, p),
           );
-          driveAttachmentsUploaded += du;
-          attachmentDebug.push({
-            messageId: msgMeta.id,
-            found,
-            saved: saved.length,
-            drive: du,
-          });
-          addedAttachments = mergeDocumentsIntoDossier(dossier, saved);
-          if (addedAttachments.length) {
-            attachmentsSaved += addedAttachments.length;
-            for (const doc of addedAttachments) {
-              addEvent(dossier, {
-                type: 'DOCUMENT_UPLOADED',
-                actor: { kind: 'SYSTEM' },
-                message: `Pièce jointe reçue par email : ${doc.name}`,
-                meta: { source: 'gmail', gmailId: msgMeta.id, gmailImportKey: doc.gmailImportKey },
-              });
+
+          if (hasNewParts) {
+            let driveFilesByName = dossierDriveFilesCache.get(dossier.id);
+            if (!driveFilesByName) {
+              const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
+              driveFilesByName = new Map();
+              if (driveCtx.driveSubfolderId) {
+                const { listDriveFilesInFolder } = await import("./gmailDriveUpload");
+                driveFilesByName = await listDriveFilesInFolder(
+                  driveCtx.driveSubfolderId,
+                  driveCtx.driveAccessToken,
+                );
+              }
+              dossierDriveFilesCache.set(dossier.id, driveFilesByName);
+            }
+
+            const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
+            const { saved, found, driveUploaded: du } = await downloadGmailAttachments(
+              gmail,
+              msgMeta.id,
+              payload,
+              dossier.id,
+              {
+                dossier,
+                driveAccessToken: driveCtx.driveAccessToken,
+                driveSubfolderId: driveCtx.driveSubfolderId,
+                importedKeys,
+                driveFilesByName,
+              },
+            );
+            driveAttachmentsUploaded += du;
+            attachmentDebug.push({
+              messageId: msgMeta.id,
+              found,
+              saved: saved.length,
+              drive: du,
+            });
+            addedAttachments = mergeDocumentsIntoDossier(dossier, saved);
+            if (addedAttachments.length) {
+              attachmentsSaved += addedAttachments.length;
+              for (const doc of addedAttachments) {
+                addEvent(dossier, {
+                  type: 'DOCUMENT_UPLOADED',
+                  actor: { kind: 'SYSTEM' },
+                  message: `Pièce jointe reçue par email : ${doc.name}`,
+                  meta: { source: 'gmail', gmailId: msgMeta.id, gmailImportKey: doc.gmailImportKey },
+                });
+              }
             }
           }
+          markGmailMessageAttachmentsHandled(dossier, msgMeta.id, attachmentParts);
         }
       }
 
