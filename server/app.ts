@@ -1514,6 +1514,17 @@ export function createApp() {
     }
   });
 
+  app.post("/api/admin/dossiers/:id/dedupe-documents", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { dedupeDossierDocuments } = await import("./gmailAttachments");
+    const { removed, remaining } = dedupeDossierDocuments(dossier);
+    await writeDB(db, dossier);
+    res.json({ ok: true, removed, remaining });
+  });
+
   app.post("/api/admin/dossiers/:id/resync-attachments", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const authHeader = req.headers.authorization;
@@ -1528,14 +1539,19 @@ export function createApp() {
       const dossier = db.dossiers.find((d: any) => d.id === id);
       if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
+      const { dedupeDossierDocuments } = await import("./gmailAttachments");
+      const dedupeBefore = dedupeDossierDocuments(dossier);
+
       const { resyncDossierGmailAttachments } = await import("./mailAutomation");
       const result = await resyncDossierGmailAttachments(accessToken, dossier);
+      const dedupeAfter = dedupeDossierDocuments(dossier);
       await writeDB(db, dossier);
 
       res.json({
         success: true,
         dossierId: id,
         documentsCount: dossier.formData?.documents?.length ?? 0,
+        dedupeRemoved: dedupeBefore.removed + dedupeAfter.removed,
         added: result.added,
         scanned: result.scanned,
         attachmentPartsFound: result.attachmentPartsFound,

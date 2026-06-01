@@ -21,6 +21,8 @@ export type SavedGmailAttachment = {
   source: string;
   category?: string;
   gmailMessageId?: string;
+  /** Clé stable messageId:attachmentId (ou nom de fichier) — anti-doublon au resync Gmail. */
+  gmailImportKey?: string;
   driveFileId?: string;
   driveLink?: string;
   quality?: { ok: boolean; reasons: string[]; confidence?: string };
@@ -123,7 +125,105 @@ export type GmailDownloadOptions = {
   dossier?: { id?: string; workspaceFolderId?: string };
   driveAccessToken?: string | null;
   driveSubfolderId?: string | null;
+  /** Pièces déjà importées pour ce dossier (ne pas retélécharger ni ré-uploader Drive). */
+  importedKeys?: Set<string>;
 };
+
+export function buildGmailImportKey(
+  messageId: string,
+  part: { attachmentId?: string; filename: string },
+): string {
+  const partId = part.attachmentId || `fn:${String(part.filename || '').toLowerCase()}`;
+  return `${messageId}:${partId}`;
+}
+
+/** Registre des PJ Gmail déjà importées (persisté sur le dossier). */
+export function getImportedGmailAttachmentKeys(dossier: any): Set<string> {
+  const keys = new Set<string>();
+  for (const k of dossier?.importedGmailAttachmentKeys || []) {
+    if (k) keys.add(String(k));
+  }
+  for (const doc of dossier?.formData?.documents || []) {
+    if (doc?.gmailImportKey) {
+      keys.add(String(doc.gmailImportKey));
+      continue;
+    }
+    if (doc?.gmailMessageId && doc?.name) {
+      keys.add(buildGmailImportKey(String(doc.gmailMessageId), { filename: String(doc.name) }));
+    }
+  }
+  for (const comm of dossier?.communications || []) {
+    const gmailId = comm?.gmailId;
+    if (!gmailId || !Array.isArray(comm.attachments)) continue;
+    for (const att of comm.attachments) {
+      const name = att?.name;
+      if (!name) continue;
+      keys.add(buildGmailImportKey(String(gmailId), { filename: String(name) }));
+    }
+  }
+  return keys;
+}
+
+/** Supprime les doublons déjà présents (même PJ Gmail ou même empreinte nom/taille/catégorie). */
+export function dedupeDossierDocuments(dossier: any): { removed: number; remaining: number } {
+  const docs = dossier?.formData?.documents;
+  if (!Array.isArray(docs) || docs.length < 2) {
+    return { removed: 0, remaining: docs?.length || 0 };
+  }
+
+  const winnerByKey = new Map<string, any>();
+  const keyForDoc = (doc: any) => {
+    if (doc?.gmailImportKey) return `import:${doc.gmailImportKey}`;
+    if (doc?.gmailMessageId && doc?.name) {
+      return `import:${buildGmailImportKey(String(doc.gmailMessageId), { filename: String(doc.name) })}`;
+    }
+    if (doc.category === "offre" || doc.category === "tableau" || doc.category === "fiche") {
+      return `cat:${doc.category}`;
+    }
+    return `fp:${docFingerprint(doc)}`;
+  };
+
+  const score = (doc: any) =>
+    (doc?.driveFileId ? 4 : 0) + (doc?.loanSignal ? 2 : 0) + (Number(doc?.size) || 0) / 1_000_000;
+
+  for (const doc of docs) {
+    const key = keyForDoc(doc);
+    const prev = winnerByKey.get(key);
+    if (!prev || score(doc) > score(prev)) winnerByKey.set(key, doc);
+  }
+
+  const seen = new Set<string>();
+  const deduped: any[] = [];
+  for (const doc of docs) {
+    const key = keyForDoc(doc);
+    if (winnerByKey.get(key) !== doc) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(doc);
+  }
+  const removed = docs.length - deduped.length;
+  dossier.formData.documents = deduped;
+
+  const keys: string[] = [];
+  for (const doc of deduped) {
+    if (doc.gmailImportKey) keys.push(doc.gmailImportKey);
+    else if (doc.gmailMessageId && doc.name) {
+      keys.push(buildGmailImportKey(String(doc.gmailMessageId), { filename: String(doc.name) }));
+    }
+  }
+  registerImportedGmailAttachmentKeys(dossier, keys);
+
+  return { removed, remaining: deduped.length };
+}
+
+export function registerImportedGmailAttachmentKeys(dossier: any, keys: string[]) {
+  if (!keys.length) return;
+  if (!Array.isArray(dossier.importedGmailAttachmentKeys)) {
+    dossier.importedGmailAttachmentKeys = [];
+  }
+  const merged = new Set<string>([...dossier.importedGmailAttachmentKeys, ...keys]);
+  dossier.importedGmailAttachmentKeys = [...merged].slice(-400);
+}
 
 export async function downloadGmailAttachments(
   gmail: gmail_v1.Gmail,
@@ -145,8 +245,14 @@ export async function downloadGmailAttachments(
   let driveUploaded = 0;
   const driveFolderId = options?.driveSubfolderId || options?.dossier?.workspaceFolderId;
   const driveToken = options?.driveAccessToken;
+  const importedKeys =
+    options?.importedKeys ||
+    (options?.dossier ? getImportedGmailAttachmentKeys(options.dossier) : new Set<string>());
 
   for (const part of parts) {
+    const importKey = buildGmailImportKey(messageId, part);
+    if (importedKeys.has(importKey)) continue;
+
     try {
       let buf: Buffer | null = null;
       if (part.attachmentId) {
@@ -180,6 +286,7 @@ export async function downloadGmailAttachments(
         localPath,
         source: 'gmail',
         gmailMessageId: messageId,
+        gmailImportKey: importKey,
         quality: assessDocumentQuality({
           name: part.filename,
           size: buf.length,
@@ -227,6 +334,7 @@ export async function downloadGmailAttachments(
       }
 
       saved.push(doc);
+      importedKeys.add(importKey);
     } catch (err: any) {
       const msg = `${part.filename}: ${err?.message || err}`;
       console.error('[Gmail] PJ', msg);
@@ -252,25 +360,49 @@ export function mergeDocumentsIntoDossier(dossier: any, newDocs: SavedGmailAttac
   const existingFp = new Set(
     dossier.formData.documents.map((d: any) => docFingerprint(d)),
   );
+  const existingImportKeys = getImportedGmailAttachmentKeys(dossier);
 
   const added: SavedGmailAttachment[] = [];
+  const registeredKeys: string[] = [];
   for (const doc of newDocs) {
     const nameKey = String(doc.name || '').toLowerCase();
     const fp = docFingerprint(doc);
     if (!nameKey) continue;
+
+    const importKey =
+      doc.gmailImportKey ||
+      (doc.gmailMessageId
+        ? buildGmailImportKey(doc.gmailMessageId, { filename: doc.name })
+        : null);
 
     const singleSlot = doc.category === 'offre' || doc.category === 'tableau' || doc.category === 'fiche';
     const dupByCategory =
       singleSlot &&
       dossier.formData.documents.some((d: any) => d.category === doc.category);
 
-    if (existingNames.has(nameKey) || existingFp.has(fp) || dupByCategory) continue;
+    if (
+      (importKey && existingImportKeys.has(importKey)) ||
+      existingNames.has(nameKey) ||
+      existingFp.has(fp) ||
+      dupByCategory
+    ) {
+      continue;
+    }
 
-    dossier.formData.documents.push(normalizeDocumentForPersistence(doc));
+    const row = normalizeDocumentForPersistence({
+      ...doc,
+      gmailImportKey: importKey || doc.gmailImportKey,
+    });
+    dossier.formData.documents.push(row);
     existingNames.add(nameKey);
     existingFp.add(fp);
+    if (importKey) {
+      existingImportKeys.add(importKey);
+      registeredKeys.push(importKey);
+    }
     added.push(doc);
   }
+  registerImportedGmailAttachmentKeys(dossier, registeredKeys);
   return added;
 }
 
