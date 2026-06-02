@@ -3,17 +3,56 @@ import { hasStudyBeenSent, getLastStudyOutbound } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { isLoanDocsStepComplete } from "./loanDocPresence";
 
-/** Phases opérationnelles après envoi de l'étude (alignées sur le parcours Kereis). */
+/** Phases opérationnelles après envoi de l'étude. */
 export type SubscriptionPhase =
   | "awaiting_decision"
   | "decision_received"
-  | "kereis_cgu"
-  | "kereis_validation"
-  | "kereis_health"
-  | "kereis_signatures"
-  | "kereis_justificatifs"
-  | "kereis_attestation"
+  | "adhesion_space_sent"
   | "completed";
+
+/** Anciennes valeurs Firestore (Kereis détaillé) → regroupées. */
+const LEGACY_KEREIS_PHASES = new Set([
+  "kereis_cgu",
+  "kereis_validation",
+  "kereis_health",
+  "kereis_signatures",
+  "kereis_justificatifs",
+  "kereis_attestation",
+]);
+
+export const SUBSCRIPTION_PHASE_OPTIONS: { value: SubscriptionPhase; label: string }[] = [
+  { value: "awaiting_decision", label: "En attente de décision (après étude)" },
+  { value: "decision_received", label: "Accord client reçu (automatique si mail)" },
+  { value: "adhesion_space_sent", label: "Espace adhésion envoyé au client" },
+  { value: "completed", label: "Dossier clos (client a terminé en ligne)" },
+];
+
+const PHASE_ORDER: SubscriptionPhase[] = [
+  "awaiting_decision",
+  "decision_received",
+  "adhesion_space_sent",
+  "completed",
+];
+
+/** Normalise une phase stockée (y compris anciennes valeurs Kereis). */
+export function coerceSubscriptionPhase(v: unknown): SubscriptionPhase | null {
+  const s = String(v || "").trim();
+  if (!s) return null;
+  if (PHASE_ORDER.includes(s as SubscriptionPhase)) return s as SubscriptionPhase;
+  if (LEGACY_KEREIS_PHASES.has(s)) return "adhesion_space_sent";
+  return null;
+}
+
+export function phaseRank(phase?: SubscriptionPhase | string | null): number {
+  const normalized = coerceSubscriptionPhase(phase);
+  if (!normalized) return -1;
+  const i = PHASE_ORDER.indexOf(normalized);
+  return i < 0 ? -1 : i;
+}
+
+export function isValidSubscriptionPhase(v: unknown): v is SubscriptionPhase {
+  return coerceSubscriptionPhase(v) !== null;
+}
 
 export type SubscriptionProgress = {
   phase: SubscriptionPhase;
@@ -22,46 +61,12 @@ export type SubscriptionProgress = {
   note?: string;
 };
 
-export const SUBSCRIPTION_PHASE_OPTIONS: { value: SubscriptionPhase; label: string }[] = [
-  { value: "awaiting_decision", label: "En attente de votre décision (après étude)" },
-  { value: "decision_received", label: "Accord client reçu — à traiter sur Kereis" },
-  { value: "kereis_cgu", label: "Kereis — CGU et démarrage adhésion" },
-  { value: "kereis_validation", label: "Kereis — Validation des informations" },
-  { value: "kereis_health", label: "Kereis — Questionnaire de santé" },
-  { value: "kereis_signatures", label: "Kereis — Signature des documents" },
-  { value: "kereis_justificatifs", label: "Kereis — Justificatifs et proposition" },
-  { value: "kereis_attestation", label: "Kereis — Client : proposition / attestation" },
-  { value: "completed", label: "Dossier clos (parcours client terminé)" },
-];
-
-const PHASE_ORDER: SubscriptionPhase[] = [
-  "awaiting_decision",
-  "decision_received",
-  "kereis_cgu",
-  "kereis_validation",
-  "kereis_health",
-  "kereis_signatures",
-  "kereis_justificatifs",
-  "kereis_attestation",
-  "completed",
-];
-
-export function phaseRank(phase?: SubscriptionPhase | string | null): number {
-  if (!phase) return -1;
-  const i = PHASE_ORDER.indexOf(phase as SubscriptionPhase);
-  return i < 0 ? -1 : i;
-}
-
-export function isValidSubscriptionPhase(v: unknown): v is SubscriptionPhase {
-  return typeof v === "string" && PHASE_ORDER.includes(v as SubscriptionPhase);
-}
-
 /** Avance automatiquement si accord client détecté dans les mails. */
 export function ensureSubscriptionProgressOnAcceptance(dossier: Dossier): boolean {
   if (!hasStudyBeenSent(dossier)) return false;
   if (!clientHasAcceptedInsuranceChange(dossier)) return false;
 
-  const current = dossier.subscriptionProgress?.phase;
+  const current = coerceSubscriptionPhase(dossier.subscriptionProgress?.phase);
   if (phaseRank(current) >= phaseRank("decision_received")) return false;
 
   dossier.subscriptionProgress = {
@@ -78,8 +83,8 @@ export function resolveEffectiveSubscriptionPhase(dossier: Dossier): Subscriptio
   if (["TRAITÉ", "TRAITE", "CLOS"].includes(st)) return "completed";
   if (!hasStudyBeenSent(dossier)) return null;
 
-  const manual = dossier.subscriptionProgress?.phase;
-  if (manual && isValidSubscriptionPhase(manual)) {
+  const manual = coerceSubscriptionPhase(dossier.subscriptionProgress?.phase);
+  if (manual) {
     if (clientHasAcceptedInsuranceChange(dossier) && phaseRank(manual) < phaseRank("decision_received")) {
       return "decision_received";
     }
@@ -97,23 +102,11 @@ export type PortalStep = {
   hint?: string;
 };
 
-function kereisHint(phase: SubscriptionPhase): string | undefined {
-  switch (phase) {
-    case "kereis_cgu":
-      return "Vous recevrez un accès à l'espace d'adhésion en ligne sécurisé (plateforme partenaire).";
-    case "kereis_validation":
-      return "Vérification de vos coordonnées, adresse et informations bancaires.";
-    case "kereis_health":
-      return "Questionnaire de santé en ligne (obligatoire pour l'assureur).";
-    case "kereis_signatures":
-      return "Signature électronique des documents contractuels.";
-    case "kereis_justificatifs":
-      return "Consultation de la proposition et envoi des justificatifs demandés.";
-    case "kereis_attestation":
-      return "Consultation de la proposition, justificatifs et signature finale dans votre espace.";
-    default:
-      return undefined;
+function adhesionClientHint(phase: SubscriptionPhase): string | undefined {
+  if (phase === "adhesion_space_sent") {
+    return "Connectez-vous à votre espace sécurisé : informations, questionnaire de santé, signatures et justificatifs.";
   }
+  return undefined;
 }
 
 export function buildClientPortalSteps(dossier: Dossier): PortalStep[] {
@@ -146,23 +139,20 @@ export function buildClientPortalSteps(dossier: Dossier): PortalStep[] {
   if (!studySent) return base;
 
   const decisionDone = subRank >= phaseRank("decision_received");
-  const contractSent = subRank >= phaseRank("kereis_cgu");
-  const clientAdhesionActive =
-    contractSent && subRank < phaseRank("kereis_attestation") && subRank < phaseRank("completed");
-  const clientAdhesionDone = subRank >= phaseRank("kereis_attestation");
+  const spaceSent = subRank >= phaseRank("adhesion_space_sent");
   const dossierClosed = subRank >= phaseRank("completed");
 
   const clientAdhesionHint =
-    clientAdhesionActive && subPhase
-      ? kereisHint(subPhase) ||
-        "Dans votre espace : vérifiez vos informations, complétez le questionnaire de santé et signez vos documents."
-      : decisionDone && !contractSent
+    spaceSent && !dossierClosed
+      ? adhesionClientHint("adhesion_space_sent") ||
+        "Finalisez les étapes dans votre espace (questionnaire de santé, lecture et signature des documents)."
+      : decisionDone && !spaceSent
         ? "Charles prépare votre dossier sur la plateforme partenaire avant l'ouverture de votre espace."
-        : !contractSent
+        : !decisionDone
           ? "Consultez l'étude reçue par email, puis confirmez-nous par retour de mail si vous souhaitez activer le changement."
-          : "Questionnaire de santé, lecture des contrats et signatures électroniques à réaliser dans votre espace sécurisé.";
+          : undefined;
 
-  const contractHint = contractSent
+  const contractHint = spaceSent
     ? "Votre espace assureur est ouvert : le contrat d'adhésion et les instructions vous ont été transmis (email / plateforme sécurisée)."
     : decisionDone
       ? "Nous finalisons votre dossier côté assureur, puis nous vous transmettons l'accès à votre espace d'adhésion."
@@ -181,13 +171,13 @@ export function buildClientPortalSteps(dossier: Dossier): PortalStep[] {
     {
       key: "kereis_adhesion",
       label: "Préparation du contrat de l'assurance",
-      done: clientAdhesionDone || dossierClosed,
+      done: dossierClosed,
       hint: clientAdhesionHint,
     },
     {
       key: "adhesion_contract_sent",
       label: "Contrat d'adhésion envoyé",
-      done: contractSent || dossierClosed,
+      done: spaceSent || dossierClosed,
       hint: contractHint,
     },
   ];
@@ -210,26 +200,11 @@ export function resolveClientPortalStatusView(dossier: Dossier): ClientPortalSta
     };
   }
 
-  if (subPhase === "kereis_attestation") {
-    return {
-      label: "Dernières étapes en ligne",
-      description:
-        "Dans votre espace : proposition, justificatifs éventuels et signature finale. Ce n'est pas encore la mise en place définitive de l'assurance côté banque.",
-    };
-  }
-
-  if (
-    subPhase &&
-    ["kereis_cgu", "kereis_validation", "kereis_health", "kereis_signatures", "kereis_justificatifs"].includes(
-      subPhase,
-    )
-  ) {
-    const detail = kereisHint(subPhase);
+  if (subPhase === "adhesion_space_sent") {
     return {
       label: "Adhésion en ligne en cours",
       description:
-        detail ||
-        "Vous finalisez votre changement d'assurance sur la plateforme sécurisée. Notre équipe reste disponible par email.",
+        "Votre espace d'adhésion est ouvert : complétez le questionnaire de santé, signez vos documents et transmettez les justificatifs demandés.",
     };
   }
 

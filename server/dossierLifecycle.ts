@@ -91,15 +91,7 @@ export function resolveClientPortalStatusKey(dossier: Dossier): ClientPortalStat
 
   const sub = resolveEffectiveSubscriptionPhase(dossier);
   if (sub === "completed") return "TRAITÉ";
-  if (
-    sub &&
-    ["kereis_cgu", "kereis_validation", "kereis_health", "kereis_signatures", "kereis_justificatifs", "kereis_attestation"].includes(
-      sub,
-    )
-  ) {
-    return "ADHESION_EN_COURS";
-  }
-  if (sub === "decision_received") return "ADHESION_EN_COURS";
+  if (sub === "adhesion_space_sent" || sub === "decision_received") return "ADHESION_EN_COURS";
   if (hasStudyBeenSent(dossier) || sub === "awaiting_decision") return "DECISION_EN_ATTENTE";
 
   if (st === "MAIL_ENVOYÉ" || st === "MAIL_ENVOYE") return "MAIL_ENVOYÉ";

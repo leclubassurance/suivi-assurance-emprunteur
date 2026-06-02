@@ -6,15 +6,16 @@ import { ClientPortalContent, type ClientPortalData } from "../portal/ClientPort
 
 const PHASE_OPTIONS = [
   { value: "awaiting_decision", label: "En attente décision client" },
-  { value: "decision_received", label: "Accord client — ouvrir Kereis" },
-  { value: "kereis_cgu", label: "Kereis — CGU / démarrage adhésion" },
-  { value: "kereis_validation", label: "Kereis — Validation infos" },
-  { value: "kereis_health", label: "Kereis — Questionnaire santé" },
-  { value: "kereis_signatures", label: "Kereis — Signatures" },
-  { value: "kereis_justificatifs", label: "Kereis — Justificatifs" },
-  { value: "kereis_attestation", label: "Kereis — Client : proposition / attestation" },
-  { value: "completed", label: "Dossier clos (client a terminé en ligne)" },
+  { value: "decision_received", label: "Accord client reçu (auto si mail)" },
+  { value: "adhesion_space_sent", label: "Espace adhésion envoyé au client" },
+  { value: "completed", label: "Dossier clos" },
 ];
+
+function normalizePhaseForSelect(phase?: string): string {
+  if (!phase) return "awaiting_decision";
+  if (phase.startsWith("kereis_")) return "adhesion_space_sent";
+  return phase;
+}
 
 export default function AdminPortalPreviewModal({
   dossierId,
@@ -38,7 +39,7 @@ export default function AdminPortalPreviewModal({
     if (previewRes.ok) {
       const json = await previewRes.json();
       setData(json);
-      setPhase(json.subscriptionPhase || "awaiting_decision");
+      setPhase(normalizePhaseForSelect(json.subscriptionPhase || "awaiting_decision"));
     }
     if (linkRes.ok) {
       const link = await linkRes.json();
@@ -90,7 +91,7 @@ export default function AdminPortalPreviewModal({
           <div>
             <p className="text-sm font-black text-slate-900">Aperçu — page client</p>
             <p className="text-xs text-slate-500 mt-0.5">
-              Étapes visibles par le client (étude → décision → adhésion Kereis).
+              Après accord : cochez uniquement « Espace adhésion envoyé » pour faire avancer le client.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -112,7 +113,7 @@ export default function AdminPortalPreviewModal({
 
         {!loading && data && (
           <div className="px-5 py-3 bg-white border-b space-y-2">
-            <p className="text-[11px] font-bold uppercase text-slate-500">Étape Kereis (vue client)</p>
+            <p className="text-[11px] font-bold uppercase text-slate-500">Étape côté client (admin)</p>
             <div className="flex flex-wrap gap-2 items-end">
               <select
                 value={phase}
@@ -142,9 +143,6 @@ export default function AdminPortalPreviewModal({
               placeholder="Note interne (optionnel)"
               className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2"
             />
-            {data.subscriptionPhaseLabel && (
-              <p className="text-[10px] text-slate-500">Actuel côté client : {data.subscriptionPhaseLabel}</p>
-            )}
           </div>
         )}
 

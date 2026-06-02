@@ -54,13 +54,16 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     Boolean(err?.includes(LEGACY_DRIVE_PARENT_ID));
 
   useEffect(() => {
-    if (selectedDossier) {
-      const clientName = selectedDossier.formData?.assures?.[0]?.prenom || 'Client';
-      setEmailSubject(`${clientName}, votre étude personnalisée - Assurance Emprunteur`);
-      setEmailHtml("");
-      setPreviewActive(false);
-    }
-  }, [selectedDossier]);
+    if (!selectedDossier) return;
+    const clientName = selectedDossier.formData?.assures?.[0]?.prenom || "Client";
+    const draft = (selectedDossier as Dossier & { studyDraft?: { subject?: string; html?: string } })
+      .studyDraft;
+    setEmailSubject(
+      draft?.subject || `${clientName}, votre étude personnalisée - Assurance Emprunteur`,
+    );
+    setEmailHtml(draft?.html || "");
+    setPreviewActive(false);
+  }, [selectedDossier?.id, (selectedDossier as any)?.studyDraft?.computedAt]);
 
   const loadDossiers = async () => {
     try {
@@ -1624,6 +1627,49 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     <p className="text-xs text-slate-500 mt-1">
                       Collez le HTML du mail. L’envoi se fait via votre compte Gmail connecté (assurance@leclubimmobilier.fr).
                     </p>
+                    {selectedDossier && (() => {
+                      const email = String(selectedDossier.formData?.assures?.[0]?.email || "")
+                        .trim()
+                        .toLowerCase();
+                      const siblings = email
+                        ? dossiers.filter(
+                            (d) =>
+                              d.id !== selectedDossier.id &&
+                              String(d.formData?.assures?.[0]?.email || "")
+                                .trim()
+                                .toLowerCase() === email,
+                          )
+                        : [];
+                      return (
+                        <div className="mt-3 space-y-2">
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                            <p className="font-bold">Destinataire de ce dossier</p>
+                            <p className="mt-1">
+                              <span className="font-mono text-xs">{selectedDossier.id}</span>
+                              {" — "}
+                              {selectedDossier.formData?.assures?.[0]?.prenom}{" "}
+                              {selectedDossier.formData?.assures?.[0]?.nom}
+                              {" → "}
+                              <strong>{selectedDossier.formData?.assures?.[0]?.email || "email manquant"}</strong>
+                            </p>
+                            <p className="text-xs mt-1 text-amber-800">
+                              L&apos;envoi part toujours vers l&apos;email du dossier ouvert — regénérez le brouillon
+                              ici après avoir changé de LCIF.
+                            </p>
+                          </div>
+                          {siblings.length > 0 && (
+                            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+                              <p className="font-bold">Même email sur plusieurs dossiers</p>
+                              <p className="text-xs mt-1">
+                                {siblings.map((d) => d.id).join(", ")} — risque d&apos;envoyer l&apos;étude de{" "}
+                                {selectedDossier.formData?.assures?.[0]?.prenom} à un autre dossier si vous vous
+                                trompez de fiche.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex flex-col gap-3">

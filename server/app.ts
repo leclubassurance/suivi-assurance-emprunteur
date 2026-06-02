@@ -902,6 +902,17 @@ export function createApp() {
 
     const toEmail = to || dossier.formData?.assures?.[0]?.email;
     if (!toEmail) return res.status(400).json({ error: "Missing recipient email" });
+
+    const { validateStudyEmailRecipient } = await import("./studyEmailRecipient");
+    const recipientCheck = validateStudyEmailRecipient(dossier, String(subject || ""));
+    if (!recipientCheck.ok) {
+      return res.status(400).json({
+        error: recipientCheck.error,
+        dossierId: dossier.id,
+        expectedPrenom: recipientCheck.clientPrenom,
+        toEmail: recipientCheck.toEmail,
+      });
+    }
     const ccEmails =
       Array.isArray(cc) && cc.length
         ? cc.map((e: any) => String(e || "").trim()).filter(Boolean)
@@ -1932,9 +1943,9 @@ export function createApp() {
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    const { isValidSubscriptionPhase } = await import("./subscriptionProgress");
-    const phase = (req.body as any)?.phase;
-    if (!isValidSubscriptionPhase(phase)) {
+    const { coerceSubscriptionPhase } = await import("./subscriptionProgress");
+    const phase = coerceSubscriptionPhase((req.body as any)?.phase);
+    if (!phase) {
       return res.status(400).json({ error: "Phase invalide" });
     }
 

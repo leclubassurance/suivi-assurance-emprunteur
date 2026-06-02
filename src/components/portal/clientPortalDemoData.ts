@@ -48,8 +48,8 @@ export const CLIENT_PORTAL_DEMO_DATA: ClientPortalData = {
     "La suite du dossier se fait sur une plateforme d'adhésion sécurisée : vous recevrez les instructions par email.",
     "Pour toute question, répondez aux emails envoyés par Le Club Immobilier Français.",
   ],
-  subscriptionPhase: "kereis_health",
-  subscriptionPhaseLabel: "Kereis — Questionnaire de santé",
+  subscriptionPhase: "adhesion_space_sent",
+  subscriptionPhaseLabel: "Espace adhésion envoyé au client",
   lastUpdateLabel: new Date().toLocaleDateString("fr-FR", {
     day: "numeric",
     month: "long",
