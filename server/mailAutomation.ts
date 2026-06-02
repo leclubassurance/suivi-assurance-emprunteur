@@ -382,12 +382,19 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
       driveAttachmentsUploaded: 0,
       attachmentDebug: [] as Array<{ messageId: string; found: number; saved: number; drive: number }>,
       skippedConcurrent: true,
+      dirtyDossierIds: [] as string[],
     };
   }
   gmailSyncRunning = true;
   try {
   const { auth, driveAccessToken } = await createGmailAuth(accessToken);
   const gmail = google.gmail({ version: 'v1', auth: auth as any });
+  const dirtyDossierIds = new Set<string>();
+  const markDossierDirty = (dossier: any) => {
+    if (!dossier?.id) return;
+    dirtyDossierIds.add(String(dossier.id));
+    dossier.updatedAt = new Date().toISOString();
+  };
 
   const clientEmails = new Set<string>();
   for (const d of db.dossiers || []) {
@@ -618,7 +625,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
               "./documentStoragePolicy"
             );
             normalizeDossierDocumentsForPersistence(dossier);
-            await writeDB(db, dossier).catch(() => undefined);
+            markDossierDirty(dossier);
 
             const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
             const finishInbound = () => markProcessed(dossier, msgMeta.id);
@@ -640,6 +647,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
               );
               if (sent.ok) {
                 finishInbound();
+                markDossierDirty(dossier);
                 upsertCommunication(dossier, {
                   id: `msg_ack_${msgMeta.id}`,
                   gmailId: sent.messageId,
@@ -656,6 +664,8 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
                   message: "Accusé de réception hors horaires envoyé au client.",
                   meta: { gmailId: msgMeta.id },
                 });
+              } else {
+                console.warn(`[Gmail] Échec envoi hors horaires → ${clientEmail}: ${sent.error}`);
               }
               continue;
             }
@@ -677,6 +687,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
               );
               if (sent.ok) {
                 finishInbound();
+                markDossierDirty(dossier);
                 upsertCommunication(dossier, {
                   id: `msg_ack_${msgMeta.id}`,
                   gmailId: sent.messageId,
@@ -693,6 +704,8 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
                   message: "Accusé de réception envoyé (cooldown actif).",
                   meta: { gmailId: msgMeta.id },
                 });
+              } else {
+                console.warn(`[Gmail] Échec envoi accusé cooldown → ${clientEmail}: ${sent.error}`);
               }
               continue;
             }
@@ -709,7 +722,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
 
             const { ensureSubscriptionProgressOnAcceptance } = await import("./subscriptionProgress");
             if (ensureSubscriptionProgressOnAcceptance(dossier)) {
-              await writeDB(db, dossier).catch(() => undefined);
+              markDossierDirty(dossier);
             }
 
             await sleep(45_000 + Math.floor(Math.random() * 135_000));
@@ -726,9 +739,22 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
                 replySubject,
                 aiDecision.text,
               );
+              if (!sendResult.ok) {
+                console.warn(
+                  `[Gmail] Échec envoi réponse Camille → ${clientEmail}: ${sendResult.error}`,
+                );
+                addEvent(dossier, {
+                  type: "EMAIL_FAILED",
+                  actor: { kind: "AI", label: "Camille" },
+                  message: "Échec envoi réponse automatique.",
+                  meta: { gmailId: msgMeta.id, error: sendResult.error },
+                });
+                markDossierDirty(dossier);
+              }
               if (sendResult.ok) {
                 aiReplies++;
                 finishInbound();
+                markDossierDirty(dossier);
                 cancelScheduledDocFollowUp(dossier.id);
                 upsertCommunication(dossier, {
                   id: `msg_ai_${msgMeta.id}`,
@@ -791,8 +817,11 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
           }
         } else if (!alreadyHandled) {
           markProcessed(dossier, msgMeta.id);
+          markDossierDirty(dossier);
         }
       }
+
+      markDossierDirty(dossier);
     }
   }
 
@@ -808,7 +837,6 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
     console.warn(`[Gmail] Sync réponses escalade équipe: ${err?.message || err}`);
   }
 
-  dossierTouchUpdatedAt(db);
   return {
     db,
     inboundCount,
@@ -818,17 +846,10 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
     driveAttachmentsUploaded,
     attachmentDebug,
     staffEscalationHandled,
+    dirtyDossierIds: [...dirtyDossierIds],
   };
   } finally {
     gmailSyncRunning = false;
-  }
-}
-
-function dossierTouchUpdatedAt(db: any) {
-  for (const d of db.dossiers || []) {
-    if (d.communications?.length) {
-      d.updatedAt = new Date().toISOString();
-    }
   }
 }
 

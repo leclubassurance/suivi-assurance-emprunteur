@@ -1,4 +1,4 @@
-import { readDB, writeDB } from "./db";
+import { readDB, writeDB, writeDirtyDossiers } from "./db";
 import { addEvent, Dossier, EmailMessage, newId } from "./dossierModel";
 import { detectMissingDocs, getPrimaryClientEmail } from "./rules";
 import { shouldSendScheduledReminder } from "./smartReminders";
@@ -205,11 +205,14 @@ export function startScheduler() {
       gmailSyncInProgress = true;
       readDB()
         .then((db) => syncGmailInbox(null, db, processIncomingClientEmail))
-        .then(({ db, inboundCount, aiReplies }) => {
+        .then(async ({ db, inboundCount, aiReplies, dirtyDossierIds }) => {
           if (inboundCount > 0 || aiReplies > 0) {
             console.log(`[Gmail autosync] inbound=${inboundCount} aiReplies=${aiReplies}`);
           }
-          return writeDB(db);
+          const { written, failed } = await writeDirtyDossiers(db, dirtyDossierIds || []);
+          if (failed > 0) {
+            console.warn(`[Gmail autosync] Firestore: ${written} dossier(s) OK, ${failed} échec(s).`);
+          }
         })
         .catch((err) => console.error("[Gmail autosync]", err?.message || err))
         .finally(() => {

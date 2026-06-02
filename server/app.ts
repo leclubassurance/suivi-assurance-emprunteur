@@ -973,7 +973,19 @@ export function createApp() {
     });
     const { acknowledgeStaffOutboundToClient } = await import("./camilleStaffHandoff");
     acknowledgeStaffOutboundToClient(dossier, { source: "admin_send_email", subject });
-    await writeDB(db, dossier);
+    try {
+      await writeDB(db, dossier);
+    } catch (err: any) {
+      console.error("[send-email] Persistance Firestore:", err?.message || err);
+      return res.json({
+        success: true,
+        providerId,
+        channel,
+        simulated: false,
+        warning:
+          "Email envoyé via Gmail, mais l'historique n'a pas pu être enregistré (Firestore saturé). Réessayez dans 1 minute.",
+      });
+    }
     return res.json({
       success: true,
       providerId,
@@ -1498,12 +1510,15 @@ export function createApp() {
       const { syncGmailInbox } = await import("./mailAutomation");
       const db = await readDBAsync();
       const result = await syncGmailInbox(accessToken, db, processIncomingClientEmail);
-      await writeDB(result.db);
+      const { writeDirtyDossiers } = await import("./db");
+      const persist = await writeDirtyDossiers(result.db, result.dirtyDossierIds || []);
       res.json({
         success: true,
         inbound: result.inboundCount,
         processed: result.processed,
         aiReplies: result.aiReplies,
+        dossiersPersisted: persist.written,
+        dossiersPersistFailed: persist.failed,
         attachmentsSaved: result.attachmentsSaved ?? 0,
         driveAttachmentsUploaded: result.driveAttachmentsUploaded ?? 0,
         attachmentDebug: result.attachmentDebug ?? [],
@@ -1862,7 +1877,8 @@ export function createApp() {
         const { processIncomingClientEmail } = await import("./aiAssistant");
         const result = await syncGmailInbox(token, db, processIncomingClientEmail);
         aiReplies = result.aiReplies || 0;
-        await writeDB(result.db);
+        const { writeDirtyDossiers } = await import("./db");
+        await writeDirtyDossiers(result.db, result.dirtyDossierIds || []);
       } catch (err: any) {
         return res.status(500).json({
           success: false,

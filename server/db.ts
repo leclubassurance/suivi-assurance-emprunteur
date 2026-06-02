@@ -116,6 +116,53 @@ export function getDataStoreMode(): "firestore" | "local" {
   return useFirestorePrimary() ? "firestore" : "local";
 }
 
+function isFirestoreWriteThrottleError(err: unknown): boolean {
+  const msg = String((err as any)?.message || err || "");
+  return /RESOURCE_EXHAUSTED|resource-exhausted|Write stream exhausted/i.test(msg);
+}
+
+/** Persiste uniquement les dossiers modifiés (évite de réécrire toute la collection à chaque sync Gmail). */
+export async function writeDirtyDossiers(
+  db: DBShape,
+  dirtyIds: Iterable<string>,
+): Promise<{ written: number; failed: number }> {
+  const unique = [...new Set(dirtyIds)].filter(Boolean);
+  if (!unique.length) return { written: 0, failed: 0 };
+
+  let written = 0;
+  let failed = 0;
+
+  for (let i = 0; i < unique.length; i++) {
+    const id = unique[i];
+    const dossier = db.dossiers.find((d) => d.id === id);
+    if (!dossier) continue;
+
+    let ok = false;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        await writeDB(db, dossier);
+        ok = true;
+        break;
+      } catch (err) {
+        if (!isFirestoreWriteThrottleError(err) || attempt >= 3) break;
+        await new Promise((r) => setTimeout(r, 600 * 2 ** attempt));
+      }
+    }
+
+    if (ok) written += 1;
+    else {
+      failed += 1;
+      console.error(`[DB] Échec persistance dossier ${id} (Firestore saturé ou indisponible).`);
+    }
+
+    if (i < unique.length - 1) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
+  return { written, failed };
+}
+
 /** Supprime un dossier sans resynchroniser toute la collection (évite timeout admin). */
 export async function deleteDossierFromStore(id: string): Promise<void> {
   await ensureDbLayerReady();
