@@ -101,13 +101,37 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto Gmail sync (while admin dashboard is open)
+  // Auto Gmail sync (dashboard ouvert) : 2 min en journée 8h–19h Paris, 20 min hors horaires
   useEffect(() => {
     if (!autoSyncGmail) return;
-    const interval = setInterval(() => {
-      handleSyncGmail().catch(() => undefined);
-    }, 1_200_000);
-    return () => clearInterval(interval);
+    const isParisBusinessHours = () => {
+      const parts = new Intl.DateTimeFormat("fr-FR", {
+        timeZone: "Europe/Paris",
+        weekday: "short",
+        hour: "2-digit",
+        hour12: false,
+      }).formatToParts(new Date());
+      const weekday = (parts.find((p) => p.type === "weekday")?.value || "").toLowerCase();
+      const hour = Number(parts.find((p) => p.type === "hour")?.value || "0");
+      if (weekday.startsWith("sam") || weekday.startsWith("dim")) return false;
+      return hour >= 8 && hour < 19;
+    };
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const run = () => {
+      handleSyncGmail()
+        .catch(() => undefined)
+        .finally(() => {
+          if (cancelled) return;
+          const ms = isParisBusinessHours() ? 120_000 : 1_200_000;
+          timer = setTimeout(run, ms);
+        });
+    };
+    run();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [autoSyncGmail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateStatus = async (id: string, newStatus: string) => {

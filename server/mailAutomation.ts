@@ -9,6 +9,7 @@ import {
 } from './camilleClientEmailGuard';
 import { canUseDomainWideDelegation, createDelegatedJwt, getDelegatedAccessToken } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken, getServerAccessToken } from "./googleOAuthServer";
+import { getCamilleReplyDelayMs, isWithinBusinessHours } from "./businessHours";
 import {
   collectAttachmentParts,
   downloadGmailAttachments,
@@ -110,34 +111,6 @@ function isAiAutoReplyEnabled() {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function getParisParts(d: Date) {
-  const fmt = new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Europe/Paris",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(d);
-  const weekday = (parts.find((p) => p.type === "weekday")?.value || "").toLowerCase();
-  const hour = Number(parts.find((p) => p.type === "hour")?.value || "0");
-  const minute = Number(parts.find((p) => p.type === "minute")?.value || "0");
-  return { weekday, hour, minute };
-}
-
-function isBusinessHoursGateEnabled() {
-  const v = (process.env.AI_BUSINESS_HOURS_ENABLED || "false").toLowerCase();
-  return v === "true" || v === "1" || v === "yes";
-}
-
-function isWithinBusinessHours(now = new Date()) {
-  const { weekday, hour } = getParisParts(now);
-  const isWeekend = weekday.startsWith("sam") || weekday.startsWith("dim");
-  if (isWeekend) return false;
-  // Mon–Fri 09:00–19:00 Paris time
-  return hour >= 9 && hour < 19;
 }
 
 function getAiEscalationEmail(): string | null {
@@ -371,7 +344,16 @@ export async function seedDossierGmailImportRegistry(
 
 let gmailSyncRunning = false;
 
-export async function syncGmailInbox(accessToken: string | null, db: any, aiCallback: Function) {
+export async function syncGmailInbox(
+  accessToken: string | null,
+  db: any,
+  aiCallback: Function,
+  options?: { allowClientAutoReply?: boolean },
+) {
+  const allowClientAutoReply =
+    options?.allowClientAutoReply !== undefined
+      ? options.allowClientAutoReply
+      : isWithinBusinessHours();
   if (gmailSyncRunning) {
     return {
       db,
@@ -597,7 +579,17 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
         }
 
         const shouldReply =
-          isAiAutoReplyEnabled() && (!alreadyHandled || unanswered);
+          allowClientAutoReply && isAiAutoReplyEnabled() && (!alreadyHandled || unanswered);
+
+        if (!allowClientAutoReply && isFromClient && !alreadyHandled) {
+          addEvent(dossier, {
+            type: "AI_DECISION",
+            actor: { kind: "AI", label: "Camille" },
+            message: "Message reçu hors horaires — réponse client reportée à l'ouverture (8h–19h).",
+            meta: { gmailId: msgMeta.id },
+          });
+          markDossierDirty(dossier);
+        }
 
         if (shouldReply) {
           if (aiLockedDossierIds.has(dossier.id)) continue;
@@ -629,46 +621,6 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
 
             const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
             const finishInbound = () => markProcessed(dossier, msgMeta.id);
-
-            if (isBusinessHoursGateEnabled() && !isWithinBusinessHours()) {
-              const outOfHours = [
-                `Merci pour votre message. Nous avons bien reçu votre demande.`,
-                `Notre équipe vous répondra dès la prochaine plage d'ouverture.`,
-              ].join("\n");
-              const { wrapCamilleHtmlReply } = await import("./camilleMail");
-              const nom = dossier.formData?.assures?.[0]?.nom || "";
-              const prenom = dossier.formData?.assures?.[0]?.prenom || "";
-              const html = wrapCamilleHtmlReply(outOfHours, prenom, nom);
-              const sent = await sendEmailReplyWithGmailAPI(
-                accessToken,
-                clientEmail,
-                replySubject,
-                html,
-              );
-              if (sent.ok) {
-                finishInbound();
-                markDossierDirty(dossier);
-                upsertCommunication(dossier, {
-                  id: `msg_ack_${msgMeta.id}`,
-                  gmailId: sent.messageId,
-                  direction: "outbound",
-                  from: "Camille (IA)",
-                  to: clientEmail,
-                  subject: replySubject,
-                  text: outOfHours,
-                  date: new Date().toISOString(),
-                });
-                addEvent(dossier, {
-                  type: "AI_DECISION",
-                  actor: { kind: "AI", label: "Camille" },
-                  message: "Accusé de réception hors horaires envoyé au client.",
-                  meta: { gmailId: msgMeta.id },
-                });
-              } else {
-                console.warn(`[Gmail] Échec envoi hors horaires → ${clientEmail}: ${sent.error}`);
-              }
-              continue;
-            }
 
             if (!sendGate.ok && sendGate.reason === "cooldown") {
               const ack = [
@@ -725,7 +677,8 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
               markDossierDirty(dossier);
             }
 
-            await sleep(45_000 + Math.floor(Math.random() * 135_000));
+            const replyDelay = getCamilleReplyDelayMs();
+            if (replyDelay > 0) await sleep(replyDelay);
 
             const aiDecision = await aiCallback(dossier, text, senderEmail, {
               newAttachmentNames: addedAttachments.map((d) => d.name),
@@ -815,7 +768,7 @@ export async function syncGmailInbox(accessToken: string | null, db: any, aiCall
           } finally {
             releaseCamilleClientEmailLock(dossier.id);
           }
-        } else if (!alreadyHandled) {
+        } else if (!alreadyHandled && allowClientAutoReply) {
           markProcessed(dossier, msgMeta.id);
           markDossierDirty(dossier);
         }
