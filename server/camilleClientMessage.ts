@@ -11,7 +11,7 @@ function escapeRegex(s: string) {
 }
 
 /**
- * Retire les formules d'accueil en tête de corps — wrapCamilleHtmlReply ajoute déjà « Bonjour {prénom}, ».
+ * Retire les formules d'accueil en tête de corps — wrapCamilleHtmlReply ajoute « Bonjour » au plus une fois par jour (Paris).
  */
 export function stripRedundantSalutations(
   bodyText: string,

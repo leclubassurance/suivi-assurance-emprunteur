@@ -8,22 +8,58 @@ import { stripRedundantSalutations } from "./camilleClientMessage";
 import { getSharedIdentityDocsFromSiblings } from "./clientMultipleDossiers";
 import { wrapLcifClientEmailHtml } from "../shared/emailBrand";
 
+function parisYmd(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/** Déjà un mail sortant vers le client aujourd'hui (Paris) sur ce dossier. */
+export function hasClientOutboundTodayParis(dossier: any, now = new Date()): boolean {
+  const today = parisYmd(now);
+  for (const c of dossier?.communications || []) {
+    if (c.direction !== "outbound") continue;
+    const raw = c.date;
+    if (!raw) continue;
+    const t = new Date(raw);
+    if (!Number.isFinite(t.getTime())) continue;
+    if (parisYmd(t) === today) return true;
+  }
+  return false;
+}
+
+/** « Bonjour » seulement sur le premier mail sortant du jour (fil en cours). */
+export function shouldIncludeCamilleDailyGreeting(dossier: any, now = new Date()): boolean {
+  if (!dossier) return true;
+  return !hasClientOutboundTodayParis(dossier, now);
+}
+
 export function wrapCamilleHtmlReply(
   bodyText: string,
   clientPrenom?: string,
   clientNom?: string,
+  dossier?: any,
 ) {
-  const greeting = clientPrenom ? `Bonjour ${clientPrenom},` : "Bonjour,";
+  const includeGreeting = shouldIncludeCamilleDailyGreeting(dossier);
+  const greeting = includeGreeting
+    ? clientPrenom
+      ? `Bonjour ${clientPrenom},`
+      : "Bonjour,"
+    : "";
   const cleaned = stripRedundantSalutations(bodyText, {
     prenom: clientPrenom,
     nom: clientNom,
   });
   const inner = cleaned.replace(/\n/g, "<br/>");
 
-  return wrapLcifClientEmailHtml(
-    `<p style="color: #1E3A8A; font-weight: bold; margin: 0 0 12px 0;">${greeting}</p>
-  <div>${inner}</div>`,
-  );
+  const header = greeting
+    ? `<p style="color: #1E3A8A; font-weight: bold; margin: 0 0 12px 0;">${greeting}</p>\n  `
+    : "";
+
+  return wrapLcifClientEmailHtml(`${header}<div>${inner}</div>`);
 }
 
 export function buildCamilleContextBlock(

@@ -103,7 +103,7 @@ export async function generateCamilleDocumentFollowUpEmail(
     ? `Votre dossier ${dossierId} — documents à préciser`
     : `Votre dossier ${dossierId} — documents à compléter`;
 
-  const wrap = (body: string) => wrapCamilleHtmlReply(body, prenom, nom);
+  const wrap = (body: string) => wrapCamilleHtmlReply(body, prenom, nom, dossier);
 
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
     return {

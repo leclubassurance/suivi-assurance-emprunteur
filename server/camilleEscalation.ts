@@ -140,7 +140,12 @@ export async function handleCamilleEscalation(params: {
 
   if (!telegramFirst) {
     const nom = String(dossier.formData?.assures?.[0]?.nom || "").trim();
-    const clientHtml = wrapCamilleHtmlReply(buildClientHandoffBody(prenom, dossier), prenom, nom);
+    const clientHtml = wrapCamilleHtmlReply(
+      buildClientHandoffBody(prenom, dossier),
+      prenom,
+      nom,
+      dossier,
+    );
     const clientSend = await sendGmail(accessToken, clientEmail, replySubject, clientHtml);
     if (clientSend?.ok) {
       notifiedClient = true;

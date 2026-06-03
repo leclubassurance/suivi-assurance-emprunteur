@@ -49,7 +49,7 @@ export async function processIncomingClientEmail(
       console.log(`[AI] Réponse pièces complémentaires post-étude pour ${dossier.id}`);
       return {
         status: "replied",
-        text: wrapCamilleHtmlReply(plain, prenom, nom),
+        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
       };
     }
 
@@ -135,7 +135,7 @@ CAS — PIÈCES COMPLÉMENTAIRES APRÈS ÉTUDE (PJ dans cet email, client pas en
 - NE PAS demander CNI/RIB dans ce mail.`
     : ""
 }
-Ne jamais mettre de formule d'accueil dans messageToClient (Bonjour, Madame…) — ajoutée automatiquement.
+Ne jamais mettre de formule d'accueil dans messageToClient (Bonjour, Madame…) — « Bonjour » est ajouté automatiquement au plus une fois par jour sur le fil.
 
 Pièces jointes reçues DANS CET EMAIL : ${newAttachmentsLine}
 
@@ -200,7 +200,7 @@ Décide REPLY ou ESCALATE.` }] }
       }
       return {
         status: "replied",
-        text: wrapCamilleHtmlReply(text, prenom, nom),
+        text: wrapCamilleHtmlReply(text, prenom, nom, dossier),
       };
     }
   } catch (error) {

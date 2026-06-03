@@ -61,7 +61,7 @@ PLUSIEURS DOSSIERS EN COURS (même client — indiqué dans le contexte)
 - Ne pas poser cette question si le message cite déjà clairement le dossier courant.
 
 FORMAT messageToClient
-- Pas de formule d'accueil (pas de Bonjour, Chère Madame, etc.) — ajoutée automatiquement.
+- Pas de formule d'accueil (pas de Bonjour, Chère Madame, etc.) — « Bonjour » est ajouté au plus une fois par jour sur le fil, pas à chaque réponse.
 - Commencer directement par le fond du message.
 
 Réponds UNIQUEMENT en JSON :

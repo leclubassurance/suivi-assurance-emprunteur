@@ -156,7 +156,7 @@ ${text.slice(0, 4000)}
     const nom = String(dossier.formData?.assures?.[0]?.nom || "").trim();
     const { text: clientMessage } = sanitizeCamilleClientMessage(plain, dossier);
     const subject = `Votre dossier ${dossier.id} — Le Club Immobilier Français`;
-    const html = wrapCamilleHtmlReply(clientMessage, prenom, nom);
+    const html = wrapCamilleHtmlReply(clientMessage, prenom, nom, dossier);
     const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
     const send = await sendEmailReplyWithGmailAPI(null, clientEmail, subject, html);
 

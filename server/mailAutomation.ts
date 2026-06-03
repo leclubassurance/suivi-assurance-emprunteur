@@ -643,7 +643,7 @@ export async function syncGmailInbox(
               const { wrapCamilleHtmlReply } = await import("./camilleMail");
               const nom = dossier.formData?.assures?.[0]?.nom || "";
               const prenom = dossier.formData?.assures?.[0]?.prenom || "";
-              const html = wrapCamilleHtmlReply(ack, prenom, nom);
+              const html = wrapCamilleHtmlReply(ack, prenom, nom, dossier);
               const sent = await sendEmailReplyWithGmailAPI(
                 accessToken,
                 replyToEmail,
