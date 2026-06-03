@@ -453,7 +453,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
         getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/checklist/${key}/validate`),
         {
           method,
-          headers: { "Content-Type": "application/json" },
+          headers: await authHeaders(),
           body: validate ? JSON.stringify({ author: user.email }) : undefined,
         },
       );
@@ -1058,16 +1058,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                           st === "ok" ? "OK" : st === "review" ? "À vérifier" : "MANQUANT";
                         const fileClass =
                           st === "review" ? "text-amber-900/90" : st === "ok" ? "text-emerald-800/90" : "text-slate-600";
-                        const canValidateManually =
-                          item.key === "cni" || item.key === "rib"
-                            ? st !== "ok" && !manualOk
-                            : (st === "review" || manualOk) && item.ok;
+                        // Offre / tableau en « À vérifier » : item.ok est souvent false — il faut quand même pouvoir valider.
+                        const showChecklistValidateActions = manualOk || st !== "ok";
                         return (
                         <div key={item.key} className={`p-3 rounded-xl border ${boxClass}`}>
                           <div className="flex items-center justify-between gap-3 flex-wrap">
                             <div className="text-sm font-semibold text-slate-800">{item.label}</div>
                             <div className="flex items-center gap-2 shrink-0">
-                              {canValidateManually && (
+                              {showChecklistValidateActions && (
                                 manualOk ? (
                                   <button
                                     type="button"
