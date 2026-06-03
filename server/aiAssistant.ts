@@ -53,7 +53,7 @@ export async function processIncomingClientEmail(
       };
     }
 
-    const ctx = buildCamilleContextBlock(dossier, attachmentNames);
+    const ctx = buildCamilleContextBlock(dossier, attachmentNames, options?.allDossiers);
     const staffHandling = isStaffActivelyHandling(dossier);
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
     const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
@@ -143,6 +143,7 @@ Fil de conversation récent (ordre chronologique) :
 ${conversationTail}
 
 Message client sans réponse outbound après lui : ${needsReply ? "OUI — répondre maintenant" : "non"}
+${multiDossier?.ambiguousTargeting ? "\nIMPORTANT : plusieurs contrats actifs — ne pas mélanger les prêts. Demander le numéro LCIF ou le bon fil email si le message ne cible pas clairement ce dossier.\n" : ""}
 ${multiDossier?.promptBlock || ""}
 
 Email du client :
@@ -190,6 +191,7 @@ Décide REPLY ou ESCALATE.` }] }
       const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
         inboundAttachmentNames: attachmentNames,
         clientMessage: emailText,
+        allDossiers: options?.allDossiers,
       });
       if (blockedDocRequest) {
         console.log(

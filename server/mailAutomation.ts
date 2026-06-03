@@ -9,7 +9,7 @@ import {
 } from './camilleClientEmailGuard';
 import { canUseDomainWideDelegation, createDelegatedJwt, getDelegatedAccessToken } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken, getServerAccessToken } from "./googleOAuthServer";
-import { getCamilleReplyDelayMs, isWithinBusinessHours } from "./businessHours";
+import { getCamilleReplyDelayMs } from "./businessHours";
 import {
   collectAttachmentParts,
   downloadGmailAttachments,
@@ -348,12 +348,7 @@ export async function syncGmailInbox(
   accessToken: string | null,
   db: any,
   aiCallback: Function,
-  options?: { allowClientAutoReply?: boolean },
 ) {
-  const allowClientAutoReply =
-    options?.allowClientAutoReply !== undefined
-      ? options.allowClientAutoReply
-      : isWithinBusinessHours();
   if (gmailSyncRunning) {
     return {
       db,
@@ -545,6 +540,7 @@ export async function syncGmailInbox(
       }
 
       if (isFromClient) {
+        const replyToEmail = senderEmail;
         inboundCount++;
         const alreadyHandled = getProcessedIds(dossier).has(msgMeta.id);
         const { hasUnansweredClientInbound } = await import("./gmailConversation");
@@ -579,20 +575,37 @@ export async function syncGmailInbox(
         }
 
         const shouldReply =
-          allowClientAutoReply && isAiAutoReplyEnabled() && (!alreadyHandled || unanswered);
-
-        if (!allowClientAutoReply && isFromClient && !alreadyHandled) {
-          addEvent(dossier, {
-            type: "AI_DECISION",
-            actor: { kind: "AI", label: "Camille" },
-            message: "Message reçu hors horaires — réponse client reportée à l'ouverture (8h–19h).",
-            meta: { gmailId: msgMeta.id },
-          });
-          markDossierDirty(dossier);
-        }
+          isAiAutoReplyEnabled() && (!alreadyHandled || unanswered);
 
         if (shouldReply) {
           if (aiLockedDossierIds.has(dossier.id)) continue;
+
+          const { shouldCamilleAutoReplyOnDossier } = await import("./clientMultipleDossiers");
+          const crossDossier = shouldCamilleAutoReplyOnDossier({
+            dossier,
+            senderEmail,
+            subject,
+            body: text,
+            allDossiers: db.dossiers || [],
+          });
+          if (!crossDossier.allow) {
+            if (!alreadyHandled) markProcessed(dossier, msgMeta.id);
+            addEvent(dossier, {
+              type: "AI_DECISION",
+              actor: { kind: "AI", label: "Camille" },
+              message: `Réponse auto reportée (autre contrat du même client — ${crossDossier.reason || "routing"}).`,
+              meta: { gmailId: msgMeta.id, reason: crossDossier.reason },
+            });
+            markDossierDirty(dossier);
+            continue;
+          }
+
+          const maxInboundAgeH = Number(process.env.CAMILLE_AUTO_REPLY_MAX_INBOUND_AGE_HOURS || "120");
+          const inboundAgeH =
+            (Date.now() - new Date(msgDate).getTime()) / (3600 * 1000);
+          if (alreadyHandled && inboundAgeH > maxInboundAgeH) {
+            continue;
+          }
 
           const sendGate = canCamilleEmailClient(dossier, {
             allowIfUnansweredInbound: true,
@@ -633,7 +646,7 @@ export async function syncGmailInbox(
               const html = wrapCamilleHtmlReply(ack, prenom, nom);
               const sent = await sendEmailReplyWithGmailAPI(
                 accessToken,
-                clientEmail,
+                replyToEmail,
                 replySubject,
                 html,
               );
@@ -645,7 +658,7 @@ export async function syncGmailInbox(
                   gmailId: sent.messageId,
                   direction: "outbound",
                   from: "Camille (IA)",
-                  to: clientEmail,
+                  to: replyToEmail,
                   subject: replySubject,
                   text: ack,
                   date: new Date().toISOString(),
@@ -657,7 +670,7 @@ export async function syncGmailInbox(
                   meta: { gmailId: msgMeta.id },
                 });
               } else {
-                console.warn(`[Gmail] Échec envoi accusé cooldown → ${clientEmail}: ${sent.error}`);
+                console.warn(`[Gmail] Échec envoi accusé cooldown → ${replyToEmail}: ${sent.error}`);
               }
               continue;
             }
@@ -688,13 +701,13 @@ export async function syncGmailInbox(
             if (aiDecision?.status === "replied" && aiDecision.text) {
               const sendResult = await sendEmailReplyWithGmailAPI(
                 accessToken,
-                clientEmail,
+                replyToEmail,
                 replySubject,
                 aiDecision.text,
               );
               if (!sendResult.ok) {
                 console.warn(
-                  `[Gmail] Échec envoi réponse Camille → ${clientEmail}: ${sendResult.error}`,
+                  `[Gmail] Échec envoi réponse Camille → ${replyToEmail}: ${sendResult.error}`,
                 );
                 addEvent(dossier, {
                   type: "EMAIL_FAILED",
@@ -714,7 +727,7 @@ export async function syncGmailInbox(
                   gmailId: sendResult.messageId,
                   direction: "outbound",
                   from: "Camille (IA)",
-                  to: clientEmail,
+                  to: replyToEmail,
                   subject: replySubject,
                   text: aiDecision.text,
                   date: new Date().toISOString(),
@@ -722,7 +735,7 @@ export async function syncGmailInbox(
                 addEvent(dossier, {
                   type: "AI_DECISION",
                   actor: { kind: "AI", label: "Camille" },
-                  message: "Réponse automatique envoyée au client.",
+                  message: `Réponse automatique envoyée au client (${replyToEmail}).`,
                   meta: { gmailId: msgMeta.id },
                 });
                 dossier.status = "EN_COURS";
@@ -755,7 +768,7 @@ export async function syncGmailInbox(
               await handleCamilleEscalation({
                 dossier,
                 accessToken,
-                clientEmail,
+                clientEmail: replyToEmail,
                 clientPrenom: dossier.formData?.assures?.[0]?.prenom,
                 subject,
                 reason: String(aiDecision.reason || "Escalade"),
@@ -768,7 +781,7 @@ export async function syncGmailInbox(
           } finally {
             releaseCamilleClientEmailLock(dossier.id);
           }
-        } else if (!alreadyHandled && allowClientAutoReply) {
+        } else if (!alreadyHandled) {
           markProcessed(dossier, msgMeta.id);
           markDossierDirty(dossier);
         }

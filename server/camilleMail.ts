@@ -5,6 +5,7 @@ import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 import { stripRedundantSalutations } from "./camilleClientMessage";
+import { getSharedIdentityDocsFromSiblings } from "./clientMultipleDossiers";
 import { wrapLcifClientEmailHtml } from "../shared/emailBrand";
 
 export function wrapCamilleHtmlReply(
@@ -25,8 +26,19 @@ export function wrapCamilleHtmlReply(
   );
 }
 
-export function buildCamilleContextBlock(dossier: any, newAttachmentNames: string[] = []) {
+export function buildCamilleContextBlock(
+  dossier: any,
+  newAttachmentNames: string[] = [],
+  allDossiers?: any[],
+) {
   const checklist = computeDocumentChecklistForDossier(dossier);
+  let siblingIdentityNote = "";
+  if (allDossiers && allDossiers.length > 0) {
+    const shared = getSharedIdentityDocsFromSiblings(allDossiers, dossier);
+    if (shared.details.length > 0) {
+      siblingIdentityNote = `\nAutres contrats du même client : ${shared.details.join(" ; ")}. Ne pas redemander CNI/RIB sur ce dossier si déjà présents ailleurs.`;
+    }
+  }
   const studySent = hasStudyBeenSent(dossier);
   const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
   const missingBlocking = clientAccepted
@@ -89,13 +101,14 @@ export function buildCamilleContextBlock(dossier: any, newAttachmentNames: strin
     certainDocProblemsDetail: docProblemAssessment.problems,
     uncertainDocSignals: docProblemAssessment.uncertainSignals,
     clientSafeReason,
-    documentSummary: checklist
-      .map((c) => {
-        const files = c.matchedFiles?.length ? ` (${c.matchedFiles.join(", ")})` : "";
-        const st = c.status || (c.ok ? "ok" : "missing");
-        return `${c.label}: ${statusLabel(st)}${files}${c.reviewHint && st !== "ok" ? ` — ${c.reviewHint}` : ""}`;
-      })
-      .join("\n"),
+    documentSummary:
+      checklist
+        .map((c) => {
+          const files = c.matchedFiles?.length ? ` (${c.matchedFiles.join(", ")})` : "";
+          const st = c.status || (c.ok ? "ok" : "missing");
+          return `${c.label}: ${statusLabel(st)}${files}${c.reviewHint && st !== "ok" ? ` — ${c.reviewHint}` : ""}`;
+        })
+        .join("\n") + siblingIdentityNote,
     documentAnalysisReport,
     loanClientGuidance,
     loanOffreExploitable: loan.offreExploitable,

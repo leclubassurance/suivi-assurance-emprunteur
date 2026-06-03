@@ -109,6 +109,11 @@ export interface Dossier {
     extracted?: any;
     subject?: string | null;
     html?: string | null;
+    economySummary?: {
+      grossSavingsEur: number;
+      feesCourtageEur: number;
+      feesAssureurEur?: number;
+    };
   };
   /** KPI extraits du mail d'étude HTML (sync Gmail sortant). */
   studyKpi?: {

@@ -966,6 +966,7 @@ export function createApp() {
       }
     }
 
+    const sentAt = new Date().toISOString();
     if (!dossier.communications) dossier.communications = [];
     dossier.communications.push({
       id: `msg_out_${Date.now()}`,
@@ -973,7 +974,9 @@ export function createApp() {
       to: toEmail,
       subject,
       text: html,
-      date: new Date().toISOString(),
+      html,
+      gmailId: providerId || undefined,
+      date: sentAt,
     });
 
     addEvent(dossier, {
@@ -984,6 +987,27 @@ export function createApp() {
     });
     const { acknowledgeStaffOutboundToClient } = await import("./camilleStaffHandoff");
     acknowledgeStaffOutboundToClient(dossier, { source: "admin_send_email", subject });
+    try {
+      const { applyStudyKpiFromGmailOutbound, applyStudyKpiFromStudyDraft } = await import(
+        "./studyEmailKpi"
+      );
+      const { hasStudyBeenSent } = await import("./dossierLifecycle");
+      const kpiFromMail = applyStudyKpiFromGmailOutbound(dossier, {
+        subject,
+        html,
+        text: html,
+        gmailId: providerId || `admin_send_${dossier.id}_${Date.now()}`,
+        date: sentAt,
+      });
+      if (!kpiFromMail || !(Number(dossier.studyKpi?.grossSavingsEur) > 0)) {
+        applyStudyKpiFromStudyDraft(dossier);
+      }
+      if (hasStudyBeenSent(dossier) && !["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))) {
+        dossier.status = "MAIL_ENVOYÉ";
+      }
+    } catch (kpiErr: any) {
+      console.warn(`[KPI] Extraction étude à l'envoi admin: ${kpiErr?.message || kpiErr}`);
+    }
     try {
       await writeDB(db, dossier);
     } catch (err: any) {
@@ -1028,6 +1052,13 @@ export function createApp() {
       extracted: comp.extracted,
       subject: draft?.subject || null,
       html: draft?.html || null,
+      economySummary: comp.ok
+        ? {
+            grossSavingsEur: Math.round(comp.result?.grossSavings || 0),
+            feesCourtageEur: Math.round(comp.extracted?.feesCourtierTotal || 0),
+            feesAssureurEur: Math.round(comp.extracted?.feesAssureurTotal || 0),
+          }
+        : undefined,
     };
     addEvent(dossier, {
       type: "NOTE_ADDED",
@@ -1776,11 +1807,13 @@ export function createApp() {
       const kpi = d.studyKpi;
       const loan = getLoanCapitalFromDossier(d);
       const gross = Number(kpi?.grossSavingsEur) || 0;
+      const { hasStudyBeenSent } = await import("./dossierLifecycle");
       const suspectKpi =
         kpi?.confidence === "low" ||
+        gross <= 0 ||
         (gross > 0 && loan > 0 && gross > loan * 1.2);
       if (!kpi?.extractedAt || suspectKpi) {
-        if (refreshStudyKpiFromCommunications(d)) kpiBackfilled += 1;
+        if (hasStudyBeenSent(d) && refreshStudyKpiFromCommunications(d)) kpiBackfilled += 1;
       }
     }
     if (kpiBackfilled > 0) {

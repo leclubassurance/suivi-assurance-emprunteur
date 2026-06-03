@@ -68,18 +68,26 @@ function firstAmountAfter(labelRe: RegExp, blob: string, windowChars = 140): num
   return amt ? parseEuroToken(amt[1]) : null;
 }
 
+/** Montant dans l'objet « … économiser ~12 345 € ». */
+export function extractGrossFromStudySubject(subject: string): number | null {
+  const m = String(subject || "").match(
+    /économiser\s*~?\s*([\d\s\u00a0.]+)\s*€/i,
+  );
+  return m?.[1] ? parseEuroToken(m[1]) : null;
+}
+
 /** Montant affiché en grand (bloc bleu) — source la plus fiable. */
 function extractGrossFromHeroHtml(rawHtml: string): number | null {
   const html = decodeHtmlEntities(rawHtml);
   const hero = html.match(
-    /font-size:\s*36px[\s\S]{0,220}?>([^<]+)</i,
+    /font-size:\s*(?:2[4-9]|3[0-9]|40)px[\s\S]{0,220}?>([^<]+)</i,
   );
   if (hero?.[1]) {
     const n = parseEuroToken(hero[1]);
     if (n != null) return n;
   }
   const afterLabel = html.match(
-    /[ÉE]conomie brute estim[ée]e[\s\S]{0,500}?font-size:\s*36px[\s\S]{0,120}?>([^<]+)</i,
+    /[ÉE]conomie brute estim[ée]e[\s\S]{0,500}?font-size:\s*(?:2[4-9]|3[0-9]|40)px[\s\S]{0,120}?>([^<]+)</i,
   );
   if (afterLabel?.[1]) {
     const n = parseEuroToken(afterLabel[1]);
@@ -104,6 +112,11 @@ function extractGrossFromStudyTableHtml(rawHtml: string): number | null {
 function extractGrossFromTextBlob(blob: string): number | null {
   const fromEstimee = firstAmountAfter(/[ée]conomie brute estim[ée]e/i, blob, 100);
   if (fromEstimee != null) return fromEstimee;
+
+  const fromGeneree =
+    firstAmountAfter(/[ée]conomie\s+g[ée]n[ée]r[ée]e/i, blob, 80) ??
+    firstAmountAfter(/economie\s+generee/i, blob, 80);
+  if (fromGeneree != null) return fromGeneree;
 
   const rowMatch = blob.match(
     /[ée]conomie brute\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
@@ -198,6 +211,11 @@ export function parseStudyEconomyFromEmailHtml(
 
   if (gross == null) {
     gross = extractGrossFromTextBlob(blob);
+    if (gross != null) grossSource = "text";
+  }
+
+  if (gross == null) {
+    gross = extractGrossFromStudySubject(subject);
     if (gross != null) grossSource = "text";
   }
 
@@ -325,6 +343,61 @@ export function applyStudyKpiFromGmailOutbound(
   return true;
 }
 
+/** KPI depuis le brouillon calculé (compute-economy) ou son HTML. */
+export function applyStudyKpiFromStudyDraft(dossier: Dossier): boolean {
+  const draft = dossier.studyDraft as
+    | {
+        html?: string | null;
+        subject?: string | null;
+        computedAt?: string;
+        economySummary?: {
+          grossSavingsEur?: number;
+          feesCourtageEur?: number;
+          feesAssureurEur?: number;
+        };
+      }
+    | undefined;
+  if (!draft) return false;
+
+  const summary = draft.economySummary;
+  if (summary && Number(summary.grossSavingsEur) > 0) {
+    const parsed = {
+      grossSavingsEur: Math.round(Number(summary.grossSavingsEur) || 0),
+      feesCourtageEur: Math.round(Number(summary.feesCourtageEur) || 0),
+      feesAssureurEur: summary.feesAssureurEur,
+      scenario: "A" as const,
+      confidence: "high" as const,
+      subject: draft.subject || undefined,
+    };
+    if (!isBetterKpi(parsed, dossier.studyKpi as StudyKpiRecord | undefined)) {
+      return Boolean(dossier.studyKpi?.grossSavingsEur);
+    }
+    dossier.studyKpi = {
+      ...parsed,
+      loanCapitalEur: getLoanCapitalFromDossier(dossier),
+      source: "gmail_outbound",
+      gmailId: `study_draft_${dossier.id}`,
+      extractedAt: draft.computedAt || new Date().toISOString(),
+    };
+    addEvent(dossier, {
+      type: "NOTE_ADDED",
+      actor: { kind: "SYSTEM" },
+      message: `KPI étude depuis brouillon calculé (${parsed.grossSavingsEur} € économie brute).`,
+      meta: { template: "STUDY_KPI_FROM_DRAFT", grossSavingsEur: parsed.grossSavingsEur },
+    });
+    return true;
+  }
+
+  if (!draft.html) return false;
+  return applyStudyKpiFromGmailOutbound(dossier, {
+    subject: String(draft.subject || ""),
+    html: String(draft.html),
+    text: String(draft.html),
+    gmailId: `study_draft_html_${dossier.id}`,
+    date: draft.computedAt || new Date().toISOString(),
+  });
+}
+
 /** Rejoue l'extraction sur l'historique Gmail déjà synchronisé (backfill KPI). */
 export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
   const comms = [...(dossier.communications || [])]
@@ -347,7 +420,7 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
       return true;
     }
   }
-  return false;
+  return applyStudyKpiFromStudyDraft(dossier);
 }
 
 export function formatEurKpi(n: number): string {

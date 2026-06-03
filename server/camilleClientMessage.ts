@@ -1,4 +1,5 @@
 import { computeDocumentChecklistForDossier } from "../shared/documentChecklist";
+import { getSharedIdentityDocsFromSiblings } from "./clientMultipleDossiers";
 import type { LoanDocProblemAssessment, CertainLoanDocProblem } from "./loanDocCertainty";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { resolveLoanDocPresence } from "./loanDocPresence";
@@ -285,10 +286,25 @@ export function shouldScheduleLoanDocFollowUp(dossier: any): {
 /**
  * Nettoie le corps client et bloque les demandes de pièces déjà présentes.
  */
+function resolveIdentityDocsOk(
+  dossier: any,
+  allDossiers?: any[],
+): { cniOk: boolean; ribOk: boolean } {
+  const checklist = computeDocumentChecklistForDossier(dossier);
+  let cniOk = Boolean(checklist.find((c) => c.key === "cni")?.ok);
+  let ribOk = Boolean(checklist.find((c) => c.key === "rib")?.ok);
+  if (allDossiers?.length) {
+    const shared = getSharedIdentityDocsFromSiblings(allDossiers, dossier);
+    if (shared.cniFromSibling) cniOk = true;
+    if (shared.ribFromSibling) ribOk = true;
+  }
+  return { cniOk, ribOk };
+}
+
 export function sanitizeCamilleClientMessage(
   plain: string,
   dossier: any,
-  context?: { inboundAttachmentNames?: string[]; clientMessage?: string },
+  context?: { inboundAttachmentNames?: string[]; clientMessage?: string; allDossiers?: any[] },
 ): { text: string; blockedDocRequest: boolean } {
   const a = dossier?.formData?.assures?.[0];
   let text = stripRedundantSalutations(plain, {
@@ -341,9 +357,7 @@ export function sanitizeCamilleClientMessage(
       text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
       return { text, blockedDocRequest: true };
     }
-    const checklist = computeDocumentChecklistForDossier(dossier);
-    const cniOk = checklist.find((c) => c.key === "cni")?.ok;
-    const ribOk = checklist.find((c) => c.key === "rib")?.ok;
+    const { cniOk, ribOk } = resolveIdentityDocsOk(dossier, context?.allDossiers);
     if (cniOk && ribOk) {
       const prenom = String(a?.prenom || "").trim();
       text = [

@@ -194,44 +194,30 @@ export function startScheduler() {
     runSchedulerOnce().catch(() => undefined);
   }, intervalMs);
 
-  // Autosync Gmail : 2 min (8h–19h Paris, réponses client) / 20 min hors horaires (interne seulement)
+  // Autosync Gmail 24h/24 (sync + réponses Camille)
   const gmailEnabled = ((process.env as any).GMAIL_AUTOSYNC_ENABLED || "true").toLowerCase() === "true";
+  const gmailIntervalMs = Number((process.env as any).GMAIL_AUTOSYNC_INTERVAL_MS || 120_000);
   if (gmailEnabled) {
-    let lastGmailSyncAt = 0;
     setInterval(() => {
       if (gmailSyncInProgress) return;
       if (!hasServerOAuthRefreshToken() && !canUseDomainWideDelegation()) return;
-
-      void (async () => {
-        const { isWithinBusinessHours, getGmailAutosyncIntervalMs } = await import("./businessHours");
-        const now = Date.now();
-        const business = isWithinBusinessHours();
-        const intervalMs = getGmailAutosyncIntervalMs();
-        if (now - lastGmailSyncAt < intervalMs) return;
-        lastGmailSyncAt = now;
-
-        gmailSyncInProgress = true;
-        try {
-          const db = await readDB();
-          const result = await syncGmailInbox(null, db, processIncomingClientEmail, {
-            allowClientAutoReply: business,
-          });
-          if (result.inboundCount > 0 || result.aiReplies > 0) {
-            console.log(
-              `[Gmail autosync] ${business ? "ouverture" : "hors horaires"} inbound=${result.inboundCount} aiReplies=${result.aiReplies}`,
-            );
+      gmailSyncInProgress = true;
+      readDB()
+        .then((db) => syncGmailInbox(null, db, processIncomingClientEmail))
+        .then(async ({ db, inboundCount, aiReplies, dirtyDossierIds }) => {
+          if (inboundCount > 0 || aiReplies > 0) {
+            console.log(`[Gmail autosync] inbound=${inboundCount} aiReplies=${aiReplies}`);
           }
-          const { written, failed } = await writeDirtyDossiers(result.db, result.dirtyDossierIds || []);
+          const { written, failed } = await writeDirtyDossiers(db, dirtyDossierIds || []);
           if (failed > 0) {
             console.warn(`[Gmail autosync] Firestore: ${written} dossier(s) OK, ${failed} échec(s).`);
           }
-        } catch (err: any) {
-          console.error("[Gmail autosync]", err?.message || err);
-        } finally {
+        })
+        .catch((err) => console.error("[Gmail autosync]", err?.message || err))
+        .finally(() => {
           gmailSyncInProgress = false;
-        }
-      })();
-    }, 30_000);
+        });
+    }, gmailIntervalMs);
   }
 
   const { startOpsDailyReportScheduler } = require("./opsDailyReport") as typeof import("./opsDailyReport");

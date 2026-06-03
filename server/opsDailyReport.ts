@@ -7,7 +7,7 @@ import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { needsStatusStudySent } from "./dossierLifecycle";
 import { getLoanCapitalFromDossier } from "./studyEmailKpi";
 import {
-  listActiveDossiersForSameClient,
+  listRelatedDossiersForClient,
   emailClearlyTargetsDossier,
   extractLcifIdsFromText,
 } from "./clientMultipleDossiers";
@@ -400,7 +400,7 @@ function scanDossierIncidents(params: {
     });
   }
 
-  const siblings = listActiveDossiersForSameClient(allDossiers, d);
+  const siblings = listRelatedDossiersForClient(allDossiers, d);
   if (siblings.length > 1) {
     let ambiguousDay = false;
     if (hadActivity) {
@@ -780,7 +780,7 @@ export function buildOpsDailyReport(dossiers: Dossier[], reportYmd: string): Dai
 
     const hadActivity = dossierHadActivityOnDay(d, reportYmd);
     if (!hadActivity) {
-      const siblings = listActiveDossiersForSameClient(dossiers, d);
+      const siblings = listRelatedDossiersForClient(dossiers, d);
       if (siblings.length > 1) {
         const email = d.formData?.assures?.[0]?.email || d.id;
         multiClientKeys.add(String(email).toLowerCase());
@@ -827,7 +827,7 @@ export function buildOpsDailyReport(dossiers: Dossier[], reportYmd: string): Dai
       if (/escalade.*résolue|escalade.*resolue/i.test(String(e.message || ""))) escalationsResolved += 1;
     }
 
-    const siblings = listActiveDossiersForSameClient(dossiers, d);
+    const siblings = listRelatedDossiersForClient(dossiers, d);
     if (siblings.length > 1) {
       const email = d.formData?.assures?.[0]?.email || d.id;
       multiClientKeys.add(String(email).toLowerCase());
