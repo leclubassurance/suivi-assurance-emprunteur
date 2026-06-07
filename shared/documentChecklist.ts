@@ -306,6 +306,42 @@ export function computeDocumentChecklist(
   return reviewed;
 }
 
+/** Persiste les catégories inférées (ex. image0.jpeg → CNI après étude) dans formData.documents. */
+export function persistInferredDocumentCategories(dossier: {
+  formData?: { documents?: any[] };
+  status?: string;
+  studyKpi?: { extractedAt?: string };
+  communications?: any[];
+}): number {
+  const docs = dossier?.formData?.documents;
+  if (!Array.isArray(docs) || docs.length === 0) return 0;
+
+  const studySent = isStudyLikelySent(dossier);
+  const enriched = enrichDocuments(docs, { studySent });
+  const enrichedByKey = new Map(
+    enriched.map((d) => [`${docId(d)}\0${docName(d)}`, d]),
+  );
+
+  let changed = 0;
+  dossier.formData!.documents = docs.map((orig) => {
+    const key = `${docId(orig)}\0${docName(orig)}`;
+    const inf = enrichedByKey.get(key);
+    if (!inf) return orig;
+    const newCat = inferDocumentCategory(inf);
+    const oldCat = inferDocumentCategory(orig);
+    if (newCat && newCat !== "autre" && newCat !== oldCat) {
+      changed++;
+      return { ...orig, category: newCat };
+    }
+    if (!orig.category && newCat && newCat !== "autre") {
+      changed++;
+      return { ...orig, category: newCat };
+    }
+    return orig;
+  });
+  return changed;
+}
+
 /** Checklist avec validations manuelles admin (Firestore). */
 export function computeDocumentChecklistForDossier(dossier: {
   formData?: { documents?: any[] };

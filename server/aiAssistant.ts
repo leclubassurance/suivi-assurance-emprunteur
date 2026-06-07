@@ -7,6 +7,8 @@ import {
   sanitizeCamilleClientMessage,
   shouldUsePostStudyComplementaryDocsReply,
   buildPostStudyComplementaryDocsMessage,
+  inboundHasIdentityAttachments,
+  buildPostStudyIdentityAttachmentsReply,
 } from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
@@ -37,6 +39,19 @@ export async function processIncomingClientEmail(
   try {
     const prenom = dossier.formData?.assures?.[0]?.prenom || "";
     const attachmentNames = options?.newAttachmentNames || [];
+
+    if (
+      hasStudyBeenSent(dossier) &&
+      inboundHasIdentityAttachments(attachmentNames)
+    ) {
+      const nom = dossier.formData?.assures?.[0]?.nom || "";
+      const plain = buildPostStudyIdentityAttachmentsReply(dossier, emailText);
+      console.log(`[AI] Accusé pièces identité post-étude pour ${dossier.id}`);
+      return {
+        status: "replied",
+        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+      };
+    }
 
     if (
       shouldUsePostStudyComplementaryDocsReply(dossier, {

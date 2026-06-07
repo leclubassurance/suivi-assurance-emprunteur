@@ -111,6 +111,63 @@ export function buildPostStudyClientAckMessage(dossier: any): string {
 }
 
 /** Client envoie des pièces prêt après réception de l'étude (complément pour l'analyse). */
+export function looksLikeIdentityAttachmentName(name: string): boolean {
+  const lower = String(name || "").toLowerCase();
+  if (/cni|rib|identit|passeport|iban|relev[eé]/.test(lower)) return true;
+  if (/^image\d*\.(jpe?g|png|heic|webp)$/i.test(lower)) return true;
+  if (/\.(jpe?g|png|heic|webp)$/i.test(lower)) {
+    return !/offre|tableau|amort|pret|pr[eê]t|echeancier|[eé]ch[eé]ancier|banque|loan/i.test(lower);
+  }
+  return false;
+}
+
+export function inboundHasIdentityAttachments(names: string[]): boolean {
+  return names.some(looksLikeIdentityAttachmentName);
+}
+
+export function clientMessageHasSubstantiveQuestions(message: string): boolean {
+  const msg = String(message || "").trim();
+  if (msg.length < 25) return false;
+  return /assurance|monsieur|madame|question|savoir|inform|co[uû]t|tarif|changement|demande|partie|autre|contrat|pr[eê]t|emprunt/i.test(
+    msg,
+  );
+}
+
+export function buildPostStudyIdentityAttachmentsReply(
+  dossier: any,
+  clientMessage?: string,
+): string {
+  const a = dossier?.formData?.assures?.[0];
+  const prenom = String(a?.prenom || "").trim();
+  const hasQuestions = clientMessageHasSubstantiveQuestions(clientMessage || "");
+  const agreed = clientHasAcceptedInsuranceChange(dossier);
+
+  const lines = [
+    `Merci pour votre message${prenom ? `, ${prenom}` : ""}.`,
+    ``,
+    `Nous avons bien reçu votre pièce d'identité, votre RIB et les documents transmis — merci beaucoup.`,
+  ];
+
+  if (agreed) {
+    lines.push(
+      ``,
+      `Nous avons bien pris note de votre accord pour poursuivre le changement d'assurance.`,
+      `Charles et notre équipe vous recontactent très prochainement pour la suite du dossier.`,
+    );
+  } else if (hasQuestions) {
+    lines.push(
+      ``,
+      `Nous avons bien pris en compte vos questions. Charles ou un membre de notre équipe vous apporte une réponse détaillée très prochainement par email.`,
+      `Si votre message concerne un autre prêt ou contrat (par exemple un second emprunteur), précisez-le si besoin : nous recroisons l'information avec vos dossiers en cours.`,
+    );
+  } else {
+    lines.push(``, `Charles et notre équipe poursuivent la mise en place de votre dossier.`);
+  }
+
+  lines.push(``, `Pour toute précision, répondez simplement à ce mail.`);
+  return lines.join("\n");
+}
+
 export function shouldUsePostStudyComplementaryDocsReply(
   dossier: any,
   context?: { inboundAttachmentNames?: string[]; clientMessage?: string },
@@ -120,6 +177,8 @@ export function shouldUsePostStudyComplementaryDocsReply(
 
   const names = (context?.inboundAttachmentNames || []).map((n) => String(n || "").trim()).filter(Boolean);
   if (names.length === 0) return false;
+
+  if (inboundHasIdentityAttachments(names)) return false;
 
   const onlyIdentity = names.every((n) => {
     const lower = n.toLowerCase();
@@ -352,6 +411,11 @@ export function sanitizeCamilleClientMessage(
   }
 
   if (hasStudyBeenSent(dossier) && messageRequestsMissingIdentityDocs(text)) {
+    if (inboundHasIdentityAttachments(context?.inboundAttachmentNames || [])) {
+      text = buildPostStudyIdentityAttachmentsReply(dossier, context?.clientMessage ?? plain);
+      text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
+      return { text, blockedDocRequest: true };
+    }
     if (!clientHasAcceptedInsuranceChange(dossier)) {
       text = buildStudyReceiptFollowUpMessage(dossier);
       text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });

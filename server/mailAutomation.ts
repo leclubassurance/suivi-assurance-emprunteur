@@ -19,8 +19,10 @@ import {
   getImportedGmailAttachmentKeys,
   getImportedGmailMessageIds,
   isGmailPartImported,
+  isGmailPartInDossierDocuments,
   markGmailMessageAttachmentsHandled,
 } from './gmailAttachments';
+import { finalizeGmailDocumentImport } from "./dossierDocumentSync";
 
 export function extractEmail(fromRaw: string) {
   const emailMatch = fromRaw.match(/<([^>]+)>/);
@@ -220,7 +222,20 @@ export async function resyncDossierGmailAttachments(
         seenMessageIds.add(msgMeta.id);
         scanned++;
 
-        if (importedMessages.has(msgMeta.id)) continue;
+        if (importedMessages.has(msgMeta.id)) {
+          const msgRes = await gmail.users.messages.get({
+            userId: 'me',
+            id: msgMeta.id,
+            format: 'full',
+          });
+          const parts = collectAttachmentParts(msgRes.data.payload);
+          if (
+            parts.length > 0 &&
+            parts.every((p) => isGmailPartInDossierDocuments(dossier, msgMeta.id, p))
+          ) {
+            continue;
+          }
+        }
 
         const msgRes = await gmail.users.messages.get({
           userId: 'me',
@@ -233,7 +248,9 @@ export async function resyncDossierGmailAttachments(
 
         if (!parts.length) continue;
 
-        const hasNewParts = parts.some((p) => !isGmailPartImported(importedKeys, msgMeta.id, p));
+        const hasNewParts =
+          parts.some((p) => !isGmailPartImported(importedKeys, msgMeta.id, p)) ||
+          parts.some((p) => !isGmailPartInDossierDocuments(dossier, msgMeta.id, p));
         if (!hasNewParts) {
           markGmailMessageAttachmentsHandled(dossier, msgMeta.id, parts);
           continue;
@@ -255,6 +272,7 @@ export async function resyncDossierGmailAttachments(
         driveUploaded += du;
         errors.push(...dlErrors);
         const merged = mergeDocumentsIntoDossier(dossier, saved);
+        finalizeGmailDocumentImport(dossier, { driveFilesByName });
         markGmailMessageAttachmentsHandled(dossier, msgMeta.id, parts);
         for (const doc of merged) {
           added.push(doc.name);
@@ -292,6 +310,8 @@ export async function resyncDossierGmailAttachments(
       }
     }
   }
+
+  finalizeGmailDocumentImport(dossier, { driveFilesByName });
 
   if (!dossier.workspaceFolderId && added.length > 0) {
     errors.push(
@@ -441,9 +461,11 @@ export async function syncGmailInbox(
         const attachmentParts = collectAttachmentParts(payload);
 
         if (!importedMessages.has(msgMeta.id) && attachmentParts.length > 0) {
-          const hasNewParts = attachmentParts.some(
-            (p) => !isGmailPartImported(importedKeys, msgMeta.id, p),
-          );
+          const hasNewParts =
+            attachmentParts.some((p) => !isGmailPartImported(importedKeys, msgMeta.id, p)) ||
+            attachmentParts.some(
+              (p) => !isGmailPartInDossierDocuments(dossier, msgMeta.id, p),
+            );
 
           if (hasNewParts) {
             let driveFilesByName = dossierDriveFilesCache.get(dossier.id);
@@ -482,6 +504,7 @@ export async function syncGmailInbox(
               drive: du,
             });
             addedAttachments = mergeDocumentsIntoDossier(dossier, saved);
+            finalizeGmailDocumentImport(dossier, { driveFilesByName });
             if (addedAttachments.length) {
               attachmentsSaved += addedAttachments.length;
               for (const doc of addedAttachments) {
@@ -495,6 +518,60 @@ export async function syncGmailInbox(
             }
           }
           markGmailMessageAttachmentsHandled(dossier, msgMeta.id, attachmentParts);
+        } else if (attachmentParts.length > 0) {
+          const missingFromDossier = attachmentParts.some(
+            (p) => !isGmailPartInDossierDocuments(dossier, msgMeta.id, p),
+          );
+          if (missingFromDossier) {
+            let driveFilesByName = dossierDriveFilesCache.get(dossier.id);
+            if (!driveFilesByName) {
+              const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
+              driveFilesByName = new Map();
+              if (driveCtx.driveSubfolderId) {
+                const { listDriveFilesInFolder } = await import("./gmailDriveUpload");
+                driveFilesByName = await listDriveFilesInFolder(
+                  driveCtx.driveSubfolderId,
+                  driveCtx.driveAccessToken,
+                );
+              }
+              dossierDriveFilesCache.set(dossier.id, driveFilesByName);
+            }
+            const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
+            const { saved, found, driveUploaded: du } = await downloadGmailAttachments(
+              gmail,
+              msgMeta.id,
+              payload,
+              dossier.id,
+              {
+                dossier,
+                driveAccessToken: driveCtx.driveAccessToken,
+                driveSubfolderId: driveCtx.driveSubfolderId,
+                importedKeys,
+                driveFilesByName,
+              },
+            );
+            driveAttachmentsUploaded += du;
+            attachmentDebug.push({
+              messageId: msgMeta.id,
+              found,
+              saved: saved.length,
+              drive: du,
+            });
+            addedAttachments = mergeDocumentsIntoDossier(dossier, saved);
+            finalizeGmailDocumentImport(dossier, { driveFilesByName });
+            if (addedAttachments.length) {
+              attachmentsSaved += addedAttachments.length;
+              for (const doc of addedAttachments) {
+                addEvent(dossier, {
+                  type: 'DOCUMENT_UPLOADED',
+                  actor: { kind: 'SYSTEM' },
+                  message: `Pièce jointe réconciliée depuis email : ${doc.name}`,
+                  meta: { source: 'gmail_reconcile', gmailId: msgMeta.id, gmailImportKey: doc.gmailImportKey },
+                });
+              }
+            }
+            markGmailMessageAttachmentsHandled(dossier, msgMeta.id, attachmentParts);
+          }
         }
       }
 
@@ -801,6 +878,29 @@ export async function syncGmailInbox(
     });
   } catch (err: any) {
     console.warn(`[Gmail] Sync réponses escalade équipe: ${err?.message || err}`);
+  }
+
+  for (const dossierId of dirtyDossierIds) {
+    const dossier = (db.dossiers || []).find((d: any) => String(d.id) === dossierId);
+    if (!dossier) continue;
+    let driveFilesByName = dossierDriveFilesCache.get(dossierId);
+    if (!driveFilesByName && dossier.workspaceFolderId) {
+      const driveCtx = await resolveGmailDriveUploadTarget(dossier, driveAccessToken);
+      if (driveCtx.driveSubfolderId) {
+        const { listDriveFilesInFolder } = await import("./gmailDriveUpload");
+        driveFilesByName = await listDriveFilesInFolder(
+          driveCtx.driveSubfolderId,
+          driveCtx.driveAccessToken,
+        );
+        dossierDriveFilesCache.set(dossierId, driveFilesByName);
+      }
+    }
+    const syncResult = finalizeGmailDocumentImport(dossier, { driveFilesByName });
+    if (syncResult.mergedFromDrive > 0 || syncResult.categoriesUpdated > 0) {
+      console.log(
+        `[Gmail] Documents auto-sync ${dossierId}: +${syncResult.mergedFromDrive} Drive, ${syncResult.categoriesUpdated} catégories`,
+      );
+    }
   }
 
   return {

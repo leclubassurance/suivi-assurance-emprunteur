@@ -164,6 +164,73 @@ export function isGmailPartImported(
   return getGmailImportKeyVariants(messageId, part).some((k) => importedKeys.has(k));
 }
 
+/** Vérifie qu'une PJ Gmail est bien enregistrée dans formData.documents (pas seulement dans le registre). */
+export function isGmailPartInDossierDocuments(
+  dossier: any,
+  messageId: string,
+  part: { attachmentId?: string; filename: string },
+): boolean {
+  const docs = dossier?.formData?.documents || [];
+  const variants = getGmailImportKeyVariants(messageId, part);
+  if (
+    docs.some(
+      (d: any) => d?.gmailImportKey && variants.includes(String(d.gmailImportKey)),
+    )
+  ) {
+    return true;
+  }
+  const nameKey = String(part.filename || "").toLowerCase();
+  if (!nameKey) return false;
+  return docs.some(
+    (d: any) =>
+      String(d.name || "").toLowerCase() === nameKey &&
+      (!d.gmailMessageId || String(d.gmailMessageId) === messageId),
+  );
+}
+
+function guessMimeFromFilename(name: string): string {
+  const lower = String(name || "").toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".heic")) return "image/heic";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "application/octet-stream";
+}
+
+type PartImportAction =
+  | { action: "download" }
+  | { action: "skip" }
+  | { action: "reuse_drive"; driveFile: { fileId: string; webViewLink?: string | null } };
+
+function resolvePartImportAction(
+  importedKeys: Set<string>,
+  messageId: string,
+  part: CollectedPart,
+  driveFilesByName: Map<string, { fileId: string; webViewLink?: string | null }> | undefined,
+  dossierRef: any | undefined,
+): PartImportAction {
+  const nameKey = String(part.filename || "").toLowerCase();
+  const driveHit = nameKey && driveFilesByName?.has(nameKey) ? driveFilesByName.get(nameKey)! : null;
+
+  if (isGmailPartImported(importedKeys, messageId, part)) {
+    if (dossierRef && !isGmailPartInDossierDocuments(dossierRef, messageId, part)) {
+      if (driveHit) return { action: "reuse_drive", driveFile: driveHit };
+      return { action: "download" };
+    }
+    return { action: "skip" };
+  }
+
+  if (driveHit) {
+    const variants = getGmailImportKeyVariants(messageId, part);
+    for (const k of variants) importedKeys.add(k);
+    if (dossierRef) registerImportedGmailAttachmentKeys(dossierRef, variants);
+    return { action: "reuse_drive", driveFile: driveHit };
+  }
+
+  return { action: "download" };
+}
+
 export function getImportedGmailMessageIds(dossier: any): Set<string> {
   const ids = new Set<string>();
   for (const id of dossier?.importedGmailMessageIds || []) {
@@ -320,21 +387,50 @@ export async function downloadGmailAttachments(
   const driveFilesByName = options?.driveFilesByName;
   const dossierRef = options?.dossier;
 
-  const skipPartAsAlreadyImported = (part: CollectedPart) => {
-    if (isGmailPartImported(importedKeys, messageId, part)) return true;
-
-    const nameKey = String(part.filename || "").toLowerCase();
-    if (nameKey && driveFilesByName?.has(nameKey)) {
-      const variants = getGmailImportKeyVariants(messageId, part);
-      for (const k of variants) importedKeys.add(k);
-      if (dossierRef) registerImportedGmailAttachmentKeys(dossierRef, variants);
-      return true;
-    }
-    return false;
-  };
-
   for (const part of parts) {
-    if (skipPartAsAlreadyImported(part)) continue;
+    const importAction = resolvePartImportAction(
+      importedKeys,
+      messageId,
+      part,
+      driveFilesByName,
+      dossierRef,
+    );
+
+    if (importAction.action === "skip") continue;
+
+    if (importAction.action === "reuse_drive") {
+      try {
+        const category: DocumentCategory | null = classifyFileName(part.filename);
+        const idPrefix = category && category !== "autre" ? category : "pj";
+        const importKey = buildGmailImportKey(messageId, part);
+        const doc: SavedGmailAttachment = {
+          id: `${idPrefix}-drive_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          category: category || undefined,
+          name: part.filename,
+          size: 0,
+          type: part.mimeType || guessMimeFromFilename(part.filename),
+          localPath: "",
+          source: "gmail",
+          gmailMessageId: messageId,
+          gmailImportKey: importKey,
+          driveFileId: importAction.driveFile.fileId,
+          driveLink: importAction.driveFile.webViewLink || undefined,
+          quality: assessDocumentQuality({
+            name: part.filename,
+            size: 0,
+            type: part.mimeType || guessMimeFromFilename(part.filename),
+            category: category || undefined,
+          }),
+        };
+        saved.push(doc);
+        const variants = getGmailImportKeyVariants(messageId, part);
+        for (const k of variants) importedKeys.add(k);
+        if (dossierRef) registerImportedGmailAttachmentKeys(dossierRef, variants);
+      } catch (err: any) {
+        errors.push(`${part.filename}: réutilisation Drive — ${err?.message || err}`);
+      }
+      continue;
+    }
 
     try {
       let buf: Buffer | null = null;

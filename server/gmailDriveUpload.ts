@@ -82,8 +82,8 @@ export function escapeDriveQueryString(s: string) {
 export async function listDriveFilesInFolder(
   folderId: string,
   accessToken?: string | null,
-): Promise<Map<string, { fileId: string; webViewLink?: string | null }>> {
-  const out = new Map<string, { fileId: string; webViewLink?: string | null }>();
+): Promise<Map<string, { fileId: string; webViewLink?: string | null; name?: string }>> {
+  const out = new Map<string, { fileId: string; webViewLink?: string | null; name?: string }>();
   if (!folderId) return out;
 
   let client = (await createDriveClient(accessToken)) || null;
@@ -110,7 +110,7 @@ export async function listDriveFilesInFolder(
         if (!f.id || !f.name) continue;
         const key = String(f.name).toLowerCase();
         if (!out.has(key)) {
-          out.set(key, { fileId: f.id, webViewLink: f.webViewLink });
+          out.set(key, { fileId: f.id, webViewLink: f.webViewLink, name: f.name });
         }
       }
       pageToken = list.data.nextPageToken || undefined;
