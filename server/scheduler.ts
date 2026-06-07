@@ -5,6 +5,7 @@ import { shouldSendScheduledReminder } from "./smartReminders";
 import { logAiAudit } from "./aiAuditLog";
 import { sendEmail } from "./emailProvider";
 import { templateGenericFollowup, templateMissingDocsFollowup } from "./emailTemplates";
+import { getGmailAutosyncIntervalMs, isGmailAutosyncWindowOpen, isRailwayEcoMode } from "./businessHours";
 import { syncGmailInbox } from "./mailAutomation";
 import { processIncomingClientEmail } from "./aiAssistant";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
@@ -188,18 +189,22 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
 
 export function startScheduler() {
   const enabled = ((process.env as any).SCHEDULER_ENABLED || "true").toLowerCase() === "true";
-  const intervalMs = Number((process.env as any).SCHEDULER_INTERVAL_MS || 60_000);
+  const intervalMs = Number(
+    (process.env as any).SCHEDULER_INTERVAL_MS ||
+      (isRailwayEcoMode() ? 300_000 : 60_000),
+  );
   if (!enabled) return;
   setInterval(() => {
     runSchedulerOnce().catch(() => undefined);
   }, intervalMs);
 
-  // Autosync Gmail 24h/24 (sync + réponses Camille)
+  // Autosync Gmail (sync + réponses Camille)
   const gmailEnabled = ((process.env as any).GMAIL_AUTOSYNC_ENABLED || "true").toLowerCase() === "true";
-  const gmailIntervalMs = Number((process.env as any).GMAIL_AUTOSYNC_INTERVAL_MS || 120_000);
+  const gmailIntervalMs = getGmailAutosyncIntervalMs();
   if (gmailEnabled) {
     setInterval(() => {
       if (gmailSyncInProgress) return;
+      if (!isGmailAutosyncWindowOpen()) return;
       if (!hasServerOAuthRefreshToken() && !canUseDomainWideDelegation()) return;
       gmailSyncInProgress = true;
       readDB()
