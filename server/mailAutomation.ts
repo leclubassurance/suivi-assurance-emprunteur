@@ -70,7 +70,7 @@ function truncateCommText(s: unknown, max = 3500): string {
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 }
 
-function upsertCommunication(dossier: any, msg: any) {
+export function upsertCommunication(dossier: any, msg: any) {
   if (!dossier.communications) dossier.communications = [];
   const idx = dossier.communications.findIndex(
     (c: any) => (msg.gmailId && c.gmailId === msg.gmailId) || c.id === msg.id,
@@ -655,9 +655,16 @@ export async function syncGmailInbox(
           isAiAutoReplyEnabled() && (!alreadyHandled || unanswered);
 
         if (shouldReply) {
-          if (aiLockedDossierIds.has(dossier.id)) continue;
+            if (aiLockedDossierIds.has(dossier.id)) continue;
 
-          const { shouldCamilleAutoReplyOnDossier } = await import("./clientMultipleDossiers");
+            const { isReviewBlockingAutoReply } = await import("./camilleReviewQueue");
+            if (isReviewBlockingAutoReply(dossier)) {
+              if (!alreadyHandled) markProcessed(dossier, msgMeta.id);
+              markDossierDirty(dossier);
+              continue;
+            }
+
+            const { shouldCamilleAutoReplyOnDossier } = await import("./clientMultipleDossiers");
           const crossDossier = shouldCamilleAutoReplyOnDossier({
             dossier,
             senderEmail,
@@ -774,7 +781,51 @@ export async function syncGmailInbox(
               newAttachmentNames: addedAttachments.map((d) => d.name),
               emailSubject: subject,
               allDossiers: db.dossiers,
+              gmailId: msgMeta.id,
             });
+            if (aiDecision?.status === "review" && aiDecision.questionForStaff) {
+              const { createCamilleReviewRequest } = await import("./camilleReviewQueue");
+              const reviewResult = await createCamilleReviewRequest({
+                dossier,
+                gmailId: msgMeta.id,
+                clientEmail: replyToEmail,
+                emailSubject: subject,
+                clientMessage: text,
+                questionForStaff: aiDecision.questionForStaff,
+                reason: aiDecision.reason,
+                attachmentNames: addedAttachments.map((d) => d.name),
+              });
+              if (reviewResult.ok) {
+                markDossierDirty(dossier);
+                addEvent(dossier, {
+                  type: "AI_DECISION",
+                  actor: { kind: "AI", label: "Camille" },
+                  message: "Question envoyée sur Telegram — en attente de votre consigne.",
+                  meta: { gmailId: msgMeta.id, reviewId: reviewResult.reviewId },
+                });
+              } else {
+                addEvent(dossier, {
+                  type: "AI_DECISION",
+                  actor: { kind: "AI", label: "Camille" },
+                  message: `Review impossible (${reviewResult.error}) — escalade.`,
+                  meta: { gmailId: msgMeta.id },
+                });
+                const { handleCamilleEscalation } = await import("./camilleEscalation");
+    await handleCamilleEscalation({
+                  dossier,
+                  accessToken,
+                  clientEmail: replyToEmail,
+                  clientPrenom: dossier.formData?.assures?.[0]?.prenom,
+                  subject,
+                  reason: String(aiDecision.reason || aiDecision.questionForStaff || "Review impossible"),
+                  clientMessageText: text,
+                  gmailId: msgMeta.id,
+                });
+                finishInbound();
+                markDossierDirty(dossier);
+              }
+              continue;
+            }
             if (aiDecision?.status === "replied" && aiDecision.text) {
               const sendResult = await sendEmailReplyWithGmailAPI(
                 accessToken,

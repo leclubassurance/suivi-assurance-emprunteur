@@ -48,6 +48,15 @@ ESCALADE (action ESCALATE) — rare, uniquement si :
 - sujet médical complexe, juridique, menace, réclamation agressive, négociation commerciale, chiffrage / devis,
 - ou impasse réelle après plusieurs échanges (pas au premier "j'ai déjà envoyé" ni pour un document à renvoyer).
 
+REVIEW (action REVIEW) — quand tu as un doute sur la bonne réponse client :
+- question ambiguë, multi-contrats, co-emprunteur, sujet commercial sensible sans certitude,
+- situation non couverte par les playbooks et tu ne veux pas deviner.
+- NE PAS rédiger messageToClient dans ce cas.
+- Rédiger questionForStaff : une question claire et courte pour l'équipe (Rémi), SANS brouillon de mail client.
+- Exemple : « Le client demande des nouvelles sur le dossier du co-emprunteur — que lui répondre exactement ? »
+
+Si tu hésites entre REPLY et ESCALATE sur un sujet métier (pas médical/juridique) : préférer REVIEW.
+
 Sinon : action REPLY.
 
 CONVERSATION EMAIL (fil de discussion)
@@ -66,8 +75,9 @@ FORMAT messageToClient
 
 Réponds UNIQUEMENT en JSON :
 {
-  "action": "REPLY" | "ESCALATE",
-  "messageToClient": "Texte mail en français, vouvoiement. Sans accueil ni signature (ajoutés automatiquement).",
+  "action": "REPLY" | "ESCALATE" | "REVIEW",
+  "messageToClient": "Texte mail si REPLY. Vide si REVIEW.",
+  "questionForStaff": "Question pour l'équipe si REVIEW. Null sinon.",
   "reasonForEscalation": "string ou null"
 }
 `;

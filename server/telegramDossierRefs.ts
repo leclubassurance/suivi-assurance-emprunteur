@@ -55,6 +55,15 @@ export function findDossierByTelegramRef(dossiers: Dossier[], chatId: string, me
   }
 
   for (const d of dossiers) {
+    const pending = d.camillePendingReview as any;
+    if (
+      pending &&
+      String(pending.telegramChatId) === String(chatId) &&
+      (Number(pending.telegramQuestionMessageId) === Number(messageId) ||
+        Number(pending.telegramConfirmMessageId) === Number(messageId))
+    ) {
+      return d;
+    }
     const refs = d.camilleTelegramStaff?.messageRefs || [];
     if (
       refs.some(

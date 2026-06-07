@@ -333,6 +333,16 @@ async function handleTelegramCallbackQuery(query: any) {
     );
     return;
   }
+
+  if (parsed.action === "rvsend" || parsed.action === "rvno") {
+    const { handleReviewConfirmCallback } = await import("./camilleReviewQueue");
+    await handleReviewConfirmCallback(
+      chatId,
+      parsed.dossierId,
+      parsed.action === "rvsend" ? "send" : "reject",
+    );
+    return;
+  }
 }
 
 export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
@@ -483,6 +493,10 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   }
 
   if (dossier) rememberChatDossier(chatId, dossier.id);
+
+  const { tryHandleCamilleReviewStaffReply } = await import("./camilleReviewQueue");
+  const reviewHandled = await tryHandleCamilleReviewStaffReply(chatId, replyId, text);
+  if (reviewHandled) return;
 
   const wantsEmail =
     intent === "STAFF_DIRECTIVE" || looksLikeStaffDirective(text) || (replyToCamille && text.length >= 3);

@@ -20,6 +20,14 @@ import { tryCamilleDocClarificationInsteadOfEscalation } from "./camilleDocAutoR
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
 import { getConversationTailForAi, hasUnansweredClientInbound } from "./gmailConversation";
 import { buildMultiDossierClientContext } from "./clientMultipleDossiers";
+import {
+  buildPlaybooksPromptBlock,
+  tryPlaybookAutoReply,
+} from "./camillePlaybooks";
+import {
+  isCamilleReviewEnabled,
+  shouldForceReviewHeuristic,
+} from "./camilleReviewQueue";
 
 export async function processIncomingClientEmail(
   dossier: any,
@@ -29,6 +37,7 @@ export async function processIncomingClientEmail(
     newAttachmentNames?: string[];
     emailSubject?: string;
     allDossiers?: any[];
+    gmailId?: string;
   },
 ) {
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
@@ -39,6 +48,16 @@ export async function processIncomingClientEmail(
   try {
     const prenom = dossier.formData?.assures?.[0]?.prenom || "";
     const attachmentNames = options?.newAttachmentNames || [];
+    const nom = dossier.formData?.assures?.[0]?.nom || "";
+
+    const playbookHit = await tryPlaybookAutoReply(dossier, emailText);
+    if (playbookHit) {
+      console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
+      return {
+        status: "replied",
+        text: wrapCamilleHtmlReply(playbookHit.plain, prenom, nom, dossier),
+      };
+    }
 
     if (
       hasStudyBeenSent(dossier) &&
@@ -72,6 +91,7 @@ export async function processIncomingClientEmail(
     const staffHandling = isStaffActivelyHandling(dossier);
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
     const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
+    const playbooksBlock = await buildPlaybooksPromptBlock(emailText, dossier);
     const studySent = hasStudyBeenSent(dossier);
     const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
     const missingLoanLabels = studySent
@@ -95,14 +115,24 @@ export async function processIncomingClientEmail(
           })
         : null;
 
+    if (shouldForceReviewHeuristic(emailText, dossier) && isCamilleReviewEnabled()) {
+      return {
+        status: "review",
+        questionForStaff: `Comment répondre à ce mail client ? « ${emailText.slice(0, 350)} »`,
+        reason: "Situation sensible ou multi-contrat — validation équipe requise",
+      };
+    }
+
     const response = await generateContentWithRetry({
       model: "gemini-2.5-flash",
       contents: [
         { role: "user", parts: [{ text: CAMILLE_PERSONA_PROMPT }] },
         { role: "user", parts: [{ text: knowledgeBlock }] },
+        { role: "user", parts: [{ text: playbooksBlock || "Aucun playbook similaire validé par l'équipe." }] },
         { role: "user", parts: [{ text: `
 Dossier : ${dossier.id}
 Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""} <${clientEmail}>
+Sujet email : ${options?.emailSubject || "—"}
 
 État des pièces (source de vérité — ne pas contredire) :
 ${ctx.documentSummary}
@@ -166,7 +196,7 @@ Email du client :
 ${emailText.slice(0, 8000)}
 """
 
-Décide REPLY ou ESCALATE.` }] }
+Décide REPLY, REVIEW (doute — question équipe sans brouillon) ou ESCALATE.` }] }
       ],
       config: {
         responseMimeType: "application/json",
@@ -183,6 +213,39 @@ Décide REPLY ou ESCALATE.` }] }
     } catch (e) {
       console.error("[AI] Error parsing JSON response:", resultText);
       decision = { action: "ESCALATE", reasonForEscalation: "Erreur technique de l'IA (JSON invalide)" };
+    }
+
+    if (decision.action === "REVIEW") {
+      const question = String(decision.questionForStaff || decision.reasonForEscalation || "").trim();
+      if (isCamilleReviewEnabled() && question.length >= 10) {
+        console.log(`[AI] REVIEW Telegram pour ${dossier.id}`);
+        return {
+          status: "review",
+          questionForStaff: question,
+          reason: decision.reasonForEscalation || "Doute sur la réponse client",
+        };
+      }
+      console.log(`[AI] REVIEW non disponible — escalade ${dossier.id}`);
+      return { status: "escalated", reason: question || "Doute — review indisponible" };
+    }
+
+    if (
+      decision.action === "ESCALATE" &&
+      isCamilleReviewEnabled() &&
+      String(process.env.CAMILLE_REVIEW_INSTEAD_ESCALATE ?? "true").toLowerCase() !== "false" &&
+      !/m[eé]dical|juridique|menace|avocat|tribunal|contentieux/i.test(
+        `${decision.reasonForEscalation || ""} ${emailText}`,
+      )
+    ) {
+      const question =
+        String(decision.questionForStaff || "").trim() ||
+        `Comment répondre au client sur : « ${emailText.slice(0, 200)} » ?`;
+      console.log(`[AI] Escalade → REVIEW Telegram pour ${dossier.id}`);
+      return {
+        status: "review",
+        questionForStaff: question,
+        reason: decision.reasonForEscalation || "Escalade convertie en question équipe",
+      };
     }
 
     if (decision.action === "ESCALATE") {
@@ -202,7 +265,6 @@ Décide REPLY ou ESCALATE.` }] }
       if (!plain) {
         return { status: "escalated", reason: "Réponse IA vide" };
       }
-      const nom = dossier.formData?.assures?.[0]?.nom || "";
       const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
         inboundAttachmentNames: attachmentNames,
         clientMessage: emailText,
@@ -220,6 +282,7 @@ Décide REPLY ou ESCALATE.` }] }
     }
   } catch (error) {
     console.error("Erreur lors de l'analyse IA de l'email:", error);
+    return { status: "escalated", reason: "Erreur technique Gemini" };
   }
 }
 

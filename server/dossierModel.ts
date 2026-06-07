@@ -145,6 +145,28 @@ export interface Dossier {
     lastNewsAt?: string;
     messageRefs?: TelegramMessageRef[];
   };
+  /** Validation humaine Telegram : question → consigne → brouillon → envoi. */
+  camillePendingReview?: {
+    id: string;
+    status: "awaiting_staff" | "awaiting_confirm" | "sent" | "cancelled";
+    createdAt: string;
+    updatedAt: string;
+    gmailId: string;
+    clientEmail: string;
+    emailSubject: string;
+    clientMessageExcerpt: string;
+    fullClientMessage: string;
+    questionForStaff: string;
+    reason?: string;
+    staffAnswer?: string;
+    staffAnswerAt?: string;
+    proposedClientPlain?: string;
+    proposedClientHtml?: string;
+    telegramChatId?: string;
+    telegramQuestionMessageId?: number;
+    telegramConfirmMessageId?: number;
+    attachmentNames?: string[];
+  };
   remiQueue?: {
     snoozedUntil?: string;
     dismissedAt?: string;
@@ -164,6 +186,12 @@ export interface Dossier {
       note?: string;
     }
   >;
+  /** Dossier meta LCIF-999999 — stockage playbooks Camille. */
+  camillePlaybooksStore?: {
+    version: 1;
+    playbooks: Array<Record<string, unknown>>;
+    updatedAt: string;
+  };
 }
 
 export function newId(prefix: string) {
@@ -203,10 +231,12 @@ export function ensureDossierShape(d: any): Dossier {
     clientPortal: d.clientPortal,
     subscriptionProgress: d.subscriptionProgress,
     camilleTelegramStaff: d.camilleTelegramStaff,
+    camillePendingReview: d.camillePendingReview,
     remiQueue: d.remiQueue,
     aiAuditTrail: Array.isArray(d.aiAuditTrail) ? d.aiAuditTrail : [],
     privacyConsent: d.privacyConsent,
     adminChecklistOverrides: d.adminChecklistOverrides,
+    camillePlaybooksStore: d.camillePlaybooksStore,
   };
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,

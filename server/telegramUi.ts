@@ -24,7 +24,14 @@ function statusBadge(status: string) {
 }
 
 function suggestNextAction(d: Dossier, docProb: ReturnType<typeof assessCertainLoanDocProblems>) {
-  const esc = d.camilleEscalation as any;
+    const esc = d.camilleEscalation as any;
+  const pending = d.camillePendingReview as any;
+  if (pending?.status === "awaiting_staff") {
+    return "Répondez à la question 🤔 de Camille pour guider la réponse client.";
+  }
+  if (pending?.status === "awaiting_confirm") {
+    return "Validez ou annulez le brouillon proposé par Camille.";
+  }
   if (esc?.lastAt && !esc?.resolvedAt) {
     return "Répondez à l'alerte 🟠 ou utilisez un bouton pour guider Camille.";
   }
@@ -142,8 +149,20 @@ export const PRESET_DIRECTIVES = {
     "Rédige un mail bienveillant pour savoir si le client a bien reçu l'étude des économies par email et s'il a des questions. Ne demande PAS CNI ni RIB : le client n'a pas encore confirmé vouloir activer le changement d'assurance.",
 } as const;
 
+export function reviewConfirmKeyboard(dossierId: string) {
+  const id = dossierId.toUpperCase();
+  return {
+    inline_keyboard: [
+      [
+        { text: "📤 Envoyer au client", callback_data: `rvsend:${id}` },
+        { text: "❌ Annuler", callback_data: `rvno:${id}` },
+      ],
+    ],
+  };
+}
+
 export function parseCallbackData(data: string): { action: string; dossierId: string } | null {
-  const m = String(data || "").match(/^(pick|pdf|cni|etude|sum|ok|info):(LCIF-\d{6})$/i);
+  const m = String(data || "").match(/^(pick|pdf|cni|etude|sum|ok|info|rvsend|rvno):(LCIF-\d{6})$/i);
   if (!m) return null;
   return { action: m[1].toLowerCase(), dossierId: m[2].toUpperCase() };
 }
