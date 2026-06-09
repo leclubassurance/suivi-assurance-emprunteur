@@ -375,6 +375,7 @@ export async function seedDossierGmailImportRegistry(
 }
 
 let gmailSyncRunning = false;
+let prospectSyncRunning = false;
 
 async function runProspectInboundSync(
   db: any,
@@ -411,6 +412,44 @@ async function runProspectInboundSync(
   } catch (err: any) {
     console.warn(`[Camille prospect] Sync: ${err?.message || err}`);
     return empty;
+  }
+}
+
+/** Sync prospects uniquement (assurance@ via DWD) — indépendant du sync client long. */
+export async function syncProspectsOnly(db: any, aiCallback: Function) {
+  if (prospectSyncRunning) {
+    console.log("[Camille prospect] sync ignoré — déjà en cours");
+    return {
+      db,
+      inbound: 0,
+      aiReplies: 0,
+      leadsCreated: 0,
+      dirtyDossierIds: [] as string[],
+      skippedConcurrent: true,
+    };
+  }
+  prospectSyncRunning = true;
+  const dirtyDossierIds = new Set<string>();
+  const markDossierDirty = (dossier: any) => {
+    if (!dossier?.id) return;
+    dirtyDossierIds.add(String(dossier.id));
+    dossier.updatedAt = new Date().toISOString();
+  };
+  try {
+    const prospect = await runProspectInboundSync(db, aiCallback, markDossierDirty);
+    console.log(
+      `[Camille prospect] sync terminé leads=${prospect.leadsCreated} aiReplies=${prospect.aiReplies}`,
+    );
+    return {
+      db,
+      inbound: prospect.inbound,
+      aiReplies: prospect.aiReplies,
+      leadsCreated: prospect.leadsCreated,
+      dirtyDossierIds: [...dirtyDossierIds],
+      skippedConcurrent: false,
+    };
+  } finally {
+    prospectSyncRunning = false;
   }
 }
 

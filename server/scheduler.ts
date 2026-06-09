@@ -11,7 +11,7 @@ import {
   isGmailAutosyncWindowOpen,
   isRailwayEcoMode,
 } from "./businessHours";
-import { syncGmailInbox } from "./mailAutomation";
+import { syncGmailInbox, syncProspectsOnly } from "./mailAutomation";
 import { processIncomingClientEmail } from "./aiAssistant";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
@@ -243,6 +243,27 @@ export function startScheduler() {
         .finally(() => {
           gmailSyncInProgress = false;
         });
+    }, gmailIntervalMs);
+
+    // Prospects seuls (rapide, assurance@) — ne bloque pas sur le sync client long
+    setInterval(() => {
+      if (!isGmailAutosyncWindowOpen()) return;
+      if (!hasServerOAuthRefreshToken() && !canUseDomainWideDelegation()) return;
+      readDB()
+        .then((db) => syncProspectsOnly(db, processIncomingClientEmail))
+        .then(async (result) => {
+          if (result.skippedConcurrent) return;
+          if (result.leadsCreated > 0 || result.aiReplies > 0) {
+            console.log(
+              `[Camille prospect autosync] leads=${result.leadsCreated} aiReplies=${result.aiReplies}`,
+            );
+          }
+          const { written, failed } = await writeDirtyDossiers(result.db, result.dirtyDossierIds || []);
+          if (failed > 0) {
+            console.warn(`[Camille prospect autosync] Firestore: ${written} OK, ${failed} échec(s).`);
+          }
+        })
+        .catch((err) => console.error("[Camille prospect autosync]", err?.message || err));
     }, gmailIntervalMs);
   }
 

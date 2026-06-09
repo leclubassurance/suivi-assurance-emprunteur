@@ -1681,6 +1681,30 @@ export function createApp() {
     res.download(p, doc.name || path.basename(p));
   });
 
+  app.post("/api/admin/sync-prospects", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const { syncProspectsOnly } = await import("./mailAutomation");
+      const { processIncomingClientEmail } = await import("./aiAssistant");
+      const db = await readDBAsync();
+      const result = await syncProspectsOnly(db, processIncomingClientEmail);
+      const { writeDirtyDossiers } = await import("./db");
+      const persist = await writeDirtyDossiers(result.db, result.dirtyDossierIds || []);
+      res.json({
+        success: true,
+        leadsCreated: result.leadsCreated,
+        inbound: result.inbound,
+        aiReplies: result.aiReplies,
+        dossiersPersisted: persist.written,
+        dossiersPersistFailed: persist.failed,
+        skippedConcurrent: result.skippedConcurrent,
+      });
+    } catch (err: any) {
+      console.error(err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/admin/sync-emails", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const authHeader = req.headers.authorization;

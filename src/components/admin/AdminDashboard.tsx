@@ -383,6 +383,26 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleSyncProspects = async () => {
+    try {
+      showToast("Sync prospects en cours…", "info");
+      const res = await fetch(getApiUrl("/api/admin/sync-prospects"), { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast(
+          `Prospects : ${data.leadsCreated || 0} créé(s), ${data.aiReplies || 0} réponse(s) IA` +
+            (data.skippedConcurrent ? " (sync déjà en cours)" : ""),
+          data.leadsCreated || data.aiReplies ? "success" : "info",
+        );
+        loadDossiers();
+      } else {
+        showToast(data.error || "Erreur sync prospects", "error");
+      }
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
   const handleSyncGmail = async () => {
     const token = await getAccessToken();
     if (!token) {
@@ -829,6 +849,15 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
+            {sidebarMode === "prospects" && (
+              <button
+                type="button"
+                onClick={handleSyncProspects}
+                className="mt-3 w-full text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-950 py-2.5 px-3 rounded-lg transition-colors"
+              >
+                Sync prospects (assurance@)
+              </button>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto">
             {sidebarMode === "prospects" ? (

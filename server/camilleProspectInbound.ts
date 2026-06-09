@@ -10,7 +10,14 @@ function extractSenderEmail(fromRaw: string): string {
 }
 
 const IGNORE_SENDER_RE =
-  /^(noreply|no-reply|mailer-daemon|postmaster|bounce|notifications?|newsletter)/i;
+  /^(noreply|no-reply|mailer-daemon|postmaster|bounce|notifications?|newsletter|hello|notify)/i;
+
+const IGNORE_SENDER_DOMAINS = [
+  "@notify.railway.app",
+  "@leclubimmobilier.fr",
+  "@google.com",
+  "@accounts.google.com",
+];
 
 export function isProspectInboundEnabled(): boolean {
   const raw = String(process.env.CAMILLE_PROSPECT_INBOUND_ENABLED ?? "").toLowerCase();
@@ -24,7 +31,7 @@ export function shouldIgnoreProspectSender(email: string): boolean {
   if (!e || !e.includes("@")) return true;
   const local = e.split("@")[0] || "";
   if (IGNORE_SENDER_RE.test(local)) return true;
-  if (e.endsWith("@leclubimmobilier.fr")) return true;
+  if (IGNORE_SENDER_DOMAINS.some((d) => e.endsWith(d))) return true;
   return false;
 }
 
@@ -156,12 +163,29 @@ export async function syncProspectInboundFromGmail(
 
   const gmailUser = String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
   const known = collectKnownClientEmails(db);
-  const q = `(to:${gmailUser} OR deliveredto:${gmailUser}) in:inbox newer_than:60d -in:spam -in:trash`;
+  const q = `(to:${gmailUser} OR deliveredto:${gmailUser}) newer_than:60d -in:spam -in:trash -from:notify.railway.app`;
   if (isCamilleTestMode()) {
-    console.log(`[Camille prospect] scan start mailbox=${gmailUser} q="${q}"`);
+    console.log(`[Camille prospect] scan start mailbox=${gmailUser} q="${q}" knownEmails=${known.size}`);
   }
-  const listRes = await gmail.users.messages.list({ userId: "me", q, maxResults: 40 });
-  const messages = listRes.data.messages || [];
+
+  const messageIds: string[] = [];
+  let pageToken: string | undefined;
+  const maxScan = Number(process.env.CAMILLE_PROSPECT_SCAN_MAX || "120");
+  while (messageIds.length < maxScan) {
+    const listRes = await gmail.users.messages.list({
+      userId: "me",
+      q,
+      maxResults: Math.min(50, maxScan - messageIds.length),
+      pageToken,
+    });
+    for (const m of listRes.data.messages || []) {
+      if (m.id) messageIds.push(m.id);
+    }
+    pageToken = listRes.data.nextPageToken || undefined;
+    if (!pageToken) break;
+  }
+
+  const messages = messageIds.map((id) => ({ id }));
 
   let inbound = 0;
   let aiReplies = 0;
@@ -179,6 +203,29 @@ export async function syncProspectInboundFromGmail(
   for (const msgMeta of messages) {
     if (!msgMeta.id || deps.processedIds.has(msgMeta.id)) {
       if (msgMeta.id) skipReasons.alreadySynced += 1;
+      continue;
+    }
+
+    const metaRes = await gmail.users.messages.get({
+      userId: "me",
+      id: msgMeta.id,
+      format: "metadata",
+      metadataHeaders: ["From", "Subject"],
+    });
+    const metaPayload = metaRes.data.payload;
+    const metaLabelIds = metaRes.data.labelIds || [];
+    if (metaLabelIds.includes("SENT")) {
+      skipReasons.sent += 1;
+      continue;
+    }
+    const fromHeaderMeta = metaPayload?.headers?.find((h: any) => h.name?.toLowerCase() === "from");
+    const senderEmailMeta = extractSenderEmail(fromHeaderMeta?.value || "");
+    if (!senderEmailMeta || shouldIgnoreProspectSender(senderEmailMeta)) {
+      skipReasons.ignoredSender += 1;
+      continue;
+    }
+    if (known.has(senderEmailMeta)) {
+      skipReasons.knownClient += 1;
       continue;
     }
 
@@ -327,6 +374,10 @@ export async function syncProspectInboundFromGmail(
   if (leadsCreated > 0 || inbound > 0 || isCamilleTestMode()) {
     console.log(
       `[Camille prospect] scanned=${messages.length} inbound=${inbound} leadsCreated=${leadsCreated} aiReplies=${aiReplies} skips=${JSON.stringify(skipReasons)}`,
+    );
+  } else if (skipReasons.knownClient === messages.length && messages.length > 0) {
+    console.log(
+      `[Camille prospect] scanned=${messages.length} — tous expéditeurs déjà connus (supprimez le dossier ou renvoyez un mail test).`,
     );
   }
 
