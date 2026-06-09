@@ -1027,6 +1027,9 @@ export async function syncGmailInbox(
     });
     inboundCount += prospect.inbound;
     aiReplies += prospect.aiReplies;
+    if (prospect.leadsCreated > 0) {
+      console.log(`[Camille prospect] +${prospect.leadsCreated} prospect(s) créé(s) ce cycle`);
+    }
   } catch (err: any) {
     console.warn(`[Camille prospect] Sync: ${err?.message || err}`);
   }

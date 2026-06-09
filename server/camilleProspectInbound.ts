@@ -142,6 +142,11 @@ export async function syncProspectInboundFromGmail(
   },
 ): Promise<{ inbound: number; aiReplies: number; leadsCreated: number }> {
   if (!isProspectInboundEnabled()) {
+    if (isCamilleTestMode()) {
+      console.warn(
+        "[Camille prospect] désactivé — CAMILLE_TEST_MODE ou CAMILLE_PROSPECT_INBOUND_ENABLED requis.",
+      );
+    }
     return { inbound: 0, aiReplies: 0, leadsCreated: 0 };
   }
 
@@ -154,9 +159,21 @@ export async function syncProspectInboundFromGmail(
   let inbound = 0;
   let aiReplies = 0;
   let leadsCreated = 0;
+  const skipReasons = {
+    alreadySynced: 0,
+    sent: 0,
+    ignoredSender: 0,
+    knownClient: 0,
+    fullDossier: 0,
+    sendGateBlocked: 0,
+    aiDisabled: 0,
+  };
 
   for (const msgMeta of messages) {
-    if (!msgMeta.id || deps.processedIds.has(msgMeta.id)) continue;
+    if (!msgMeta.id || deps.processedIds.has(msgMeta.id)) {
+      if (msgMeta.id) skipReasons.alreadySynced += 1;
+      continue;
+    }
 
     const msgRes = await gmail.users.messages.get({
       userId: "me",
@@ -167,7 +184,10 @@ export async function syncProspectInboundFromGmail(
     if (!payload?.headers) continue;
 
     const labelIds = msgRes.data.labelIds || [];
-    if (labelIds.includes("SENT")) continue;
+    if (labelIds.includes("SENT")) {
+      skipReasons.sent += 1;
+      continue;
+    }
 
     const fromHeader = payload.headers.find((h: any) => h.name?.toLowerCase() === "from");
     const subjectHeader = payload.headers.find((h: any) => h.name?.toLowerCase() === "subject");
@@ -175,14 +195,29 @@ export async function syncProspectInboundFromGmail(
     const senderEmail = extractSenderEmail(fromRaw);
     const subject = subjectHeader?.value || "";
 
-    if (!senderEmail || shouldIgnoreProspectSender(senderEmail)) continue;
-    if (known.has(senderEmail)) continue;
+    if (!senderEmail || shouldIgnoreProspectSender(senderEmail)) {
+      skipReasons.ignoredSender += 1;
+      continue;
+    }
+    if (known.has(senderEmail)) {
+      skipReasons.knownClient += 1;
+      if (isCamilleTestMode()) {
+        console.log(`[Camille prospect] ignoré (client connu): ${senderEmail}`);
+      }
+      continue;
+    }
 
     deps.processedIds.add(msgMeta.id);
 
     const { findActiveFullDossiersByEmail } = await import("./leadDossierMerge");
     const existingFull = findActiveFullDossiersByEmail(db, senderEmail);
-    if (existingFull.length > 0) continue;
+    if (existingFull.length > 0) {
+      skipReasons.fullDossier += 1;
+      if (isCamilleTestMode()) {
+        console.log(`[Camille prospect] ignoré (dossier complet): ${senderEmail}`);
+      }
+      continue;
+    }
 
     let dossier = findLeadDossierByEmail(db, senderEmail);
     if (!dossier) {
@@ -212,6 +247,9 @@ export async function syncProspectInboundFromGmail(
     }
 
     const alreadyHandled = deps.getProcessedIds(dossier).has(msgMeta.id);
+    if (!alreadyHandled && !deps.isAiAutoReplyEnabled()) {
+      skipReasons.aiDisabled += 1;
+    }
     if (!alreadyHandled && deps.isAiAutoReplyEnabled()) {
       inbound += 1;
       const sendGate = deps.canCamilleEmailClient(dossier, { allowIfUnansweredInbound: true });
@@ -262,6 +300,12 @@ export async function syncProspectInboundFromGmail(
           deps.releaseCamilleClientEmailLock(dossier.id);
         }
       } else if (!alreadyHandled) {
+        skipReasons.sendGateBlocked += 1;
+        if (isCamilleTestMode()) {
+          console.log(
+            `[Camille prospect] pas de réponse (${sendGate.reason || "gate"}): ${senderEmail} → ${dossier.id}`,
+          );
+        }
         deps.markProcessed(dossier, msgMeta.id);
         msgChanged = true;
       }
@@ -273,9 +317,9 @@ export async function syncProspectInboundFromGmail(
     if (msgChanged) deps.markDossierDirty(dossier);
   }
 
-  if (leadsCreated > 0 || inbound > 0) {
+  if (leadsCreated > 0 || inbound > 0 || isCamilleTestMode()) {
     console.log(
-      `[Camille prospect] inbound=${inbound} leadsCreated=${leadsCreated} aiReplies=${aiReplies}`,
+      `[Camille prospect] scanned=${messages.length} inbound=${inbound} leadsCreated=${leadsCreated} aiReplies=${aiReplies} skips=${JSON.stringify(skipReasons)}`,
     );
   }
 
