@@ -54,23 +54,27 @@ async function startServer() {
     );
     console.log(`Server listening on 0.0.0.0:${PORT} (NODE_ENV=${process.env.NODE_ENV || "unset"})`);
     void Promise.all([
-      import("./camilleProspectInbound"),
-      import("./businessHours"),
-    ]).then(([{ isProspectInboundEnabled }, { isCamilleTestMode, getCamilleTestModeUntilParisH }]) => {
-      const testModeActive = isCamilleTestMode();
-      const untilH = getCamilleTestModeUntilParisH();
-      const aiReply = String(process.env.AI_AUTO_REPLY_ENABLED ?? "true").toLowerCase();
-      const prospect = isProspectInboundEnabled();
-      const untilLabel = untilH == null ? "aucune" : `${String(untilH).padStart(2, "0")}h Paris`;
-      console.log(
-        `[boot] Camille: testMode=${testModeActive} (until=${untilLabel}) prospectInbound=${prospect} aiAutoReply=${aiReply}`,
-      );
-      if (!prospect) {
-        console.warn(
-          "[boot] Prospects pré-étude OFF — définir CAMILLE_TEST_MODE=true ou CAMILLE_PROSPECT_INBOUND_ENABLED=true sur Railway.",
+      import("./server/camilleProspectInbound"),
+      import("./server/businessHours"),
+    ])
+      .then(([{ isProspectInboundEnabled }, { isCamilleTestMode, getCamilleTestModeUntilParisH }]) => {
+        const testModeActive = isCamilleTestMode();
+        const untilH = getCamilleTestModeUntilParisH();
+        const aiReply = String(process.env.AI_AUTO_REPLY_ENABLED ?? "true").toLowerCase();
+        const prospect = isProspectInboundEnabled();
+        const untilLabel = untilH == null ? "aucune" : `${String(untilH).padStart(2, "0")}h Paris`;
+        console.log(
+          `[boot] Camille: testMode=${testModeActive} (until=${untilLabel}) prospectInbound=${prospect} aiAutoReply=${aiReply}`,
         );
-      }
-    });
+        if (!prospect) {
+          console.warn(
+            "[boot] Prospects pré-étude OFF — définir CAMILLE_TEST_MODE=true ou CAMILLE_PROSPECT_INBOUND_ENABLED=true sur Railway.",
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn("[boot] Camille status log failed:", err?.message || err);
+      });
   });
 
   server.on("error", (err: NodeJS.ErrnoException) => {
