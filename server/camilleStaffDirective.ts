@@ -70,7 +70,11 @@ export async function executeCamilleStaffDirective(
   }
 
   const ctx = buildCamilleContextBlock(dossier, []);
-  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
+  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
+    clientMessage: text,
+    subscriptionPhase: ctx.subscriptionPhase,
+    studySent: ctx.studySent,
+  });
   const isEscalationEmail = options?.channel === "escalation_email";
   const directivePrompt = buildDirectivePrompt({
     staffAuthorizesInsurerName: options?.staffAuthorizesInsurerName,

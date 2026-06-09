@@ -29,6 +29,13 @@ import {
   isCamilleReviewEnabled,
   shouldForceReviewHeuristic,
 } from "./camilleReviewQueue";
+import {
+  buildCamilleOperationalPromptBlock,
+  isCamilleReasoningEnabled,
+  runCamilleLegacySingleShot,
+  runCamilleReasoningPipeline,
+  type CamilleOperationalInput,
+} from "./camilleReasoningPipeline";
 
 export async function processIncomingClientEmail(
   dossier: any,
@@ -91,7 +98,11 @@ export async function processIncomingClientEmail(
     const ctx = buildCamilleContextBlock(dossier, attachmentNames, options?.allDossiers);
     const staffHandling = isStaffActivelyHandling(dossier);
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
-    const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
+    const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
+      clientMessage: emailText,
+      subscriptionPhase: ctx.subscriptionPhase,
+      studySent: ctx.studySent,
+    });
     const playbooksBlock = await buildPlaybooksPromptBlock(emailText, dossier);
     const studySent = hasStudyBeenSent(dossier);
     const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
@@ -100,10 +111,6 @@ export async function processIncomingClientEmail(
         ? ctx.missingBlocking.map((c) => c.label)
         : []
       : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
-    const newAttachmentsLine =
-      ctx.newAttachmentNames.length > 0
-        ? ctx.newAttachmentNames.join(", ")
-        : "Aucune pièce jointe dans cet email";
     const conversationTail = getConversationTailForAi(dossier);
     const needsReply = hasUnansweredClientInbound(dossier);
     const multiDossier =
@@ -124,109 +131,62 @@ export async function processIncomingClientEmail(
       };
     }
 
-    const response = await generateContentWithRetry({
-      model: "gemini-2.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: CAMILLE_PERSONA_PROMPT }] },
-        { role: "user", parts: [{ text: knowledgeBlock }] },
-        { role: "user", parts: [{ text: playbooksBlock || "Aucun playbook similaire validé par l'équipe." }] },
-        { role: "user", parts: [{ text: `
-Dossier : ${dossier.id}
-Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""} <${clientEmail}>
-Sujet email : ${options?.emailSubject || "—"}
+    const operational: CamilleOperationalInput = {
+      dossierId: dossier.id,
+      clientEmail,
+      prenom,
+      nom,
+      emailSubject: options?.emailSubject,
+      emailText,
+      attachmentNames,
+      ctx,
+      staffHandling,
+      staffOutbound,
+      conversationTail,
+      needsReply,
+      multiDossierPrompt: multiDossier?.promptBlock,
+      multiDossierAmbiguous: multiDossier?.ambiguousTargeting,
+      studySent,
+      clientAccepted,
+      missingLoanLabels,
+    };
 
-${ctx.dossierSituationBlock}
+    const decision = isCamilleReasoningEnabled()
+      ? await runCamilleReasoningPipeline({
+          knowledgeBlock,
+          playbooksBlock: playbooksBlock || "Aucun playbook similaire validé par l'équipe.",
+          operational,
+        })
+      : await runCamilleLegacySingleShot([
+          { role: "user", parts: [{ text: CAMILLE_PERSONA_PROMPT }] },
+          { role: "user", parts: [{ text: knowledgeBlock }] },
+          {
+            role: "user",
+            parts: [
+              {
+                text: `${playbooksBlock || "Aucun playbook similaire validé par l'équipe."}\n\n${buildCamilleOperationalPromptBlock(operational)}\n\nDécide REPLY, REVIEW ou ESCALATE.`,
+              },
+            ],
+          },
+        ]);
 
-État des pièces (source de vérité — ne pas contredire) :
-${ctx.documentSummary}
-
-Analyse automatique OCR/PDF (ne pas contredire) :
-${ctx.documentAnalysisReport || "Non disponible"}
-
-Consignes rédaction client (si besoin de préciser des documents) :
-${ctx.loanClientGuidance || "—"}
-
-Signaux internes (ne pas révéler au client) :
-${(ctx.qualityIssues || []).length ? (ctx.qualityIssues || []).join("\n") : "Aucun"}
-docsReliability: ${ctx.docsReliability || "unknown"}
-certainDocProblems: ${ctx.certainDocProblems ? "true" : "false"}
-uncertainDocSignals: ${(ctx.uncertainDocSignals || []).join("; ") || "aucun"}
-staffActivelyHandling: ${staffHandling ? "true" : "false"}
-emails récents équipe vers client:
-${staffOutbound}
-clientSafeReason: ${ctx.clientSafeReason || "N/A"}
-
-Pièces à demander au client (selon phase) : ${
-  studySent
-    ? clientAccepted
-      ? missingLoanLabels.join(", ") || "Aucune — CNI/RIB déjà reçus ou non requis pour l'instant"
-      : "Aucune — attendre l'accord client pour le changement d'assurance (ne pas demander CNI/RIB)"
-    : missingLoanLabels.join(", ") || "Aucune — offre et tableau OK côté analyse"
-}
-Étude déjà envoyée au client (studySent) : ${studySent ? "OUI — ne jamais promettre une étude à venir" : "NON"}
-${ctx.lastStudyOutbound?.date ? `Dernière étude envoyée : ${ctx.lastStudyOutbound.date.slice(0, 16)} — « ${ctx.lastStudyOutbound.subject.slice(0, 80)} »` : ""}
-${ctx.studyKpiSummary ? `KPI étude (interne — ne pas reciter au client, orienter vers l'email d'étude) : ${ctx.studyKpiSummary}` : ""}
-Phase souscription : ${ctx.subscriptionPhaseLabel || "—"}
-Conduite phase : ${ctx.subscriptionGuidance || "—"}
-Client a accepté le changement d'assurance (clientAcceptedInsurance) : ${clientAccepted ? "OUI — CNI/RIB autorisés si manquants" : "NON — interdiction absolue de demander CNI/RIB"}
-Offre de prêt + tableau présents dans le dossier : ${ctx.loanDocsPresent ? "OUI" : "NON"}
-Offre validée par analyse : ${ctx.loanOffreExploitable ? "OUI" : "NON"}
-Tableau validé par analyse : ${ctx.loanAmortExploitable ? "OUI" : "NON"}
-Exploitables pour l'étude (les deux validés) : ${ctx.loanDocsOk ? "OUI" : "NON"}
-Si présents mais pas exploitables : demander uniquement un renvoi PDF banque, sans dire qu'ils manquent.
-Si présents et exploitables : NE PAS demander offre/tableau (sauf si le client pose une question précise).
-Si studySent=OUI : le client a déjà reçu l'étude par email — accuser réception de son message (ex. accord pour changer d'assurance) et annoncer la suite avec Charles, sans dire qu'une étude va être envoyée.
-${
-  studySent && attachmentNames.length > 0
-    ? `
-CAS — PIÈCES COMPLÉMENTAIRES APRÈS ÉTUDE (PJ dans cet email, client pas encore d'accord explicite) :
-- Remercier pour les documents complémentaires transmis après l'étude des économies.
-- Dire que vous vérifiez avec Charles si cela impacte l'étude déjà envoyée.
-- Demander si le client est satisfait(e) de l'étude reçue.
-- Si pas d'impact : demander s'il est d'accord pour poursuivre la substitution de l'assurance emprunteur.
-- NE PAS demander CNI/RIB dans ce mail.`
-    : ""
-}
-Ne jamais mettre de formule d'accueil dans messageToClient (Bonjour, Madame…) — « Bonjour » est ajouté automatiquement au plus une fois par jour sur le fil.
-
-Pièces jointes reçues DANS CET EMAIL : ${newAttachmentsLine}
-
-Fil de conversation récent (ordre chronologique) :
-${conversationTail}
-
-Message client sans réponse outbound après lui : ${needsReply ? "OUI — répondre maintenant" : "non"}
-${multiDossier?.ambiguousTargeting ? "\nIMPORTANT : plusieurs contrats actifs — ne pas mélanger les prêts. Demander le numéro LCIF ou le bon fil email si le message ne cible pas clairement ce dossier.\n" : ""}
-${multiDossier?.promptBlock || ""}
-
-Email du client :
-"""
-${emailText.slice(0, 8000)}
-"""
-
-Décide REPLY, REVIEW (doute — question équipe sans brouillon) ou ESCALATE.` }] }
-      ],
-      config: {
-        responseMimeType: "application/json",
-        temperature: 0.35,
-      }
-    });
-
-    const resultText = response.text;
-    if (!resultText) throw new Error("No response from AI");
-    
-    let decision;
-    try {
-      decision = JSON.parse(resultText);
-    } catch (e) {
-      console.error("[AI] Error parsing JSON response:", resultText);
-      decision = { action: "ESCALATE", reasonForEscalation: "Erreur technique de l'IA (JSON invalide)" };
-    }
+    const pipelineModel =
+      "pipeline" in decision && decision.pipeline?.analyzeModel
+        ? decision.pipeline.analyzeModel
+        : "gemini-2.5-flash";
 
     const auditMeta = {
       subscriptionPhase: ctx.subscriptionPhase,
       studySent: ctx.studySent,
       clientAccepted: ctx.clientAcceptedInsurance,
       knowledgeInjected: true,
+      knowledgeRag: true,
+      reasoningPipeline: isCamilleReasoningEnabled(),
+      primaryTopic:
+        "pipeline" in decision ? decision.pipeline?.analyze?.primaryTopic : undefined,
+      planAction: "pipeline" in decision ? decision.pipeline?.plan?.action : undefined,
+      critiqueApproved:
+        "pipeline" in decision ? decision.pipeline?.critique?.approved : undefined,
     };
 
     if (decision.action === "REVIEW") {
@@ -238,7 +198,7 @@ Décide REPLY, REVIEW (doute — question équipe sans brouillon) ou ESCALATE.` 
           channel: "gmail_auto_reply",
           actor: "Camille",
           outcome: "info",
-          model: "gemini-2.5-flash",
+          model: pipelineModel,
           summary: `Question équipe : ${question.slice(0, 200)}`,
           meta: auditMeta,
         });
@@ -303,8 +263,8 @@ Décide REPLY, REVIEW (doute — question équipe sans brouillon) ou ESCALATE.` 
         channel: "gmail_auto_reply",
         actor: "Camille",
         outcome: "sent",
-        model: "gemini-2.5-flash",
-        summary: `Réponse autonome (${ctx.subscriptionPhaseLabel || "phase inconnue"})`,
+        model: pipelineModel,
+        summary: `Réponse autonome Phase 3 (${ctx.subscriptionPhaseLabel || "phase inconnue"}, topic ${auditMeta.primaryTopic || "—"})`,
         instructionPreview: text.slice(0, 300),
         meta: auditMeta,
       });
@@ -345,7 +305,10 @@ export async function generateCamillePreDossierHelpEmail(params: {
     return { subject, html: wrapCamilleHtmlReply(generic, prenom, "") };
   }
 
-  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
+  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
+    clientMessage: params.message,
+    studySent: false,
+  });
 
   const helpPrompt = `
 Tu es Camille, assistante de Charles, au Club Immobilier Français.

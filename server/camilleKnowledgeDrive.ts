@@ -33,7 +33,7 @@ const MAX_PRODUCT_PROMPT_CHARS = 10_000;
 const PROCESS_DOC_RE =
   /kereis|parcours|espace.adherent|espace_adherent|script|scripts|ade|substitution/i;
 
-function isProcessKnowledgeFile(name: string): boolean {
+export function isProcessKnowledgeFile(name: string): boolean {
   return PROCESS_DOC_RE.test(name);
 }
 
@@ -48,8 +48,9 @@ export type CamilleKnowledgeCache = {
   syncedAt: string;
   folderId: string;
   fileCount: number;
-  files: Array<{ name: string; chars: number }>;
+  files: Array<{ name: string; chars: number; kind?: "process" | "product" }>;
   driveExcerpt: string;
+  ragChunkCount?: number;
   error?: string;
 };
 
@@ -72,6 +73,18 @@ export function resolveCamilleKnowledgeFolderIdFromEnv(): string | null {
 function getCachePath(dataDir: string) {
   return path.join(dataDir, "camille-knowledge-cache.json");
 }
+
+function resolveDataDir(dataDir?: string): string {
+  if (dataDir) return dataDir;
+  const { getDbFilePath } = require("./db") as typeof import("./db");
+  return path.dirname(getDbFilePath());
+}
+
+export type CamilleKnowledgeRetrievalQuery = {
+  clientMessage?: string;
+  subscriptionPhase?: string | null;
+  studySent?: boolean;
+};
 
 function loadCacheFromDisk(dataDir: string): CamilleKnowledgeCache | null {
   try {
@@ -376,6 +389,7 @@ export async function syncCamilleKnowledgeFromDrive(
     const processParts: string[] = [];
     const productParts: string[] = [];
     const fileMeta: Array<{ name: string; chars: number; kind: "process" | "product" }> = [];
+    const parsedForRag: import("./camilleKnowledgeRag").ParsedKnowledgeFile[] = [];
 
     for (const row of sortedRows) {
       if (row.name === README_FILENAME) continue;
@@ -394,12 +408,14 @@ export async function syncCamilleKnowledgeFromDrive(
       }
       if (!text) continue;
       const isProcess = isProcessKnowledgeFile(row.name);
+      const kind = isProcess ? "process" : "product";
+      parsedForRag.push({ name: row.name, text, kind });
       const maxPerFile = isProcess ? MAX_EXCERPT_PER_FILE : Math.min(MAX_EXCERPT_PER_FILE, 6_000);
       const excerpt = text.slice(0, maxPerFile);
       const block = `--- ${row.name} ---\n${excerpt}`;
       if (isProcess) processParts.push(block);
       else productParts.push(block);
-      fileMeta.push({ name: row.name, chars: excerpt.length, kind: isProcess ? "process" : "product" });
+      fileMeta.push({ name: row.name, chars: excerpt.length, kind });
     }
 
     let processBlock = processParts.join("\n\n");
@@ -420,17 +436,30 @@ export async function syncCamilleKnowledgeFromDrive(
       .filter(Boolean)
       .join("\n\n");
 
+    let ragChunkCount = 0;
+    const dir = dataDir ? resolveDataDir(dataDir) : undefined;
+    if (dir && parsedForRag.length > 0) {
+      try {
+        const { buildKnowledgeIndexFromFiles } = await import("./camilleKnowledgeRag");
+        const index = await buildKnowledgeIndexFromFiles(parsedForRag, folderId, dir);
+        ragChunkCount = index.chunkCount;
+      } catch (e: any) {
+        console.warn("[Camille knowledge RAG] Index non construit:", e?.message || e);
+      }
+    }
+
     const cache: CamilleKnowledgeCache = {
       syncedAt: new Date().toISOString(),
       folderId,
       fileCount: fileMeta.length,
       files: fileMeta,
       driveExcerpt,
+      ragChunkCount,
     };
     memoryCache = cache;
-    if (dataDir) saveCacheToDisk(dataDir, cache);
+    if (dataDir) saveCacheToDisk(resolveDataDir(dataDir), cache);
     console.log(
-      `[Camille knowledge] Sync OK : ${fileMeta.length} fichier(s), ${driveExcerpt.length} caractères.`,
+      `[Camille knowledge] Sync OK : ${fileMeta.length} fichier(s), ${driveExcerpt.length} caractères, RAG ${ragChunkCount} chunk(s).`,
     );
     return cache;
   } finally {
@@ -448,18 +477,45 @@ export function getCamilleKnowledgeCache(dataDir?: string): CamilleKnowledgeCach
   return null;
 }
 
-/** Texte complet pour le prompt Gemini (statique + Drive). */
+/** Texte complet pour le prompt Gemini (statique + RAG ou Drive brut). */
 export async function buildCamilleKnowledgePromptBlock(
   accessToken?: string | null,
   dataDir?: string,
+  retrievalQuery?: CamilleKnowledgeRetrievalQuery,
 ): Promise<string> {
   const staticBlock = buildStaticCamilleKnowledgeBlock();
-  let cache = getCamilleKnowledgeCache(dataDir);
+  const dir = resolveDataDir(dataDir);
+  let cache = getCamilleKnowledgeCache(dir);
   if (!cache?.driveExcerpt && !cache?.error) {
     try {
-      cache = await syncCamilleKnowledgeFromDrive(accessToken, dataDir);
+      cache = await syncCamilleKnowledgeFromDrive(accessToken, dir);
     } catch (e: any) {
       console.warn("[Camille knowledge] Sync à la volée:", e?.message || e);
+    }
+  }
+
+  const ragQuery = retrievalQuery?.clientMessage?.trim();
+  if (ragQuery) {
+    try {
+      const { retrieveKnowledgeChunks, formatRetrievedChunksForPrompt, getKnowledgeIndexStatus } =
+        await import("./camilleKnowledgeRag");
+      const status = getKnowledgeIndexStatus(dir);
+      if (status.ragEnabled && status.chunkCount > 0) {
+        const chunks = await retrieveKnowledgeChunks(dir, {
+          clientMessage: retrievalQuery.clientMessage,
+          subscriptionPhase: retrievalQuery.subscriptionPhase,
+          studySent: retrievalQuery.studySent,
+        });
+        const ragBlock = formatRetrievedChunksForPrompt(chunks);
+        if (ragBlock) {
+          const filesLine = cache?.files?.length
+            ? `\n(Index RAG : ${status.chunkCount} chunks, sync ${status.syncedAt?.slice(0, 16) || "?"})`
+            : "";
+          return `${staticBlock}\n\n${ragBlock}${filesLine}`;
+        }
+      }
+    } catch (e: any) {
+      console.warn("[Camille knowledge RAG] Retrieval:", e?.message || e);
     }
   }
 
@@ -467,7 +523,7 @@ export async function buildCamilleKnowledgePromptBlock(
     cache?.files?.filter((f) => isProcessKnowledgeFile(f.name)).length ?? 0;
   const drivePart =
     cache?.driveExcerpt?.trim() ?
-      `\n\nDOCUMENTATION DRIVE (Google Drive — ${cache.fileCount} fichier(s), dont ${processCount} process/scripts, sync ${cache.syncedAt.slice(0, 16)}):\n${cache.driveExcerpt}`
+      `\n\nDOCUMENTATION DRIVE (fallback intégral — ${cache.fileCount} fichier(s), dont ${processCount} process/scripts, sync ${cache.syncedAt.slice(0, 16)}):\n${cache.driveExcerpt}`
     : cache?.error
       ? `\n\n(Drive documentation : ${cache.error})`
       : "\n\n(Drive documentation : aucun PDF indexé — lancer sync admin ou vérifier CAMILLE_KNOWLEDGE_DRIVE_FOLDER_ID.)";

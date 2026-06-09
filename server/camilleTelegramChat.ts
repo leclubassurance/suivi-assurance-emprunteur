@@ -283,7 +283,12 @@ export async function answerCamilleTelegramQuestion(
 
   const dossierBlock = options?.dossier ? buildDossierDetailBlock(options.dossier) : "Aucun dossier ciblé.";
   const portfolio = options?.portfolioLines || (await buildPortfolioSummaryAsync(10));
-  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
+  const ctx = options?.dossier ? buildCamilleContextBlock(options.dossier) : null;
+  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
+    clientMessage: userMessage,
+    subscriptionPhase: ctx?.subscriptionPhase,
+    studySent: ctx?.studySent,
+  });
 
   const response = await generateContentWithRetry({
     model: "gemini-2.5-flash",

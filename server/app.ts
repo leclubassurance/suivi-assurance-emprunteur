@@ -1376,12 +1376,112 @@ export function createApp() {
       const { getCamilleKnowledgeCache, resolveCamilleKnowledgeFolderIdFromEnv } = await import(
         "./camilleKnowledgeDrive"
       );
+      const { getKnowledgeIndexStatus } = await import("./camilleKnowledgeRag");
       const cache = getCamilleKnowledgeCache(DATA_DIR);
       res.json({
         success: true,
         configuredFolderId: resolveCamilleKnowledgeFolderIdFromEnv(),
         cache: cache || null,
+        rag: getKnowledgeIndexStatus(DATA_DIR),
       });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/camille-knowledge/retrieve-test", async (req, res) => {
+    try {
+      const query = String((req.body as any)?.query || "").trim();
+      if (!query) return res.status(400).json({ error: "query requis" });
+      const { retrieveKnowledgeChunks } = await import("./camilleKnowledgeRag");
+      const chunks = await retrieveKnowledgeChunks(DATA_DIR, { clientMessage: query });
+      res.json({
+        success: true,
+        query,
+        count: chunks.length,
+        chunks: chunks.map((c) => ({
+          fileName: c.fileName,
+          score: c.score,
+          tags: c.tags,
+          preview: c.text.slice(0, 500),
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/camille/reasoning-test", async (req, res) => {
+    try {
+      const dossierId = String((req.body as any)?.dossierId || "").trim();
+      const emailText = String((req.body as any)?.emailText || "").trim();
+      if (!dossierId || !emailText) {
+        return res.status(400).json({ error: "dossierId et emailText requis" });
+      }
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === dossierId);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      const { processIncomingClientEmail } = await import("./aiAssistant");
+      const dryRun = String((req.body as any)?.dryRun ?? "true").toLowerCase() !== "false";
+      if (dryRun) {
+        const {
+          buildCamilleContextBlock,
+        } = await import("./camilleMail");
+        const { buildCamilleKnowledgePromptBlock } = await import("./camilleKnowledgeDrive");
+        const { buildPlaybooksPromptBlock } = await import("./camillePlaybooks");
+        const { getConversationTailForAi, hasUnansweredClientInbound } = await import("./gmailConversation");
+        const { getRecentStaffOutboundSummary, isStaffActivelyHandling } = await import("./camilleStaffHandoff");
+        const { hasStudyBeenSent } = await import("./dossierLifecycle");
+        const { clientHasAcceptedInsuranceChange } = await import("./insuranceAcceptance");
+        const { getPreStudyLoanReminderLabels } = await import("../shared/documentChecklist");
+        const { runCamilleReasoningPipeline } = await import("./camilleReasoningPipeline");
+
+        const ctx = buildCamilleContextBlock(dossier, [], db.dossiers);
+        const studySent = hasStudyBeenSent(dossier);
+        const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
+        const missingLoanLabels = studySent
+          ? clientAccepted
+            ? ctx.missingBlocking.map((c) => c.label)
+            : []
+          : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
+        const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, DATA_DIR, {
+          clientMessage: emailText,
+          subscriptionPhase: ctx.subscriptionPhase,
+          studySent: ctx.studySent,
+        });
+        const playbooksBlock = await buildPlaybooksPromptBlock(emailText, dossier);
+        const operational = {
+          dossierId: dossier.id,
+          clientEmail: dossier.formData?.assures?.[0]?.email || "",
+          prenom: dossier.formData?.assures?.[0]?.prenom || "",
+          nom: dossier.formData?.assures?.[0]?.nom || "",
+          emailText,
+          attachmentNames: [],
+          ctx,
+          staffHandling: isStaffActivelyHandling(dossier),
+          staffOutbound: getRecentStaffOutboundSummary(dossier),
+          conversationTail: getConversationTailForAi(dossier),
+          needsReply: hasUnansweredClientInbound(dossier),
+          studySent,
+          clientAccepted,
+          missingLoanLabels,
+        };
+        const decision = await runCamilleReasoningPipeline({
+          knowledgeBlock,
+          playbooksBlock: playbooksBlock || "",
+          operational,
+        });
+        return res.json({ success: true, dryRun: true, decision });
+      }
+
+      const result = await processIncomingClientEmail(
+        dossier,
+        emailText,
+        dossier.formData?.assures?.[0]?.email || "",
+        { allDossiers: db.dossiers },
+      );
+      res.json({ success: true, dryRun: false, result });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }

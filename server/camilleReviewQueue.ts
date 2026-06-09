@@ -189,7 +189,11 @@ export async function draftClientReplyFromStaffGuidance(
   allDossiers?: Dossier[],
 ): Promise<string> {
   const ctx = buildCamilleContextBlock(dossier, review.attachmentNames || [], allDossiers);
-  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
+  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
+    clientMessage: review.fullClientMessage,
+    subscriptionPhase: ctx.subscriptionPhase,
+    studySent: ctx.studySent,
+  });
   const playbooksBlock = await buildPlaybooksPromptBlock(
     review.fullClientMessage,
     dossier,
