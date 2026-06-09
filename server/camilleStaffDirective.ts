@@ -5,6 +5,7 @@ import { generateContentWithRetry } from "./geminiClient";
 import { acknowledgeStaffOutboundToClient, resumeCamilleForDossier } from "./camilleStaffHandoff";
 import { logAiAudit } from "./aiAuditLog";
 import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
+import { getPendingReview } from "./camilleReviewQueue";
 
 export type StaffDirectiveResult = {
   ok: boolean;
@@ -57,6 +58,17 @@ export async function executeCamilleStaffDirective(
   const text = String(instruction || "").trim();
   if (!text) {
     return { ok: false, action: "FAILED", summary: "Consigne vide.", error: "empty" };
+  }
+
+  const pendingReview = getPendingReview(dossier);
+  if (pendingReview?.status === "awaiting_confirm") {
+    return {
+      ok: false,
+      action: "FAILED",
+      summary:
+        "Un brouillon client est en attente de validation sur Telegram. Répondez au message de confirmation : « envoie » pour l'envoyer, ou décrivez la modification souhaitée — je ne lance pas une consigne mail parallèle.",
+      error: "review_awaiting_confirm",
+    };
   }
 
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
@@ -134,6 +146,9 @@ ${text.slice(0, 4000)}
     const summary = String(decision.telegramSummary || "").trim() || "Consigne traitée.";
 
     if (action === "NO_EMAIL") {
+      const noSendSummary = summary.startsWith("Aucun mail")
+        ? summary
+        : `Aucun mail envoyé au client. ${summary}`;
       if (!isEscalationEmail) {
         acknowledgeStaffOutboundToClient(dossier, { source: options?.channel || "staff_directive" });
       } else {
@@ -154,7 +169,7 @@ ${text.slice(0, 4000)}
         summary,
         instructionPreview: text.slice(0, 300),
       });
-      return { ok: true, action: "NO_EMAIL", summary };
+      return { ok: true, action: "NO_EMAIL", summary: noSendSummary };
     }
 
     const plain = String(decision.messageToClient || "").trim();

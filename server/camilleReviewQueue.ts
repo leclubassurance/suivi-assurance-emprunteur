@@ -12,6 +12,7 @@ import { isTelegramEnabled, sendTelegramMessage } from "./telegramCamille";
 import { escapeTelegramHtml, reviewConfirmKeyboard } from "./telegramUi";
 import { borrowerDisplayName } from "./telegramUi";
 import { persistTelegramDossierRef } from "./telegramDossierRefs";
+import { findDossierWithReviewReply } from "./camilleReviewTelegram";
 
 export type CamillePendingReviewStatus =
   | "awaiting_staff"
@@ -159,25 +160,15 @@ export function findDossierWithPendingReviewReply(
   chatId: string,
   replyToMessageId?: number,
 ): Dossier | null {
-  if (!replyToMessageId) return null;
-  for (const d of dossiers) {
-    const r = getPendingReview(d);
-    if (!r || r.status !== "awaiting_staff") continue;
-    if (
-      String(r.telegramChatId) === String(chatId) &&
-      Number(r.telegramQuestionMessageId) === Number(replyToMessageId)
-    ) {
-      return d;
-    }
-  }
-  return null;
+  return findDossierWithReviewReply(dossiers, chatId, replyToMessageId);
 }
 
-export async function draftClientReplyFromStaffGuidance(
+async function draftClientReplyFromStaffGuidanceInner(
   dossier: Dossier,
   review: CamillePendingReview,
   staffAnswer: string,
   allDossiers?: Dossier[],
+  options?: { previousDraft?: string; revisionNote?: string },
 ): Promise<string> {
   const ctx = buildCamilleContextBlock(dossier, review.attachmentNames || [], allDossiers);
   const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
@@ -212,6 +203,21 @@ Consigne VALIDÉE par l'équipe (à respecter strictement) :
 """
 ${staffAnswer}
 """
+${options?.previousDraft ? `
+Brouillon précédent (à faire évoluer selon la consigne) :
+"""
+${options.previousDraft.slice(0, 3500)}
+"""
+` : ""}
+${options?.revisionNote ? `
+Modification demandée par l'équipe :
+"""
+${options.revisionNote}
+"""
+` : ""}
+${ctx.studyKpiSummary ? `KPI étude (référence interne) : ${ctx.studyKpiSummary}` : ""}
+
+Règle : si l'équipe affirme explicitement un fait métier (ex. frais de courtage appliqués pour un adhérent CLUB), tu le suis même si le KPI automatique affiche 0 € — sans inventer d'autres chiffres.
 
 Mail client à traiter :
 """
@@ -248,6 +254,79 @@ Réponds en JSON : { "messageToClient": "..." }
     allDossiers,
   });
   return text;
+}
+
+export async function draftClientReplyFromStaffGuidance(
+  dossier: Dossier,
+  review: CamillePendingReview,
+  staffAnswer: string,
+  allDossiers?: Dossier[],
+): Promise<string> {
+  return draftClientReplyFromStaffGuidanceInner(dossier, review, staffAnswer, allDossiers);
+}
+
+export async function reviseDraftFromStaffFeedback(
+  dossier: Dossier,
+  review: CamillePendingReview,
+  feedback: string,
+  chatId: string,
+  allDossiers?: Dossier[],
+): Promise<{ ok: boolean; summary: string }> {
+  const note = String(feedback || "").trim();
+  if (note.length < 5) {
+    return { ok: false, summary: "Précisez la modification souhaitée sur le brouillon." };
+  }
+
+  const mergedGuidance = [review.staffAnswer, note].filter(Boolean).join("\n\nModification : ");
+  review.staffAnswer = mergedGuidance;
+  review.staffAnswerAt = new Date().toISOString();
+  review.updatedAt = review.staffAnswerAt;
+
+  await sendTelegramMessage(chatId, "⏳ Je révise le brouillon…", { dossierId: dossier.id });
+
+  const plain = await draftClientReplyFromStaffGuidanceInner(
+    dossier,
+    review,
+    mergedGuidance,
+    allDossiers,
+    {
+      previousDraft: review.proposedClientPlain,
+      revisionNote: note,
+    },
+  );
+
+  const prenom = dossier.formData?.assures?.[0]?.prenom || "";
+  const nom = dossier.formData?.assures?.[0]?.nom || "";
+  review.proposedClientPlain = plain;
+  review.proposedClientHtml = wrapCamilleHtmlReply(plain, prenom, nom, dossier);
+  review.status = "awaiting_confirm";
+  review.updatedAt = new Date().toISOString();
+  dossier.camillePendingReview = review;
+
+  const name = borrowerDisplayName(dossier);
+  const preview = escapeTelegramHtml(plain.slice(0, 1800));
+  const confirmBody = [
+    `<b>✏️ ${escapeTelegramHtml(dossier.id)} — ${escapeTelegramHtml(name)}</b>`,
+    `<b>Brouillon révisé</b> (envoi uniquement si vous validez) :`,
+    ``,
+    `<i>« ${preview} »</i>`,
+    ``,
+    `<b>Envoyer ce mail au client ?</b>`,
+  ].join("\n");
+
+  const msg = await sendTelegramMessage(chatId, confirmBody, {
+    dossierId: dossier.id,
+    reply_markup: reviewConfirmKeyboard(dossier.id),
+  });
+
+  if (msg?.message_id) {
+    review.telegramConfirmMessageId = msg.message_id;
+    review.telegramChatId = chatId;
+    registerTelegramDossierContext(chatId, msg.message_id, dossier.id);
+    await persistTelegramDossierRef(dossier.id, chatId, msg.message_id);
+  }
+
+  return { ok: true, summary: "Brouillon révisé — validez ou demandez une autre modification." };
 }
 
 export async function applyStaffAnswerToReview(
@@ -390,6 +469,27 @@ export async function confirmAndSendReviewReply(
     await writeDB(db, stored);
   }
 
+  void import("./telegramNotify")
+    .then(async ({ notifyTelegramCamilleReplied }) => {
+      const { buildTelegramActionFromReply } = await import("./camilleTelegramActionNotify");
+      const camilleAction = buildTelegramActionFromReply({
+        dossier,
+        clientMessage: review.fullClientMessage,
+        replyPlain: review.proposedClientPlain || "",
+        emailSubject: review.emailSubject,
+        actionKind: "autonomous_reply",
+      });
+      camilleAction.interventionLevel = "none";
+      camilleAction.reason = "Mail validé par l'équipe après relecture Telegram.";
+      await notifyTelegramCamilleReplied({
+        dossier,
+        subject: review.emailSubject,
+        gmailId: review.gmailId,
+        camilleAction,
+      });
+    })
+    .catch(() => undefined);
+
   return {
     ok: true,
     summary: `Mail envoyé à ${review.clientEmail}. Cas enregistré pour les prochains dossiers similaires.`,
@@ -418,20 +518,76 @@ export async function tryHandleCamilleReviewStaffReply(
   replyToMessageId: number | undefined,
   text: string,
 ): Promise<boolean> {
-  if (!replyToMessageId || !text.trim()) return false;
+  if (!text.trim()) return false;
+
+  const {
+    findDossierWithReviewReply,
+    findDossierWithAwaitingConfirmReview,
+    looksLikeReviewSendConfirmation,
+    looksLikeReviewCancel,
+    looksLikeReviewRedraft,
+  } = await import("./camilleReviewTelegram");
 
   const db = await readDB();
-  const dossier = findDossierWithPendingReviewReply(db.dossiers, chatId, replyToMessageId);
+  let dossier =
+    findDossierWithReviewReply(db.dossiers, chatId, replyToMessageId) ||
+    (looksLikeReviewSendConfirmation(text) || looksLikeReviewRedraft(text)
+      ? findDossierWithAwaitingConfirmReview(db.dossiers, chatId)
+      : null);
+
   if (!dossier) return false;
 
-  const result = await applyStaffAnswerToReview(dossier, text, chatId, db.dossiers);
-  dossier.updatedAt = new Date().toISOString();
-  await writeDB(db, dossier);
+  const review = getPendingReview(dossier);
+  if (!review) return false;
 
-  await sendTelegramMessage(chatId, result.ok ? `✅ ${result.summary}` : `❌ ${result.summary}`, {
-    dossierId: dossier.id,
-  });
-  return true;
+  if (review.status === "awaiting_confirm") {
+    if (looksLikeReviewCancel(text)) {
+      await cancelPendingReview(dossier, "Envoi client annulé par l'équipe.");
+      dossier.updatedAt = new Date().toISOString();
+      await writeDB(db, dossier);
+      await sendTelegramMessage(chatId, `❌ Envoi annulé pour ${dossier.id}.`, {
+        dossierId: dossier.id,
+      });
+      return true;
+    }
+
+    if (looksLikeReviewSendConfirmation(text) && !looksLikeReviewRedraft(text)) {
+      const result = await confirmAndSendReviewReply(dossier, chatId);
+      dossier.updatedAt = new Date().toISOString();
+      await writeDB(db, dossier);
+      await sendTelegramMessage(
+        chatId,
+        result.ok
+          ? `📤 ${result.summary}`
+          : `❌ ${result.summary}`,
+        { dossierId: dossier.id },
+      );
+      return true;
+    }
+
+    if (looksLikeReviewRedraft(text) || replyToMessageId || text.length >= 10) {
+      const result = await reviseDraftFromStaffFeedback(dossier, review, text, chatId, db.dossiers);
+      dossier.updatedAt = new Date().toISOString();
+      await writeDB(db, dossier);
+      await sendTelegramMessage(chatId, result.ok ? `✏️ ${result.summary}` : `❌ ${result.summary}`, {
+        dossierId: dossier.id,
+      });
+      return true;
+    }
+  }
+
+  if (review.status === "awaiting_staff") {
+    if (!replyToMessageId) return false;
+    const result = await applyStaffAnswerToReview(dossier, text, chatId, db.dossiers);
+    dossier.updatedAt = new Date().toISOString();
+    await writeDB(db, dossier);
+    await sendTelegramMessage(chatId, result.ok ? `✅ ${result.summary}` : `❌ ${result.summary}`, {
+      dossierId: dossier.id,
+    });
+    return true;
+  }
+
+  return false;
 }
 
 export async function handleReviewConfirmCallback(

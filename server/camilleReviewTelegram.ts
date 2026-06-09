@@ -1,0 +1,109 @@
+import type { Dossier } from "./dossierModel";
+import { getPendingReview, type CamillePendingReview } from "./camilleReviewQueue";
+
+/** Détecte une demande d'envoi du brouillon en validation. */
+export function looksLikeReviewSendConfirmation(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (t.length < 3) return false;
+  if (/^(non|annule|stop|pas envoyer|ne pas envoyer)\b/.test(t)) return false;
+  if (/^(oui|ok|valide|envoie|envoyer|go|c'est bon|c est bon)\b/.test(t)) return true;
+  if (/\b(peux-tu|tu peux|pourrais-tu)\b.*\b(envoyer|lui envoyer|mail)\b/.test(t)) return true;
+  if (/\b(envoie(-| )?lui|envoie le mail|envoie ce mail|envoie le brouillon)\b/.test(t)) return true;
+  if (/\b(envoie|envoyer)\b/.test(t) && t.length < 40) return true;
+  return false;
+}
+
+export function looksLikeReviewCancel(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return /^(non|annule|annuler|stop|pas envoyer|ne pas envoyer|cancel)\b/.test(t);
+}
+
+/** Modification du brouillon — pas une consigne mail libre. */
+export function looksLikeReviewRedraft(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (/\b(modifie|modifier|revois|revoir|change|changer|corrige|corriger|réécris|reecris|ajuste|ajuster)\b/.test(t)) {
+    if (/\b(brouillon|texte|mail|message|réponse|reponse|dernier)\b/.test(t)) return true;
+  }
+  if (/\b(plutôt|plutot|au lieu de|ne dis pas|ne pas dire|précise|precise|explique|insiste)\b/.test(t) && t.length > 15) {
+    return true;
+  }
+  return false;
+}
+
+export function looksLikeMailSentQuestion(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return /\b(as[- ]tu|tu as|avez[- ]vous|est-ce que tu as)\b.*\b(envoy|expédi|parti)\b/.test(t)
+    || /\b(mail|email)\b.*\b(envoy|parti)\b/.test(t);
+}
+
+export function findDossierWithReviewReply(
+  dossiers: Dossier[],
+  chatId: string,
+  replyToMessageId?: number,
+): Dossier | null {
+  if (!replyToMessageId) return null;
+  for (const d of dossiers) {
+    const r = getPendingReview(d);
+    if (!r) continue;
+    const sameChat = String(r.telegramChatId) === String(chatId);
+    const onQuestion = Number(r.telegramQuestionMessageId) === Number(replyToMessageId);
+    const onConfirm = Number(r.telegramConfirmMessageId) === Number(replyToMessageId);
+    if (!sameChat) continue;
+    if (r.status === "awaiting_staff" && onQuestion) return d;
+    if (r.status === "awaiting_confirm" && (onConfirm || onQuestion)) return d;
+  }
+  return null;
+}
+
+export function findDossierWithAwaitingConfirmReview(
+  dossiers: Dossier[],
+  chatId: string,
+): Dossier | null {
+  for (const d of dossiers) {
+    const r = getPendingReview(d);
+    if (!r || r.status !== "awaiting_confirm") continue;
+    if (r.telegramChatId && String(r.telegramChatId) !== String(chatId)) continue;
+    return d;
+  }
+  return null;
+}
+
+export function buildFactualMailStatusBlock(dossier: Dossier): string {
+  const review = dossier.camillePendingReview as CamillePendingReview | undefined;
+  const lines: string[] = [];
+
+  if (review?.status === "awaiting_staff") {
+    lines.push("REVIEW en cours : aucun mail client envoyé — en attente de votre consigne.");
+  } else if (review?.status === "awaiting_confirm") {
+    lines.push(
+      "REVIEW : brouillon proposé, PAS ENCORE ENVOYÉ au client — validez ou demandez une modification.",
+    );
+    if (review.proposedClientPlain) {
+      lines.push(`Brouillon en attente (extrait) : « ${review.proposedClientPlain.slice(0, 200)}… »`);
+    }
+  } else if (review?.status === "sent") {
+    lines.push("REVIEW : le mail validé a été envoyé au client.");
+  }
+
+  const outbound = (dossier.communications || [])
+    .filter((c: any) => c?.direction === "outbound")
+    .slice(-5)
+    .map((c: any) => {
+      const from = c.from || "?";
+      const date = c.date?.slice(0, 16) || "?";
+      const subj = String(c.subject || "").slice(0, 60);
+      const preview = String(c.text || "").replace(/\s+/g, " ").slice(0, 100);
+      return `- ${date} | ${from} | ${subj} | « ${preview}… »`;
+    });
+
+  lines.push(outbound.length ? `Derniers mails sortants :\n${outbound.join("\n")}` : "Aucun mail sortant enregistré.");
+
+  const kpi = dossier.studyKpi as any;
+  if (kpi) {
+    lines.push(
+      `KPI étude : économie ~${kpi.grossSavingsEur ?? "?"} €, frais courtage LCIF ~${kpi.feesCourtageEur ?? 0} €, frais assureur ~${kpi.feesAssureurEur ?? "?"} €`,
+    );
+  }
+
+  return lines.join("\n");
+}

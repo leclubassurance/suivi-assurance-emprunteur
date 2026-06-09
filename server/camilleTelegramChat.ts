@@ -24,13 +24,25 @@ Ne jamais citer de nom d'assureur. Pas de téléphone client.
 
 Si un « Rapport OCR pièces prêt » est fourni, base-toi exclusivement dessus pour les documents.
 Ne dis jamais que les fichiers sont des images si le rapport indique PDF ou OCR réussi avec des caractères lus.
+
+ÉTAT DES MAILS (section « Faits mails ») : source de vérité absolue.
+- Si un brouillon est « en attente de validation » : AUCUN mail client n'a été envoyé depuis ce brouillon.
+- Ne dis jamais qu'un mail a été envoyé si les faits mails ne le montrent pas.
+- Cite la date et l'expéditeur du dernier mail sortant si on vous demande si un mail est parti.
 `;
 
 /** Consigne pour envoyer un mail client (langage naturel). */
 export function looksLikeStaffDirective(text: string): boolean {
   const t = text.trim();
   const lower = t.toLowerCase();
-  if (/\b(qu'est-ce|quest ce|que demande|a demandé|demande-t-il|demande t il|il a demandé|est-ce que)\b/i.test(lower)) {
+  if (
+    /\b(qu'est-ce|quest ce|que demande|a demandé|demande-t-il|demande t il|il a demandé|est-ce que)\b/i.test(
+      lower,
+    )
+  ) {
+    return false;
+  }
+  if (/\b(modifie|modifier|brouillon|revois le|as-tu envoy|tu as envoy|mail envoy)\b/i.test(lower)) {
     return false;
   }
   if (/^(envoie|mail|écris|ecris|demande|relance|dis-lui|transmet|renvoie|écris-lui|ecris-lui|préviens|previens)\b/i.test(t)) {
@@ -282,6 +294,9 @@ export async function answerCamilleTelegramQuestion(
   }
 
   const dossierBlock = options?.dossier ? buildDossierDetailBlock(options.dossier) : "Aucun dossier ciblé.";
+  const mailFacts = options?.dossier
+    ? (await import("./camilleReviewTelegram")).buildFactualMailStatusBlock(options.dossier)
+    : "—";
   const portfolio = options?.portfolioLines || (await buildPortfolioSummaryAsync(10));
   const ctx = options?.dossier ? buildCamilleContextBlock(options.dossier) : null;
   const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
@@ -299,7 +314,7 @@ export async function answerCamilleTelegramQuestion(
         role: "user",
         parts: [
           {
-            text: `Dossiers récents:\n${portfolio}\n\n---\nDossier ciblé:\n${dossierBlock}\n\n---\nQuestion équipe:\n${userMessage.slice(0, 3000)}`,
+            text: `Dossiers récents:\n${portfolio}\n\n---\nDossier ciblé:\n${dossierBlock}\n\n---\nFaits mails (vérité) :\n${mailFacts}\n\n---\nQuestion équipe:\n${userMessage.slice(0, 3000)}`,
           },
         ],
       },

@@ -189,7 +189,13 @@ async function runStaffDirectiveFlow(chatId: string, dossier: Dossier, instructi
   }
   if (result.ok) {
     const icon = result.action === "SEND_TO_CLIENT" ? "✅" : "✔️";
-    await sendTelegramMessage(chatId, `${icon} <b>${escapeHtml(borrowerDisplayName(dossier))}</b>\n${escapeHtml(result.summary)}`, {
+    const prefix =
+      result.action === "NO_EMAIL"
+        ? "<b>📭 Aucun mail client envoyé</b>\n"
+        : result.action === "SEND_TO_CLIENT"
+          ? "<b>📤 Mail client envoyé</b>\n"
+          : "";
+    await sendTelegramMessage(chatId, `${icon} <b>${escapeHtml(borrowerDisplayName(dossier))}</b>\n${prefix}${escapeHtml(result.summary)}`, {
       dossierId: dossier.id,
     });
     addEvent(dossier, {
@@ -494,12 +500,25 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
 
   if (dossier) rememberChatDossier(chatId, dossier.id);
 
-  const { tryHandleCamilleReviewStaffReply } = await import("./camilleReviewQueue");
+  const { tryHandleCamilleReviewStaffReply, getPendingReview } = await import("./camilleReviewQueue");
   const reviewHandled = await tryHandleCamilleReviewStaffReply(chatId, replyId, text);
   if (reviewHandled) return;
 
+  const {
+    looksLikeReviewRedraft,
+    looksLikeMailSentQuestion,
+  } = await import("./camilleReviewTelegram");
+
+  const pendingReview = dossier ? getPendingReview(dossier) : null;
+  const reviewBlocksStaffDirective =
+    pendingReview?.status === "awaiting_confirm" ||
+    pendingReview?.status === "awaiting_staff" ||
+    looksLikeReviewRedraft(text);
+
   const wantsEmail =
-    intent === "STAFF_DIRECTIVE" || looksLikeStaffDirective(text) || (replyToCamille && text.length >= 3);
+    !reviewBlocksStaffDirective &&
+    !looksLikeMailSentQuestion(text) &&
+    (intent === "STAFF_DIRECTIVE" || looksLikeStaffDirective(text) || (replyToCamille && text.length >= 3));
 
   if (wantsEmail && dossier) {
     let instruction = stripDossierRefsFromText(text, dossier);
