@@ -317,12 +317,25 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
         });
         console.log(`[Camille] Relance documents envoyée à ${clientEmail} (${dossierId})`);
         void import("./telegramNotify")
-          .then(({ notifyRemiDossierNews }) =>
-            notifyRemiDossierNews(existing, "doc_followup", {
+          .then(async ({ notifyRemiDossierNews }) => {
+            const { buildTelegramActionFromReply, stripHtmlForTelegram } = await import(
+              "./camilleTelegramActionNotify"
+            );
+            const replyPlain = stripHtmlForTelegram(html);
+            const camilleAction = buildTelegramActionFromReply({
+              dossier: existing,
+              clientMessage: "(relance proactive — problème document détecté)",
+              replyPlain,
+              emailSubject: subject,
+              actionKind: "doc_followup",
+            });
+            camilleAction.reason = fresh.problems.map((p) => p.kind).join(", ");
+            await notifyRemiDossierNews(existing, "doc_followup", {
               subject,
               eventId: `doc_followup_${dossierId}`,
-            }),
-          )
+              camilleAction,
+            });
+          })
           .catch(() => undefined);
         void import("./aiAuditLog")
           .then(({ logAiAudit }) =>

@@ -36,6 +36,10 @@ import {
   runCamilleReasoningPipeline,
   type CamilleOperationalInput,
 } from "./camilleReasoningPipeline";
+import {
+  buildTelegramActionFromReply,
+  stripHtmlForTelegram as stripHtmlForNotify,
+} from "./camilleTelegramActionNotify";
 
 export async function processIncomingClientEmail(
   dossier: any,
@@ -61,9 +65,20 @@ export async function processIncomingClientEmail(
     const playbookHit = await tryPlaybookAutoReply(dossier, emailText);
     if (playbookHit) {
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
+      const telegramAction = buildTelegramActionFromReply({
+        dossier,
+        clientMessage: emailText,
+        replyPlain: playbookHit.plain,
+        emailSubject: options?.emailSubject,
+        actionKind: "playbook",
+        attachmentNames,
+        playbookId: playbookHit.playbook.id,
+      });
       return {
         status: "replied",
         text: wrapCamilleHtmlReply(playbookHit.plain, prenom, nom, dossier),
+        replyPlain: playbookHit.plain,
+        telegramAction,
       };
     }
 
@@ -74,9 +89,19 @@ export async function processIncomingClientEmail(
       const nom = dossier.formData?.assures?.[0]?.nom || "";
       const plain = buildPostStudyIdentityAttachmentsReply(dossier, emailText);
       console.log(`[AI] Accusé pièces identité post-étude pour ${dossier.id}`);
+      const telegramAction = buildTelegramActionFromReply({
+        dossier,
+        clientMessage: emailText,
+        replyPlain: plain,
+        emailSubject: options?.emailSubject,
+        actionKind: "template_identity",
+        attachmentNames,
+      });
       return {
         status: "replied",
         text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+        replyPlain: plain,
+        telegramAction,
       };
     }
 
@@ -89,9 +114,19 @@ export async function processIncomingClientEmail(
       const nom = dossier.formData?.assures?.[0]?.nom || "";
       const plain = buildPostStudyComplementaryDocsMessage(dossier);
       console.log(`[AI] Réponse pièces complémentaires post-étude pour ${dossier.id}`);
+      const telegramAction = buildTelegramActionFromReply({
+        dossier,
+        clientMessage: emailText,
+        replyPlain: plain,
+        emailSubject: options?.emailSubject,
+        actionKind: "template_complementary_docs",
+        attachmentNames,
+      });
       return {
         status: "replied",
         text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+        replyPlain: plain,
+        telegramAction,
       };
     }
 
@@ -238,7 +273,17 @@ export async function processIncomingClientEmail(
       });
       if (docReply.sent && docReply.html) {
         console.log(`[AI] Escalade évitée — mail documents envoyé pour ${dossier.id}`);
-        return { status: "replied", text: docReply.html };
+        const plain = stripHtmlForNotify(docReply.html);
+        const telegramAction = buildTelegramActionFromReply({
+          dossier,
+          clientMessage: emailText,
+          replyPlain: plain,
+          emailSubject: options?.emailSubject,
+          actionKind: "doc_clarify",
+          attachmentNames,
+          reason: decision.reasonForEscalation,
+        });
+        return { status: "replied", text: docReply.html, replyPlain: plain, telegramAction };
       }
       console.log(`[AI] Escalade requise pour le dossier ${dossier.id}`);
       return { status: "escalated", reason: decision.reasonForEscalation };
@@ -268,9 +313,25 @@ export async function processIncomingClientEmail(
         instructionPreview: text.slice(0, 300),
         meta: auditMeta,
       });
+      const pipeline =
+        "pipeline" in decision ? decision.pipeline : undefined;
+      const telegramAction = buildTelegramActionFromReply({
+        dossier,
+        clientMessage: emailText,
+        replyPlain: text,
+        emailSubject: options?.emailSubject,
+        actionKind: "autonomous_reply",
+        attachmentNames,
+        blockedDocRequest,
+        analyze: pipeline?.analyze,
+        plan: pipeline?.plan,
+        critiqueApproved: pipeline?.critique?.approved,
+      });
       return {
         status: "replied",
         text: wrapCamilleHtmlReply(text, prenom, nom, dossier),
+        replyPlain: text,
+        telegramAction,
       };
     }
   } catch (error) {

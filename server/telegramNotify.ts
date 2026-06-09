@@ -1,5 +1,6 @@
 import type { Dossier } from "./dossierModel";
 import { notifyRemiDossierNews, type DossierNewsKind } from "./camilleTelegramDigest";
+import type { CamilleTelegramActionDetails } from "./camilleTelegramActionNotify";
 
 export async function notifyTelegramNewDossier(params: {
   dossier: Dossier;
@@ -44,11 +45,13 @@ export async function notifyTelegramCamilleReplied(params: {
   subject: string;
   gmailId?: string;
   extra?: string;
+  camilleAction?: CamilleTelegramActionDetails;
 }) {
   await notifyRemiDossierNews(params.dossier, "camille_replied", {
     subject: params.subject,
     eventId: params.gmailId,
     extra: params.extra,
+    camilleAction: params.camilleAction,
   });
 }
 

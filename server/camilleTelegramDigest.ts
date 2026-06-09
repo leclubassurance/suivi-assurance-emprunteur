@@ -13,6 +13,10 @@ import {
   telegramNotifyKey,
   wasTelegramNotifiedRecently,
 } from "./telegramNotifyDedup";
+import {
+  formatCamilleActionTelegramHtml,
+  type CamilleTelegramActionDetails,
+} from "./camilleTelegramActionNotify";
 
 export type DossierNewsKind =
   | "new_dossier"
@@ -49,24 +53,39 @@ function dedupIntervalMs(kind: DossierNewsKind): number {
 
 const DIGEST_PROMPT = `
 Tu es Camille, assistante assurance du Club Immobilier Français.
-Tu envoies à Rémi une notification Telegram sur UN dossier : ce qui vient de se passer (nouveauté), l'essentiel du contexte, et ce qu'il peut faire s'il le souhaite.
+Tu envoies à Rémi une notification Telegram sur UN dossier.
+
+Structure OBLIGATOIRE (HTML Telegram : <b>, <i>, •) :
+1) Première ligne : <b>✅ RIEN À FAIRE</b> OU <b>⚠️ À SURVEILLER</b> OU <b>🔴 INTERVENTION REQUISE</b>
+2) <b>LCIF-XXXXXX</b> — prénom nom — type de nouveauté
+3) Contexte dossier en une ligne (phase, étude envoyée oui/non, accord client oui/non)
+4) <b>📩 Client</b> : extrait du mail si disponible
+5) <b>➡️ Pour vous</b> : une phrase claire — faut-il intervenir ? que faire concrètement ?
 
 Règles :
-- Français, ton pro et chaleureux, 4 à 10 lignes
-- HTML Telegram simple : <b>, <i>, listes à puces avec •
-- Commence par une ligne titre : <b>📌 LCIF-XXXXXX</b> — type de nouveauté
-- Cite le client (prénom nom) une fois
-- Ne invente rien : base-toi uniquement sur les faits fournis
-- Termine par une ligne : <i>Posez-moi une question sur ce dossier (avec ou sans le numéro).</i>
-- Pour une escalade : indique clairement qu'il peut répondre à CE message pour envoyer un mail au client (ex. « Demande les PDF banque »)
-- Pas de boutons, pas de nom d'assureur
+- Ne jamais être vague (« je me suis occupée du dossier » interdit)
+- Ne invente rien
+- Escalade / review : 🔴 + consigne de répondre à CE message
+- Pas de nom d'assureur
 `;
 
 async function buildNewsMessage(
   dossier: Dossier,
   kind: DossierNewsKind,
-  details: { subject?: string; excerpt?: string; extra?: string; eventId?: string },
+  details: {
+    subject?: string;
+    excerpt?: string;
+    extra?: string;
+    eventId?: string;
+    camilleAction?: CamilleTelegramActionDetails;
+  },
 ): Promise<string> {
+  if (
+    (kind === "camille_replied" || kind === "doc_followup") &&
+    details.camilleAction
+  ) {
+    return formatCamilleActionTelegramHtml(dossier, details.camilleAction);
+  }
   const a = dossier.formData?.assures?.[0];
   const clientName = [a?.prenom, a?.nom].filter(Boolean).join(" ") || "Client";
   const facts = [
@@ -127,7 +146,13 @@ function fallbackNewsHtml(
 export async function notifyRemiDossierNews(
   dossier: Dossier,
   kind: DossierNewsKind,
-  details: { subject?: string; excerpt?: string; extra?: string; eventId?: string } = {},
+  details: {
+    subject?: string;
+    excerpt?: string;
+    extra?: string;
+    eventId?: string;
+    camilleAction?: CamilleTelegramActionDetails;
+  } = {},
 ): Promise<void> {
   if (!notifyEnabled()) return;
 

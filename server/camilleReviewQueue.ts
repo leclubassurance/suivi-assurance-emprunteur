@@ -122,24 +122,15 @@ export async function createCamilleReviewRequest(params: {
     },
   });
 
-  const name = borrowerDisplayName(params.dossier);
-  const excerpt = escapeTelegramHtml(review.clientMessageExcerpt.slice(0, 450));
-  const question = escapeTelegramHtml(review.questionForStaff);
-
-  const body = [
-    `<b>🤔 ${escapeTelegramHtml(params.dossier.id)} — ${escapeTelegramHtml(name)}</b>`,
-    ``,
-    `<b>Mail client</b> (extrait) :`,
-    `<i>« ${excerpt} »</i>`,
-    review.reason ? `\n<i>Raison : ${escapeTelegramHtml(review.reason)}</i>` : "",
-    ``,
-    `<b>❓ Ma question</b> (répondez à ce message — pas de brouillon tant que vous n'avez pas guidé) :`,
-    question,
-    ``,
-    `<i>Je rédigerai ensuite un brouillon pour votre validation avant envoi au client.</i>`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const { formatReviewQuestionTelegramHtml } = await import("./camilleTelegramActionNotify");
+  const body = formatReviewQuestionTelegramHtml({
+    dossier: params.dossier,
+    clientExcerpt: review.clientMessageExcerpt,
+    questionForStaff: review.questionForStaff,
+    reason: review.reason,
+    emailSubject: params.emailSubject,
+    attachmentNames: params.attachmentNames,
+  });
 
   let sentToAny = false;
   for (const chatId of chatIds) {

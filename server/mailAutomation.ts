@@ -753,6 +753,30 @@ export async function syncGmailInbox(
                   message: "Accusé de réception envoyé (cooldown actif).",
                   meta: { gmailId: msgMeta.id },
                 });
+                void import("./telegramNotify")
+                  .then(async ({ notifyTelegramCamilleReplied }) => {
+                    const { buildTelegramActionFromReply } = await import(
+                      "./camilleTelegramActionNotify"
+                    );
+                    const camilleAction = buildTelegramActionFromReply({
+                      dossier,
+                      clientMessage: text,
+                      replyPlain: ack,
+                      emailSubject: replySubject,
+                      actionKind: "cooldown_ack",
+                      attachmentNames: addedAttachments.map((d) => d.name),
+                    });
+                    camilleAction.interventionLevel = "none";
+                    camilleAction.reason =
+                      "Cooldown actif — accusé court envoyé, réponse détaillée différée.";
+                    await notifyTelegramCamilleReplied({
+                      dossier,
+                      subject: replySubject,
+                      gmailId: sent.messageId || msgMeta.id,
+                      camilleAction,
+                    });
+                  })
+                  .catch(() => undefined);
               } else {
                 console.warn(`[Gmail] Échec envoi accusé cooldown → ${replyToEmail}: ${sent.error}`);
               }
@@ -873,6 +897,7 @@ export async function syncGmailInbox(
                       dossier,
                       subject: replySubject,
                       gmailId: sendResult.messageId || msgMeta.id,
+                      camilleAction: aiDecision.telegramAction,
                     }),
                   )
                   .catch(() => undefined);

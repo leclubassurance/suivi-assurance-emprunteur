@@ -204,16 +204,24 @@ ${text.slice(0, 4000)}
     });
 
     void import("./telegramNotify")
-      .then(({ notifyTelegramCamilleReplied }) =>
-        notifyTelegramCamilleReplied({
+      .then(async ({ notifyTelegramCamilleReplied }) => {
+        const { buildTelegramActionFromReply } = await import("./camilleTelegramActionNotify");
+        const camilleAction = buildTelegramActionFromReply({
+          dossier,
+          clientMessage: text,
+          replyPlain: clientMessage,
+          emailSubject: subject,
+          actionKind: "staff_directive",
+        });
+        camilleAction.staffInstruction = text.slice(0, 400);
+        camilleAction.interventionLevel = "none";
+        await notifyTelegramCamilleReplied({
           dossier,
           subject,
           gmailId: `staff_directive_${Date.now()}`,
-          extra: isEscalationEmail
-            ? "Suite à votre réponse sur l'email d'escalade."
-            : "Suite à votre consigne Telegram.",
-        }),
-      )
+          camilleAction,
+        });
+      })
       .catch(() => undefined);
 
     return { ok: true, action: "SEND_TO_CLIENT", summary };
