@@ -53,12 +53,17 @@ async function startServer() {
       `[boot] build=${RAILWAY_BUILD_ID} deploySource=tsx-server.ts git=${process.env.RAILWAY_GIT_COMMIT_SHA || "local"}`,
     );
     console.log(`Server listening on 0.0.0.0:${PORT} (NODE_ENV=${process.env.NODE_ENV || "unset"})`);
-    void import("./camilleProspectInbound").then(({ isProspectInboundEnabled }) => {
-      const testMode = String(process.env.CAMILLE_TEST_MODE || "false").toLowerCase();
+    void Promise.all([
+      import("./camilleProspectInbound"),
+      import("./businessHours"),
+    ]).then(([{ isProspectInboundEnabled }, { isCamilleTestMode, getCamilleTestModeUntilParisH }]) => {
+      const testModeActive = isCamilleTestMode();
+      const untilH = getCamilleTestModeUntilParisH();
       const aiReply = String(process.env.AI_AUTO_REPLY_ENABLED ?? "true").toLowerCase();
       const prospect = isProspectInboundEnabled();
+      const untilLabel = untilH == null ? "aucune" : `${String(untilH).padStart(2, "0")}h Paris`;
       console.log(
-        `[boot] Camille: testMode=${testMode} prospectInbound=${prospect} aiAutoReply=${aiReply}`,
+        `[boot] Camille: testMode=${testModeActive} (until=${untilLabel}) prospectInbound=${prospect} aiAutoReply=${aiReply}`,
       );
       if (!prospect) {
         console.warn(

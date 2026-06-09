@@ -204,8 +204,10 @@ export function startScheduler() {
   );
   if (!enabled) return;
   if (isCamilleTestMode()) {
+    const untilH = Number(process.env.CAMILLE_TEST_MODE_UNTIL_PARIS_H ?? "1");
+    const untilLabel = Number.isFinite(untilH) ? `${String(untilH).padStart(2, "0")}h Paris` : "sans limite";
     console.log(
-      "[Camille] Mode test actif — sync Gmail 24h/24, cooldown réduit, prospects pré-étude, réponses plus rapides.",
+      `[Camille] Mode test actif jusqu'à ${untilLabel} — sync Gmail 24h/24, cooldown réduit, prospects pré-étude.`,
     );
   }
   setInterval(() => {

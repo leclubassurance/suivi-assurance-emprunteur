@@ -21,9 +21,40 @@ export function isRailwayEcoMode(): boolean {
   return envFlag("RAILWAY_ECO_MODE", "false");
 }
 
-/** Tests Camille : sync Gmail 24h/24, cooldown réduit, intervalle court. */
-export function isCamilleTestMode(): boolean {
-  return envFlag("CAMILLE_TEST_MODE", "false");
+/**
+ * Coupe automatique du mode test (Paris).
+ * Ex. untilH=1 → actif le soir et entre minuit et 00:59, coupé de 01:00 à 18:00.
+ * CAMILLE_TEST_MODE_UNTIL_PARIS_H=off pour désactiver la coupe horaire.
+ */
+function isPastCamilleTestCutoff(now = new Date()): boolean {
+  const untilRaw = String(process.env.CAMILLE_TEST_MODE_UNTIL_PARIS_H ?? "1").trim().toLowerCase();
+  if (!untilRaw || untilRaw === "off" || untilRaw === "false" || untilRaw === "none") {
+    return false;
+  }
+
+  const untilH = Number(untilRaw);
+  if (!Number.isFinite(untilH) || untilH < 0 || untilH > 23) return false;
+
+  const resumeH = Number(process.env.CAMILLE_TEST_MODE_RESUME_PARIS_H || "18");
+  const { hour } = parisHourMinute(now);
+
+  if (untilH <= resumeH) {
+    return hour >= untilH && hour < resumeH;
+  }
+  return hour >= untilH || hour < resumeH;
+}
+
+/** Tests Camille : sync Gmail 24h/24, cooldown réduit, intervalle court (jusqu'à 01:00 Paris par défaut). */
+export function isCamilleTestMode(now = new Date()): boolean {
+  if (!envFlag("CAMILLE_TEST_MODE", "false")) return false;
+  return !isPastCamilleTestCutoff(now);
+}
+
+export function getCamilleTestModeUntilParisH(): number | null {
+  const untilRaw = String(process.env.CAMILLE_TEST_MODE_UNTIL_PARIS_H ?? "1").trim().toLowerCase();
+  if (!untilRaw || untilRaw === "off" || untilRaw === "false" || untilRaw === "none") return null;
+  const untilH = Number(untilRaw);
+  return Number.isFinite(untilH) ? untilH : null;
 }
 
 /** Sync Gmail autorisée (plage horaire Paris optionnelle). */
