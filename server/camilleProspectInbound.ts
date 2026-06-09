@@ -152,7 +152,10 @@ export async function syncProspectInboundFromGmail(
 
   const gmailUser = String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
   const known = collectKnownClientEmails(db);
-  const q = `to:${gmailUser} in:inbox newer_than:60d`;
+  const q = `(to:${gmailUser} OR deliveredto:${gmailUser}) in:inbox newer_than:60d -in:spam -in:trash`;
+  if (isCamilleTestMode()) {
+    console.log(`[Camille prospect] scan start mailbox=${gmailUser} q="${q}"`);
+  }
   const listRes = await gmail.users.messages.list({ userId: "me", q, maxResults: 40 });
   const messages = listRes.data.messages || [];
 

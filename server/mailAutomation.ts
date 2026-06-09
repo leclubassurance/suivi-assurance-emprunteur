@@ -376,12 +376,51 @@ export async function seedDossierGmailImportRegistry(
 
 let gmailSyncRunning = false;
 
+async function runProspectInboundSync(
+  db: any,
+  aiCallback: Function,
+  markDossierDirty: (dossier: any) => void,
+): Promise<{ inbound: number; aiReplies: number; leadsCreated: number }> {
+  const empty = { inbound: 0, aiReplies: 0, leadsCreated: 0 };
+  try {
+    const { auth: assuranceAuth } = await createGmailAuth(null);
+    const assuranceGmail = google.gmail({ version: "v1", auth: assuranceAuth as any });
+    const prospectProcessedIds = new Set<string>();
+    const { syncProspectInboundFromGmail } = await import("./camilleProspectInbound");
+    const prospect = await syncProspectInboundFromGmail(assuranceGmail, db, {
+      processedIds: prospectProcessedIds,
+      accessToken: null,
+      aiCallback,
+      markDossierDirty,
+      upsertCommunication,
+      getProcessedIds,
+      markProcessed,
+      decodeEmailBodies,
+      isAiAutoReplyEnabled,
+      canCamilleEmailClient,
+      acquireCamilleClientEmailLock,
+      releaseCamilleClientEmailLock,
+      sendEmailReplyWithGmailAPI,
+      getCamilleReplyDelayMs,
+      sleep,
+    });
+    if (prospect.leadsCreated > 0) {
+      console.log(`[Camille prospect] +${prospect.leadsCreated} prospect(s) créé(s) ce cycle`);
+    }
+    return prospect;
+  } catch (err: any) {
+    console.warn(`[Camille prospect] Sync: ${err?.message || err}`);
+    return empty;
+  }
+}
+
 export async function syncGmailInbox(
   accessToken: string | null,
   db: any,
   aiCallback: Function,
 ) {
   if (gmailSyncRunning) {
+    console.log("[Gmail sync] ignoré — sync déjà en cours");
     return {
       db,
       inboundCount: 0,
@@ -395,6 +434,7 @@ export async function syncGmailInbox(
     };
   }
   gmailSyncRunning = true;
+  const syncStarted = Date.now();
   try {
   const { auth, driveAccessToken } = await createGmailAuth(accessToken);
   const gmail = google.gmail({ version: 'v1', auth: auth as any });
@@ -405,6 +445,12 @@ export async function syncGmailInbox(
     dossier.updatedAt = new Date().toISOString();
   };
 
+  let inboundCount = 0;
+  let aiReplies = 0;
+  const prospect = await runProspectInboundSync(db, aiCallback, markDossierDirty);
+  inboundCount += prospect.inbound;
+  aiReplies += prospect.aiReplies;
+
   const clientEmails = new Set<string>();
   for (const d of db.dossiers || []) {
     for (const e of getDossierClientEmails(d)) clientEmails.add(e);
@@ -413,8 +459,6 @@ export async function syncGmailInbox(
   const processedIds = new Set<string>();
   /** Un seul traitement IA par dossier et par sync (évite 5 escalades sur l'historique Gmail). */
   const aiLockedDossierIds = new Set<string>();
-  let inboundCount = 0;
-  let aiReplies = 0;
   let attachmentsSaved = 0;
   let driveAttachmentsUploaded = 0;
   const attachmentDebug: Array<{ messageId: string; found: number; saved: number; drive: number }> = [];
@@ -1006,33 +1050,9 @@ export async function syncGmailInbox(
     }
   }
 
-  try {
-    const { syncProspectInboundFromGmail } = await import("./camilleProspectInbound");
-    const prospect = await syncProspectInboundFromGmail(gmail, db, {
-      processedIds,
-      accessToken,
-      aiCallback: aiCallback,
-      markDossierDirty,
-      upsertCommunication,
-      getProcessedIds,
-      markProcessed,
-      decodeEmailBodies,
-      isAiAutoReplyEnabled,
-      canCamilleEmailClient,
-      acquireCamilleClientEmailLock,
-      releaseCamilleClientEmailLock,
-      sendEmailReplyWithGmailAPI,
-      getCamilleReplyDelayMs,
-      sleep,
-    });
-    inboundCount += prospect.inbound;
-    aiReplies += prospect.aiReplies;
-    if (prospect.leadsCreated > 0) {
-      console.log(`[Camille prospect] +${prospect.leadsCreated} prospect(s) créé(s) ce cycle`);
-    }
-  } catch (err: any) {
-    console.warn(`[Camille prospect] Sync: ${err?.message || err}`);
-  }
+  console.log(
+    `[Gmail sync] ${Date.now() - syncStarted}ms processed=${processedIds.size} inbound=${inboundCount} aiReplies=${aiReplies} prospectLeads=${prospect.leadsCreated}`,
+  );
 
   return {
     db,

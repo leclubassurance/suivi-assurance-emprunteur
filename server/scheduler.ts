@@ -225,7 +225,12 @@ export function startScheduler() {
       gmailSyncInProgress = true;
       readDB()
         .then((db) => syncGmailInbox(null, db, processIncomingClientEmail))
-        .then(async ({ db, inboundCount, aiReplies, dirtyDossierIds }) => {
+        .then(async (result) => {
+          const { db, inboundCount, aiReplies, dirtyDossierIds, skippedConcurrent } = result;
+          if (skippedConcurrent) {
+            console.log("[Gmail autosync] ignoré — sync déjà en cours");
+            return;
+          }
           if (inboundCount > 0 || aiReplies > 0) {
             console.log(`[Gmail autosync] inbound=${inboundCount} aiReplies=${aiReplies}`);
           }
