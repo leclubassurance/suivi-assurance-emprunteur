@@ -246,35 +246,80 @@ export function createApp() {
       );
 
       const { privacyConsent: _clientConsent, ...formDataWithoutConsent } = formData || {};
-      const newDossier = ensureDossierShape({
-        id:
-          formData.id ||
-          `LCIF-${Math.floor(Math.random() * 1000000)
-            .toString()
-            .padStart(6, "0")}`,
-        status: "NOUVEAU",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        formData: { ...formDataWithoutConsent, documents },
-        privacyConsent: privacyConsentRecord,
-        communications: [],
-        tasks: [],
-        emails: [],
-        notes: [],
-        eventLog: [],
-      });
-      addEvent(newDossier, {
-        type: "DOSSIER_CREATED",
-        actor: { kind: "SYSTEM" },
-        message: "Dossier créé via formulaire client.",
-      });
+      const mergedFormData = { ...formDataWithoutConsent, documents };
+      const clientEmail = mergedFormData.assures?.[0]?.email;
+
+      const {
+        reconcileLeadOnFormSubmit,
+        adoptLeadForFormSubmission,
+        applyFormToExistingDossier,
+      } = await import("./leadDossierMerge");
+
+      const leadPlan = reconcileLeadOnFormSubmit(db, clientEmail);
+      let newDossier: any;
+      let linkedFromProspect = false;
+
+      if (leadPlan.action === "adopt_lead") {
+        linkedFromProspect = true;
+        newDossier = adoptLeadForFormSubmission(leadPlan.lead, {
+          formData: mergedFormData,
+          privacyConsent: privacyConsentRecord,
+        });
+        const idx = db.dossiers.findIndex((d: any) => d.id === newDossier.id);
+        if (idx >= 0) db.dossiers[idx] = newDossier;
+        else db.dossiers.push(newDossier);
+        appendLog(
+          `Formulaire rattaché au prospect ${newDossier.id} (${String(clientEmail || "").toLowerCase()}).`,
+        );
+      } else if (leadPlan.action === "merge_leads_into_existing") {
+        linkedFromProspect = true;
+        newDossier = applyFormToExistingDossier(leadPlan.target, {
+          formData: mergedFormData,
+          privacyConsent: privacyConsentRecord,
+          leadsToMerge: leadPlan.leads,
+        });
+        db.dossiers = db.dossiers.filter((d: any) => !leadPlan.removeLeadIds.includes(d.id));
+        const idx = db.dossiers.findIndex((d: any) => d.id === newDossier.id);
+        if (idx >= 0) db.dossiers[idx] = newDossier;
+        appendLog(
+          `Formulaire fusionné dans ${newDossier.id} — prospect(s) ${leadPlan.removeLeadIds.join(", ")} rattaché(s).`,
+        );
+      } else {
+        newDossier = ensureDossierShape({
+          id:
+            formData.id ||
+            `LCIF-${Math.floor(Math.random() * 1000000)
+              .toString()
+              .padStart(6, "0")}`,
+          status: "NOUVEAU",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          formData: mergedFormData,
+          privacyConsent: privacyConsentRecord,
+          communications: [],
+          tasks: [],
+          emails: [],
+          notes: [],
+          eventLog: [],
+        });
+        addEvent(newDossier, {
+          type: "DOSSIER_CREATED",
+          actor: { kind: "SYSTEM" },
+          message: "Dossier créé via formulaire client.",
+        });
+        db.dossiers.push(newDossier);
+      }
+
       addEvent(newDossier, {
         type: "PRIVACY_CONSENT_RECORDED",
         actor: { kind: "SYSTEM" },
-        message: "Consentement politique de confidentialité enregistré.",
+        message: linkedFromProspect
+          ? "Consentement enregistré — dossier relié au prospect (même email)."
+          : "Consentement politique de confidentialité enregistré.",
         meta: {
           policyVersion: privacyConsentRecord.policyVersion,
           acceptedAt: privacyConsentRecord.acceptedAt,
+          linkedFromProspect,
         },
       });
 
@@ -312,8 +357,6 @@ export function createApp() {
         dueAt: new Date(t0 + 21 * 24 * 3600 * 1000).toISOString(),
         payload: { stage: 3 },
       });
-
-      db.dossiers.push(newDossier);
 
       // Déplace les fichiers uploadés sous /uploads/<dossierId>/... (évite /uploads/unknown et stabilise les chemins)
       try {

@@ -180,6 +180,10 @@ export async function syncProspectInboundFromGmail(
 
     deps.processedIds.add(msgMeta.id);
 
+    const { findActiveFullDossiersByEmail } = await import("./leadDossierMerge");
+    const existingFull = findActiveFullDossiersByEmail(db, senderEmail);
+    if (existingFull.length > 0) continue;
+
     let dossier = findLeadDossierByEmail(db, senderEmail);
     if (!dossier) {
       dossier = createLeadDossierFromInbound(db, senderEmail, fromRaw);

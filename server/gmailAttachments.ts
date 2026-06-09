@@ -639,9 +639,11 @@ function pickBestDossierForClient(
   messageDate?: string,
 ): any | null {
   if (matches.length === 0) return null;
+  const fullDossiers = matches.filter((d) => !d?.isLead);
+  const pool = fullDossiers.length > 0 ? fullDossiers : matches;
   const msgTs = messageDate ? new Date(messageDate).getTime() : NaN;
   if (Number.isFinite(msgTs)) {
-    const eligible = matches.filter((d) => {
+    const eligible = pool.filter((d) => {
       const createdTs = new Date(d.createdAt || 0).getTime();
       return createdTs <= msgTs + 6 * 3600 * 1000;
     });
@@ -654,7 +656,7 @@ function pickBestDossierForClient(
     }
     return null;
   }
-  return matches.sort(
+  return pool.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )[0];
 }
