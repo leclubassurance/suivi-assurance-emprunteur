@@ -26,7 +26,23 @@ const GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 const MAX_FILES = 30;
 const MAX_FILE_BYTES = 8_000_000;
 const MAX_EXCERPT_PER_FILE = 12_000;
-const MAX_DRIVE_PROMPT_CHARS = 14_000;
+/** Parcours Kereis + scripts ADE : budget prioritaire (fiches produits en second). */
+const MAX_PROCESS_PROMPT_CHARS = 22_000;
+const MAX_PRODUCT_PROMPT_CHARS = 10_000;
+
+const PROCESS_DOC_RE =
+  /kereis|parcours|espace.adherent|espace_adherent|script|scripts|ade|substitution/i;
+
+function isProcessKnowledgeFile(name: string): boolean {
+  return PROCESS_DOC_RE.test(name);
+}
+
+function knowledgeFileSortKey(name: string): number {
+  if (/kereis|parcours|espace/i.test(name)) return 0;
+  if (/script|ade/i.test(name)) return 1;
+  if (isProcessKnowledgeFile(name)) return 2;
+  return 10;
+}
 
 export type CamilleKnowledgeCache = {
   syncedAt: string;
@@ -353,10 +369,15 @@ export async function syncCamilleKnowledgeFromDrive(
     const rows: DriveFileRow[] = [];
     await listFilesRecursive(client.drive, folderId, 0, rows);
 
-    const parts: string[] = [];
-    const fileMeta: Array<{ name: string; chars: number }> = [];
+    const sortedRows = [...rows].sort(
+      (a, b) => knowledgeFileSortKey(a.name) - knowledgeFileSortKey(b.name) || a.name.localeCompare(b.name),
+    );
 
-    for (const row of rows) {
+    const processParts: string[] = [];
+    const productParts: string[] = [];
+    const fileMeta: Array<{ name: string; chars: number; kind: "process" | "product" }> = [];
+
+    for (const row of sortedRows) {
       if (row.name === README_FILENAME) continue;
       let text = "";
       try {
@@ -372,15 +393,32 @@ export async function syncCamilleKnowledgeFromDrive(
         console.warn(`[Camille knowledge] Lecture ${row.name}:`, e?.message || e);
       }
       if (!text) continue;
-      const excerpt = text.slice(0, MAX_EXCERPT_PER_FILE);
-      parts.push(`--- ${row.name} ---\n${excerpt}`);
-      fileMeta.push({ name: row.name, chars: excerpt.length });
+      const isProcess = isProcessKnowledgeFile(row.name);
+      const maxPerFile = isProcess ? MAX_EXCERPT_PER_FILE : Math.min(MAX_EXCERPT_PER_FILE, 6_000);
+      const excerpt = text.slice(0, maxPerFile);
+      const block = `--- ${row.name} ---\n${excerpt}`;
+      if (isProcess) processParts.push(block);
+      else productParts.push(block);
+      fileMeta.push({ name: row.name, chars: excerpt.length, kind: isProcess ? "process" : "product" });
     }
 
-    let driveExcerpt = parts.join("\n\n");
-    if (driveExcerpt.length > MAX_DRIVE_PROMPT_CHARS) {
-      driveExcerpt = driveExcerpt.slice(0, MAX_DRIVE_PROMPT_CHARS) + "\n\n[… tronqué …]";
+    let processBlock = processParts.join("\n\n");
+    if (processBlock.length > MAX_PROCESS_PROMPT_CHARS) {
+      processBlock = processBlock.slice(0, MAX_PROCESS_PROMPT_CHARS) + "\n\n[… tronqué — parcours/scripts …]";
     }
+    let productBlock = productParts.join("\n\n");
+    if (productBlock.length > MAX_PRODUCT_PROMPT_CHARS) {
+      productBlock = productBlock.slice(0, MAX_PRODUCT_PROMPT_CHARS) + "\n\n[… tronqué — fiches produits …]";
+    }
+
+    const driveExcerpt = [
+      processBlock
+        ? `=== PARCOURS KEREIS & SCRIPTS RÉPONSES CLIENT (priorité — source de vérité process) ===\n${processBlock}`
+        : "",
+      productBlock ? `=== FICHES PRODUITS ASSURANCE ===\n${productBlock}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
     const cache: CamilleKnowledgeCache = {
       syncedAt: new Date().toISOString(),
@@ -425,12 +463,14 @@ export async function buildCamilleKnowledgePromptBlock(
     }
   }
 
+  const processCount =
+    cache?.files?.filter((f) => isProcessKnowledgeFile(f.name)).length ?? 0;
   const drivePart =
     cache?.driveExcerpt?.trim() ?
-      `\n\nDOCUMENTATION PRODUITS (Google Drive — ${cache.fileCount} fichier(s), sync ${cache.syncedAt.slice(0, 16)}):\n${cache.driveExcerpt}`
+      `\n\nDOCUMENTATION DRIVE (Google Drive — ${cache.fileCount} fichier(s), dont ${processCount} process/scripts, sync ${cache.syncedAt.slice(0, 16)}):\n${cache.driveExcerpt}`
     : cache?.error
       ? `\n\n(Drive documentation : ${cache.error})`
-      : "\n\n(Drive documentation : aucun PDF indexé pour l'instant — réponses basées sur la FAQ intégrée.)";
+      : "\n\n(Drive documentation : aucun PDF indexé — lancer sync admin ou vérifier CAMILLE_KNOWLEDGE_DRIVE_FOLDER_ID.)";
 
   return staticBlock + drivePart;
 }

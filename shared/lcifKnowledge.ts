@@ -124,7 +124,20 @@ export const LCIF_FAQ: FaqItem[] = [
   },
 ];
 
-/** Substitution et souscription après accord client (pas de doc process dédié — FAQ opérationnelle). */
+/** Référence rapide Kereis (complétée par le PDF Drive « espace adhérent »). */
+export const KEREIS_CLIENT_JOURNEY_SUMMARY = `
+PARCOURS CLIENT ESPACE ADHÉRENT KEREIS (résumé — détail dans la doc Drive) :
+- Durée annoncée au client : environ 10 minutes en ligne pour l'attestation.
+- Étape 0 : accepter CGU + consentement données de santé → « Je valide ».
+- Étape 1/5 : vérifier identité, adresse, banque (pré-rempli) → « Je continue ».
+- Étape 2/5 : questionnaire santé si encours > 200 000 € / assuré ; sinon saut (loi Lemoine) — réponses confidentielles.
+- Étape 3/5 : signature électronique Docaposte (devoir de conseil, DIP, notice, bulletin, QS, résiliation, mandat substitution).
+- Étape 4/5 : proposition finale + justificatifs ; le client peut voir une majoration santé ici.
+- Étape 5/5 : signature proposition → attestation téléchargeable dans l'espace assuré (distinct de l'espace adhésion).
+Problèmes fréquents : email en spam → régénérer lien ; 2 cases CGU obligatoires ; majoration étape 4 → recalcul économie avec Charles/LCIF.
+`;
+
+/** Substitution et souscription après accord client (complété par PDF Drive Kereis + scripts ADE). */
 export const LCIF_SUBSCRIPTION_FAQ: FaqItem[] = [
   {
     q: "Qu'est-ce que la substitution d'assurance emprunteur ?",
@@ -148,7 +161,7 @@ export const LCIF_SUBSCRIPTION_FAQ: FaqItem[] = [
   },
   {
     q: "Que faire dans l'espace adhésion (étapes) ?",
-    a: "En général : se connecter au lien reçu, valider les informations, compléter le questionnaire de santé si demandé, lire et signer les documents, transmettre les justificatifs éventuels. Suivez les instructions à l'écran ; en cas de blocage technique, décrivez précisément l'étape — Charles peut aider.",
+    a: "Suivre le parcours Kereis (~10 min) : CGU + consentement santé → vérifier identité/adresse/banque → questionnaire santé si encours > 200 000 € (sinon étape sautée) → signatures Docaposte → proposition et justificatifs → attestation dans l'espace assuré. Détail écran par écran dans la doc Drive « espace adhérent ».",
   },
   {
     q: "Questionnaire de santé : est-ce obligatoire ?",
@@ -193,8 +206,11 @@ export function buildStaticCamilleKnowledgeBlock(): string {
     "FAQ SUBSTITUTION & SOUSCRIPTION (après étude — utiliser avec la phase dossier du contexte) :",
     formatLcifFaqForPrompt(LCIF_SUBSCRIPTION_FAQ, 12),
     "",
-    "DOCUMENTATION PRODUITS (Drive) :",
-    "Les fiches produits assurance dans le Drive servent aux questions sur les garanties, définitions produit et fonctionnement général — pas au processus Kereis pas à pas (non documenté pour l'instant).",
+    KEREIS_CLIENT_JOURNEY_SUMMARY.trim(),
+    "",
+    "DOCUMENTATION DRIVE « Documentation Camille » :",
+    "- PARCOURS KEREIS & SCRIPTS ADE (02_espace_adherent…, 03_scripts…) : priorité pour espace adhésion, objections, délais.",
+    "- FICHES PRODUITS : garanties et notices — questions couverture / produit.",
     "",
     "PRÉSENTATION CLUB (uniquement si le client la demande) :",
     LCIF_PRESENTATION_WHEN_ASKED.trim(),
