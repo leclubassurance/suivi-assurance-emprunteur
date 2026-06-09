@@ -70,29 +70,40 @@ export function resumeCamilleForDossier(dossier: Dossier, source = "admin_resume
 export function acknowledgeStaffOutboundToClient(
   dossier: Dossier,
   meta?: { gmailId?: string; source?: string; subject?: string },
-) {
+): boolean {
+  const gmailId = String(meta?.gmailId || "").trim();
+  if (gmailId) {
+    const seen = (dossier as any).acknowledgedStaffOutboundGmailIds as string[] | undefined;
+    if (Array.isArray(seen) && seen.includes(gmailId)) return false;
+  }
+
   const now = new Date().toISOString();
   const subject = String(meta?.subject || "");
   const skipPause = isAutomatedTeamOutboundSubject(subject);
+  let changed = false;
 
   if (!skipPause) {
     const pauseHours = Number(process.env.CAMILLE_PAUSE_AFTER_STAFF_HOURS || "1");
     const pauseMs =
       Number.isFinite(pauseHours) && pauseHours > 0 ? pauseHours * 3600 * 1000 : 0;
-    if (pauseMs > 0) {
-      dossier.camilleStaffHandledUntil = new Date(Date.now() + pauseMs).toISOString();
-    } else {
-      delete dossier.camilleStaffHandledUntil;
+    const nextUntil =
+      pauseMs > 0 ? new Date(Date.now() + pauseMs).toISOString() : undefined;
+    if (dossier.camilleStaffHandledUntil !== nextUntil) {
+      if (nextUntil) dossier.camilleStaffHandledUntil = nextUntil;
+      else delete dossier.camilleStaffHandledUntil;
+      changed = true;
     }
-  } else {
+  } else if (dossier.camilleStaffHandledUntil) {
     delete dossier.camilleStaffHandledUntil;
+    changed = true;
   }
-  if (dossier.camilleEscalation) {
+  if (dossier.camilleEscalation && !dossier.camilleEscalation.resolvedAt) {
     dossier.camilleEscalation = {
       ...dossier.camilleEscalation,
       resolvedAt: now,
       resolvedBy: meta?.source || "staff_gmail",
     } as any;
+    changed = true;
   }
 
   for (const t of dossier.tasks || []) {
@@ -102,17 +113,29 @@ export function acknowledgeStaffOutboundToClient(
       t.payload?.kind === "ESCALATION_FOLLOWUP"
     ) {
       t.status = "CANCELLED";
+      changed = true;
     }
   }
 
   if (dossier.status === "EN_ATTENTE_CLIENT") {
     dossier.status = "EN_COURS";
+    changed = true;
   }
 
-  addEvent(dossier, {
-    type: "AI_DECISION",
-    actor: { kind: "ADMIN", label: "Équipe" },
-    message: "Réponse équipe enregistrée — escalade close, dossier repris.",
-    meta: { ...meta, camillePausedUntil: dossier.camilleStaffHandledUntil },
-  });
+  if (changed) {
+    addEvent(dossier, {
+      type: "AI_DECISION",
+      actor: { kind: "ADMIN", label: "Équipe" },
+      message: "Réponse équipe enregistrée — escalade close, dossier repris.",
+      meta: { ...meta, camillePausedUntil: dossier.camilleStaffHandledUntil },
+    });
+    if (gmailId) {
+      const list = ((dossier as any).acknowledgedStaffOutboundGmailIds ||= []) as string[];
+      if (!list.includes(gmailId)) list.push(gmailId);
+      if (list.length > 300) {
+        (dossier as any).acknowledgedStaffOutboundGmailIds = list.slice(-300);
+      }
+    }
+  }
+  return changed;
 }

@@ -175,6 +175,12 @@ export function compactDossierForPersistence(dossier: unknown): Record<string, u
     d.processedGmailIds = (d.processedGmailIds as string[]).slice(-MAX_GMAIL_IDS);
   }
 
+  if (Array.isArray(d.acknowledgedStaffOutboundGmailIds)) {
+    d.acknowledgedStaffOutboundGmailIds = (d.acknowledgedStaffOutboundGmailIds as string[]).slice(
+      -MAX_GMAIL_IDS,
+    );
+  }
+
   if (Array.isArray(d.importedGmailAttachmentKeys)) {
     d.importedGmailAttachmentKeys = (d.importedGmailAttachmentKeys as string[]).slice(
       -MAX_IMPORTED_ATTACHMENT_KEYS,

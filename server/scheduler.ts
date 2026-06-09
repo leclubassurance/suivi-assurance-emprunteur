@@ -1,4 +1,4 @@
-import { readDB, writeDB, writeDirtyDossiers } from "./db";
+import { readDB, writeDirtyDossiers } from "./db";
 import { addEvent, Dossier, EmailMessage, newId } from "./dossierModel";
 import { detectMissingDocs, getPrimaryClientEmail } from "./rules";
 import { shouldSendScheduledReminder } from "./smartReminders";
@@ -40,6 +40,7 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
   let processed = 0;
   let sent = 0;
   let failed = 0;
+  const dirtyIds = new Set<string>();
 
   for (const dossier of db.dossiers) {
     if (!dossier.tasks || dossier.tasks.length === 0) continue;
@@ -48,6 +49,7 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
 
     for (const task of due) {
       processed += 1;
+      dirtyIds.add(dossier.id);
       task.attempts += 1;
       task.lastAttemptAt = new Date().toISOString();
 
@@ -183,7 +185,9 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
     }
   }
 
-  await writeDB(db);
+  if (dirtyIds.size > 0) {
+    await writeDirtyDossiers(db, dirtyIds);
+  }
   return { processed, sent, failed };
 }
 

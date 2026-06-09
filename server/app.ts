@@ -1904,6 +1904,7 @@ export function createApp() {
     const periodDays = Number(req.query.days || 7);
     const { computeActivityMetrics } = await import("./activityMetrics");
     let kpiBackfilled = 0;
+    const dirtyKpiIds: string[] = [];
     const { refreshStudyKpiFromCommunications, getLoanCapitalFromDossier } = await import(
       "./studyEmailKpi",
     );
@@ -1917,11 +1918,15 @@ export function createApp() {
         gross <= 0 ||
         (gross > 0 && loan > 0 && gross > loan * 1.2);
       if (!kpi?.extractedAt || suspectKpi) {
-        if (hasStudyBeenSent(d) && refreshStudyKpiFromCommunications(d)) kpiBackfilled += 1;
+        if (hasStudyBeenSent(d) && refreshStudyKpiFromCommunications(d)) {
+          kpiBackfilled += 1;
+          dirtyKpiIds.push(d.id);
+        }
       }
     }
-    if (kpiBackfilled > 0) {
-      await writeDB(db);
+    if (dirtyKpiIds.length > 0) {
+      const { writeDirtyDossiers } = await import("./db");
+      await writeDirtyDossiers(db, dirtyKpiIds);
     }
     res.json(computeActivityMetrics(db.dossiers, periodDays));
   });
@@ -2340,7 +2345,11 @@ export function createApp() {
         dossierIds: body.dossierIds,
         limit: body.limit,
       });
-      await writeDB(db);
+      const dirtyIds = summary.results.filter((r) => r.analyzedCount > 0).map((r) => r.dossierId);
+      if (dirtyIds.length > 0) {
+        const { writeDirtyDossiers } = await import("./db");
+        await writeDirtyDossiers(db, dirtyIds);
+      }
       res.json({ success: true, ...summary });
     } catch (err: any) {
       console.error("reanalyze-documents-all", err);
@@ -2358,8 +2367,12 @@ export function createApp() {
         const db = await readDBAsync();
         const { runOcrHybridBackfillIfNeeded } = await import("./reanalyzeLoanDocuments");
         const { ran, summary } = await runOcrHybridBackfillIfNeeded(db, UPLOADS_DIR, DATA_DIR);
-        if (ran && (summary?.totalAnalyzed || 0) > 0) {
-          await writeDB(db);
+        if (ran && summary) {
+          const dirtyIds = summary.results.filter((r) => r.analyzedCount > 0).map((r) => r.dossierId);
+          if (dirtyIds.length > 0) {
+            const { writeDirtyDossiers } = await import("./db");
+            await writeDirtyDossiers(db, dirtyIds);
+          }
         }
       } catch (err: any) {
         console.error("[OCR hybride] Backfill au démarrage:", err?.message || err);

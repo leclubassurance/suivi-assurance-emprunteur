@@ -26,7 +26,7 @@ export type ParsedKnowledgeFile = {
   kind: "process" | "product";
 };
 
-const DEFAULT_EMBED_MODEL = "text-embedding-004";
+const DEFAULT_EMBED_MODEL = "gemini-embedding-001";
 const CHUNK_TARGET = 750;
 const CHUNK_MAX = 1_100;
 const EMBED_BATCH = 16;

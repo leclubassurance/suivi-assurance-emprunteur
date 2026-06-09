@@ -156,7 +156,7 @@ export async function writeDirtyDossiers(
     }
 
     if (i < unique.length - 1) {
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 

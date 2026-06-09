@@ -70,18 +70,27 @@ function truncateCommText(s: unknown, max = 3500): string {
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 }
 
-export function upsertCommunication(dossier: any, msg: any) {
+export function upsertCommunication(dossier: any, msg: any): boolean {
   if (!dossier.communications) dossier.communications = [];
   const idx = dossier.communications.findIndex(
     (c: any) => (msg.gmailId && c.gmailId === msg.gmailId) || c.id === msg.id,
   );
   if (idx >= 0) {
     const prev = dossier.communications[idx];
+    const nextAttachments =
+      msg.attachments?.length > 0 ? msg.attachments : prev.attachments || [];
+    const unchanged =
+      prev.subject === msg.subject &&
+      prev.direction === msg.direction &&
+      prev.text === msg.text &&
+      prev.html === msg.html &&
+      prev.date === msg.date &&
+      JSON.stringify(prev.attachments || []) === JSON.stringify(nextAttachments);
+    if (unchanged) return false;
     dossier.communications[idx] = {
       ...prev,
       ...msg,
-      attachments:
-        msg.attachments?.length > 0 ? msg.attachments : prev.attachments || [],
+      attachments: nextAttachments,
     };
   } else {
     dossier.communications.push({
@@ -92,6 +101,7 @@ export function upsertCommunication(dossier: any, msg: any) {
   if (dossier.communications.length > 40) {
     dossier.communications = dossier.communications.slice(-40);
   }
+  return true;
 }
 
 function getProcessedIds(dossier: any): Set<string> {
@@ -99,11 +109,13 @@ function getProcessedIds(dossier: any): Set<string> {
   return new Set(dossier.processedGmailIds);
 }
 
-function markProcessed(dossier: any, gmailId: string) {
+function markProcessed(dossier: any, gmailId: string): boolean {
   if (!dossier.processedGmailIds) dossier.processedGmailIds = [];
   if (!dossier.processedGmailIds.includes(gmailId)) {
     dossier.processedGmailIds.push(gmailId);
+    return true;
   }
+  return false;
 }
 
 function isAiAutoReplyEnabled() {
@@ -575,45 +587,60 @@ export async function syncGmailInbox(
         }
       }
 
-      upsertCommunication(dossier, {
-        id: `msg_${msgMeta.id}`,
-        gmailId: msgMeta.id,
-        direction,
-        from: isFromClient ? senderEmail : process.env.GMAIL_USER || 'assurance@leclubimmobilier.fr',
-        to: isFromClient ? undefined : getDossierClientEmails(dossier)[0],
-        subject,
-        text,
-        html: html || undefined,
-        attachments: addedAttachments.map((d) => ({ name: d.name, size: d.size })),
-        date: msgDate,
-      });
+      let msgChanged = addedAttachments.length > 0;
+      if (
+        upsertCommunication(dossier, {
+          id: `msg_${msgMeta.id}`,
+          gmailId: msgMeta.id,
+          direction,
+          from: isFromClient ? senderEmail : process.env.GMAIL_USER || 'assurance@leclubimmobilier.fr',
+          to: isFromClient ? undefined : getDossierClientEmails(dossier)[0],
+          subject,
+          text,
+          html: html || undefined,
+          attachments: addedAttachments.map((d) => ({ name: d.name, size: d.size })),
+          date: msgDate,
+        })
+      ) {
+        msgChanged = true;
+      }
 
       if (isSentByMe && isToClient && !isFromClient) {
         const { acknowledgeStaffOutboundToClient } = await import("./camilleStaffHandoff");
-        acknowledgeStaffOutboundToClient(dossier, {
-          gmailId: msgMeta.id,
-          source: "gmail_sync_outbound",
-          subject,
-        });
+        if (
+          acknowledgeStaffOutboundToClient(dossier, {
+            gmailId: msgMeta.id,
+            source: "gmail_sync_outbound",
+            subject,
+          })
+        ) {
+          msgChanged = true;
+        }
         try {
           const { applyStudyKpiFromGmailOutbound } = await import("./studyEmailKpi");
-          applyStudyKpiFromGmailOutbound(dossier, {
-            subject,
-            html,
-            text,
-            gmailId: msgMeta.id,
-            date: msgDate,
-          });
+          if (
+            applyStudyKpiFromGmailOutbound(dossier, {
+              subject,
+              html,
+              text,
+              gmailId: msgMeta.id,
+              date: msgDate,
+            })
+          ) {
+            msgChanged = true;
+          }
         } catch (kpiErr: any) {
           console.warn(`[KPI] Extraction étude Gmail: ${kpiErr?.message || kpiErr}`);
         }
         const { hasStudyBeenSent } = await import("./dossierLifecycle");
+        const prevStatus = dossier.status;
         if (
           hasStudyBeenSent(dossier) &&
           !["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))
         ) {
           dossier.status = "MAIL_ENVOYÉ";
         }
+        if (dossier.status !== prevStatus) msgChanged = true;
       }
 
       if (isFromClient) {
@@ -935,12 +962,11 @@ export async function syncGmailInbox(
             releaseCamilleClientEmailLock(dossier.id);
           }
         } else if (!alreadyHandled) {
-          markProcessed(dossier, msgMeta.id);
-          markDossierDirty(dossier);
+          if (markProcessed(dossier, msgMeta.id)) msgChanged = true;
         }
       }
 
-      markDossierDirty(dossier);
+      if (msgChanged) markDossierDirty(dossier);
     }
   }
 
@@ -973,6 +999,7 @@ export async function syncGmailInbox(
     }
     const syncResult = finalizeGmailDocumentImport(dossier, { driveFilesByName });
     if (syncResult.mergedFromDrive > 0 || syncResult.categoriesUpdated > 0) {
+      markDossierDirty(dossier);
       console.log(
         `[Gmail] Documents auto-sync ${dossierId}: +${syncResult.mergedFromDrive} Drive, ${syncResult.categoriesUpdated} catégories`,
       );
