@@ -1,16 +1,20 @@
 import { addEvent, type Dossier } from "./dossierModel";
 import { isOutboundConfirmation } from "./dossierLifecycle";
 
+export type StudyKpiGrossSource = "draft" | "table" | "hero" | "text" | "subject";
+
 export type StudyKpiRecord = {
   grossSavingsEur: number;
   feesCourtageEur: number;
   feesAssureurEur?: number;
   scenario?: "A" | "B" | "C";
   confidence: "high" | "medium" | "low";
-  source: "gmail_outbound";
+  source: "gmail_outbound" | "study_draft";
   gmailId: string;
   extractedAt: string;
   subject?: string;
+  loanCapitalEur?: number;
+  grossSource?: StudyKpiGrossSource;
 };
 
 const STUDY_SUBJECT_RE =
@@ -28,6 +32,16 @@ const NAMED_HTML_ENTITIES: Record<string, string> = {
   ccedil: "ç",
   euro: "€",
 };
+
+const GROSS_SOURCE_RANK: Record<StudyKpiGrossSource, number> = {
+  draft: 100,
+  table: 85,
+  hero: 55,
+  text: 35,
+  subject: 15,
+};
+
+const CONFIDENCE_RANK = { high: 30, medium: 20, low: 8 };
 
 function decodeHtmlEntities(s: string): string {
   return String(s || "")
@@ -76,21 +90,21 @@ export function extractGrossFromStudySubject(subject: string): number | null {
   return m?.[1] ? parseEuroToken(m[1]) : null;
 }
 
-/** Montant affiché en grand (bloc bleu) — source la plus fiable. */
+/** Montant affiché en grand — uniquement si libellé « économie brute » à proximité. */
 function extractGrossFromHeroHtml(rawHtml: string): number | null {
   const html = decodeHtmlEntities(rawHtml);
-  const hero = html.match(
-    /font-size:\s*(?:2[4-9]|3[0-9]|40)px[\s\S]{0,220}?>([^<]+)</i,
-  );
-  if (hero?.[1]) {
-    const n = parseEuroToken(hero[1]);
-    if (n != null) return n;
-  }
   const afterLabel = html.match(
     /[ÉE]conomie brute estim[ée]e[\s\S]{0,500}?font-size:\s*(?:2[4-9]|3[0-9]|40)px[\s\S]{0,120}?>([^<]+)</i,
   );
   if (afterLabel?.[1]) {
     const n = parseEuroToken(afterLabel[1]);
+    if (n != null) return n;
+  }
+  const hero = html.match(
+    /font-size:\s*(?:2[4-9]|3[0-9]|40)px[\s\S]{0,220}?>([^<]+)</i,
+  );
+  if (hero?.[1]) {
+    const n = parseEuroToken(hero[1]);
     if (n != null) return n;
   }
   return null;
@@ -99,12 +113,17 @@ function extractGrossFromHeroHtml(rawHtml: string): number | null {
 /** Ligne de tableau « Économie brute » (pas « Assurance actuelle »). */
 function extractGrossFromStudyTableHtml(rawHtml: string): number | null {
   const html = decodeHtmlEntities(rawHtml);
-  const row = html.match(
+  const patterns = [
     /<td[^>]*>\s*[ÉE]conomie brute\s*<\/td>\s*<td[^>]*>\s*([^<]+)\s*<\/td>/i,
-  );
-  if (row?.[1]) {
-    const n = parseEuroToken(row[1]);
-    if (n != null) return n;
+    /<td[^>]*>\s*ECONOMIE GENEREE\s*<\/td>\s*<td[^>]*>\s*([^<]+)\s*<\/td>/i,
+    /[ÉE]conomie brute[\s\S]{0,80}?<span[^>]*>([^<]*€[^<]*)</i,
+  ];
+  for (const re of patterns) {
+    const row = html.match(re);
+    if (row?.[1]) {
+      const n = parseEuroToken(row[1]);
+      if (n != null) return n;
+    }
   }
   return null;
 }
@@ -163,6 +182,13 @@ export function getLoanCapitalFromDossier(dossier: Dossier | any): number {
   return Math.round(sum);
 }
 
+export function isGrossSavingsPlausible(gross: number, loanCapitalEur: number): boolean {
+  if (!Number.isFinite(gross) || gross < 0) return false;
+  if (gross === 0) return true;
+  if (!loanCapitalEur || loanCapitalEur <= 0) return true;
+  return gross <= loanCapitalEur * 1.2;
+}
+
 export function isStudyEconomyOutboundEmail(subject: string, body: string): boolean {
   const sub = String(subject || "");
   const blob = stripHtml(body).slice(0, 12000);
@@ -178,10 +204,38 @@ export function isStudyEconomyOutboundEmail(subject: string, body: string): bool
   return false;
 }
 
+type ParsedStudyKpi = Omit<StudyKpiRecord, "gmailId" | "extractedAt" | "source" | "loanCapitalEur">;
+
+function rejectGrossIfInsuranceCollision(
+  gross: number | null,
+  grossSource: StudyKpiGrossSource | null,
+  blob: string,
+): { gross: number | null; grossSource: StudyKpiGrossSource | null } {
+  const insuranceTotal =
+    firstAmountAfter(/assurance actuelle/i, blob, 80) ??
+    firstAmountAfter(/assurance actuelle \(durée restante\)/i, blob, 80);
+
+  if (
+    gross != null &&
+    insuranceTotal != null &&
+    Math.abs(gross - insuranceTotal) < 0.02
+  ) {
+    const retry = extractGrossFromTextBlob(
+      blob.replace(/assurance actuelle[\s\S]{0,120}?\d[\d\s,.]*€/i, " "),
+    );
+    if (retry != null && Math.abs(retry - insuranceTotal) >= 0.02) {
+      return { gross: retry, grossSource: "text" };
+    }
+    return { gross: null, grossSource: null };
+  }
+  return { gross, grossSource };
+}
+
 export function parseStudyEconomyFromEmailHtml(
   html: string,
   subject: string,
-): Omit<StudyKpiRecord, "gmailId" | "extractedAt" | "source" | "loanCapitalEur"> | null {
+  loanCapitalEur = 0,
+): ParsedStudyKpi | null {
   const rawHtml = String(html || "");
   const blob = stripHtml(rawHtml || subject);
   if (!isStudyEconomyOutboundEmail(subject, rawHtml || blob)) return null;
@@ -193,19 +247,20 @@ export function parseStudyEconomyFromEmailHtml(
       feesAssureurEur: 0,
       scenario: "C",
       confidence: "high",
+      grossSource: "table",
       subject,
     };
   }
 
   let gross: number | null = null;
-  let grossSource: "hero" | "table" | "text" | null = null;
+  let grossSource: StudyKpiGrossSource | null = null;
 
   if (rawHtml.length > 0) {
-    gross = extractGrossFromHeroHtml(rawHtml);
-    if (gross != null) grossSource = "hero";
+    gross = extractGrossFromStudyTableHtml(rawHtml);
+    if (gross != null) grossSource = "table";
     if (gross == null) {
-      gross = extractGrossFromStudyTableHtml(rawHtml);
-      if (gross != null) grossSource = "table";
+      gross = extractGrossFromHeroHtml(rawHtml);
+      if (gross != null) grossSource = "hero";
     }
   }
 
@@ -216,22 +271,14 @@ export function parseStudyEconomyFromEmailHtml(
 
   if (gross == null) {
     gross = extractGrossFromStudySubject(subject);
-    if (gross != null) grossSource = "text";
+    if (gross != null) grossSource = "subject";
   }
 
-  const insuranceTotal =
-    firstAmountAfter(/assurance actuelle/i, blob, 80) ??
-    firstAmountAfter(/assurance actuelle \(durée restante\)/i, blob, 80);
-  if (
-    gross != null &&
-    insuranceTotal != null &&
-    Math.abs(gross - insuranceTotal) < 0.02 &&
-    grossSource !== "hero"
-  ) {
-    gross = extractGrossFromTextBlob(blob.replace(/assurance actuelle[\s\S]{0,120}?\d[\d\s,.]*€/i, " "));
-    if (gross == null || Math.abs(gross - insuranceTotal) < 0.02) {
-      gross = null;
-    }
+  ({ gross, grossSource } = rejectGrossIfInsuranceCollision(gross, grossSource, blob));
+
+  if (gross != null && gross > 0 && !isGrossSavingsPlausible(gross, loanCapitalEur)) {
+    gross = null;
+    grossSource = null;
   }
 
   let feesCourtage = rawHtml.length > 0 ? extractFeesCourtageFromHtml(rawHtml, blob) : null;
@@ -252,13 +299,15 @@ export function parseStudyEconomyFromEmailHtml(
   else if ((gross ?? 0) < 500) scenario = "B";
 
   const confidence: "high" | "medium" | "low" =
-    gross != null && gross > 0 && grossSource === "hero"
+    gross != null && gross > 0 && grossSource === "table"
       ? "high"
-      : gross != null && gross > 0
-        ? "medium"
-        : gross === 0 && scenario === "C"
-          ? "high"
-          : "low";
+      : gross != null && gross > 0 && grossSource === "hero"
+        ? "high"
+        : gross != null && gross > 0
+          ? "medium"
+          : gross === 0 && scenario === "C"
+            ? "high"
+            : "low";
 
   return {
     grossSavingsEur: gross ?? 0,
@@ -266,20 +315,81 @@ export function parseStudyEconomyFromEmailHtml(
     feesAssureurEur: feesAssureur,
     scenario,
     confidence,
+    grossSource: grossSource || undefined,
     subject,
   };
 }
 
-function isBetterKpi(
-  next: Omit<StudyKpiRecord, "gmailId" | "extractedAt" | "source" | "loanCapitalEur">,
-  prev: StudyKpiRecord | undefined,
-): boolean {
+function kpiQualityScore(
+  kpi: Pick<StudyKpiRecord, "grossSavingsEur" | "confidence" | "grossSource">,
+  loanCapitalEur: number,
+): number {
+  let score = CONFIDENCE_RANK[kpi.confidence] || 0;
+  score += GROSS_SOURCE_RANK[kpi.grossSource || "subject"] || 0;
+  if (Number(kpi.grossSavingsEur) > 0) score += 12;
+  if (!isGrossSavingsPlausible(Number(kpi.grossSavingsEur) || 0, loanCapitalEur)) score -= 500;
+  return score;
+}
+
+function isBetterKpi(next: ParsedStudyKpi, prev: StudyKpiRecord | undefined, loanCapitalEur: number): boolean {
   if (!prev) return true;
-  const rank = { high: 3, medium: 2, low: 1 };
-  if ((rank[next.confidence] || 0) > (rank[prev.confidence] || 0)) return true;
-  if ((rank[next.confidence] || 0) < (rank[prev.confidence] || 0)) return false;
+  const nextScore = kpiQualityScore(
+    { grossSavingsEur: next.grossSavingsEur, confidence: next.confidence, grossSource: next.grossSource },
+    loanCapitalEur,
+  );
+  const prevScore = kpiQualityScore(prev, loanCapitalEur);
+  if (nextScore !== prevScore) return nextScore > prevScore;
   if (next.grossSavingsEur > 0 && prev.grossSavingsEur <= 0) return true;
   return false;
+}
+
+function writeStudyKpi(
+  dossier: Dossier,
+  parsed: ParsedStudyKpi,
+  meta: { gmailId: string; date: string; source: StudyKpiRecord["source"] },
+): boolean {
+  const loanCapitalEur = getLoanCapitalFromDossier(dossier);
+  const prev = dossier.studyKpi as StudyKpiRecord | undefined;
+  if (prev?.gmailId === meta.gmailId && prev && !isBetterKpi(parsed, prev, loanCapitalEur)) {
+    return false;
+  }
+  if (
+    prev?.extractedAt &&
+    prev.gmailId !== meta.gmailId &&
+    new Date(meta.date).getTime() < new Date(prev.extractedAt).getTime() &&
+    !isBetterKpi(parsed, prev, loanCapitalEur)
+  ) {
+    return false;
+  }
+  if (prev && prev.gmailId !== meta.gmailId && !isBetterKpi(parsed, prev, loanCapitalEur)) {
+    return false;
+  }
+
+  dossier.studyKpi = {
+    ...parsed,
+    loanCapitalEur,
+    source: meta.source,
+    gmailId: meta.gmailId,
+    extractedAt: meta.date,
+  };
+
+  addEvent(dossier, {
+    type: "NOTE_ADDED",
+    actor: { kind: "SYSTEM" },
+    message: `KPI étude (${parsed.grossSource || meta.source}) : ${parsed.grossSavingsEur} € économie brute, confiance ${parsed.confidence}.`,
+    meta: {
+      template: "STUDY_KPI_EXTRACTED",
+      gmailId: meta.gmailId,
+      grossSavingsEur: parsed.grossSavingsEur,
+      feesCourtageEur: parsed.feesCourtageEur,
+      loanCapitalEur,
+      scenario: parsed.scenario,
+      confidence: parsed.confidence,
+      grossSource: parsed.grossSource,
+    },
+  });
+
+  return true;
 }
 
 export function applyStudyKpiFromGmailOutbound(
@@ -297,59 +407,25 @@ export function applyStudyKpiFromGmailOutbound(
   const body = html || text;
   if (!isStudyEconomyOutboundEmail(params.subject, body)) return false;
 
-  const parsed = parseStudyEconomyFromEmailHtml(html || text, params.subject);
+  const loanCapitalEur = getLoanCapitalFromDossier(dossier);
+  const parsed = parseStudyEconomyFromEmailHtml(html || text, params.subject, loanCapitalEur);
   if (!parsed) return false;
 
-  const prev = dossier.studyKpi as StudyKpiRecord | undefined;
-  if (prev?.gmailId === params.gmailId && prev && !isBetterKpi(parsed, prev)) {
-    return true;
-  }
-  if (
-    prev?.extractedAt &&
-    prev.gmailId !== params.gmailId &&
-    new Date(params.date).getTime() < new Date(prev.extractedAt).getTime()
-  ) {
-    return false;
-  }
-  if (prev && prev.gmailId !== params.gmailId && !isBetterKpi(parsed, prev)) {
-    return false;
-  }
-
-  const loanCapitalEur = getLoanCapitalFromDossier(dossier);
-
-  dossier.studyKpi = {
-    ...parsed,
-    loanCapitalEur,
-    source: "gmail_outbound",
+  return writeStudyKpi(dossier, parsed, {
     gmailId: params.gmailId,
-    extractedAt: params.date,
-  };
-
-  addEvent(dossier, {
-    type: "NOTE_ADDED",
-    actor: { kind: "SYSTEM" },
-    message: `KPI étude extraits du mail Gmail (${parsed.grossSavingsEur} € économie brute, confiance ${parsed.confidence}).`,
-    meta: {
-      template: "STUDY_KPI_EXTRACTED",
-      gmailId: params.gmailId,
-      grossSavingsEur: parsed.grossSavingsEur,
-      feesCourtageEur: parsed.feesCourtageEur,
-      loanCapitalEur,
-      scenario: parsed.scenario,
-      confidence: parsed.confidence,
-    },
+    date: params.date,
+    source: "gmail_outbound",
   });
-
-  return true;
 }
 
-/** KPI depuis le brouillon calculé (compute-economy) ou son HTML. */
+/** KPI depuis le brouillon calculé (compute-economy) — source de vérité prioritaire. */
 export function applyStudyKpiFromStudyDraft(dossier: Dossier): boolean {
   const draft = dossier.studyDraft as
     | {
         html?: string | null;
         subject?: string | null;
         computedAt?: string;
+        reliability?: string;
         economySummary?: {
           grossSavingsEur?: number;
           feesCourtageEur?: number;
@@ -360,66 +436,119 @@ export function applyStudyKpiFromStudyDraft(dossier: Dossier): boolean {
   if (!draft) return false;
 
   const summary = draft.economySummary;
-  if (summary && Number(summary.grossSavingsEur) > 0) {
-    const parsed = {
-      grossSavingsEur: Math.round(Number(summary.grossSavingsEur) || 0),
+  if (summary && summary.grossSavingsEur != null) {
+    const gross = Math.round(Number(summary.grossSavingsEur) || 0);
+    const parsed: ParsedStudyKpi = {
+      grossSavingsEur: gross,
       feesCourtageEur: Math.round(Number(summary.feesCourtageEur) || 0),
       feesAssureurEur: summary.feesAssureurEur,
-      scenario: "A" as const,
-      confidence: "high" as const,
+      scenario: gross <= 0 ? "C" : gross < 500 ? "B" : "A",
+      confidence: draft.reliability === "HIGH" ? "high" : "medium",
+      grossSource: "draft",
       subject: draft.subject || undefined,
     };
-    if (!isBetterKpi(parsed, dossier.studyKpi as StudyKpiRecord | undefined)) {
-      return Boolean(dossier.studyKpi?.grossSavingsEur);
+    const loanCapitalEur = getLoanCapitalFromDossier(dossier);
+    if (!isBetterKpi(parsed, dossier.studyKpi as StudyKpiRecord | undefined, loanCapitalEur)) {
+      return Boolean(dossier.studyKpi?.grossSavingsEur != null);
     }
-    dossier.studyKpi = {
-      ...parsed,
-      loanCapitalEur: getLoanCapitalFromDossier(dossier),
-      source: "gmail_outbound",
+    return writeStudyKpi(dossier, parsed, {
       gmailId: `study_draft_${dossier.id}`,
-      extractedAt: draft.computedAt || new Date().toISOString(),
-    };
-    addEvent(dossier, {
-      type: "NOTE_ADDED",
-      actor: { kind: "SYSTEM" },
-      message: `KPI étude depuis brouillon calculé (${parsed.grossSavingsEur} € économie brute).`,
-      meta: { template: "STUDY_KPI_FROM_DRAFT", grossSavingsEur: parsed.grossSavingsEur },
+      date: draft.computedAt || new Date().toISOString(),
+      source: "study_draft",
     });
-    return true;
   }
 
   if (!draft.html) return false;
-  return applyStudyKpiFromGmailOutbound(dossier, {
-    subject: String(draft.subject || ""),
-    html: String(draft.html),
-    text: String(draft.html),
+  const loanCapitalEur = getLoanCapitalFromDossier(dossier);
+  const parsed = parseStudyEconomyFromEmailHtml(
+    String(draft.html),
+    String(draft.subject || ""),
+    loanCapitalEur,
+  );
+  if (!parsed) return false;
+  parsed.grossSource = "draft";
+  parsed.confidence = draft.reliability === "HIGH" ? "high" : parsed.confidence;
+  return writeStudyKpi(dossier, parsed, {
     gmailId: `study_draft_html_${dossier.id}`,
     date: draft.computedAt || new Date().toISOString(),
+    source: "study_draft",
   });
+}
+
+/** Applique la meilleure source disponible : brouillon calculé > mail HTML. */
+export function applyStudyKpiBestAvailable(
+  dossier: Dossier,
+  mailParams?: {
+    subject: string;
+    html?: string;
+    text?: string;
+    gmailId: string;
+    date: string;
+  },
+): boolean {
+  const fromDraft = applyStudyKpiFromStudyDraft(dossier);
+  const loanCapitalEur = getLoanCapitalFromDossier(dossier);
+  const currentOk =
+    dossier.studyKpi &&
+    isGrossSavingsPlausible(Number(dossier.studyKpi.grossSavingsEur) || 0, loanCapitalEur) &&
+    dossier.studyKpi.grossSource === "draft";
+
+  if (fromDraft && currentOk) return true;
+
+  if (mailParams) {
+    return applyStudyKpiFromGmailOutbound(dossier, mailParams) || fromDraft;
+  }
+  return fromDraft;
 }
 
 /** Rejoue l'extraction sur l'historique Gmail déjà synchronisé (backfill KPI). */
 export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
+  if (applyStudyKpiFromStudyDraft(dossier)) {
+    const loan = getLoanCapitalFromDossier(dossier);
+    const kpi = dossier.studyKpi;
+    if (
+      kpi?.grossSource === "draft" &&
+      isGrossSavingsPlausible(Number(kpi.grossSavingsEur) || 0, loan)
+    ) {
+      return true;
+    }
+  }
+
+  const loanCapitalEur = getLoanCapitalFromDossier(dossier);
   const comms = [...(dossier.communications || [])]
     .filter((c: any) => c.direction === "outbound")
     .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+  let best: { parsed: ParsedStudyKpi; gmailId: string; date: string } | null = null;
+  let bestScore = -Infinity;
 
   for (const c of comms) {
     const html = String(c.html || "");
     const text = String(c.text || "");
     const body = html.length >= text.length ? html : text;
-    if (
-      applyStudyKpiFromGmailOutbound(dossier, {
-        subject: String(c.subject || ""),
-        html: body,
-        text,
+    if (!isStudyEconomyOutboundEmail(String(c.subject || ""), body)) continue;
+    const parsed = parseStudyEconomyFromEmailHtml(body, String(c.subject || ""), loanCapitalEur);
+    if (!parsed) continue;
+    const score = kpiQualityScore(parsed, loanCapitalEur);
+    if (score > bestScore) {
+      bestScore = score;
+      best = {
+        parsed,
         gmailId: String(c.gmailId || c.id || ""),
         date: String(c.date || dossier.updatedAt),
-      })
-    ) {
-      return true;
+      };
     }
   }
+
+  if (best && bestScore > -100) {
+    const changed = writeStudyKpi(dossier, best.parsed, {
+      gmailId: best.gmailId,
+      date: best.date,
+      source: "gmail_outbound",
+    });
+    if (changed) return true;
+  }
+
   return applyStudyKpiFromStudyDraft(dossier);
 }
 

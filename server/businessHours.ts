@@ -21,8 +21,15 @@ export function isRailwayEcoMode(): boolean {
   return envFlag("RAILWAY_ECO_MODE", "false");
 }
 
+/** Tests Camille : sync Gmail 24h/24, cooldown réduit, intervalle court. */
+export function isCamilleTestMode(): boolean {
+  return envFlag("CAMILLE_TEST_MODE", "false");
+}
+
 /** Sync Gmail autorisée (plage horaire Paris optionnelle). */
 export function isGmailAutosyncWindowOpen(now = new Date()): boolean {
+  if (isCamilleTestMode()) return true;
+
   const businessOnly =
     envFlag("GMAIL_AUTOSYNC_BUSINESS_HOURS_ONLY", isRailwayEcoMode() ? "true" : "false");
   if (!businessOnly) return true;
@@ -37,6 +44,9 @@ export function isGmailAutosyncWindowOpen(now = new Date()): boolean {
 }
 
 export function getGmailAutosyncIntervalMs(): number {
+  if (isCamilleTestMode()) {
+    return Number(process.env.GMAIL_AUTOSYNC_INTERVAL_MS || 120_000);
+  }
   if (isRailwayEcoMode()) {
     return Number(process.env.GMAIL_AUTOSYNC_INTERVAL_MS || process.env.GMAIL_AUTOSYNC_ECO_INTERVAL_MS || 300_000);
   }
@@ -49,6 +59,11 @@ export function getGmailAutosyncIntervalMs(): number {
 
 /** Délai avant envoi réponse Camille (~12–20 s par défaut). */
 export function getCamilleReplyDelayMs(): number {
+  if (isCamilleTestMode()) {
+    const base = Number(process.env.CAMILLE_TEST_REPLY_DELAY_MS || "3000");
+    const jitter = Number(process.env.CAMILLE_TEST_REPLY_DELAY_JITTER_MS || "2000");
+    return base + Math.floor(Math.random() * Math.max(0, jitter));
+  }
   const base = Number(process.env.CAMILLE_REPLY_DELAY_MS || "12000");
   const jitter = Number(process.env.CAMILLE_REPLY_DELAY_JITTER_MS || "8000");
   return base + Math.floor(Math.random() * Math.max(0, jitter));

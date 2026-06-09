@@ -1,11 +1,17 @@
 import type { Dossier } from "./dossierModel";
 import { isStaffActivelyHandling } from "./camilleStaffHandoff";
 import { hasUnansweredClientInbound } from "./gmailConversation";
+import { isCamilleTestMode } from "./businessHours";
 
 const inFlightDossierIds = new Set<string>();
 const scheduledDocFollowUpTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function getCamilleClientEmailCooldownMs(): number {
+  if (isCamilleTestMode()) {
+    const minutes = Number(process.env.CAMILLE_TEST_COOLDOWN_MINUTES || "10");
+    if (!Number.isFinite(minutes) || minutes <= 0) return 10 * 60 * 1000;
+    return minutes * 60 * 1000;
+  }
   const hours = Number(process.env.CAMILLE_CLIENT_EMAIL_COOLDOWN_HOURS || "4");
   if (!Number.isFinite(hours) || hours <= 0) return 4 * 3600 * 1000;
   return hours * 3600 * 1000;

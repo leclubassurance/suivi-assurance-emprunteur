@@ -991,20 +991,15 @@ export function createApp() {
     const { acknowledgeStaffOutboundToClient } = await import("./camilleStaffHandoff");
     acknowledgeStaffOutboundToClient(dossier, { source: "admin_send_email", subject });
     try {
-      const { applyStudyKpiFromGmailOutbound, applyStudyKpiFromStudyDraft } = await import(
-        "./studyEmailKpi"
-      );
+      const { applyStudyKpiBestAvailable } = await import("./studyEmailKpi");
       const { hasStudyBeenSent } = await import("./dossierLifecycle");
-      const kpiFromMail = applyStudyKpiFromGmailOutbound(dossier, {
+      applyStudyKpiBestAvailable(dossier, {
         subject,
         html,
         text: html,
         gmailId: providerId || `admin_send_${dossier.id}_${Date.now()}`,
         date: sentAt,
       });
-      if (!kpiFromMail || !(Number(dossier.studyKpi?.grossSavingsEur) > 0)) {
-        applyStudyKpiFromStudyDraft(dossier);
-      }
       if (hasStudyBeenSent(dossier) && !["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))) {
         dossier.status = "MAIL_ENVOYÉ";
       }
@@ -1905,20 +1900,20 @@ export function createApp() {
     const { computeActivityMetrics } = await import("./activityMetrics");
     let kpiBackfilled = 0;
     const dirtyKpiIds: string[] = [];
-    const { refreshStudyKpiFromCommunications, getLoanCapitalFromDossier } = await import(
-      "./studyEmailKpi",
-    );
+    const { refreshStudyKpiFromCommunications, getLoanCapitalFromDossier, isGrossSavingsPlausible } =
+      await import("./studyEmailKpi");
     for (const d of db.dossiers) {
       const kpi = d.studyKpi;
       const loan = getLoanCapitalFromDossier(d);
       const gross = Number(kpi?.grossSavingsEur) || 0;
       const { hasStudyBeenSent } = await import("./dossierLifecycle");
+      const studySent = hasStudyBeenSent(d);
       const suspectKpi =
         kpi?.confidence === "low" ||
-        gross <= 0 ||
-        (gross > 0 && loan > 0 && gross > loan * 1.2);
+        (gross > 0 && loan > 0 && !isGrossSavingsPlausible(gross, loan)) ||
+        (gross <= 0 && studySent && kpi?.grossSource !== "draft");
       if (!kpi?.extractedAt || suspectKpi) {
-        if (hasStudyBeenSent(d) && refreshStudyKpiFromCommunications(d)) {
+        if (studySent && refreshStudyKpiFromCommunications(d)) {
           kpiBackfilled += 1;
           dirtyKpiIds.push(d.id);
         }

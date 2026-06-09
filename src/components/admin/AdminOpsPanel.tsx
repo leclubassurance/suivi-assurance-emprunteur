@@ -652,8 +652,11 @@ export function AdminCamillePanel({
           <>
             <p>Économie brute : <strong>{studyKpi.grossSavingsEur} €</strong></p>
             <p>Courtage : <strong>{studyKpi.feesCourtageEur} €</strong> · Capital prêt : <strong>{studyKpi.loanCapitalEur} €</strong></p>
-            {studyKpi.confidence && (
-              <p className="text-[10px] text-emerald-800 mt-1">Confiance extraction : {studyKpi.confidence}</p>
+            {(studyKpi.confidence || studyKpi.grossSource) && (
+              <p className="text-[10px] text-emerald-800 mt-1">
+                Confiance : {studyKpi.confidence || "—"}
+                {studyKpi.grossSource ? ` · source ${studyKpi.grossSource}` : ""}
+              </p>
             )}
           </>
         ) : (

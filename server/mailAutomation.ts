@@ -617,9 +617,9 @@ export async function syncGmailInbox(
           msgChanged = true;
         }
         try {
-          const { applyStudyKpiFromGmailOutbound } = await import("./studyEmailKpi");
+          const { applyStudyKpiBestAvailable } = await import("./studyEmailKpi");
           if (
-            applyStudyKpiFromGmailOutbound(dossier, {
+            applyStudyKpiBestAvailable(dossier, {
               subject,
               html,
               text,

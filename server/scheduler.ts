@@ -5,7 +5,12 @@ import { shouldSendScheduledReminder } from "./smartReminders";
 import { logAiAudit } from "./aiAuditLog";
 import { sendEmail } from "./emailProvider";
 import { templateGenericFollowup, templateMissingDocsFollowup } from "./emailTemplates";
-import { getGmailAutosyncIntervalMs, isGmailAutosyncWindowOpen, isRailwayEcoMode } from "./businessHours";
+import {
+  getGmailAutosyncIntervalMs,
+  isCamilleTestMode,
+  isGmailAutosyncWindowOpen,
+  isRailwayEcoMode,
+} from "./businessHours";
 import { syncGmailInbox } from "./mailAutomation";
 import { processIncomingClientEmail } from "./aiAssistant";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
@@ -198,6 +203,9 @@ export function startScheduler() {
       (isRailwayEcoMode() ? 300_000 : 60_000),
   );
   if (!enabled) return;
+  if (isCamilleTestMode()) {
+    console.log("[Camille] Mode test actif — sync Gmail 24h/24, cooldown réduit, réponses plus rapides.");
+  }
   setInterval(() => {
     runSchedulerOnce().catch(() => undefined);
   }, intervalMs);

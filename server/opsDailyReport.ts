@@ -5,7 +5,7 @@ import { computeDocumentChecklistForDossier } from "../shared/documentChecklist"
 import { getAdminChecklistOverrides } from "../shared/adminDocValidation";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { needsStatusStudySent } from "./dossierLifecycle";
-import { getLoanCapitalFromDossier } from "./studyEmailKpi";
+import { getLoanCapitalFromDossier, isGrossSavingsPlausible } from "./studyEmailKpi";
 import {
   listRelatedDossiersForClient,
   emailClearlyTargetsDossier,
@@ -220,7 +220,7 @@ export function isStudyKpiSuspect(dossier: Dossier): boolean {
   if (!kpi?.extractedAt) return false;
   const gross = Number(kpi.grossSavingsEur) || 0;
   const loan = getLoanCapitalFromDossier(dossier);
-  return kpi.confidence === "low" || (gross > 0 && loan > 0 && gross > loan * 1.2);
+  return kpi.confidence === "low" || (gross > 0 && !isGrossSavingsPlausible(gross, loan));
 }
 
 function loanDocsChecklistOk(dossier: Dossier): boolean {
