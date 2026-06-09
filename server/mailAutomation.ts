@@ -1006,6 +1006,31 @@ export async function syncGmailInbox(
     }
   }
 
+  try {
+    const { syncProspectInboundFromGmail } = await import("./camilleProspectInbound");
+    const prospect = await syncProspectInboundFromGmail(gmail, db, {
+      processedIds,
+      accessToken,
+      aiCallback: aiCallback,
+      markDossierDirty,
+      upsertCommunication,
+      getProcessedIds,
+      markProcessed,
+      decodeEmailBodies,
+      isAiAutoReplyEnabled,
+      canCamilleEmailClient,
+      acquireCamilleClientEmailLock,
+      releaseCamilleClientEmailLock,
+      sendEmailReplyWithGmailAPI,
+      getCamilleReplyDelayMs,
+      sleep,
+    });
+    inboundCount += prospect.inbound;
+    aiReplies += prospect.aiReplies;
+  } catch (err: any) {
+    console.warn(`[Camille prospect] Sync: ${err?.message || err}`);
+  }
+
   return {
     db,
     inboundCount,

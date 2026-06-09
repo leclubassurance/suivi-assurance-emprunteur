@@ -22,6 +22,8 @@ export type CamilleOperationalInput = {
   studySent: boolean;
   clientAccepted: boolean;
   missingLoanLabels: string[];
+  isProspectLead?: boolean;
+  prospectLeadBlock?: string;
 };
 
 export type CamilleAnalyzeResult = {
@@ -134,6 +136,8 @@ export function buildCamilleOperationalPromptBlock(input: CamilleOperationalInpu
     studySent,
     clientAccepted,
     missingLoanLabels,
+    isProspectLead,
+    prospectLeadBlock,
   } = input;
 
   const newAttachmentsLine =
@@ -143,6 +147,7 @@ export function buildCamilleOperationalPromptBlock(input: CamilleOperationalInpu
 Dossier : ${dossierId}
 Client : ${prenom} ${nom} <${clientEmail}>
 Sujet email : ${emailSubject || "—"}
+${isProspectLead ? `\n${prospectLeadBlock || "MODE PROSPECT — pré-étude, pas de dossier complet."}\n` : ""}
 
 ${ctx.dossierSituationBlock}
 

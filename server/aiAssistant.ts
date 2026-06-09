@@ -50,6 +50,7 @@ export async function processIncomingClientEmail(
     emailSubject?: string;
     allDossiers?: any[];
     gmailId?: string;
+    isProspectLead?: boolean;
   },
 ) {
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
@@ -61,8 +62,9 @@ export async function processIncomingClientEmail(
     const prenom = dossier.formData?.assures?.[0]?.prenom || "";
     const attachmentNames = options?.newAttachmentNames || [];
     const nom = dossier.formData?.assures?.[0]?.nom || "";
+    const isProspectLead = Boolean(options?.isProspectLead || (dossier as any).isLead);
 
-    const playbookHit = await tryPlaybookAutoReply(dossier, emailText);
+    const playbookHit = isProspectLead ? null : await tryPlaybookAutoReply(dossier, emailText);
     if (playbookHit) {
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
       const telegramAction = buildTelegramActionFromReply({
@@ -83,6 +85,7 @@ export async function processIncomingClientEmail(
     }
 
     if (
+      !isProspectLead &&
       hasStudyBeenSent(dossier) &&
       inboundHasIdentityAttachments(attachmentNames)
     ) {
@@ -106,6 +109,7 @@ export async function processIncomingClientEmail(
     }
 
     if (
+      !isProspectLead &&
       shouldUsePostStudyComplementaryDocsReply(dossier, {
         inboundAttachmentNames: attachmentNames,
         clientMessage: emailText,
@@ -158,12 +162,18 @@ export async function processIncomingClientEmail(
           })
         : null;
 
-    if (shouldForceReviewHeuristic(emailText, dossier) && isCamilleReviewEnabled()) {
+    if (!isProspectLead && shouldForceReviewHeuristic(emailText, dossier) && isCamilleReviewEnabled()) {
       return {
         status: "review",
         questionForStaff: `Comment répondre à ce mail client ? « ${emailText.slice(0, 350)} »`,
         reason: "Situation sensible ou multi-contrat — validation équipe requise",
       };
+    }
+
+    let prospectLeadBlock = "";
+    if (isProspectLead) {
+      const { buildProspectLeadPromptBlock } = await import("./camilleProspectInbound");
+      prospectLeadBlock = buildProspectLeadPromptBlock(dossier);
     }
 
     const operational: CamilleOperationalInput = {
@@ -184,6 +194,8 @@ export async function processIncomingClientEmail(
       studySent,
       clientAccepted,
       missingLoanLabels,
+      isProspectLead,
+      prospectLeadBlock,
     };
 
     const decision = isCamilleReasoningEnabled()

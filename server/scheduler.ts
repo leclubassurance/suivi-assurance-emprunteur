@@ -204,7 +204,9 @@ export function startScheduler() {
   );
   if (!enabled) return;
   if (isCamilleTestMode()) {
-    console.log("[Camille] Mode test actif — sync Gmail 24h/24, cooldown réduit, réponses plus rapides.");
+    console.log(
+      "[Camille] Mode test actif — sync Gmail 24h/24, cooldown réduit, prospects pré-étude, réponses plus rapides.",
+    );
   }
   setInterval(() => {
     runSchedulerOnce().catch(() => undefined);

@@ -785,8 +785,13 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
               <div key={d.id} 
                 onClick={() => setSelectedDossier(d)}
                 className={`p-4 border-b cursor-pointer transition flex flex-col gap-1 ${selectedDossier?.id === d.id ? 'bg-indigo-50 border-indigo-100' : 'hover:bg-slate-50'}`}>
-                <div className="font-bold flex justify-between items-center">
+                <div className="font-bold flex justify-between items-center gap-2">
                   <span>{d.formData?.assures?.[0]?.prenom} {d.formData?.assures?.[0]?.nom}</span>
+                  {(d as any).isLead && (
+                    <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full shrink-0">
+                      Prospect
+                    </span>
+                  )}
                 </div>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-slate-400 font-mono">{d.id}</span>
