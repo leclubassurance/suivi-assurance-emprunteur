@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { CAMILLE_META_DOSSIER_ID as META_DOSSIER_ID } from "../shared/camilleMeta";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 
@@ -29,7 +30,6 @@ type PlaybookStore = {
 
 const MAX_PLAYBOOKS = 500;
 const MAX_PROMPT_PLAYBOOKS = 5;
-const META_DOSSIER_ID = "LCIF-999999";
 
 function getPlaybooksFilePath() {
   if (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT) {

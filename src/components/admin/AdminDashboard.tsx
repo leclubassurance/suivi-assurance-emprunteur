@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Dossier, UserInfo } from "../../types";
-import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, Trash2, CalendarClock, ListTodo, Bell, Sparkles, Upload } from "lucide-react";
+import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload } from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
@@ -17,6 +17,8 @@ import {
   AdminOpsDailyReportPanel,
   useAdminOpsData,
 } from "./AdminOpsPanel";
+import AdminDossierBannerControls from "./AdminDossierBannerControls";
+import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 
 export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onLogout: () => void; }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
@@ -76,6 +78,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
         setDossiers(filteredData);
         setSelectedDossier((prev) => {
           if (!prev) return null;
+          if (!isVisibleAdminDossier(prev.id)) return null;
           return filteredData.find((d: Dossier) => d.id === prev.id) || prev;
         });
       }
@@ -698,6 +701,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   };
 
   const filteredDossiers = dossiers.filter(d => {
+    if (!isVisibleAdminDossier(d.id)) return false;
     if (!search) return true;
     const s = search.toLowerCase();
     const p = d.formData?.assures?.[0];
@@ -813,29 +817,12 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <select 
-                    value={selectedDossier.status}
-                    onChange={(e) => updateStatus(selectedDossier.id, e.target.value)}
-                    className="bg-white border-2 border-slate-200 text-sm rounded-lg p-2 font-bold cursor-pointer hover:border-indigo-300 transition-colors"
-                  >
-                    <option value="NOUVEAU">NOUVEAU</option>
-                    <option value="EN_COURS">EN COURS D'ÉTUDE</option>
-                    <option value="EN_ATTENTE_CLIENT">ATTENTE REPONSE CLIENT</option>
-                    <option value="MAIL_ENVOYÉ">MAIL ENVOYÉ (étude)</option>
-                    <option value="DECISION_EN_ATTENTE">DÉCISION EN ATTENTE</option>
-                    <option value="ADHESION_EN_COURS">ADHÉSION EN COURS</option>
-                    <option value="TRAITÉ">TRAITÉ</option>
-                    <option value="REFUSÉ">REFUSÉ / SANS SUITE</option>
-                  </select>
-                  <button 
-                    onClick={() => handleDelete(selectedDossier.id)}
-                    className="flex justify-center items-center bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 transition w-10 h-10 rounded-lg border border-red-200"
-                    title="Supprimer définitivement"
-                  >
-                    <Trash2 className="w-4 h-4"/>
-                  </button>
-                </div>
+                <AdminDossierBannerControls
+                  dossier={selectedDossier}
+                  onStatusChange={updateStatus}
+                  onPhaseUpdated={loadDossiers}
+                  onDelete={handleDelete}
+                />
               </div>
 
               {/* Tabs Navigation */}

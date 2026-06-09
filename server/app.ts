@@ -25,6 +25,7 @@ import { isEmailConfigured, sendEmail } from "./emailProvider";
 import { auditAiDecision, proposeNextActions } from "./nextActionEngine";
 import { RAILWAY_BUILD_ID } from "./buildInfo";
 import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
+import { isVisibleAdminDossier } from "../shared/camilleMeta";
 import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig";
 import { mergeFormDocumentsWithUploads } from "./documentMerge";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
@@ -823,9 +824,11 @@ export function createApp() {
   app.get("/api/dossiers", listDossiersLimiter, async (_req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();
-    const sorted = db.dossiers.sort(
-      (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
+    const sorted = db.dossiers
+      .filter((d: any) => isVisibleAdminDossier(d.id))
+      .sort(
+        (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
     res.json(sorted.slice(0, 100));
   });
 
@@ -1891,7 +1894,8 @@ export function createApp() {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();
     const { buildRemiWorkQueue } = await import("./remiWorkQueue");
-    res.json({ items: buildRemiWorkQueue(db.dossiers) });
+    const visible = db.dossiers.filter((d: any) => isVisibleAdminDossier(d.id));
+    res.json({ items: buildRemiWorkQueue(visible) });
   });
 
   app.get("/api/admin/activity-metrics", async (req, res) => {
