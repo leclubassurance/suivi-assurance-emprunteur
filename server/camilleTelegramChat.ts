@@ -228,6 +228,8 @@ export function buildDossierDetailBlock(d: Dossier): string {
   const lines = [
     dossierHeader(d),
     `Créé: ${d.createdAt?.slice(0, 10) || "?"}`,
+    `Phase souscription: ${ctx.subscriptionPhaseLabel || "—"}`,
+    `Étude envoyée: ${ctx.studySent ? "oui" : "non"} | Accord client: ${ctx.clientAcceptedInsurance ? "oui" : "non"}`,
     `Pièces manquantes checklist: ${missing.length ? missing.join(", ") : "aucune"}`,
     `Docs prêt OK (offre+tableau présents): ${ctx.loanDocsOk ? "oui" : "non"}`,
     `Problème doc certain: ${docProb.certain ? "oui — " + docProb.problems.map((p) => p.kind).join(", ") : "non"}`,

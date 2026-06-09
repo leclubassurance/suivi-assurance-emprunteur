@@ -7,6 +7,14 @@ import { resolveLoanDocPresence } from "./loanDocPresence";
 import { stripRedundantSalutations } from "./camilleClientMessage";
 import { getSharedIdentityDocsFromSiblings } from "./clientMultipleDossiers";
 import { wrapLcifClientEmailHtml } from "../shared/emailBrand";
+import {
+  buildCamilleDossierSituationBlock,
+  buildSubscriptionGuidanceForPhase,
+  formatStudyKpiForAi,
+  getSubscriptionPhaseLabel,
+} from "./camilleDossierTimeline";
+import { getLastStudyOutbound } from "./dossierLifecycle";
+import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
 
 function parisYmd(d: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -125,6 +133,11 @@ export function buildCamilleContextBlock(
   const statusLabel = (st?: string) =>
     st === "ok" ? "validé" : st === "review" ? "reçu — à préciser" : "manquant";
 
+  const subscriptionPhase = resolveEffectiveSubscriptionPhase(dossier);
+  const lastStudy = getLastStudyOutbound(dossier);
+  const studyKpiSummary = formatStudyKpiForAi(dossier);
+  const dossierSituationBlock = buildCamilleDossierSituationBlock(dossier);
+
   return {
     checklist,
     missingBlocking,
@@ -152,5 +165,12 @@ export function buildCamilleContextBlock(
     studySent,
     clientAcceptedInsurance: clientAccepted,
     identityDocsMayBeRequested: clientAccepted,
+    dossierStatus: String(dossier.status || "NOUVEAU"),
+    subscriptionPhase,
+    subscriptionPhaseLabel: getSubscriptionPhaseLabel(subscriptionPhase),
+    subscriptionGuidance: buildSubscriptionGuidanceForPhase(subscriptionPhase, studySent),
+    studyKpiSummary,
+    lastStudyOutbound: lastStudy,
+    dossierSituationBlock,
   };
 }

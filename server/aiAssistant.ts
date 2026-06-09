@@ -19,6 +19,7 @@ import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { tryCamilleDocClarificationInsteadOfEscalation } from "./camilleDocAutoReply";
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
 import { getConversationTailForAi, hasUnansweredClientInbound } from "./gmailConversation";
+import { logAiAudit } from "./aiAuditLog";
 import { buildMultiDossierClientContext } from "./clientMultipleDossiers";
 import {
   buildPlaybooksPromptBlock,
@@ -103,7 +104,7 @@ export async function processIncomingClientEmail(
       ctx.newAttachmentNames.length > 0
         ? ctx.newAttachmentNames.join(", ")
         : "Aucune pièce jointe dans cet email";
-    const conversationTail = getConversationTailForAi(dossier, 8);
+    const conversationTail = getConversationTailForAi(dossier);
     const needsReply = hasUnansweredClientInbound(dossier);
     const multiDossier =
       options?.allDossiers && options.allDossiers.length > 0
@@ -134,6 +135,8 @@ Dossier : ${dossier.id}
 Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""} <${clientEmail}>
 Sujet email : ${options?.emailSubject || "—"}
 
+${ctx.dossierSituationBlock}
+
 État des pièces (source de vérité — ne pas contredire) :
 ${ctx.documentSummary}
 
@@ -161,6 +164,10 @@ Pièces à demander au client (selon phase) : ${
     : missingLoanLabels.join(", ") || "Aucune — offre et tableau OK côté analyse"
 }
 Étude déjà envoyée au client (studySent) : ${studySent ? "OUI — ne jamais promettre une étude à venir" : "NON"}
+${ctx.lastStudyOutbound?.date ? `Dernière étude envoyée : ${ctx.lastStudyOutbound.date.slice(0, 16)} — « ${ctx.lastStudyOutbound.subject.slice(0, 80)} »` : ""}
+${ctx.studyKpiSummary ? `KPI étude (interne — ne pas reciter au client, orienter vers l'email d'étude) : ${ctx.studyKpiSummary}` : ""}
+Phase souscription : ${ctx.subscriptionPhaseLabel || "—"}
+Conduite phase : ${ctx.subscriptionGuidance || "—"}
 Client a accepté le changement d'assurance (clientAcceptedInsurance) : ${clientAccepted ? "OUI — CNI/RIB autorisés si manquants" : "NON — interdiction absolue de demander CNI/RIB"}
 Offre de prêt + tableau présents dans le dossier : ${ctx.loanDocsPresent ? "OUI" : "NON"}
 Offre validée par analyse : ${ctx.loanOffreExploitable ? "OUI" : "NON"}
@@ -215,10 +222,26 @@ Décide REPLY, REVIEW (doute — question équipe sans brouillon) ou ESCALATE.` 
       decision = { action: "ESCALATE", reasonForEscalation: "Erreur technique de l'IA (JSON invalide)" };
     }
 
+    const auditMeta = {
+      subscriptionPhase: ctx.subscriptionPhase,
+      studySent: ctx.studySent,
+      clientAccepted: ctx.clientAcceptedInsurance,
+      knowledgeInjected: true,
+    };
+
     if (decision.action === "REVIEW") {
       const question = String(decision.questionForStaff || decision.reasonForEscalation || "").trim();
       if (isCamilleReviewEnabled() && question.length >= 10) {
         console.log(`[AI] REVIEW Telegram pour ${dossier.id}`);
+        logAiAudit(dossier, {
+          action: "REVIEW",
+          channel: "gmail_auto_reply",
+          actor: "Camille",
+          outcome: "info",
+          model: "gemini-2.5-flash",
+          summary: `Question équipe : ${question.slice(0, 200)}`,
+          meta: auditMeta,
+        });
         return {
           status: "review",
           questionForStaff: question,
@@ -275,6 +298,16 @@ Décide REPLY, REVIEW (doute — question équipe sans brouillon) ou ESCALATE.` 
           `[AI] Demande de pièces prêt bloquée (déjà présentes) pour ${dossier.id}`,
         );
       }
+      logAiAudit(dossier, {
+        action: "REPLY",
+        channel: "gmail_auto_reply",
+        actor: "Camille",
+        outcome: "sent",
+        model: "gemini-2.5-flash",
+        summary: `Réponse autonome (${ctx.subscriptionPhaseLabel || "phase inconnue"})`,
+        instructionPreview: text.slice(0, 300),
+        meta: auditMeta,
+      });
       return {
         status: "replied",
         text: wrapCamilleHtmlReply(text, prenom, nom, dossier),

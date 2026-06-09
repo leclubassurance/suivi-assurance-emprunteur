@@ -124,8 +124,60 @@ export const LCIF_FAQ: FaqItem[] = [
   },
 ];
 
-export function formatLcifFaqForPrompt(maxItems = 20): string {
-  return LCIF_FAQ.slice(0, maxItems)
+/** Substitution et souscription après accord client (pas de doc process dédié — FAQ opérationnelle). */
+export const LCIF_SUBSCRIPTION_FAQ: FaqItem[] = [
+  {
+    q: "Qu'est-ce que la substitution d'assurance emprunteur ?",
+    a: "C'est le remplacement de votre assurance de prêt actuelle par un nouveau contrat, en respectant l'équivalence des garanties exigée par la banque. Charles vous a présenté les économies possibles dans l'étude ; la substitution ne démarre qu'après votre accord explicite.",
+  },
+  {
+    q: "J'ai reçu l'étude, que dois-je faire ?",
+    a: "Lisez l'étude reçue par email. Si vous souhaitez poursuivre, répondez à ce fil pour nous confirmer votre accord. Sans cette confirmation, nous ne lançons pas le changement d'assurance ni la collecte CNI/RIB pour souscription.",
+  },
+  {
+    q: "Que se passe-t-il après mon accord pour changer d'assurance ?",
+    a: "Charles finalise votre dossier côté assureur. Nous vous transmettons ensuite un accès à un espace sécurisé en ligne pour compléter les formalités (informations, questionnaire de santé si requis, lecture et signature des documents).",
+  },
+  {
+    q: "Qu'est-ce que l'espace d'adhésion / la plateforme en ligne ?",
+    a: "C'est l'espace sécurisé où vous complétez la souscription : acceptation des conditions, questionnaire de santé éventuel, signature électronique des documents et dépôt des justificatifs demandés. Le lien vous est envoyé par email lorsque le dossier est prêt.",
+  },
+  {
+    q: "Je n'ai pas reçu le lien de l'espace d'adhésion",
+    a: "Vérifiez vos spams. Si votre accord est récent, Charles peut encore finaliser le dossier assureur — délai habituel de quelques jours ouvrés. Indiquez la date de votre accord ; Camille confirme la prise en compte et Charles suit.",
+  },
+  {
+    q: "Que faire dans l'espace adhésion (étapes) ?",
+    a: "En général : se connecter au lien reçu, valider les informations, compléter le questionnaire de santé si demandé, lire et signer les documents, transmettre les justificatifs éventuels. Suivez les instructions à l'écran ; en cas de blocage technique, décrivez précisément l'étape — Charles peut aider.",
+  },
+  {
+    q: "Questionnaire de santé : est-ce obligatoire ?",
+    a: "Selon votre profil (âge, capital, garanties), un questionnaire peut être requis par l'assureur. Charles l'indique dans l'étude ou lors de l'ouverture de l'espace. Camille ne valide pas médicalement — orienter vers Charles si refus ou surprime.",
+  },
+  {
+    q: "Quand demander la CNI et le RIB ?",
+    a: "Uniquement après accord explicite du client pour activer le changement d'assurance, pour finaliser la souscription. Jamais avant, même si l'étude a été envoyée.",
+  },
+  {
+    q: "La banque doit-elle valider le changement ?",
+    a: "Oui, la banque vérifie l'équivalence des garanties du nouveau contrat. Charles gère cet échange ; le client n'a en principe pas à relancer la banque seul.",
+  },
+  {
+    q: "Combien de temps dure la souscription après mon accord ?",
+    a: "Variable selon dossier et délais assureur/banque — souvent quelques jours à quelques semaines. Camille peut rassurer et indiquer l'étape en cours (voir phase souscription dans le contexte dossier) sans promettre de date ferme.",
+  },
+  {
+    q: "Puis-je poser des questions sur les garanties du produit ?",
+    a: "Pour les questions générales sur le fonctionnement de l'assurance emprunteur, utiliser la FAQ et la documentation produits (fiches). Pour un conseil personnalisé sur les garanties adaptées à votre prêt, Charles intervient.",
+  },
+  {
+    q: "Où en est mon dossier ?",
+    a: "S'appuyer sur la chronologie et la phase souscription du contexte dossier : documents reçus → étude envoyée → décision client → préparation contrat → espace adhésion → clôture. Répondre en une phrase claire sur l'étape actuelle.",
+  },
+];
+
+export function formatLcifFaqForPrompt(items: FaqItem[] = LCIF_FAQ, maxItems = 20): string {
+  return items.slice(0, maxItems)
     .map((f, i) => `${i + 1}. ${f.q}\n   → ${f.a}`)
     .join("\n\n");
 }
@@ -136,7 +188,13 @@ export function buildStaticCamilleKnowledgeBlock(): string {
     CAMILLE_RESPONSE_RULES.trim(),
     "",
     "FAQ MÉTIER (réponses autorisées — rester général, pas de chiffres personnalisés) :",
-    formatLcifFaqForPrompt(),
+    formatLcifFaqForPrompt(LCIF_FAQ),
+    "",
+    "FAQ SUBSTITUTION & SOUSCRIPTION (après étude — utiliser avec la phase dossier du contexte) :",
+    formatLcifFaqForPrompt(LCIF_SUBSCRIPTION_FAQ, 12),
+    "",
+    "DOCUMENTATION PRODUITS (Drive) :",
+    "Les fiches produits assurance dans le Drive servent aux questions sur les garanties, définitions produit et fonctionnement général — pas au processus Kereis pas à pas (non documenté pour l'instant).",
     "",
     "PRÉSENTATION CLUB (uniquement si le client la demande) :",
     LCIF_PRESENTATION_WHEN_ASKED.trim(),

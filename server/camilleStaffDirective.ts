@@ -4,6 +4,7 @@ import { sanitizeCamilleClientMessage } from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
 import { acknowledgeStaffOutboundToClient, resumeCamilleForDossier } from "./camilleStaffHandoff";
 import { logAiAudit } from "./aiAuditLog";
+import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
 
 export type StaffDirectiveResult = {
   ok: boolean;
@@ -69,6 +70,7 @@ export async function executeCamilleStaffDirective(
   }
 
   const ctx = buildCamilleContextBlock(dossier, []);
+  const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null);
   const isEscalationEmail = options?.channel === "escalation_email";
   const directivePrompt = buildDirectivePrompt({
     staffAuthorizesInsurerName: options?.staffAuthorizesInsurerName,
@@ -79,6 +81,7 @@ export async function executeCamilleStaffDirective(
       model: "gemini-2.5-flash",
       contents: [
         { role: "user", parts: [{ text: directivePrompt }] },
+        { role: "user", parts: [{ text: knowledgeBlock }] },
         {
           role: "user",
           parts: [
@@ -86,6 +89,8 @@ export async function executeCamilleStaffDirective(
               text: `Dossier: ${dossier.id}
 Client: ${prenom} <${clientEmail}>
 Canal consigne: ${options?.channel || "telegram"}
+
+${ctx.dossierSituationBlock}
 
 Contexte pièces:
 ${ctx.documentSummary}

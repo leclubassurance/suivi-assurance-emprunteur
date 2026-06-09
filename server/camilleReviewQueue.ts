@@ -194,7 +194,7 @@ export async function draftClientReplyFromStaffGuidance(
     review.fullClientMessage,
     dossier,
   );
-  const conversationTail = getConversationTailForAi(dossier, 8);
+  const conversationTail = getConversationTailForAi(dossier);
   const prenom = dossier.formData?.assures?.[0]?.prenom || "";
 
   const response = await generateContentWithRetry({
@@ -210,6 +210,8 @@ export async function draftClientReplyFromStaffGuidance(
             text: `
 Dossier : ${dossier.id}
 Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""}
+
+${ctx.dossierSituationBlock}
 
 Consigne VALIDÉE par l'équipe (à respecter strictement) :
 """
