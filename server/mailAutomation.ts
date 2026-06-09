@@ -377,12 +377,29 @@ export async function seedDossierGmailImportRegistry(
 let gmailSyncRunning = false;
 let prospectSyncRunning = false;
 
+async function persistProspectDossier(db: any, dossier: any): Promise<boolean> {
+  try {
+    const { writeDB } = await import("./db");
+    await writeDB(db, dossier);
+    console.log(`[Camille prospect] dossier ${dossier.id} enregistré (Firestore)`);
+    return true;
+  } catch (err: any) {
+    console.error(`[Camille prospect] échec persistance ${dossier?.id}: ${err?.message || err}`);
+    return false;
+  }
+}
+
 async function runProspectInboundSync(
   db: any,
   aiCallback: Function,
   markDossierDirty: (dossier: any) => void,
-): Promise<{ inbound: number; aiReplies: number; leadsCreated: number }> {
-  const empty = { inbound: 0, aiReplies: 0, leadsCreated: 0 };
+): Promise<{ inbound: number; aiReplies: number; leadsCreated: number; skippedConcurrent: boolean }> {
+  const empty = { inbound: 0, aiReplies: 0, leadsCreated: 0, skippedConcurrent: false };
+  if (prospectSyncRunning) {
+    console.log("[Camille prospect] scan ignoré — déjà en cours");
+    return { ...empty, skippedConcurrent: true };
+  }
+  prospectSyncRunning = true;
   try {
     const { auth: assuranceAuth } = await createGmailAuth(null);
     const assuranceGmail = google.gmail({ version: "v1", auth: assuranceAuth as any });
@@ -393,6 +410,7 @@ async function runProspectInboundSync(
       accessToken: null,
       aiCallback,
       markDossierDirty,
+      persistLead: (d) => persistProspectDossier(db, d),
       upsertCommunication,
       getProcessedIds,
       markProcessed,
@@ -412,45 +430,33 @@ async function runProspectInboundSync(
   } catch (err: any) {
     console.warn(`[Camille prospect] Sync: ${err?.message || err}`);
     return empty;
+  } finally {
+    prospectSyncRunning = false;
   }
 }
 
 /** Sync prospects uniquement (assurance@ via DWD) — indépendant du sync client long. */
 export async function syncProspectsOnly(db: any, aiCallback: Function) {
-  if (prospectSyncRunning) {
-    console.log("[Camille prospect] sync ignoré — déjà en cours");
-    return {
-      db,
-      inbound: 0,
-      aiReplies: 0,
-      leadsCreated: 0,
-      dirtyDossierIds: [] as string[],
-      skippedConcurrent: true,
-    };
-  }
-  prospectSyncRunning = true;
   const dirtyDossierIds = new Set<string>();
   const markDossierDirty = (dossier: any) => {
     if (!dossier?.id) return;
     dirtyDossierIds.add(String(dossier.id));
     dossier.updatedAt = new Date().toISOString();
   };
-  try {
-    const prospect = await runProspectInboundSync(db, aiCallback, markDossierDirty);
+  const prospect = await runProspectInboundSync(db, aiCallback, markDossierDirty);
+  if (!prospect.skippedConcurrent) {
     console.log(
       `[Camille prospect] sync terminé leads=${prospect.leadsCreated} aiReplies=${prospect.aiReplies}`,
     );
-    return {
-      db,
-      inbound: prospect.inbound,
-      aiReplies: prospect.aiReplies,
-      leadsCreated: prospect.leadsCreated,
-      dirtyDossierIds: [...dirtyDossierIds],
-      skippedConcurrent: false,
-    };
-  } finally {
-    prospectSyncRunning = false;
   }
+  return {
+    db,
+    inbound: prospect.inbound,
+    aiReplies: prospect.aiReplies,
+    leadsCreated: prospect.leadsCreated,
+    dirtyDossierIds: [...dirtyDossierIds],
+    skippedConcurrent: prospect.skippedConcurrent,
+  };
 }
 
 export async function syncGmailInbox(
@@ -486,9 +492,7 @@ export async function syncGmailInbox(
 
   let inboundCount = 0;
   let aiReplies = 0;
-  const prospect = await runProspectInboundSync(db, aiCallback, markDossierDirty);
-  inboundCount += prospect.inbound;
-  aiReplies += prospect.aiReplies;
+  // Prospects : syncProspectsOnly (autosync dédié) — évite blocage prospectSyncRunning pendant le sync client long.
 
   const clientEmails = new Set<string>();
   for (const d of db.dossiers || []) {
@@ -1090,7 +1094,7 @@ export async function syncGmailInbox(
   }
 
   console.log(
-    `[Gmail sync] ${Date.now() - syncStarted}ms processed=${processedIds.size} inbound=${inboundCount} aiReplies=${aiReplies} prospectLeads=${prospect.leadsCreated}`,
+    `[Gmail sync] ${Date.now() - syncStarted}ms processed=${processedIds.size} inbound=${inboundCount} aiReplies=${aiReplies}`,
   );
 
   return {

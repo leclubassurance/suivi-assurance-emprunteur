@@ -131,6 +131,7 @@ export async function syncProspectInboundFromGmail(
     accessToken: string | null;
     aiCallback: Function;
     markDossierDirty: (d: any) => void;
+    persistLead?: (d: any) => Promise<boolean>;
     upsertCommunication: (d: any, msg: any) => boolean;
     getProcessedIds: (d: any) => Set<string>;
     markProcessed: (d: any, id: string) => boolean;
@@ -190,6 +191,8 @@ export async function syncProspectInboundFromGmail(
   let inbound = 0;
   let aiReplies = 0;
   let leadsCreated = 0;
+  const maxProspectsPerCycle = Number(process.env.CAMILLE_PROSPECT_MAX_PER_SYNC || "3");
+  let prospectsHandled = 0;
   const skipReasons = {
     alreadySynced: 0,
     sent: 0,
@@ -279,7 +282,15 @@ export async function syncProspectInboundFromGmail(
       known.add(senderEmail);
       leadsCreated += 1;
       deps.markDossierDirty(dossier);
+      if (deps.persistLead) {
+        await deps.persistLead(dossier);
+      }
+      if (isCamilleTestMode()) {
+        console.log(`[Camille prospect] nouveau prospect ${dossier.id} (${senderEmail})`);
+      }
     }
+
+    prospectsHandled += 1;
 
     const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
     const { text, html } = deps.decodeEmailBodies(payload);
@@ -368,7 +379,19 @@ export async function syncProspectInboundFromGmail(
       msgChanged = true;
     }
 
-    if (msgChanged) deps.markDossierDirty(dossier);
+    if (msgChanged) {
+      deps.markDossierDirty(dossier);
+      if (deps.persistLead) {
+        await deps.persistLead(dossier);
+      }
+    }
+
+    if (prospectsHandled >= maxProspectsPerCycle) {
+      if (isCamilleTestMode()) {
+        console.log(`[Camille prospect] limite ${maxProspectsPerCycle} prospect(s)/cycle — suite au prochain sync`);
+      }
+      break;
+    }
   }
 
   if (leadsCreated > 0 || inbound > 0 || isCamilleTestMode()) {
