@@ -10,6 +10,11 @@ import {
   resolveClientPortalStatusKey,
   needsStatusStudySent,
 } from "./dossierLifecycle";
+import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
+import {
+  getSubscriptionPhaseLabel,
+  buildSubscriptionGuidanceForPhase,
+} from "./camilleDossierTimeline";
 
 export function buildCamilleAdminContext(dossier: Dossier) {
   const a = dossier.formData?.assures?.[0];
@@ -29,10 +34,20 @@ export function buildCamilleAdminContext(dossier: Dossier) {
 
   const studySent = hasStudyBeenSent(dossier);
   const portalKey = resolveClientPortalStatusKey(dossier);
+  const subscriptionPhase = resolveEffectiveSubscriptionPhase(dossier);
+  const subscriptionPhaseLabel = getSubscriptionPhaseLabel(subscriptionPhase);
+  const subscriptionGuidance = buildSubscriptionGuidanceForPhase(subscriptionPhase, studySent);
+  const subManual = dossier.subscriptionProgress;
 
   let suggestedNextStep = "Suivi standard.";
   if (esc?.lastAt && !esc?.resolvedAt) {
     suggestedNextStep = "Escalade ouverte — consigne Telegram ou mail depuis l'admin.";
+  } else if (studySent && subscriptionPhase === "decision_received") {
+    suggestedNextStep =
+      "Accord client enregistré — passez « Espace adhésion envoyé » dès que Charles a transmis le lien Kereis au client.";
+  } else if (studySent && subscriptionPhase === "adhesion_space_sent") {
+    suggestedNextStep =
+      "Espace adhésion ouvert côté client — Camille guide sur CGU, santé, signatures ; ne pas redemander l'étude.";
   } else if (needsStatusStudySent(dossier)) {
     suggestedNextStep = "Étude déjà envoyée (visible dans les échanges) : passer le statut en MAIL ENVOYÉ pour le portail client.";
   } else if (loan.needsResubmit) {
@@ -64,6 +79,11 @@ export function buildCamilleAdminContext(dossier: Dossier) {
           : "Docs prêt : reçus (vérif. ou format)",
       loan.needsResubmit ? "Docs prêt : scan/photo à refaire" : "Format docs : OK",
       studySent ? `Étude envoyée (portail client : ${portalKey})` : "Étude : pas encore envoyée",
+      subscriptionPhase
+        ? `Phase souscription : ${subscriptionPhaseLabel}${subManual?.note ? ` — note admin : ${subManual.note.slice(0, 80)}` : ""}`
+        : studySent
+          ? "Phase souscription : en attente décision (par défaut)"
+          : "Phase souscription : avant étude",
       dossier.studyKpi
         ? `KPI mail étude : ${dossier.studyKpi.grossSavingsEur} € économie brute · ${dossier.studyKpi.feesCourtageEur} € courtage · prêt ${dossier.studyKpi.loanCapitalEur} €`
         : null,
@@ -85,6 +105,10 @@ export function buildCamilleAdminContext(dossier: Dossier) {
       ? { at: lastOut.date, subject: lastOut.subject, from: lastOut.from }
       : null,
     suggestedNextStep,
+    subscriptionPhase,
+    subscriptionPhaseLabel,
+    subscriptionGuidance,
+    subscriptionProgress: subManual || null,
     recentAiAudit: audit,
     telegramMessageRefs: telegramRefs.slice(-5),
     camilleStaffUntil: staffUntil || null,

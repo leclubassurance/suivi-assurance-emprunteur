@@ -87,9 +87,16 @@ export function formatDossierTelegramCard(d: Dossier): string {
       ? `📤 Dernier envoi : <i>${escapeTelegramHtml(String(lastOut.subject || "").slice(0, 60))}</i>`
       : "";
 
+  const phaseLine = ctx.subscriptionPhaseLabel
+    ? `📍 Phase : <b>${escapeTelegramHtml(ctx.subscriptionPhaseLabel)}</b>`
+    : ctx.studySent
+      ? `📍 Phase : <i>En attente décision (défaut)</i>`
+      : "";
+
   return [
     `<b>📂 ${escapeTelegramHtml(d.id)}</b>`,
     `${statusBadge(String(d.status))}`,
+    phaseLine,
   ``,
     `👤 <b>${name}</b>`,
     `✉️ ${email}`,

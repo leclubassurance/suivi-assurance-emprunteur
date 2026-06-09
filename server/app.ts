@@ -2070,32 +2070,60 @@ export function createApp() {
     res.json(buildClientPortalView(dossier));
   });
 
+  app.get("/api/admin/dossiers/:id/subscription-progress", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { buildSubscriptionProgressAdminView } = await import("./subscriptionProgress");
+    res.json(buildSubscriptionProgressAdminView(dossier));
+  });
+
   app.patch("/api/admin/dossiers/:id/subscription-progress", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    const { coerceSubscriptionPhase } = await import("./subscriptionProgress");
+    const {
+      coerceSubscriptionPhase,
+      applySubscriptionPhaseUpdate,
+      buildSubscriptionProgressAdminView,
+    } = await import("./subscriptionProgress");
+    const { addEvent } = await import("./dossierModel");
+
     const phase = coerceSubscriptionPhase((req.body as any)?.phase);
     if (!phase) {
       return res.status(400).json({ error: "Phase invalide" });
     }
 
-    dossier.subscriptionProgress = {
-      phase,
-      updatedAt: new Date().toISOString(),
+    const note = typeof (req.body as any)?.note === "string" ? (req.body as any).note.trim() : "";
+    const { previousPhase, label } = applySubscriptionPhaseUpdate(dossier, phase, {
       updatedBy: String((req.body as any)?.updatedBy || "admin"),
-      note: typeof (req.body as any)?.note === "string" ? (req.body as any).note : undefined,
-    };
-    if (phase === "completed" && !["TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))) {
-      dossier.status = "TRAITÉ";
-    }
+      note: note || undefined,
+    });
+
     dossier.updatedAt = new Date().toISOString();
+    addEvent(dossier, {
+      type: "STATUS_CHANGE",
+      actor: { kind: "ADMIN", label: "Admin" },
+      message: `Phase souscription : ${label}${note ? ` — ${note.slice(0, 120)}` : ""}`,
+      meta: {
+        subscriptionPhase: phase,
+        previousPhase,
+        dossierStatus: dossier.status,
+      },
+    });
+
     await writeDB(db, dossier);
 
     const { buildClientPortalView } = await import("./clientPortal");
-    res.json({ ok: true, portal: buildClientPortalView(dossier) });
+    res.json({
+      ok: true,
+      portal: buildClientPortalView(dossier),
+      subscription: buildSubscriptionProgressAdminView(dossier),
+      dossierStatus: dossier.status,
+    });
   });
 
   app.get("/api/admin/dossiers/:id/portal-link", async (req, res) => {

@@ -21,6 +21,7 @@ import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
 import type { Dossier } from "../../types";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
+import AdminSubscriptionProgressPanel from "./AdminSubscriptionProgressPanel";
 
 type WorkQueueItem = {
   dossierId: string;
@@ -509,7 +510,13 @@ export function AdminCamilleKnowledgePanel() {
   );
 }
 
-export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
+export function AdminCamillePanel({
+  dossier,
+  onDossierUpdated,
+}: {
+  dossier: Dossier;
+  onDossierUpdated?: () => void;
+}) {
   const [ctx, setCtx] = useState<any>(null);
   const [audit, setAudit] = useState<any[]>([]);
   const [showPortalPreview, setShowPortalPreview] = useState(false);
@@ -621,6 +628,14 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
 
   return (
     <div className="space-y-4">
+      <AdminSubscriptionProgressPanel
+        dossier={dossier}
+        onUpdated={async () => {
+          await reloadCamilleContext();
+          onDossierUpdated?.();
+        }}
+      />
+
       <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950">
         <div className="flex justify-between items-start gap-2 mb-1 flex-wrap">
           <p className="font-black">KPI mail d&apos;étude (Gmail)</p>
@@ -700,9 +715,19 @@ export function AdminCamillePanel({ dossier }: { dossier: Dossier }) {
             réponses auto peuvent être suspendues. Utilisez « Réactiver Camille ».
           </p>
         )}
+        {ctx.subscriptionPhaseLabel && (
+          <p className="text-[11px] font-bold text-violet-900 bg-white/60 rounded-lg px-3 py-2 mb-2 border border-violet-200">
+            Phase Camille : {ctx.subscriptionPhaseLabel}
+          </p>
+        )}
         <pre className="text-[11px] text-violet-950 whitespace-pre-wrap font-sans leading-relaxed">{ctx.summary}</pre>
         <p className="text-xs font-semibold text-violet-800 mt-3">Prochaine étape suggérée</p>
         <p className="text-xs text-violet-700">{ctx.suggestedNextStep}</p>
+        {ctx.subscriptionGuidance && (
+          <p className="text-[10px] text-violet-600 mt-2 italic border-t border-violet-200 pt-2">
+            Conduite Camille : {ctx.subscriptionGuidance}
+          </p>
+        )}
       </div>
       {ctx.lastClientMessage && (
         <div className="p-3 rounded-xl bg-slate-50 border text-xs">

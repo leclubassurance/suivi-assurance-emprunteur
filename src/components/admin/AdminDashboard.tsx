@@ -821,8 +821,11 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                   >
                     <option value="NOUVEAU">NOUVEAU</option>
                     <option value="EN_COURS">EN COURS D'ÉTUDE</option>
-                    <option value="TRAITÉ">TRAITÉ</option>
                     <option value="EN_ATTENTE_CLIENT">ATTENTE REPONSE CLIENT</option>
+                    <option value="MAIL_ENVOYÉ">MAIL ENVOYÉ (étude)</option>
+                    <option value="DECISION_EN_ATTENTE">DÉCISION EN ATTENTE</option>
+                    <option value="ADHESION_EN_COURS">ADHÉSION EN COURS</option>
+                    <option value="TRAITÉ">TRAITÉ</option>
                     <option value="REFUSÉ">REFUSÉ / SANS SUITE</option>
                   </select>
                   <button 
@@ -886,7 +889,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     </h3>
                     <AdminOpsDailyReportPanel />
                     <AdminCamilleKnowledgePanel />
-                    <AdminCamillePanel dossier={selectedDossier} />
+                    <AdminCamillePanel dossier={selectedDossier} onDossierUpdated={loadDossiers} />
                     <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
                       <div className="font-black mb-1">Automatisation Gmail</div>
                       <p>

@@ -188,6 +188,59 @@ export type ClientPortalStatusView = {
   description: string;
 };
 
+/** Met à jour la phase souscription (admin) et aligne le statut CRM pour Camille / le portail. */
+export function applySubscriptionPhaseUpdate(
+  dossier: Dossier,
+  phase: SubscriptionPhase,
+  meta?: { updatedBy?: string; note?: string },
+): { previousPhase: SubscriptionPhase | null; label: string } {
+  const previous = coerceSubscriptionPhase(dossier.subscriptionProgress?.phase);
+  const now = new Date().toISOString();
+
+  dossier.subscriptionProgress = {
+    phase,
+    updatedAt: now,
+    updatedBy: meta?.updatedBy || "admin",
+    note: meta?.note?.trim() || undefined,
+  };
+
+  if (phase === "completed") {
+    dossier.status = "TRAITÉ";
+  } else if (phase === "adhesion_space_sent") {
+    dossier.status = "ADHESION_EN_COURS";
+  } else if (phase === "decision_received") {
+    dossier.status = "ADHESION_EN_COURS";
+  } else if (phase === "awaiting_decision" && hasStudyBeenSent(dossier)) {
+    const st = String(dossier.status || "");
+    if (!["TRAITÉ", "TRAITE", "REFUSÉ", "REFUSE"].includes(st)) {
+      dossier.status = "DECISION_EN_ATTENTE";
+    }
+  }
+
+  const label = SUBSCRIPTION_PHASE_OPTIONS.find((o) => o.value === phase)?.label || phase;
+  return { previousPhase: previous, label };
+}
+
+export function buildSubscriptionProgressAdminView(dossier: Dossier) {
+  const studySent = hasStudyBeenSent(dossier);
+  const effectivePhase = resolveEffectiveSubscriptionPhase(dossier);
+  const manual = dossier.subscriptionProgress;
+  return {
+    studySent,
+    clientAccepted: clientHasAcceptedInsuranceChange(dossier),
+    effectivePhase,
+    effectivePhaseLabel: effectivePhase
+      ? SUBSCRIPTION_PHASE_OPTIONS.find((o) => o.value === effectivePhase)?.label || effectivePhase
+      : null,
+    manualPhase: coerceSubscriptionPhase(manual?.phase),
+    manualUpdatedAt: manual?.updatedAt || null,
+    manualNote: manual?.note || null,
+    manualUpdatedBy: manual?.updatedBy || null,
+    options: SUBSCRIPTION_PHASE_OPTIONS,
+    dossierStatus: dossier.status,
+  };
+}
+
 export function resolveClientPortalStatusView(dossier: Dossier): ClientPortalStatusView {
   const subPhase = resolveEffectiveSubscriptionPhase(dossier);
   const studySent = hasStudyBeenSent(dossier);
