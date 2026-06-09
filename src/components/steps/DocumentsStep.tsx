@@ -239,14 +239,19 @@ export default function DocumentsStep({
                           <div className="font-bold text-[13px] text-slate-800 truncate" title={doc.name}>{doc.name}</div>
                           <div className="text-[11px] font-bold text-slate-400">{(doc.size / 1024 / 1024).toFixed(2)} MB</div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => removeDocument(doc.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-colors"
-                          title="Supprimer"
-                        >
-                          <Trash2 className="w-[18px] h-[18px]" />
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {doc.status === "success" && (
+                            <CheckCircle2 className="w-5 h-5 text-green-500" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeDocument(doc.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-white rounded-lg transition-colors"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-[18px] h-[18px]" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

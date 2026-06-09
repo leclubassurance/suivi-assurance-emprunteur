@@ -7,27 +7,32 @@ function normalize(value: unknown) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function isIdentityDocName(n: string): boolean {
+  if (n.includes("cni")) return true;
+  if (n.includes("passeport")) return true;
+  if (n.includes("piece") && n.includes("identit")) return true;
+  if (n.includes("carte") && n.includes("identit") && !n.includes("bancair")) return true;
+  if (n.includes("justificatif") && n.includes("ident")) return true;
+  if (n.includes("titre") && n.includes("sejour")) return true;
+  if (n.includes("id_recto") || n.includes("id_verso")) return true;
+  if (
+    (n.includes("recto") || n.includes("verso")) &&
+    (n.includes("cni") || n.includes("identit") || n.includes("passeport"))
+  ) {
+    return true;
+  }
+  // « identité » seule, mais pas « identité bancaire » / RIB
+  if (n.includes("identit") && !n.includes("bancair") && !n.includes("iban") && !n.includes("rib")) {
+    return true;
+  }
+  return false;
+}
+
 export function classifyFileName(filename: string): DocumentCategory | null {
   const n = normalize(filename);
   if (!n || n.length < 2) return null;
 
-  if (
-    n.includes("cni") ||
-    n.includes("identit") ||
-    (n.includes("piece") && n.includes("identit")) ||
-    n.includes("passeport") ||
-    (n.includes("carte") && n.includes("identit")) ||
-    n.includes("id_recto") ||
-    n.includes("id_verso") ||
-    n.includes("recto") ||
-    n.includes("verso") ||
-    (n.includes("justificatif") && n.includes("ident")) ||
-    n.includes("titre de sejour") ||
-    n.includes("sejour")
-  ) {
-    return "cni";
-  }
-
+  // RIB avant CNI : « relevé d'identité bancaire » contient « identit »
   if (
     n.includes("rib") ||
     n.includes("iban") ||
@@ -38,6 +43,10 @@ export function classifyFileName(filename: string): DocumentCategory | null {
     (n.includes("bancaire") && !n.includes("pret") && !n.includes("credit") && !n.includes("emprunt"))
   ) {
     return "rib";
+  }
+
+  if (isIdentityDocName(n)) {
+    return "cni";
   }
 
   // Tableau avant offre (évite "tableau de crédit" classé en offre)

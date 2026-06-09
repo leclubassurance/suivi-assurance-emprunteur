@@ -105,7 +105,7 @@ export default function CoordonneesStep({ formData, setFormData, errors, onNext 
             <div className="hidden md:block"></div>
 
             <Input 
-              label="Email"
+              label="Email *"
               type="email"
               placeholder="votre.email@example.com"
               value={assure.email}
@@ -114,11 +114,12 @@ export default function CoordonneesStep({ formData, setFormData, errors, onNext 
             />
 
             <Input 
-              label="Téléphone"
+              label="Téléphone *"
               type="tel"
               placeholder="06 XX XX XX XX"
               value={assure.telephone}
               onChange={(e) => updateAssure(index, 'telephone', e.target.value)}
+              error={errors[`assure_${index}_telephone`]}
             />
           </div>
         </motion.div>

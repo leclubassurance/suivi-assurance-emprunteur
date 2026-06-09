@@ -218,10 +218,8 @@ export function computeDocumentChecklist(
     const id = docId(d);
 
     if (
-      n.includes("cni") ||
-      n.includes("identit") ||
-      n.includes("passeport") ||
-      id.startsWith("cni-")
+      id.startsWith("cni-") ||
+      classifyFileName(name) === "cni"
     ) {
       matched.cni.push(name);
     }
