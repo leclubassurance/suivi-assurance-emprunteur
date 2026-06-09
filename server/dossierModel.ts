@@ -6,6 +6,7 @@ import type { TelegramMessageRef } from "./telegramDossierRefs";
 import type { SubscriptionPhase } from "./subscriptionProgress";
 
 export type DossierStatus =
+  | "PROSPECT"
   | "NOUVEAU"
   | "EN_COURS"
   | "EN_ATTENTE_CLIENT"

@@ -41,6 +41,7 @@ export interface AppFile {
 }
 
 export type DossierStatus =
+  | "PROSPECT"
   | "NOUVEAU"
   | "EN_COURS"
   | "EN_ATTENTE_CLIENT"

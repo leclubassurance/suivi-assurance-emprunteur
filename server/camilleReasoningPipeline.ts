@@ -143,6 +143,25 @@ export function buildCamilleOperationalPromptBlock(input: CamilleOperationalInpu
   const newAttachmentsLine =
     attachmentNames.length > 0 ? attachmentNames.join(", ") : "Aucune pièce jointe dans cet email";
 
+  if (isProspectLead) {
+    return `
+Dossier : ${dossierId} (PROSPECT — pré-formulaire)
+Client : ${prenom} ${nom} <${clientEmail}>
+Sujet email : ${emailSubject || "—"}
+
+${prospectLeadBlock || "MODE PROSPECT — rediriger vers le formulaire en ligne, ne jamais demander de documents par email."}
+
+Fil de conversation récent :
+${conversationTail}
+
+Message client sans réponse outbound après lui : ${needsReply ? "OUI — répondre maintenant" : "non"}
+
+Email du client :
+"""
+${emailText.slice(0, 8000)}
+"""`.trim();
+  }
+
   return `
 Dossier : ${dossierId}
 Client : ${prenom} ${nom} <${clientEmail}>
@@ -245,6 +264,7 @@ Règles décision :
 - Si hésitation REPLY vs ESCALATE sur sujet métier : préférer REVIEW.
 - CNI/RIB uniquement si clientAccepted=true.
 - studySent=true : ne jamais promettre une étude à venir.
+- MODE PROSPECT (isLead) : mustInclude le lien formulaire en ligne ; mustAvoid toute demande d'envoi offre/tableau/CNI/RIB par email.
 
 JSON uniquement :
 {
@@ -287,6 +307,7 @@ Rejeter (approved=false) si le brouillon :
 - contredit le fil ou l'équipe,
 - mentionne téléphone ou assureur,
 - est hors sujet ou trop vague.
+- MODE PROSPECT : rejeter si le brouillon demande d'envoyer des documents par email au lieu du formulaire en ligne.
 
 Si corrigeable : fournir revisedMessage corrigé (même contraintes, pas de Bonjour).
 Si non corrigeable : suggestedAction REVIEW ou ESCALATE.

@@ -14,6 +14,7 @@ type SubscriptionView = {
 };
 
 const CRM_STATUS_OPTIONS = [
+  { value: "PROSPECT", label: "PROSPECT (pré-formulaire)" },
   { value: "NOUVEAU", label: "NOUVEAU" },
   { value: "EN_COURS", label: "EN COURS D'ÉTUDE" },
   { value: "EN_ATTENTE_CLIENT", label: "ATTENTE REPONSE CLIENT" },

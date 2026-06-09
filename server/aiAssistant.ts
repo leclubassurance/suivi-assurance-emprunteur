@@ -145,11 +145,13 @@ export async function processIncomingClientEmail(
     const playbooksBlock = await buildPlaybooksPromptBlock(emailText, dossier);
     const studySent = hasStudyBeenSent(dossier);
     const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
-    const missingLoanLabels = studySent
-      ? clientAccepted
-        ? ctx.missingBlocking.map((c) => c.label)
-        : []
-      : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
+    const missingLoanLabels = isProspectLead
+      ? []
+      : studySent
+        ? clientAccepted
+          ? ctx.missingBlocking.map((c) => c.label)
+          : []
+        : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
     const conversationTail = getConversationTailForAi(dossier);
     const needsReply = hasUnansweredClientInbound(dossier);
     const multiDossier =

@@ -39,7 +39,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const [previewActive, setPreviewActive] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
-  const [sidebarMode, setSidebarMode] = useState<"dossiers" | "queue">("queue");
+  const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers">("queue");
   const { metrics } = useAdminOpsData();
   const [driveDiagnostic, setDriveDiagnostic] = useState<{
     summary: string;
@@ -602,8 +602,17 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     return null;
   };
 
+  const isProspectDossier = (d: Dossier) => Boolean((d as any).isLead);
+
   const getAlerts = (d: Dossier) => {
     const alerts: { title: string; detail: string }[] = [];
+    if (isProspectDossier(d)) {
+      alerts.push({
+        title: "En attente formulaire",
+        detail: "Prospect contacté par mail — en attente du formulaire en ligne et des documents.",
+      });
+      return alerts;
+    }
     const checklist = computeDocumentChecklistForDossier(d);
     const missing = checklist.filter(i => !i.ok && (i.key === "cni" || i.key === "rib"));
     if (missing.length) {
@@ -702,11 +711,43 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   const filteredDossiers = dossiers.filter(d => {
     if (!isVisibleAdminDossier(d.id)) return false;
+    if (isProspectDossier(d)) return false;
     if (!search) return true;
     const s = search.toLowerCase();
     const p = d.formData?.assures?.[0];
     return (p?.nom?.toLowerCase().includes(s) || p?.prenom?.toLowerCase().includes(s) || d.id.toLowerCase().includes(s));
   });
+
+  const filteredProspects = dossiers.filter(d => {
+    if (!isVisibleAdminDossier(d.id)) return false;
+    if (!isProspectDossier(d)) return false;
+    if (!search) return true;
+    const s = search.toLowerCase();
+    const p = d.formData?.assures?.[0];
+    return (p?.nom?.toLowerCase().includes(s) || p?.prenom?.toLowerCase().includes(s) || d.id.toLowerCase().includes(s));
+  });
+
+  const renderDossierList = (items: Dossier[], accent: "indigo" | "amber") =>
+    items.map(d => (
+      <div key={d.id}
+        onClick={() => setSelectedDossier(d)}
+        className={`p-4 border-b cursor-pointer transition flex flex-col gap-1 ${selectedDossier?.id === d.id ? (accent === "amber" ? "bg-amber-50 border-amber-100" : "bg-indigo-50 border-indigo-100") : "hover:bg-slate-50"}`}>
+        <div className="font-bold flex justify-between items-center gap-2">
+          <span>{d.formData?.assures?.[0]?.prenom} {d.formData?.assures?.[0]?.nom}</span>
+          {isProspectDossier(d) && (
+            <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full shrink-0">
+              Prospect
+            </span>
+          )}
+        </div>
+        <div className="flex justify-between items-center text-xs">
+          <span className="text-slate-400 font-mono">{d.id}</span>
+          <span className={`px-2 py-0.5 rounded-full font-bold ${isProspectDossier(d) ? "bg-amber-100 text-amber-900" : "bg-slate-200 text-slate-700"}`}>
+            {d.status}
+          </span>
+        </div>
+      </div>
+    ));
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -751,10 +792,17 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
             </button>
             <button
               type="button"
+              onClick={() => setSidebarMode("prospects")}
+              className={`flex-1 py-2 text-xs font-black ${sidebarMode === "prospects" ? "bg-amber-50 text-amber-900 border-b-2 border-amber-500" : "text-slate-500"}`}
+            >
+              Prospects{filteredProspects.length ? ` (${filteredProspects.length})` : ""}
+            </button>
+            <button
+              type="button"
               onClick={() => setSidebarMode("dossiers")}
               className={`flex-1 py-2 text-xs font-black ${sidebarMode === "dossiers" ? "bg-indigo-50 text-indigo-900 border-b-2 border-indigo-500" : "text-slate-500"}`}
             >
-              Tous les dossiers
+              Dossiers
             </button>
           </div>
           {sidebarMode === "queue" ? (
@@ -763,8 +811,10 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
               selectedId={selectedDossier?.id}
               onSelect={(id) => {
                 const d = dossiers.find((x) => x.id === id);
-                if (d) setSelectedDossier(d);
-                setSidebarMode("dossiers");
+                if (d) {
+                  setSelectedDossier(d);
+                  setSidebarMode(isProspectDossier(d) ? "prospects" : "dossiers");
+                }
               }}
             />
           ) : (
@@ -774,31 +824,20 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
               <Search className="w-4 h-4 text-slate-400" />
               <input 
                 className="bg-transparent border-none outline-none text-sm w-full"
-                placeholder="Rechercher (nom, prénom, dossier)..."
+                placeholder={sidebarMode === "prospects" ? "Rechercher un prospect..." : "Rechercher (nom, prénom, dossier)..."}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {filteredDossiers.map(d => (
-              <div key={d.id} 
-                onClick={() => setSelectedDossier(d)}
-                className={`p-4 border-b cursor-pointer transition flex flex-col gap-1 ${selectedDossier?.id === d.id ? 'bg-indigo-50 border-indigo-100' : 'hover:bg-slate-50'}`}>
-                <div className="font-bold flex justify-between items-center gap-2">
-                  <span>{d.formData?.assures?.[0]?.prenom} {d.formData?.assures?.[0]?.nom}</span>
-                  {(d as any).isLead && (
-                    <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full shrink-0">
-                      Prospect
-                    </span>
-                  )}
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-400 font-mono">{d.id}</span>
-                  <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full font-bold">{d.status}</span>
-                </div>
-              </div>
-            ))}
+            {sidebarMode === "prospects" ? (
+              filteredProspects.length ? renderDossierList(filteredProspects, "amber") : (
+                <p className="p-4 text-sm text-slate-500">Aucun prospect pour le moment.</p>
+              )
+            ) : (
+              renderDossierList(filteredDossiers, "indigo")
+            )}
           </div>
             </>
           )}

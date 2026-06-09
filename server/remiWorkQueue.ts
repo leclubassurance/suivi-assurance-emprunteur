@@ -72,6 +72,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
 
   for (const d of dossiers) {
     if (isSnoozed(d)) continue;
+    if ((d as any).isLead) continue;
 
     const { name, email } = borrower(d);
     const esc = d.camilleEscalation;

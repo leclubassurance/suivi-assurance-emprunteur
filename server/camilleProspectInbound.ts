@@ -70,7 +70,7 @@ export function createLeadDossierFromInbound(
   const now = new Date().toISOString();
   const lead = {
     id: leadId,
-    status: "NOUVEAU",
+    status: "PROSPECT",
     createdAt: now,
     updatedAt: now,
     isLead: true,
@@ -102,12 +102,16 @@ export function createLeadDossierFromInbound(
 export function buildProspectLeadPromptBlock(dossier: any): string {
   const formUrl = getAssurancePlatformUrl();
   return `
-MODE PROSPECT / PRÉ-ÉTUDE (isLead=true — pas encore de dossier complet)
-- Ce contact a écrit à assurance@ AVANT ou SANS avoir rempli le formulaire en ligne.
-- Répondre aux questions générales : comment fonctionne l'étude d'économie, quels documents pour démarrer (offre de prêt + tableau d'amortissement PDF), délais indicatifs, Loi Lemoine en termes simples, gratuité de l'étude.
-- Inviter à démarrer : formulaire en ligne (${formUrl}) ou réponse à ce mail avec les PDFs en pièce jointe.
-- NE PAS parler d'étude déjà envoyée, Kereis, espace adhésion, ni demander CNI/RIB.
-- Ton accueillant, pédagogique, sans sur-vendre. Référence dossier : ${dossier.id}.
+MODE PROSPECT / PRÉ-ÉTUDE (isLead=true — pas encore de dossier formulaire)
+- Ce contact a écrit à assurance@ SANS avoir rempli le formulaire en ligne.
+- Répondre aux questions générales (gratuité de l'étude, Loi Lemoine, délais indicatifs, fonctionnement de l'étude d'économie).
+- ÉTAPE SUIVANTE OBLIGATOIRE : inviter à démarrer via le formulaire en ligne : ${formUrl}
+- Le formulaire recueille les informations du projet ET permet de déposer l'offre de prêt et le tableau d'amortissement (PDF).
+- INTERDIT ABSOLU : demander d'envoyer offre de prêt, tableau d'amortissement, CNI ou RIB par réponse email ou pièce jointe mail.
+- INTERDIT : promettre une étude chiffrée avant réception du formulaire complété.
+- Le lien formulaire (${formUrl}) doit apparaître clairement dans la réponse (URL cliquable).
+- NE PAS parler d'étude déjà envoyée, Kereis, espace adhésion.
+- Ton accueillant, pédagogique. Référence interne : ${dossier.id}.
 `.trim();
 }
 
