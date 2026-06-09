@@ -1,5 +1,9 @@
 import { addEvent } from "./dossierModel";
-import { getDossierClientEmails } from "./gmailAttachments";
+import {
+  collectKnownCorrespondenceEmails,
+  findNonLeadDossierByCorrespondenceEmail,
+  getDossierClientEmails,
+} from "./gmailAttachments";
 import { isCamilleTestMode } from "./businessHours";
 import { getAssurancePlatformUrl } from "../shared/lcifLegalIdentity";
 
@@ -17,6 +21,11 @@ const IGNORE_SENDER_DOMAINS = [
   "@leclubimmobilier.fr",
   "@google.com",
   "@accounts.google.com",
+  "@mail.cursor.com",
+  "@cursor.com",
+  "@github.com",
+  "@linkedin.com",
+  "@facebookmail.com",
 ];
 
 export function isProspectInboundEnabled(): boolean {
@@ -36,11 +45,7 @@ export function shouldIgnoreProspectSender(email: string): boolean {
 }
 
 export function collectKnownClientEmails(db: { dossiers: any[] }): Set<string> {
-  const out = new Set<string>();
-  for (const d of db.dossiers || []) {
-    for (const ce of getDossierClientEmails(d)) out.add(ce);
-  }
-  return out;
+  return collectKnownCorrespondenceEmails(db);
 }
 
 export function findLeadDossierByEmail(db: { dossiers: any[] }, email: string) {
@@ -163,15 +168,22 @@ export async function syncProspectInboundFromGmail(
   }
 
   const gmailUser = String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
-  const known = collectKnownClientEmails(db);
-  const q = `(to:${gmailUser} OR deliveredto:${gmailUser}) newer_than:60d -in:spam -in:trash -from:notify.railway.app`;
+  const known = collectKnownCorrespondenceEmails(db);
+  const scanDays = Number(
+    process.env.CAMILLE_PROSPECT_SCAN_DAYS || (isCamilleTestMode() ? "7" : "2"),
+  );
+  const maxLeadAgeH = Number(
+    process.env.CAMILLE_PROSPECT_MAX_LEAD_AGE_H || (isCamilleTestMode() ? "72" : "48"),
+  );
+  const maxReplyAgeH = Number(process.env.CAMILLE_PROSPECT_MAX_REPLY_AGE_H || "24");
+  const q = `(to:${gmailUser} OR deliveredto:${gmailUser}) newer_than:${scanDays}d -in:spam -in:trash -from:notify.railway.app`;
   if (isCamilleTestMode()) {
     console.log(`[Camille prospect] scan start mailbox=${gmailUser} q="${q}" knownEmails=${known.size}`);
   }
 
   const messageIds: string[] = [];
   let pageToken: string | undefined;
-  const maxScan = Number(process.env.CAMILLE_PROSPECT_SCAN_MAX || "120");
+  const maxScan = Number(process.env.CAMILLE_PROSPECT_SCAN_MAX || "40");
   while (messageIds.length < maxScan) {
     const listRes = await gmail.users.messages.list({
       userId: "me",
@@ -199,8 +211,10 @@ export async function syncProspectInboundFromGmail(
     ignoredSender: 0,
     knownClient: 0,
     fullDossier: 0,
+    tooOld: 0,
     sendGateBlocked: 0,
     aiDisabled: 0,
+    replyTooOld: 0,
   };
 
   for (const msgMeta of messages) {
@@ -266,17 +280,26 @@ export async function syncProspectInboundFromGmail(
 
     deps.processedIds.add(msgMeta.id);
 
-    const { findActiveFullDossiersByEmail } = await import("./leadDossierMerge");
-    const existingFull = findActiveFullDossiersByEmail(db, senderEmail);
-    if (existingFull.length > 0) {
+    const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
+    const msgAgeH = (Date.now() - new Date(msgDate).getTime()) / (3600 * 1000);
+
+    const linkedFull = findNonLeadDossierByCorrespondenceEmail(db, senderEmail);
+    if (linkedFull) {
       skipReasons.fullDossier += 1;
       if (isCamilleTestMode()) {
-        console.log(`[Camille prospect] ignoré (dossier complet): ${senderEmail}`);
+        console.log(
+          `[Camille prospect] ignoré (dossier client ${linkedFull.id}): ${senderEmail}`,
+        );
       }
       continue;
     }
 
     let dossier = findLeadDossierByEmail(db, senderEmail);
+    if (!dossier && msgAgeH > maxLeadAgeH) {
+      skipReasons.tooOld += 1;
+      continue;
+    }
+
     if (!dossier) {
       dossier = createLeadDossierFromInbound(db, senderEmail, fromRaw);
       known.add(senderEmail);
@@ -292,7 +315,6 @@ export async function syncProspectInboundFromGmail(
 
     prospectsHandled += 1;
 
-    const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
     const { text, html } = deps.decodeEmailBodies(payload);
 
     let msgChanged = false;
@@ -312,10 +334,16 @@ export async function syncProspectInboundFromGmail(
     }
 
     const alreadyHandled = deps.getProcessedIds(dossier).has(msgMeta.id);
+    const allowAutoReply = msgAgeH <= maxReplyAgeH;
+    if (!allowAutoReply && !alreadyHandled) {
+      skipReasons.replyTooOld += 1;
+      deps.markProcessed(dossier, msgMeta.id);
+      msgChanged = true;
+    }
     if (!alreadyHandled && !deps.isAiAutoReplyEnabled()) {
       skipReasons.aiDisabled += 1;
     }
-    if (!alreadyHandled && deps.isAiAutoReplyEnabled()) {
+    if (!alreadyHandled && allowAutoReply && deps.isAiAutoReplyEnabled()) {
       inbound += 1;
       const sendGate = deps.canCamilleEmailClient(dossier, { allowIfUnansweredInbound: true });
       if (sendGate.ok && deps.acquireCamilleClientEmailLock(dossier.id)) {

@@ -622,7 +622,8 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     return null;
   };
 
-  const isProspectDossier = (d: Dossier) => Boolean((d as any).isLead);
+  const isProspectDossier = (d: Dossier) =>
+    Boolean((d as any).isLead) || String(d.status || "").toUpperCase() === "PROSPECT";
 
   const getAlerts = (d: Dossier) => {
     const alerts: { title: string; detail: string }[] = [];

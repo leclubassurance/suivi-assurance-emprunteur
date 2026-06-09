@@ -628,6 +628,52 @@ export function getDossierClientEmails(dossier: any): string[] {
   return [...emails];
 }
 
+function normalizeCorrespondenceEmail(raw: unknown): string | null {
+  const s = String(raw || "").trim();
+  if (!s || !s.includes("@")) return null;
+  const m = s.match(/<([^>]+)>/);
+  const e = (m?.[1] || s).trim().toLowerCase();
+  return e.includes("@") ? e : null;
+}
+
+/** Emails liés au dossier : formulaire + fil Gmail déjà synchronisé. */
+export function collectAllDossierCorrespondenceEmails(dossier: any): string[] {
+  const emails = new Set<string>(getDossierClientEmails(dossier));
+  for (const c of dossier.communications || []) {
+    const from = normalizeCorrespondenceEmail(c?.from);
+    const to = normalizeCorrespondenceEmail(c?.to);
+    if (from) emails.add(from);
+    if (to) emails.add(to);
+  }
+  for (const e of dossier.emails || []) {
+    const norm = normalizeCorrespondenceEmail(e);
+    if (norm) emails.add(norm);
+  }
+  return [...emails];
+}
+
+export function collectKnownCorrespondenceEmails(db: { dossiers: any[] }): Set<string> {
+  const out = new Set<string>();
+  for (const d of db.dossiers || []) {
+    for (const e of collectAllDossierCorrespondenceEmails(d)) out.add(e);
+  }
+  return out;
+}
+
+/** Dossier client (non-prospect) déjà rattaché à cette adresse, y compris via l'historique Gmail. */
+export function findNonLeadDossierByCorrespondenceEmail(
+  db: { dossiers: any[] },
+  email: string,
+): any | null {
+  const e = normalizeCorrespondenceEmail(email);
+  if (!e) return null;
+  for (const d of db.dossiers || []) {
+    if (d?.isLead) continue;
+    if (collectAllDossierCorrespondenceEmails(d).includes(e)) return d;
+  }
+  return null;
+}
+
 function matchDossierByLcif(db: { dossiers: any[] }, subject: string) {
   const lcif = subject.match(/LCIF-\d{6}/i)?.[0]?.toUpperCase();
   if (!lcif) return null;
