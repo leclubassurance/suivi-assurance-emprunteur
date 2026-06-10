@@ -22,7 +22,7 @@ import {
   isGmailPartInDossierDocuments,
   markGmailMessageAttachmentsHandled,
 } from './gmailAttachments';
-import { finalizeGmailDocumentImport } from "./dossierDocumentSync";
+import { isLeadDossier } from "./leadDossierMerge";
 
 export function extractEmail(fromRaw: string) {
   const emailMatch = fromRaw.match(/<([^>]+)>/);
@@ -496,6 +496,7 @@ export async function syncGmailInbox(
 
   const clientEmails = new Set<string>();
   for (const d of db.dossiers || []) {
+    if (isLeadDossier(d)) continue;
     for (const e of getDossierClientEmails(d)) clientEmails.add(e);
   }
 
@@ -542,7 +543,7 @@ export async function syncGmailInbox(
         messageDate: msgDate,
         isSentByMe,
       });
-      if (!dossier) continue;
+      if (!dossier || isLeadDossier(dossier)) continue;
 
       const dossierEmails = getDossierClientEmails(dossier);
       const isFromClient = !isSentByMe && dossierEmails.includes(senderEmail);

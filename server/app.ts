@@ -824,7 +824,7 @@ export function createApp() {
       const leadId = `LCIF-${Math.floor(Math.random() * 1000000).toString().padStart(6, "0")}`;
       const leadDossier = ensureDossierShape({
         id: leadId,
-        status: "NOUVEAU",
+        status: "PROSPECT",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         formData: {
@@ -837,6 +837,7 @@ export function createApp() {
         notes: [],
         eventLog: [],
         isLead: true,
+        leadSource: "public_help",
       } as any);
       addEvent(leadDossier, {
         type: "DOSSIER_CREATED",
@@ -846,13 +847,14 @@ export function createApp() {
       db.dossiers.push(leadDossier);
       await writeDB(db, leadDossier);
 
-      const { generateCamillePreDossierHelpEmail } = await import("./aiAssistant");
-      const draft = await generateCamillePreDossierHelpEmail({
-        clientEmail: email,
-        clientPrenom: prenom,
-        message,
-      });
-      const subj = `Re: Aide formulaire — Réf. ${leadId}`;
+      const { buildProspectWelcomeReplyPlain } = await import("./camilleProspectInbound");
+      const { wrapCamilleHtmlReply } = await import("./camilleMail");
+      const welcomePlain = buildProspectWelcomeReplyPlain(leadDossier, message);
+      const draft = {
+        subject: `Re: Aide formulaire — Réf. ${leadId}`,
+        html: wrapCamilleHtmlReply(welcomePlain, prenom, "", leadDossier),
+      };
+      const subj = draft.subject;
 
       const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
       const send = await sendEmailReplyWithGmailAPI(null, email, subj, draft.html);

@@ -9,7 +9,10 @@ export function normalizeClientEmail(email: unknown): string | null {
 }
 
 export function isLeadDossier(dossier: any): boolean {
-  return Boolean(dossier?.isLead);
+  if (Boolean(dossier?.isLead)) return true;
+  if (String(dossier?.status || "").toUpperCase() === "PROSPECT") return true;
+  const src = String(dossier?.leadSource || "");
+  return src === "gmail_inbound" || src === "public_help";
 }
 
 export function findLeadDossiersByEmail(db: { dossiers: any[] }, email: string): any[] {

@@ -193,6 +193,10 @@ export interface Dossier {
     playbooks: Array<Record<string, unknown>>;
     updatedAt: string;
   };
+  /** Pré-formulaire : contact entrant assurance@ sans dossier client complet. */
+  isLead?: boolean;
+  leadSource?: string;
+  leadPromotedAt?: string;
 }
 
 export function newId(prefix: string) {
@@ -201,6 +205,10 @@ export function newId(prefix: string) {
 
 export function ensureDossierShape(d: any): Dossier {
   const now = new Date().toISOString();
+  const isLead =
+    Boolean(d.isLead) ||
+    String(d.status || "").toUpperCase() === "PROSPECT" ||
+    (Boolean(d.leadSource) && !d.leadPromotedAt);
   const dossier: Dossier = {
     id: String(d.id),
     status: (d.status || "NOUVEAU") as any,
@@ -238,7 +246,13 @@ export function ensureDossierShape(d: any): Dossier {
     privacyConsent: d.privacyConsent,
     adminChecklistOverrides: d.adminChecklistOverrides,
     camillePlaybooksStore: d.camillePlaybooksStore,
+    isLead: isLead,
+    leadSource: d.leadSource,
+    leadPromotedAt: d.leadPromotedAt,
   };
+  if (!dossier.isLead) delete (dossier as any).isLead;
+  if (!dossier.leadSource) delete (dossier as any).leadSource;
+  if (!dossier.leadPromotedAt) delete (dossier as any).leadPromotedAt;
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,
   ) as unknown as Dossier;

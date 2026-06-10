@@ -622,8 +622,12 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     return null;
   };
 
-  const isProspectDossier = (d: Dossier) =>
-    Boolean((d as any).isLead) || String(d.status || "").toUpperCase() === "PROSPECT";
+  const isProspectDossier = (d: Dossier) => {
+    const lead = Boolean((d as any).isLead);
+    const prospectStatus = String(d.status || "").toUpperCase() === "PROSPECT";
+    const src = String((d as any).leadSource || "");
+    return lead || prospectStatus || src === "gmail_inbound" || src === "public_help";
+  };
 
   const getAlerts = (d: Dossier) => {
     const alerts: { title: string; detail: string }[] = [];

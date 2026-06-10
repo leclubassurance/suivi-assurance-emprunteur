@@ -48,13 +48,13 @@ export function collectKnownClientEmails(db: { dossiers: any[] }): Set<string> {
   return collectKnownCorrespondenceEmails(db);
 }
 
+import { isLeadDossier } from "./leadDossierMerge";
+
 export function findLeadDossierByEmail(db: { dossiers: any[] }, email: string) {
   const e = email.toLowerCase();
   return (
     db.dossiers.find(
-      (d) =>
-        Boolean((d as any).isLead) &&
-        getDossierClientEmails(d).some((ce) => ce === e),
+      (d) => isLeadDossier(d) && getDossierClientEmails(d).some((ce) => ce === e),
     ) || null
   );
 }
@@ -125,6 +125,33 @@ MODE PROSPECT / PRÉ-ÉTUDE (isLead=true — pas encore de dossier formulaire)
 - NE PAS parler d'étude déjà envoyée, Kereis, espace adhésion.
 - Ton accueillant, pédagogique. Référence interne : ${dossier.id}.
 `.trim();
+}
+
+/** Réponse prospect fiable (sans LLM) — accueil + lien formulaire uniquement. */
+export function buildProspectWelcomeReplyPlain(dossier: any, clientMessage?: string): string {
+  const formUrl = getAssurancePlatformUrl();
+  const msg = String(clientMessage || "").trim().toLowerCase();
+  const isOnlyGreeting =
+    !msg ||
+    /^(bonjour|bonsoir|salut|hello|bonne journ[ée]e|bonne soir[ée]e|info|renseignement|question)[\s!.?]*$/i.test(
+      msg,
+    );
+  const lines = [
+    `Merci pour votre message et l'intérêt que vous portez à notre étude d'assurance emprunteur.`,
+    `L'étude d'économie est gratuite et sans engagement.`,
+  ];
+  if (!isOnlyGreeting && msg.length > 3) {
+    lines.push(
+      `Nous avons bien noté votre demande ; le formulaire en ligne permet de nous transmettre les éléments de votre projet pour que Charles puisse préparer une étude personnalisée.`,
+    );
+  }
+  lines.push(
+    `Pour démarrer, complétez le formulaire sécurisé (quelques minutes) :`,
+    formUrl,
+    `Vous pourrez y déposer l'offre de prêt et le tableau d'amortissement en PDF — pas besoin de les envoyer en pièce jointe par email.`,
+    `Référence interne : ${dossier.id}.`,
+  );
+  return lines.join("\n\n");
 }
 
 /** Scan des mails entrants vers assurance@ de personnes inconnues → pré-dossier + réponse Camille. */
@@ -368,6 +395,8 @@ export async function syncProspectInboundFromGmail(
               deps.markProcessed(dossier, msgMeta.id);
               msgChanged = true;
               aiReplies += 1;
+              dossier.status = "PROSPECT";
+              (dossier as any).isLead = true;
               deps.upsertCommunication(dossier, {
                 id: `msg_camille_${msgMeta.id}`,
                 gmailId: sent.messageId,
