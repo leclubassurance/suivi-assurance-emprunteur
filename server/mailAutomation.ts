@@ -813,7 +813,21 @@ export async function syncGmailInbox(
           const maxInboundAgeH = Number(process.env.CAMILLE_AUTO_REPLY_MAX_INBOUND_AGE_HOURS || "120");
           const inboundAgeH =
             (Date.now() - new Date(msgDate).getTime()) / (3600 * 1000);
-          if (alreadyHandled && inboundAgeH > maxInboundAgeH) {
+          if (Number.isFinite(inboundAgeH) && inboundAgeH > maxInboundAgeH) {
+            if (!alreadyHandled) {
+              markProcessed(dossier, msgMeta.id);
+              addEvent(dossier, {
+                type: "AI_DECISION",
+                actor: { kind: "AI", label: "Camille" },
+                message: "Réponse auto ignorée (email client trop ancien pour une réponse fiable).",
+                meta: {
+                  gmailId: msgMeta.id,
+                  inboundAgeHours: Math.round(inboundAgeH),
+                  maxInboundAgeHours: maxInboundAgeH,
+                },
+              });
+              markDossierDirty(dossier);
+            }
             continue;
           }
 
