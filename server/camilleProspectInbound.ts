@@ -6,27 +6,18 @@ import {
 } from "./gmailAttachments";
 import { isCamilleTestMode } from "./businessHours";
 import { getAssurancePlatformUrl } from "../shared/lcifLegalIdentity";
+import {
+  buildProspectGmailQueryExtras,
+  classifyInboundEmail,
+  extractEmailAddress,
+} from "./inboundEmailClassifier";
 
 function extractSenderEmail(fromRaw: string): string {
-  const m = String(fromRaw || "").match(/<([^>]+)>/);
-  if (m?.[1]) return m[1].trim().toLowerCase();
-  return String(fromRaw || "").trim().toLowerCase();
+  return extractEmailAddress(fromRaw);
 }
 
-const IGNORE_SENDER_RE =
-  /^(noreply|no-reply|mailer-daemon|postmaster|bounce|notifications?|newsletter|hello|notify)/i;
-
-const IGNORE_SENDER_DOMAINS = [
-  "@notify.railway.app",
-  "@leclubimmobilier.fr",
-  "@google.com",
-  "@accounts.google.com",
-  "@mail.cursor.com",
-  "@cursor.com",
-  "@github.com",
-  "@linkedin.com",
-  "@facebookmail.com",
-];
+export { shouldIgnoreProspectSender } from "./inboundEmailClassifier";
+import { isLeadDossier } from "./leadDossierMerge";
 
 export function isProspectInboundEnabled(): boolean {
   const raw = String(process.env.CAMILLE_PROSPECT_INBOUND_ENABLED ?? "").toLowerCase();
@@ -35,20 +26,9 @@ export function isProspectInboundEnabled(): boolean {
   return isCamilleTestMode();
 }
 
-export function shouldIgnoreProspectSender(email: string): boolean {
-  const e = String(email || "").trim().toLowerCase();
-  if (!e || !e.includes("@")) return true;
-  const local = e.split("@")[0] || "";
-  if (IGNORE_SENDER_RE.test(local)) return true;
-  if (IGNORE_SENDER_DOMAINS.some((d) => e.endsWith(d))) return true;
-  return false;
-}
-
 export function collectKnownClientEmails(db: { dossiers: any[] }): Set<string> {
   return collectKnownCorrespondenceEmails(db);
 }
-
-import { isLeadDossier } from "./leadDossierMerge";
 
 export function findLeadDossierByEmail(db: { dossiers: any[] }, email: string) {
   const e = email.toLowerCase();
@@ -154,6 +134,42 @@ export function buildProspectWelcomeReplyPlain(dossier: any, clientMessage?: str
   return lines.join("\n\n");
 }
 
+/** Salutation courte sans question métier → réponse template (pas de LLM). */
+export function isSimpleProspectGreeting(clientMessage?: string): boolean {
+  const msg = String(clientMessage || "").trim().toLowerCase();
+  if (!msg) return true;
+  if (msg.length > 120) return false;
+  if (/\?/.test(msg) && /(lemoine|économ|econom|gratuit|tarif|délai|delai|comment|pourquoi|assurance|prêt|pret|fonctionne)/i.test(msg)) {
+    return false;
+  }
+  return /^(bonjour|bonsoir|salut|hello|bonne journ[ée]e|bonne soir[ée]e|info|renseignement|question|coucou|bonjour[,!\s].{0,40})[\s!.?]*$/i.test(
+    msg,
+  );
+}
+
+/** Bloque les demandes de documents par mail dans une réponse prospect. */
+export function enforceProspectReplyPlain(plain: string, dossier: any): string {
+  const formUrl = getAssurancePlatformUrl();
+  let text = String(plain || "").trim();
+  const asksDocsByEmail =
+    /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(
+      text,
+    ) ||
+    /(envoy|joindre|transmettre).{0,80}(offre de prêt|tableau d.amortissement|cni|rib)/i.test(text);
+  if (asksDocsByEmail) {
+    text = buildProspectWelcomeReplyPlain(dossier, "");
+  }
+  if (!text.includes(formUrl)) {
+    text = `${text}\n\nPour démarrer votre étude, complétez le formulaire en ligne : ${formUrl}`;
+  }
+  return text;
+}
+
+function headerValue(headers: any[] | undefined, name: string): string {
+  const h = headers?.find((x: any) => String(x.name || "").toLowerCase() === name.toLowerCase());
+  return String(h?.value || "");
+}
+
 /** Scan des mails entrants vers assurance@ de personnes inconnues → pré-dossier + réponse Camille. */
 export async function syncProspectInboundFromGmail(
   gmail: any,
@@ -203,7 +219,7 @@ export async function syncProspectInboundFromGmail(
     process.env.CAMILLE_PROSPECT_MAX_LEAD_AGE_H || (isCamilleTestMode() ? "72" : "48"),
   );
   const maxReplyAgeH = Number(process.env.CAMILLE_PROSPECT_MAX_REPLY_AGE_H || "24");
-  const q = `(to:${gmailUser} OR deliveredto:${gmailUser}) newer_than:${scanDays}d -in:spam -in:trash -from:notify.railway.app`;
+  const q = `(to:${gmailUser} OR deliveredto:${gmailUser}) newer_than:${scanDays}d -in:spam -in:trash ${buildProspectGmailQueryExtras()}`;
   if (isCamilleTestMode()) {
     console.log(`[Camille prospect] scan start mailbox=${gmailUser} q="${q}" knownEmails=${known.size}`);
   }
@@ -236,6 +252,7 @@ export async function syncProspectInboundFromGmail(
     alreadySynced: 0,
     sent: 0,
     ignoredSender: 0,
+    automated: 0,
     knownClient: 0,
     fullDossier: 0,
     tooOld: 0,
@@ -254,7 +271,7 @@ export async function syncProspectInboundFromGmail(
       userId: "me",
       id: msgMeta.id,
       format: "metadata",
-      metadataHeaders: ["From", "Subject"],
+      metadataHeaders: ["From", "Subject", "To", "Delivered-To", "Auto-Submitted", "Precedence", "List-Unsubscribe"],
     });
     const metaPayload = metaRes.data.payload;
     const metaLabelIds = metaRes.data.labelIds || [];
@@ -262,10 +279,27 @@ export async function syncProspectInboundFromGmail(
       skipReasons.sent += 1;
       continue;
     }
-    const fromHeaderMeta = metaPayload?.headers?.find((h: any) => h.name?.toLowerCase() === "from");
+    const metaHeaders = metaPayload?.headers || [];
+    const fromHeaderMeta = metaHeaders.find((h: any) => h.name?.toLowerCase() === "from");
     const senderEmailMeta = extractSenderEmail(fromHeaderMeta?.value || "");
-    if (!senderEmailMeta || shouldIgnoreProspectSender(senderEmailMeta)) {
-      skipReasons.ignoredSender += 1;
+    const metaClass = classifyInboundEmail(
+      {
+        fromRaw: fromHeaderMeta?.value,
+        toRaw: headerValue(metaHeaders, "To"),
+        deliveredToRaw: headerValue(metaHeaders, "Delivered-To"),
+        subject: headerValue(metaHeaders, "Subject"),
+        autoSubmitted: headerValue(metaHeaders, "Auto-Submitted"),
+        precedence: headerValue(metaHeaders, "Precedence"),
+        listUnsubscribe: headerValue(metaHeaders, "List-Unsubscribe"),
+      },
+      { requireAssuranceMailbox: true },
+    );
+    if (!senderEmailMeta || metaClass.ignore) {
+      if (metaClass.category === "automated") skipReasons.automated += 1;
+      else skipReasons.ignoredSender += 1;
+      if (isCamilleTestMode() && metaClass.ignore) {
+        console.log(`[Camille prospect] ignoré (${metaClass.reason})`);
+      }
       continue;
     }
     if (known.has(senderEmailMeta)) {
@@ -292,9 +326,22 @@ export async function syncProspectInboundFromGmail(
     const fromRaw = fromHeader?.value || "";
     const senderEmail = extractSenderEmail(fromRaw);
     const subject = subjectHeader?.value || "";
+    const fullClass = classifyInboundEmail(
+      {
+        fromRaw,
+        toRaw: headerValue(payload.headers, "To"),
+        deliveredToRaw: headerValue(payload.headers, "Delivered-To"),
+        subject,
+        autoSubmitted: headerValue(payload.headers, "Auto-Submitted"),
+        precedence: headerValue(payload.headers, "Precedence"),
+        listUnsubscribe: headerValue(payload.headers, "List-Unsubscribe"),
+      },
+      { requireAssuranceMailbox: true },
+    );
 
-    if (!senderEmail || shouldIgnoreProspectSender(senderEmail)) {
-      skipReasons.ignoredSender += 1;
+    if (!senderEmail || fullClass.ignore) {
+      if (fullClass.category === "automated") skipReasons.automated += 1;
+      else skipReasons.ignoredSender += 1;
       continue;
     }
     if (known.has(senderEmail)) {

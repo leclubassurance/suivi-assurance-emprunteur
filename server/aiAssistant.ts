@@ -65,26 +65,29 @@ export async function processIncomingClientEmail(
     const isProspectLead = Boolean(options?.isProspectLead || isLeadDossier(dossier));
 
     if (isProspectLead) {
-      const { buildProspectWelcomeReplyPlain } = await import("./camilleProspectInbound");
-      const plain = buildProspectWelcomeReplyPlain(dossier, emailText);
-      const telegramAction = buildTelegramActionFromReply({
-        dossier,
-        clientMessage: emailText,
-        replyPlain: plain,
-        emailSubject: options?.emailSubject,
-        actionKind: "prospect_welcome",
-        attachmentNames,
-      });
-      console.log(`[AI] Réponse prospect template pour ${dossier.id}`);
-      return {
-        status: "replied",
-        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-        replyPlain: plain,
-        telegramAction,
-      };
+      const { buildProspectWelcomeReplyPlain, isSimpleProspectGreeting, enforceProspectReplyPlain } =
+        await import("./camilleProspectInbound");
+      if (isSimpleProspectGreeting(emailText)) {
+        const plain = buildProspectWelcomeReplyPlain(dossier, emailText);
+        const telegramAction = buildTelegramActionFromReply({
+          dossier,
+          clientMessage: emailText,
+          replyPlain: plain,
+          emailSubject: options?.emailSubject,
+          actionKind: "prospect_welcome",
+          attachmentNames,
+        });
+        console.log(`[AI] Réponse prospect template pour ${dossier.id}`);
+        return {
+          status: "replied",
+          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+          replyPlain: plain,
+          telegramAction,
+        };
+      }
     }
 
-    const playbookHit = await tryPlaybookAutoReply(dossier, emailText);
+    const playbookHit = isProspectLead ? null : await tryPlaybookAutoReply(dossier, emailText);
     if (playbookHit) {
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
       const telegramAction = buildTelegramActionFromReply({
@@ -323,9 +326,13 @@ export async function processIncomingClientEmail(
       return { status: "escalated", reason: decision.reasonForEscalation };
     } else if (decision.action === "REPLY") {
       console.log(`[AI] Réponse autonome pour le dossier ${dossier.id}`);
-      const plain = String(decision.messageToClient || "").trim();
+      let plain = String(decision.messageToClient || "").trim();
       if (!plain) {
         return { status: "escalated", reason: "Réponse IA vide" };
+      }
+      if (isProspectLead) {
+        const { enforceProspectReplyPlain } = await import("./camilleProspectInbound");
+        plain = enforceProspectReplyPlain(plain, dossier);
       }
       const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
         inboundAttachmentNames: attachmentNames,

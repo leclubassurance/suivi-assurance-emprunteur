@@ -23,6 +23,7 @@ import {
   markGmailMessageAttachmentsHandled,
 } from './gmailAttachments';
 import { isLeadDossier } from "./leadDossierMerge";
+import { finalizeGmailDocumentImport } from "./dossierDocumentSync";
 
 export function extractEmail(fromRaw: string) {
   const emailMatch = fromRaw.match(/<([^>]+)>/);
@@ -732,9 +733,20 @@ export async function syncGmailInbox(
       }
 
       if (isFromClient) {
+        const alreadyHandled = getProcessedIds(dossier).has(msgMeta.id);
+        const { classifyInboundEmail } = await import("./inboundEmailClassifier");
+        const inboundClass = classifyInboundEmail({
+          fromRaw,
+          toRaw,
+          subject,
+        });
+        if (inboundClass.ignore) {
+          if (!alreadyHandled) markProcessed(dossier, msgMeta.id);
+          continue;
+        }
+
         const replyToEmail = senderEmail;
         inboundCount++;
-        const alreadyHandled = getProcessedIds(dossier).has(msgMeta.id);
         const { hasUnansweredClientInbound } = await import("./gmailConversation");
         const unanswered = hasUnansweredClientInbound(dossier, msgMeta.id);
 
