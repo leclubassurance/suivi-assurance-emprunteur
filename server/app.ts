@@ -1827,10 +1827,14 @@ export function createApp() {
     res.download(p, doc.name || path.basename(p));
   });
 
-  app.post("/api/admin/prospects/reset-test", async (req, res) => {
+  const resetProspectTestHandler = async (
+    req: express.Request,
+    res: express.Response,
+    input: { dossierId?: string; email?: string },
+  ) => {
     await ensureBackgroundServicesStarted();
-    const dossierId = String((req.body as any)?.dossierId || "").trim();
-    const email = String((req.body as any)?.email || "").trim().toLowerCase();
+    const dossierId = String(input.dossierId || "").trim();
+    const email = String(input.email || "").trim().toLowerCase();
     if (!dossierId && !email) {
       return res.status(400).json({ error: "dossierId ou email requis" });
     }
@@ -1880,6 +1884,20 @@ export function createApp() {
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }
+  };
+
+  app.post("/api/admin/prospects/reset-test", async (req, res) => {
+    await resetProspectTestHandler(req, res, {
+      dossierId: (req.body as any)?.dossierId,
+      email: (req.body as any)?.email,
+    });
+  });
+
+  app.get("/api/admin/prospects/reset-test", async (req, res) => {
+    await resetProspectTestHandler(req, res, {
+      dossierId: typeof req.query.dossierId === "string" ? req.query.dossierId : undefined,
+      email: typeof req.query.email === "string" ? req.query.email : undefined,
+    });
   });
 
   app.post("/api/admin/sync-prospects", async (req, res) => {
