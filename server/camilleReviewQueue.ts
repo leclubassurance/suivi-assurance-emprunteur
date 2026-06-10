@@ -64,11 +64,11 @@ export function isCamilleReviewEnabled(): boolean {
   return isTelegramEnabled();
 }
 
-/** Toute réponse client passe par un brouillon Telegram avant envoi Gmail. */
+/** Optionnel : brouillon Telegram avant chaque réponse auto (désactivé par défaut). */
 export function isCamilleDraftBeforeSendEnabled(): boolean {
   if (!isCamilleReviewEnabled()) return false;
-  const raw = String(process.env.CAMILLE_DRAFT_BEFORE_SEND ?? "true").toLowerCase();
-  return raw !== "false" && raw !== "0";
+  const raw = String(process.env.CAMILLE_DRAFT_BEFORE_SEND ?? "false").toLowerCase();
+  return raw === "true" || raw === "1";
 }
 
 /** Sujets où Camille doit demander avant de répondre seule. */

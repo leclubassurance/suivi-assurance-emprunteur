@@ -63,6 +63,10 @@ export function isFirestoreReady(): boolean {
   return Boolean(firestoreDb);
 }
 
+export function getFirestoreDb(): Firestore | null {
+  return firestoreDb;
+}
+
 export function getFirebaseProjectId(): string | null {
   return loadedProjectId;
 }

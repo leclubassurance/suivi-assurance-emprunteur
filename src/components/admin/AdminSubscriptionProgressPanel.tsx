@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Save, Send, CheckCircle2, UserCheck, Flag } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
 import { showToast } from "../../lib/toast";
+import { adminFetch } from "../../lib/adminApi";
 import type { Dossier } from "../../types";
 
 type SubscriptionView = {
@@ -57,7 +57,7 @@ export default function AdminSubscriptionProgressPanel({
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/subscription-progress`));
+    const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/subscription-progress`);
     if (!res.ok) {
       setView(null);
       return;
@@ -88,7 +88,7 @@ export default function AdminSubscriptionProgressPanel({
     if (!p) return;
     setSaving(true);
     try {
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/subscription-progress`), {
+      const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/subscription-progress`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

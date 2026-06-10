@@ -163,6 +163,25 @@ export function isUnsafeProspectLlmReply(plain: string, clientMessage?: string):
   if (/frais de (mise en place|courtage)|opportunité unique/i.test(text) && !/étude envoyée/i.test(msg)) {
     return true;
   }
+  const clientConfused =
+    /je ne comprends pas|pas compris|gagn(er|e).{0,30}(argent|€)|pourquoi|comment (ça|ca) (marche|fonctionne)|c'est quoi|qu'est-ce|vous faites quoi/i.test(
+      msg,
+    );
+  const replyOnlyAsksDocs =
+    /tableau d'amortissement|formulaire|pièces|documents pour|compléter votre dossier/i.test(text) &&
+    !/(lemoine|assurance emprunteur|courtier|compar|économ|club|immobilier)/i.test(text);
+  if (clientConfused && replyOnlyAsksDocs) return true;
+  if (
+    /agence immo|immobilier/.test(msg) &&
+    /vous faites|faites l'assurance|faites l assurance/.test(msg) &&
+    !/agence|immobilier|club|lemoine|courtage|assurance emprunteur/i.test(text)
+  ) {
+    return true;
+  }
+  if (/d'ici \d+ (jour|semaine|mois)|sous \d+ (jour|semaine|mois)|dans \d+ (jour|semaine)/i.test(plain)) {
+    return true;
+  }
+  if (msg.length > 80 && plain.length < 120 && replyOnlyAsksDocs) return true;
   return false;
 }
 
@@ -249,8 +268,8 @@ export async function syncProspectInboundFromGmail(
       d: any,
       o?: { allowIfUnansweredInbound?: boolean; inboundGmailId?: string },
     ) => { ok: boolean; reason?: string };
-    acquireCamilleClientEmailLock: (id: string) => boolean;
-    releaseCamilleClientEmailLock: (id: string) => void;
+    acquireCamilleClientEmailLock: (id: string) => Promise<boolean>;
+    releaseCamilleClientEmailLock: (id: string) => Promise<void>;
     sendEmailReplyWithGmailAPI: (
       token: string | null,
       to: string,
@@ -535,8 +554,6 @@ export async function syncProspectInboundFromGmail(
     } else if (!alreadyHandled && allowAutoReply && deps.isAiAutoReplyEnabled()) {
       const { isReviewBlockingAutoReply } = await import("./camilleReviewQueue");
       if (isReviewBlockingAutoReply(dossier)) {
-        deps.markProcessed(dossier, msgMeta.id);
-        msgChanged = true;
         continue;
       }
 
@@ -545,7 +562,7 @@ export async function syncProspectInboundFromGmail(
         allowIfUnansweredInbound: true,
         inboundGmailId: msgMeta.id,
       });
-      if (sendGate.ok && deps.acquireCamilleClientEmailLock(dossier.id)) {
+      if (sendGate.ok && (await deps.acquireCamilleClientEmailLock(dossier.id))) {
         try {
           await deps.sleep(deps.getCamilleReplyDelayMs());
           const aiDecision = await deps.aiCallback(dossier, text, senderEmail, {
@@ -557,78 +574,49 @@ export async function syncProspectInboundFromGmail(
 
           if (aiDecision?.status === "replied" && aiDecision.text) {
             const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
-            const {
-              isCamilleDraftBeforeSendEnabled,
-              tryQueueCamilleReplyForValidation,
-            } = await import("./camilleReviewQueue");
-
-            if (isCamilleDraftBeforeSendEnabled()) {
-              const queued = await tryQueueCamilleReplyForValidation({
-                dossier,
-                gmailId: msgMeta.id,
-                clientEmail: senderEmail,
-                emailSubject: subject,
-                clientMessage: text,
-                replyHtml: aiDecision.text,
-                replyPlain: aiDecision.replyPlain,
-                extraTelegramLabel: "Prospect pré-étude",
+            const sent = await deps.sendEmailReplyWithGmailAPI(
+              deps.accessToken,
+              senderEmail,
+              replySubject,
+              aiDecision.text,
+            );
+            if (sent.ok) {
+              deps.markProcessed(dossier, msgMeta.id);
+              msgChanged = true;
+              aiReplies += 1;
+              dossier.status = "PROSPECT";
+              (dossier as any).isLead = true;
+              deps.upsertCommunication(dossier, {
+                id: `msg_camille_${msgMeta.id}`,
+                gmailId: sent.messageId,
+                direction: "outbound",
+                from: "Camille (IA)",
+                to: senderEmail,
+                subject: replySubject,
+                text: aiDecision.replyPlain || "",
+                date: new Date().toISOString(),
               });
-              if (queued.queued) {
-                msgChanged = true;
-              } else {
-                addEvent(dossier, {
-                  type: "AI_DECISION",
-                  actor: { kind: "AI", label: "Camille" },
-                  message: `Brouillon prospect non envoyé sur Telegram (${queued.error || "erreur"}) — pas d'envoi auto.`,
-                  meta: { gmailId: msgMeta.id, error: queued.error, lead: true },
-                });
-                msgChanged = true;
-              }
+              addEvent(dossier, {
+                type: "AI_DECISION",
+                actor: { kind: "AI", label: "Camille" },
+                message: "Réponse prospect pré-étude envoyée.",
+                meta: { gmailId: msgMeta.id, lead: true },
+              });
+              void import("./telegramNotify")
+                .then(({ notifyTelegramCamilleReplied }) =>
+                  notifyTelegramCamilleReplied({
+                    dossier,
+                    subject: replySubject,
+                    gmailId: sent.messageId || msgMeta.id,
+                    extra: "Prospect pré-étude",
+                    camilleAction: aiDecision.telegramAction,
+                  }),
+                )
+                .catch(() => undefined);
             } else {
-              const sent = await deps.sendEmailReplyWithGmailAPI(
-                deps.accessToken,
-                senderEmail,
-                replySubject,
-                aiDecision.text,
+              console.warn(
+                `[Camille prospect] échec envoi Gmail ${dossier.id} (${senderEmail}): ${sent.error || "?"}`,
               );
-              if (sent.ok) {
-                deps.markProcessed(dossier, msgMeta.id);
-                msgChanged = true;
-                aiReplies += 1;
-                dossier.status = "PROSPECT";
-                (dossier as any).isLead = true;
-                deps.upsertCommunication(dossier, {
-                  id: `msg_camille_${msgMeta.id}`,
-                  gmailId: sent.messageId,
-                  direction: "outbound",
-                  from: "Camille (IA)",
-                  to: senderEmail,
-                  subject: replySubject,
-                  text: aiDecision.replyPlain || "",
-                  date: new Date().toISOString(),
-                });
-                addEvent(dossier, {
-                  type: "AI_DECISION",
-                  actor: { kind: "AI", label: "Camille" },
-                  message: "Réponse prospect pré-étude envoyée.",
-                  meta: { gmailId: msgMeta.id, lead: true },
-                });
-                void import("./telegramNotify")
-                  .then(({ notifyTelegramCamilleReplied }) =>
-                    notifyTelegramCamilleReplied({
-                      dossier,
-                      subject: replySubject,
-                      gmailId: sent.messageId || msgMeta.id,
-                      extra: "Prospect pré-étude",
-                      camilleAction: aiDecision.telegramAction,
-                    }),
-                  )
-                  .catch(() => undefined);
-              } else {
-                console.warn(
-                  `[Camille prospect] échec envoi Gmail ${dossier.id} (${senderEmail}): ${sent.error || "?"}`,
-                );
-              }
             }
           } else if (aiDecision?.status === "review" && aiDecision.questionForStaff) {
             const { createCamilleReviewRequest } = await import("./camilleReviewQueue");
@@ -688,7 +676,7 @@ export async function syncProspectInboundFromGmail(
             msgChanged = true;
           }
         } finally {
-          deps.releaseCamilleClientEmailLock(dossier.id);
+          await deps.releaseCamilleClientEmailLock(dossier.id);
         }
       } else if (!alreadyHandled) {
         skipReasons.sendGateBlocked += 1;

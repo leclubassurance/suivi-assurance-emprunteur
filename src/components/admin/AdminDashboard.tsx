@@ -4,6 +4,7 @@ import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download,
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
+import { adminFetch } from "../../lib/adminApi";
 import {
   computeDocumentChecklistForDossier,
   getAdminChecklistOverrides,
@@ -70,7 +71,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   const loadDossiers = async () => {
     try {
-      const res = await fetch(getApiUrl("/api/dossiers"));
+      const res = await adminFetch("/api/dossiers");
       if (res.ok) {
         const data = await res.json();
         const filteredData = user.role === 'CONSEILLER'
@@ -116,7 +117,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   const updateStatus = async (id: string, newStatus: string) => {
     try {
-      await fetch(getApiUrl(`/api/dossiers/${id}/status`), {
+      await adminFetch(`/api/dossiers/${id}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -132,7 +133,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     if (!id) return;
     try {
       showToast("Réanalyse OCR en cours…", "info");
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${id}/reanalyze-documents`), {
+      const res = await adminFetch(`/api/admin/dossiers/${id}/reanalyze-documents`, {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({}),
@@ -168,7 +169,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
     try {
       showToast("Réanalyse globale lancée…", "info");
-      const res = await fetch(getApiUrl("/api/admin/reanalyze-documents"), {
+      const res = await adminFetch("/api/admin/reanalyze-documents", {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({}),
@@ -198,10 +199,10 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
     try {
       showToast("Récupération des pièces jointes Gmail...", "info");
-      const res = await fetch(
-        getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/resync-attachments`),
-        { method: "POST", headers: await authHeaders(), body: JSON.stringify({}) },
-      );
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/resync-attachments`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         const errHint =
@@ -244,10 +245,10 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       return;
     }
     try {
-      const res = await fetch(
-        getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/seed-gmail-imports`),
-        { method: "POST", headers: await authHeaders(), body: JSON.stringify({}) },
-      );
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/seed-gmail-imports`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(data.error || "Échec enregistrement registre Gmail", "error");
@@ -267,7 +268,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     if (!selectedDossier) return;
     try {
       showToast("Génération du brouillon en cours...", "info");
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/compute-economy`), {
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/compute-economy`, {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({}),
@@ -299,7 +300,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     try {
       const fd = new FormData();
       fd.append("quote", file);
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/quote`), {
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/quote`, {
         method: "POST",
         body: fd,
       });
@@ -321,7 +322,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       const fd = new FormData();
       fd.append("document", file);
       fd.append("category", uploadDocCategory);
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/documents`), {
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/documents`, {
         method: "POST",
         body: fd,
       });
@@ -343,14 +344,35 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleDownloadDocument = async (doc: { id: string; name?: string }) => {
+    if (!selectedDossier) return;
+    try {
+      const res = await adminFetch(
+        `/api/dossiers/${selectedDossier.id}/documents/${doc.id}/download`,
+      );
+      if (!res.ok) {
+        showToast("Téléchargement impossible", "error");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.name || "document";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast("Erreur téléchargement", "error");
+    }
+  };
+
   const handleReclassifyDocument = async (docId: string, category: string) => {
     if (!selectedDossier) return;
     try {
-      const res = await fetch(
-        getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/documents/${encodeURIComponent(docId)}`),
+      const res = await adminFetch(
+        `/api/admin/dossiers/${selectedDossier.id}/documents/${encodeURIComponent(docId)}`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ category }),
         },
       );
@@ -369,7 +391,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const handleDeleteQuote = async () => {
     if (!selectedDossier) return;
     try {
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/quote`), {
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/quote`, {
         method: "DELETE",
       });
       const data = await res.json().catch(() => ({}));
@@ -387,7 +409,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const handleSyncProspects = async () => {
     try {
       showToast("Sync prospects en cours…", "info");
-      const res = await fetch(getApiUrl("/api/admin/sync-prospects"), { method: "POST" });
+      const res = await adminFetch("/api/admin/sync-prospects", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(
@@ -412,7 +434,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
     try {
       showToast("Synchronisation Gmail en cours...", "info");
-      const res = await fetch(getApiUrl("/api/admin/sync-emails"), {
+      const res = await adminFetch("/api/admin/sync-emails", {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({}),
@@ -445,7 +467,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
     try {
       showToast("Test Drive en cours...", "info");
-      const res = await fetch(getApiUrl("/api/admin/drive-check"), {
+      const res = await adminFetch("/api/admin/drive-check", {
         headers: await authHeaders(false),
       });
       const data = await res.json().catch(() => ({}));
@@ -473,11 +495,10 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     if (!selectedDossier) return;
     try {
       const method = validate ? "POST" : "DELETE";
-      const res = await fetch(
-        getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/checklist/${key}/validate`),
+      const res = await adminFetch(
+        `/api/admin/dossiers/${selectedDossier.id}/checklist/${key}/validate`,
         {
           method,
-          headers: await authHeaders(),
           body: validate ? JSON.stringify({ author: user.email }) : undefined,
         },
       );
@@ -505,7 +526,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
     try {
       showToast("Envoi des documents vers Drive...", "info");
-      const res = await fetch(getApiUrl(`/api/dossiers/${selectedDossier.id}/retry-workspace`), {
+      const res = await adminFetch(`/api/dossiers/${selectedDossier.id}/retry-workspace`, {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({}),
@@ -539,7 +560,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     const text = newNote.trim();
     if (!text) return;
     try {
-      const res = await fetch(getApiUrl(`/api/dossiers/${selectedDossier.id}/notes`), {
+      const res = await adminFetch(`/api/dossiers/${selectedDossier.id}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ author: user.email, text }),
@@ -661,7 +682,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   const handleDeleteAction = async (id: string) => {
     try {
-      const res = await fetch(getApiUrl(`/api/dossiers/${encodeURIComponent(id)}`), {
+      const res = await adminFetch(`/api/dossiers/${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers: await authHeaders(),
       });
@@ -685,7 +706,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     if (!selectedDossier) return;
 
     try {
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/send-email`), {
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/send-email`, {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({ subject: replySubject, html: replyBody }),
@@ -717,7 +738,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
     try {
       showToast("Envoi de l'email en cours...", "info");
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/send-email`), {
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/send-email`, {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({ subject: emailSubject, html: emailHtml }),
@@ -790,7 +811,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
           <button onClick={async () => {
             try {
               showToast("Exécution des relances...", "info");
-              const res = await fetch(getApiUrl("/api/admin/run-scheduler"), { method: "POST" });
+              const res = await adminFetch("/api/admin/run-scheduler", { method: "POST" });
               const data = await res.json().catch(() => ({}));
               if (res.ok) {
                 showToast(`Relances envoyées : ${data.sent || 0} · Échecs : ${data.failed || 0}`, "success");
@@ -934,7 +955,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     try {
                       setAiSuggestions(null);
                       showToast("Analyse IA en cours...", "info");
-                      const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/next-actions`));
+                      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/next-actions`);
                       const data = await res.json().catch(() => ({}));
                       if (res.ok) {
                         setAiSuggestions(data.actions || []);
@@ -1086,7 +1107,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                                       onClick={async () => {
                                         try {
                                           showToast("Envoi IA en cours...", "info");
-                                          const res = await fetch(getApiUrl(`/api/admin/dossiers/${selectedDossier.id}/send-email`), {
+                                          const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/send-email`, {
                                             method: "POST",
                                             headers: await authHeaders(),
                                             body: JSON.stringify({ subject: a.subject, html: a.html }),
@@ -1676,19 +1697,24 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               )}
                             </div>
                           </div>
-                          <a
-                            href={
-                              doc.driveLink
-                                ? doc.driveLink
-                                : getApiUrl(`/api/dossiers/${selectedDossier.id}/documents/${doc.id}/download`)
-                            }
-                            target={doc.driveLink ? "_blank" : undefined}
-                            rel={doc.driveLink ? "noreferrer" : undefined}
-                            download={!doc.driveLink ? doc.name : undefined}
-                            className="bg-white border text-slate-700 p-2 rounded-lg hover:bg-slate-100 transition-colors"
-                          >
-                            <Download className="w-4 h-4" />
-                          </a>
+                          {doc.driveLink ? (
+                            <a
+                              href={doc.driveLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="bg-white border text-slate-700 p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                            >
+                              <Download className="w-4 h-4" />
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadDocument(doc)}
+                              className="bg-white border text-slate-700 p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       ))
                     ) : (

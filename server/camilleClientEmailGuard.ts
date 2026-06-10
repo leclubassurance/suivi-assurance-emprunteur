@@ -68,14 +68,18 @@ export function canCamilleEmailClient(
   return { ok: true };
 }
 
-export function acquireCamilleClientEmailLock(dossierId: string): boolean {
+export async function acquireCamilleClientEmailLock(dossierId: string): Promise<boolean> {
   if (inFlightDossierIds.has(dossierId)) return false;
+  const { tryAcquireDistributedLock } = await import("./camilleDistributedLock");
+  if (!(await tryAcquireDistributedLock(`camille_email_${dossierId}`))) return false;
   inFlightDossierIds.add(dossierId);
   return true;
 }
 
-export function releaseCamilleClientEmailLock(dossierId: string) {
+export async function releaseCamilleClientEmailLock(dossierId: string): Promise<void> {
   inFlightDossierIds.delete(dossierId);
+  const { releaseDistributedLock } = await import("./camilleDistributedLock");
+  await releaseDistributedLock(`camille_email_${dossierId}`);
 }
 
 export function registerScheduledDocFollowUp(

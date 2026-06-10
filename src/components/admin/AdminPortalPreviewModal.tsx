@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { X, ExternalLink, Save } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
 import { showToast } from "../../lib/toast";
+import { adminFetch } from "../../lib/adminApi";
 import { ClientPortalContent, type ClientPortalData } from "../portal/ClientPortalContent";
 
 const PHASE_OPTIONS = [
@@ -33,8 +33,8 @@ export default function AdminPortalPreviewModal({
 
   const load = async () => {
     const [previewRes, linkRes] = await Promise.all([
-      fetch(getApiUrl(`/api/admin/dossiers/${dossierId}/portal-preview`)),
-      fetch(getApiUrl(`/api/admin/dossiers/${dossierId}/portal-link`)),
+      adminFetch(`/api/admin/dossiers/${dossierId}/portal-preview`),
+      adminFetch(`/api/admin/dossiers/${dossierId}/portal-link`),
     ]);
     if (previewRes.ok) {
       const json = await previewRes.json();
@@ -65,7 +65,7 @@ export default function AdminPortalPreviewModal({
     if (!phase) return;
     setSaving(true);
     try {
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossierId}/subscription-progress`), {
+      const res = await adminFetch(`/api/admin/dossiers/${dossierId}/subscription-progress`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phase, note: note.trim() || undefined }),

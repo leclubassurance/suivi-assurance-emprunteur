@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
 import { showToast } from "../../lib/toast";
+import { adminFetch } from "../../lib/adminApi";
 import type { Dossier } from "../../types";
 
 type SubscriptionView = {
@@ -41,7 +41,7 @@ export default function AdminDossierBannerControls({
   const [savingPhase, setSavingPhase] = useState(false);
 
   const loadPhase = useCallback(async () => {
-    const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/subscription-progress`));
+    const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/subscription-progress`);
     if (!res.ok) {
       setView(null);
       return;
@@ -59,7 +59,7 @@ export default function AdminDossierBannerControls({
     if (!nextPhase) return;
     setSavingPhase(true);
     try {
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/subscription-progress`), {
+      const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/subscription-progress`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phase: nextPhase }),

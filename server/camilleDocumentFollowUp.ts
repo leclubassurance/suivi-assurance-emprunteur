@@ -244,7 +244,7 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
   });
 
   const timer = setTimeout(async () => {
-    if (!acquireCamilleClientEmailLock(dossierId)) return;
+    if (!(await acquireCamilleClientEmailLock(dossierId))) return;
     try {
       const db = await readDB();
       const existing = (db.dossiers || []).find((d: any) => d.id === dossierId);
@@ -367,7 +367,7 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
     } catch (err: any) {
       console.error(`[Camille] Erreur relance documents ${dossierId}: ${err?.message || String(err)}`);
     } finally {
-      releaseCamilleClientEmailLock(dossierId);
+      await releaseCamilleClientEmailLock(dossierId);
     }
   }, delayMs);
 

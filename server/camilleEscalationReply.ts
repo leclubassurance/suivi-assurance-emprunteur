@@ -260,7 +260,7 @@ export async function syncStaffEscalationReplyEmails(
         date: msgDate,
       });
 
-      if (!acquireCamilleClientEmailLock(dossier.id)) continue;
+      if (!(await acquireCamilleClientEmailLock(dossier.id))) continue;
 
       try {
         console.log(
@@ -277,7 +277,7 @@ export async function syncStaffEscalationReplyEmails(
       } catch (err: any) {
         console.error(`[Camille] Escalade email ${dossier.id}:`, err?.message || err);
       } finally {
-        releaseCamilleClientEmailLock(dossier.id);
+        await releaseCamilleClientEmailLock(dossier.id);
       }
     }
   }

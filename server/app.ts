@@ -124,6 +124,11 @@ export function createApp() {
     next();
   });
 
+  app.use(async (req, res, next) => {
+    const { adminAuthMiddleware } = await import("./adminAuth");
+    return adminAuthMiddleware(req, res, next);
+  });
+
   async function readDBAsync() {
     return readDB();
   }
@@ -151,7 +156,14 @@ export function createApp() {
   // --- API ROUTES ---
 
   app.post("/api/telegram/webhook", async (req, res) => {
+    const { isTelegramEnabled } = await import("./telegramCamille");
     const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+    const prodLike =
+      process.env.FIREBASE_REQUIRED === "true" || Boolean(process.env.RAILWAY_ENVIRONMENT);
+    if (isTelegramEnabled() && prodLike && !secret) {
+      console.error("[Telegram webhook] TELEGRAM_WEBHOOK_SECRET requis en production");
+      return res.status(503).json({ error: "Webhook Telegram non configuré" });
+    }
     if (secret && req.headers["x-telegram-bot-api-secret-token"] !== secret) {
       console.warn("[Telegram webhook] secret mismatch — refusé");
       return res.status(403).json({ error: "Forbidden" });

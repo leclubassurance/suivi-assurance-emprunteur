@@ -20,8 +20,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { showToast } from "../../lib/toast";
-import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
+import { adminFetch } from "../../lib/adminApi";
 import type { Dossier } from "../../types";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
 import AdminSubscriptionProgressPanel from "./AdminSubscriptionProgressPanel";
@@ -188,7 +188,7 @@ export function AdminWorkQueuePanel({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(getApiUrl("/api/admin/work-queue"), {
+      const res = await adminFetch("/api/admin/work-queue", {
         headers: await authHeaders(false),
       });
       const data = await res.json();
@@ -205,7 +205,7 @@ export function AdminWorkQueuePanel({
     const key = `${item.dossierId}-${item.kind}`;
     setDismissing(key);
     try {
-      const res = await fetch(getApiUrl(`/api/admin/work-queue/${item.dossierId}/dismiss`), {
+      const res = await adminFetch(`/api/admin/work-queue/${item.dossierId}/dismiss`, {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({ kind: item.kind }),
@@ -280,7 +280,7 @@ export function useAdminOpsData() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const loadMetrics = useCallback(async () => {
     try {
-      const res = await fetch(getApiUrl("/api/admin/activity-metrics?days=7"));
+      const res = await adminFetch("/api/admin/activity-metrics?days=7");
       const data = await res.json();
       setMetrics(data);
     } catch {
@@ -306,7 +306,7 @@ export function AdminOpsDailyReportPanel() {
     setBusy(true);
     try {
       const q = ymd ? `?date=${encodeURIComponent(ymd)}&ai=1` : "?ai=1";
-      const res = await fetch(getApiUrl(`/api/admin/ops-daily-report${q}`));
+      const res = await adminFetch(`/api/admin/ops-daily-report${q}`);
       const data = await res.json();
       setPreview(data);
       if (data?.report?.reportYmd) setReportYmd(data.report.reportYmd);
@@ -324,7 +324,7 @@ export function AdminOpsDailyReportPanel() {
   const runReport = async (deliver: boolean) => {
     setBusy(true);
     try {
-      const res = await fetch(getApiUrl("/api/admin/ops-daily-report/run"), {
+      const res = await adminFetch("/api/admin/ops-daily-report/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -449,7 +449,7 @@ export function AdminCamillePlaybooksPanel() {
 
   const loadPlaybooks = useCallback(async () => {
     try {
-      const res = await fetch(getApiUrl("/api/admin/camille-playbooks?limit=30"));
+      const res = await adminFetch("/api/admin/camille-playbooks?limit=30");
       const data = await res.json();
       if (data.success) {
         setPlaybooks(data.playbooks || []);
@@ -467,7 +467,7 @@ export function AdminCamillePlaybooksPanel() {
   const seedDefaults = async () => {
     setBusy(true);
     try {
-      const res = await fetch(getApiUrl("/api/admin/camille-playbooks/seed-defaults"), {
+      const res = await adminFetch("/api/admin/camille-playbooks/seed-defaults", {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({ force: false }),
@@ -494,7 +494,7 @@ export function AdminCamillePlaybooksPanel() {
     }
     setBusy(true);
     try {
-      const res = await fetch(getApiUrl("/api/admin/camille-playbooks"), {
+      const res = await adminFetch("/api/admin/camille-playbooks", {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({
@@ -529,7 +529,7 @@ export function AdminCamillePlaybooksPanel() {
     if (!window.confirm("Supprimer ce playbook ?")) return;
     setBusy(true);
     try {
-      const res = await fetch(getApiUrl(`/api/admin/camille-playbooks/${id}`), {
+      const res = await adminFetch(`/api/admin/camille-playbooks/${id}`, {
         method: "DELETE",
         headers: await authHeaders(),
       });
@@ -656,7 +656,7 @@ export function AdminCamilleKnowledgePanel() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch(getApiUrl("/api/admin/camille-knowledge/status"));
+      const res = await adminFetch("/api/admin/camille-knowledge/status");
       setStatus(await res.json());
     } catch {
       setStatus(null);
@@ -670,7 +670,7 @@ export function AdminCamilleKnowledgePanel() {
   const setupFolder = async () => {
     setBusy(true);
     try {
-      const res = await fetch(getApiUrl("/api/admin/camille-knowledge/setup"), {
+      const res = await adminFetch("/api/admin/camille-knowledge/setup", {
         method: "POST",
       });
       const data = await res.json();
@@ -697,7 +697,7 @@ export function AdminCamilleKnowledgePanel() {
   const syncDocs = async () => {
     setBusy(true);
     try {
-      const res = await fetch(getApiUrl("/api/admin/camille-knowledge/sync"), {
+      const res = await adminFetch("/api/admin/camille-knowledge/sync", {
         method: "POST",
       });
       const data = await res.json();
@@ -787,8 +787,8 @@ export function AdminCamillePanel({
 
   const reloadCamilleContext = useCallback(async () => {
     const [cRes, aRes] = await Promise.all([
-      fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/camille-context`)),
-      fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/ai-audit`)),
+      adminFetch(`/api/admin/dossiers/${dossier.id}/camille-context`),
+      adminFetch(`/api/admin/dossiers/${dossier.id}/ai-audit`),
     ]);
     const c = await cRes.json();
     const a = await aRes.json();
@@ -821,7 +821,7 @@ export function AdminCamillePanel({
   const handleRefreshStudyKpi = async () => {
     setRefreshingKpi(true);
     try {
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/refresh-study-kpi`), {
+      const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/refresh-study-kpi`, {
         method: "POST",
         headers: await authHeaders(),
       });
@@ -864,7 +864,7 @@ export function AdminCamillePanel({
     }
     setSavingManualKpi(true);
     try {
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/study-kpi`), {
+      const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/study-kpi`, {
         method: "PATCH",
         headers: await authHeaders(),
         body: JSON.stringify({
@@ -915,7 +915,7 @@ export function AdminCamillePanel({
     setResumingCamille(true);
     try {
       showToast("Réactivation Camille et relance sur le dernier mail client…", "info");
-      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/camille-resume`), {
+      const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/camille-resume`, {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({ reprocessLastInbound: true }),
@@ -940,7 +940,7 @@ export function AdminCamillePanel({
   };
 
   const copyPortal = async () => {
-    const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/portal-link`));
+    const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/portal-link`);
     const data = await res.json();
     if (data.url) {
       await navigator.clipboard.writeText(data.url);
