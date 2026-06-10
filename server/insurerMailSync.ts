@@ -6,10 +6,10 @@ import {
   extractEmailAddress,
   isInsurerSender,
 } from "./inboundEmailClassifier";
+import { findDossierForInsurerEmail } from "./dossierTextMatch";
 import {
   collectAttachmentParts,
   downloadGmailAttachments,
-  findDossierByLcifReference,
   getImportedGmailAttachmentKeys,
   getImportedGmailMessageIds,
   isGmailPartImported,
@@ -24,7 +24,7 @@ function headerValue(headers: any[] | undefined, name: string): string {
   return String(h?.value || "");
 }
 
-/** Ingestion des mails assureurs / Kereis vers le dossier (LCIF dans objet ou corps). Pas de réponse Camille. */
+/** Ingestion des mails assureurs / Kereis vers le dossier (nom emprunteur dans objet, corps ou PJ). Pas de réponse Camille. */
 export async function syncInsurerInboundEmails(
   gmail: any,
   db: { dossiers: any[] },
@@ -77,13 +77,31 @@ export async function syncInsurerInboundEmails(
     if (classification.category !== "insurer") continue;
 
     const { text, html } = deps.decodeEmailBodies(payload);
-    const dossier =
-      findDossierByLcifReference(db, subject) ||
-      findDossierByLcifReference(db, text.slice(0, 4000));
-    if (!dossier || isLeadDossier(dossier)) {
+    const attachmentParts = collectAttachmentParts(payload);
+    const attachmentNames = attachmentParts.map((p) => p.filename).filter(Boolean);
+    const match = findDossierForInsurerEmail(db, {
+      subject,
+      body: text.slice(0, 8000),
+      attachmentNames,
+    });
+
+    if (match.kind === "ambiguous") {
+      console.log(
+        `[Gmail sync] mail assureur ambigu — ${match.labels.join(" | ")} (${senderEmail}, « ${subject.slice(0, 50)} »)`,
+      );
+      deps.processedIds.add(msgMeta.id);
+      continue;
+    }
+    if (match.kind === "none") {
       console.log(
         `[Gmail sync] mail assureur ignoré — dossier introuvable (${senderEmail}, « ${subject.slice(0, 50)} »)`,
       );
+      deps.processedIds.add(msgMeta.id);
+      continue;
+    }
+
+    const dossier = match.dossier;
+    if (isLeadDossier(dossier)) {
       deps.processedIds.add(msgMeta.id);
       continue;
     }
@@ -108,7 +126,6 @@ export async function syncInsurerInboundEmails(
       msgChanged = true;
     }
 
-    const attachmentParts = collectAttachmentParts(payload);
     if (attachmentParts.length > 0) {
       const importedKeys = getImportedGmailAttachmentKeys(dossier);
       const importedMessages = getImportedGmailMessageIds(dossier);
@@ -173,7 +190,9 @@ export async function syncInsurerInboundEmails(
       });
       deps.markDossierDirty(dossier);
       handled += 1;
-      console.log(`[Gmail sync] mail assureur rattaché → ${dossier.id} (${senderEmail})`);
+      console.log(
+        `[Gmail sync] mail assureur rattaché → ${dossier.id} (${senderEmail}, match=${match.matchKind})`,
+      );
     }
   }
 

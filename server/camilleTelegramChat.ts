@@ -1,5 +1,6 @@
 import { readDB } from "./db";
 import type { Dossier } from "./dossierModel";
+import { extractLcifId, resolveDossierFromBorrowerText } from "./dossierTextMatch";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { buildCamilleContextBlock } from "./camilleMail";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
@@ -64,19 +65,7 @@ export function looksLikeStaffDirective(text: string): boolean {
   return false;
 }
 
-export function extractLcifId(text: string): string | null {
-  return text.match(/LCIF-\d{6}/i)?.[0]?.toUpperCase() || null;
-}
-
-function normalizeForSearch(s: string): string {
-  return String(s || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+export { extractLcifId } from "./dossierTextMatch";
 
 export type DossierResolveResult =
   | { kind: "found"; dossier: Dossier }
@@ -85,77 +74,21 @@ export type DossierResolveResult =
 
 /** Cible un dossier via LCIF-… ou le nom / prénom des emprunteurs (assurés). */
 export async function resolveDossierFromText(text: string): Promise<DossierResolveResult> {
-  const lcif = extractLcifId(text);
-  if (lcif) {
-    const d = await findDossierById(lcif);
-    return d ? { kind: "found", dossier: d } : { kind: "none" };
-  }
-
-  const normalizedText = normalizeForSearch(text);
-  if (normalizedText.length < 2) return { kind: "none" };
-
   const db = await readDB();
-  const scored: Array<{ dossier: Dossier; score: number; label: string }> = [];
-
-  for (const d of db.dossiers || []) {
-    const assures = Array.isArray(d.formData?.assures) ? d.formData.assures : [];
-    let bestForDossier = 0;
-    let bestLabel = "";
-
-    for (const a of assures) {
-      const prenom = normalizeForSearch(String(a?.prenom || ""));
-      const nom = normalizeForSearch(String(a?.nom || ""));
-      const full = [prenom, nom].filter(Boolean).join(" ");
-      const display = [a?.prenom, a?.nom].filter(Boolean).join(" ") || d.id;
-      if (!full && !nom) continue;
-
-      let score = 0;
-      if (full.length >= 4 && normalizedText.includes(full)) score = 100;
-      else if (nom.length >= 3 && normalizedText.includes(nom)) score = 75;
-      else if (prenom.length >= 3 && normalizedText.includes(prenom)) score = 55;
-
-      if (score === 0 && full) {
-        const tokens = normalizedText.split(" ").filter(Boolean);
-        for (let i = 0; i < tokens.length - 1; i++) {
-          if (`${tokens[i]} ${tokens[i + 1]}` === full) {
-            score = 100;
-            break;
-          }
-        }
-      }
-
-      if (score > bestForDossier) {
-        bestForDossier = score;
-        bestLabel = `${display} — ${d.id}`;
-      }
-    }
-
-    if (bestForDossier > 0) {
-      scored.push({ dossier: d, score: bestForDossier, label: bestLabel });
-    }
+  const resolved = resolveDossierFromBorrowerText(db, text, { minScore: 75, excludeLeads: false });
+  if (resolved.kind === "found") return { kind: "found", dossier: resolved.dossier };
+  if (resolved.kind === "ambiguous") {
+    const labels = resolved.labels;
+    const matches = labels
+      .map((label) => {
+        const id = label.match(/LCIF-\d{6}/i)?.[0]?.toUpperCase();
+        const dossier = id ? db.dossiers.find((d) => String(d.id).toUpperCase() === id) : null;
+        return dossier ? { dossier, label } : null;
+      })
+      .filter(Boolean) as Array<{ dossier: Dossier; label: string }>;
+    if (matches.length > 0) return { kind: "ambiguous", matches };
   }
-
-  scored.sort((a, b) => b.score - a.score || b.dossier.id.localeCompare(a.dossier.id));
-  if (scored.length === 0) return { kind: "none" };
-
-  const bestScore = scored[0].score;
-  const strong = scored.filter((s) => s.score >= bestScore - 5 && s.score >= 75);
-  const weakTies = scored.filter((s) => s.score === 55);
-
-  if (strong.length > 1) {
-    return {
-      kind: "ambiguous",
-      matches: strong.slice(0, 6).map((s) => ({ dossier: s.dossier, label: s.label })),
-    };
-  }
-  if (weakTies.length > 1 && bestScore === 55) {
-    return {
-      kind: "ambiguous",
-      matches: weakTies.slice(0, 6).map((s) => ({ dossier: s.dossier, label: s.label })),
-    };
-  }
-
-  return { kind: "found", dossier: scored[0].dossier };
+  return { kind: "none" };
 }
 
 /** Retire LCIF et noms emprunteurs du texte (consigne mail). */
