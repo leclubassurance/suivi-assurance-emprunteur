@@ -15,6 +15,9 @@ import {
   FolderPlus,
   FileBarChart,
   Send,
+  Library,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
@@ -415,6 +418,238 @@ export function AdminOpsDailyReportPanel() {
   );
 }
 
+type PlaybookRow = {
+  id: string;
+  tags: string[];
+  situationSummary: string;
+  staffGuidance: string;
+  clientMessagePattern: string;
+  approvedReplyPlain: string;
+  useCount: number;
+  approvedAt: string;
+};
+
+export function AdminCamillePlaybooksPanel() {
+  const [playbooks, setPlaybooks] = useState<PlaybookRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [situationSummary, setSituationSummary] = useState("");
+  const [staffGuidance, setStaffGuidance] = useState("");
+  const [clientPattern, setClientPattern] = useState("");
+  const [approvedReply, setApprovedReply] = useState("");
+  const [tagsText, setTagsText] = useState("question-client");
+
+  const authHeaders = async () => {
+    const token = await getAccessToken();
+    return token
+      ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+      : { "Content-Type": "application/json" };
+  };
+
+  const loadPlaybooks = useCallback(async () => {
+    try {
+      const res = await fetch(getApiUrl("/api/admin/camille-playbooks?limit=30"));
+      const data = await res.json();
+      if (data.success) {
+        setPlaybooks(data.playbooks || []);
+        setTotal(data.total || 0);
+      }
+    } catch {
+      setPlaybooks([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPlaybooks();
+  }, [loadPlaybooks]);
+
+  const seedDefaults = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(getApiUrl("/api/admin/camille-playbooks/seed-defaults"), {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ force: false }),
+      });
+      const data = await res.json();
+      showToast(
+        data.added > 0
+          ? `${data.added} playbook(s) de base ajouté(s) — total ${data.total}`
+          : `Playbooks déjà présents (${data.total || total})`,
+        data.added > 0 ? "success" : "info",
+      );
+      await loadPlaybooks();
+    } catch {
+      showToast("Erreur chargement playbooks", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createPlaybook = async () => {
+    if (!situationSummary.trim() || !approvedReply.trim()) {
+      showToast("Situation et réponse approuvée requises", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(getApiUrl("/api/admin/camille-playbooks"), {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          situationSummary,
+          staffGuidance: staffGuidance || "Consigne équipe",
+          clientMessagePattern: clientPattern,
+          approvedReplyPlain: approvedReply,
+          tags: tagsText.split(",").map((t) => t.trim()).filter(Boolean),
+          approvedBy: "admin",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.error || "Échec création", "error");
+        return;
+      }
+      showToast("Playbook enregistré", "success");
+      setShowForm(false);
+      setSituationSummary("");
+      setStaffGuidance("");
+      setClientPattern("");
+      setApprovedReply("");
+      await loadPlaybooks();
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deletePlaybook = async (id: string) => {
+    if (!window.confirm("Supprimer ce playbook ?")) return;
+    setBusy(true);
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/camille-playbooks/${id}`), {
+        method: "DELETE",
+        headers: await authHeaders(),
+      });
+      if (!res.ok) {
+        showToast("Suppression impossible", "error");
+        return;
+      }
+      showToast("Playbook supprimé", "success");
+      await loadPlaybooks();
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="p-4 rounded-xl bg-violet-50 border border-violet-100 space-y-3 mb-4">
+      <div className="flex items-center gap-2">
+        <Library className="w-4 h-4 text-violet-800" />
+        <p className="text-xs font-black text-violet-900">Playbooks Camille ({total})</p>
+      </div>
+      <p className="text-[11px] text-violet-800 leading-relaxed">
+        Réponses validées par l&apos;équipe que Camille réutilise automatiquement ou comme modèle IA.
+        Ajoutez un cas après chaque bonne réponse — sans repasser par le développeur.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setShowForm((v) => !v)}
+          className="text-[11px] font-bold px-3 py-2 rounded-lg bg-violet-700 text-white flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <Plus className="w-3.5 h-3.5" /> Nouveau playbook
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={seedDefaults}
+          className="text-[11px] font-bold px-3 py-2 rounded-lg border border-violet-300 bg-white text-violet-900 flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Charger modèles de base
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={loadPlaybooks}
+          className="text-[11px] font-bold px-3 py-2 rounded-lg border border-violet-200 bg-white text-violet-800"
+        >
+          Actualiser
+        </button>
+      </div>
+      {showForm && (
+        <div className="space-y-2 p-3 rounded-lg bg-white border border-violet-100">
+          <input
+            className="w-full text-xs border rounded-lg px-2 py-1.5"
+            placeholder="Situation (ex. : client demande si l'étude est gratuite)"
+            value={situationSummary}
+            onChange={(e) => setSituationSummary(e.target.value)}
+          />
+          <input
+            className="w-full text-xs border rounded-lg px-2 py-1.5"
+            placeholder="Consigne équipe"
+            value={staffGuidance}
+            onChange={(e) => setStaffGuidance(e.target.value)}
+          />
+          <input
+            className="w-full text-xs border rounded-lg px-2 py-1.5"
+            placeholder="Mots-clés du mail client (ex. : gratuit lemoine documents)"
+            value={clientPattern}
+            onChange={(e) => setClientPattern(e.target.value)}
+          />
+          <input
+            className="w-full text-xs border rounded-lg px-2 py-1.5"
+            placeholder="Tags (virgules) : prospect, pre-etude, question-client"
+            value={tagsText}
+            onChange={(e) => setTagsText(e.target.value)}
+          />
+          <textarea
+            className="w-full text-xs border rounded-lg px-2 py-1.5 min-h-[90px]"
+            placeholder="Réponse approuvée (texte brut)"
+            value={approvedReply}
+            onChange={(e) => setApprovedReply(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={createPlaybook}
+            className="text-[11px] font-bold px-3 py-2 rounded-lg bg-violet-700 text-white"
+          >
+            Enregistrer
+          </button>
+        </div>
+      )}
+      {playbooks.length > 0 && (
+        <div className="space-y-2 max-h-56 overflow-y-auto">
+          {playbooks.slice(0, 8).map((pb) => (
+            <div key={pb.id} className="p-2 rounded-lg bg-white border border-violet-100 text-[10px]">
+              <div className="flex justify-between gap-2">
+                <span className="font-bold text-violet-900 line-clamp-1">{pb.situationSummary}</span>
+                <button
+                  type="button"
+                  onClick={() => deletePlaybook(pb.id)}
+                  className="text-red-600 shrink-0"
+                  title="Supprimer"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+              <p className="text-violet-700 mt-0.5">
+                {(pb.tags || []).join(" · ")} — utilisé {pb.useCount || 0}×
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdminCamilleKnowledgePanel() {
   const [status, setStatus] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -533,6 +768,7 @@ export function AdminCamillePanel({
   const [audit, setAudit] = useState<any[]>([]);
   const [showPortalPreview, setShowPortalPreview] = useState(false);
   const [resumingCamille, setResumingCamille] = useState(false);
+  const [savingPlaybook, setSavingPlaybook] = useState(false);
   const [refreshingKpi, setRefreshingKpi] = useState(false);
   const [savingManualKpi, setSavingManualKpi] = useState(false);
   const [showManualKpi, setShowManualKpi] = useState(false);
@@ -652,6 +888,26 @@ export function AdminCamillePanel({
       showToast("Erreur réseau", "error");
     } finally {
       setSavingManualKpi(false);
+    }
+  };
+
+  const handleSavePlaybookFromLastReply = async () => {
+    setSavingPlaybook(true);
+    try {
+      const res = await fetch(
+        getApiUrl(`/api/admin/dossiers/${dossier.id}/save-playbook-from-last-reply`),
+        { method: "POST", headers: await authHeaders(), body: JSON.stringify({}) },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showToast(data.error || "Impossible d'enregistrer le playbook", "error");
+        return;
+      }
+      showToast(`Playbook enregistré (${data.playbook?.id || ""})`, "success");
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setSavingPlaybook(false);
     }
   };
 
@@ -835,15 +1091,26 @@ export function AdminCamillePanel({
       <div className="p-4 rounded-xl bg-violet-50 border border-violet-100">
         <div className="flex justify-between items-start gap-2 mb-2 flex-wrap">
           <p className="text-xs font-black text-violet-900">Ce que Camille sait</p>
-          <button
-            type="button"
-            disabled={resumingCamille}
-            onClick={handleResumeCamille}
-            className="text-[10px] font-black uppercase tracking-wide px-3 py-1.5 rounded-lg bg-violet-700 text-white hover:bg-violet-800 disabled:opacity-50"
-            title="Réactive les réponses automatiques et relance le traitement du dernier mail client (si présent)"
-          >
-            {resumingCamille ? "En cours…" : "Réactiver Camille"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={savingPlaybook}
+              onClick={handleSavePlaybookFromLastReply}
+              className="text-[10px] font-black uppercase tracking-wide px-3 py-1.5 rounded-lg border border-violet-400 bg-white text-violet-900 hover:bg-violet-100 disabled:opacity-50"
+              title="Enregistre la dernière réponse envoyée au client comme playbook réutilisable"
+            >
+              {savingPlaybook ? "…" : "→ Playbook"}
+            </button>
+            <button
+              type="button"
+              disabled={resumingCamille}
+              onClick={handleResumeCamille}
+              className="text-[10px] font-black uppercase tracking-wide px-3 py-1.5 rounded-lg bg-violet-700 text-white hover:bg-violet-800 disabled:opacity-50"
+              title="Réactive les réponses automatiques et relance le traitement du dernier mail client (si présent)"
+            >
+              {resumingCamille ? "En cours…" : "Réactiver Camille"}
+            </button>
+          </div>
         </div>
         {ctx.camilleStaffUntil && new Date(ctx.camilleStaffUntil) > new Date() && (
           <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">

@@ -165,6 +165,17 @@ export function enforceProspectReplyPlain(plain: string, dossier: any): string {
   return text;
 }
 
+function countProspectAutoReplies(dossier: any): number {
+  return (dossier.communications || []).filter(
+    (c: any) => c.direction === "outbound" && /camille/i.test(String(c.from || "")),
+  ).length;
+}
+
+function getProspectMaxAutoReplies(): number {
+  const n = Number(process.env.CAMILLE_PROSPECT_MAX_AUTO_REPLIES || "8");
+  return Number.isFinite(n) && n > 0 ? n : 8;
+}
+
 function headerValue(headers: any[] | undefined, name: string): string {
   const h = headers?.find((x: any) => String(x.name || "").toLowerCase() === name.toLowerCase());
   return String(h?.value || "");
@@ -211,7 +222,6 @@ export async function syncProspectInboundFromGmail(
   }
 
   const gmailUser = String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
-  const known = collectKnownCorrespondenceEmails(db);
   const scanDays = Number(
     process.env.CAMILLE_PROSPECT_SCAN_DAYS || (isCamilleTestMode() ? "7" : "2"),
   );
@@ -221,7 +231,7 @@ export async function syncProspectInboundFromGmail(
   const maxReplyAgeH = Number(process.env.CAMILLE_PROSPECT_MAX_REPLY_AGE_H || "24");
   const q = `(to:${gmailUser} OR deliveredto:${gmailUser}) newer_than:${scanDays}d -in:spam -in:trash ${buildProspectGmailQueryExtras()}`;
   if (isCamilleTestMode()) {
-    console.log(`[Camille prospect] scan start mailbox=${gmailUser} q="${q}" knownEmails=${known.size}`);
+    console.log(`[Camille prospect] scan start mailbox=${gmailUser} q="${q}"`);
   }
 
   const messageIds: string[] = [];
@@ -303,7 +313,7 @@ export async function syncProspectInboundFromGmail(
       }
       continue;
     }
-    if (known.has(senderEmailMeta)) {
+    if (findNonLeadDossierByCorrespondenceEmail(db, senderEmailMeta)) {
       skipReasons.knownClient += 1;
       continue;
     }
@@ -346,7 +356,7 @@ export async function syncProspectInboundFromGmail(
       } else skipReasons.ignoredSender += 1;
       continue;
     }
-    if (known.has(senderEmail)) {
+    if (findNonLeadDossierByCorrespondenceEmail(db, senderEmail)) {
       skipReasons.knownClient += 1;
       if (isCamilleTestMode()) {
         console.log(`[Camille prospect] ignoré (client connu): ${senderEmail}`);
@@ -378,7 +388,6 @@ export async function syncProspectInboundFromGmail(
 
     if (!dossier) {
       dossier = createLeadDossierFromInbound(db, senderEmail, fromRaw);
-      known.add(senderEmail);
       leadsCreated += 1;
       deps.markDossierDirty(dossier);
       if (deps.persistLead) {
@@ -419,7 +428,18 @@ export async function syncProspectInboundFromGmail(
     if (!alreadyHandled && !deps.isAiAutoReplyEnabled()) {
       skipReasons.aiDisabled += 1;
     }
-    if (!alreadyHandled && allowAutoReply && deps.isAiAutoReplyEnabled()) {
+    const prospectReplyCount = countProspectAutoReplies(dossier);
+    const prospectReplyLimit = getProspectMaxAutoReplies();
+    if (!alreadyHandled && allowAutoReply && prospectReplyCount >= prospectReplyLimit) {
+      skipReasons.sendGateBlocked += 1;
+      deps.markProcessed(dossier, msgMeta.id);
+      msgChanged = true;
+      if (isCamilleTestMode()) {
+        console.log(
+          `[Camille prospect] limite ${prospectReplyLimit} réponse(s) atteinte pour ${dossier.id}`,
+        );
+      }
+    } else if (!alreadyHandled && allowAutoReply && deps.isAiAutoReplyEnabled()) {
       inbound += 1;
       const sendGate = deps.canCamilleEmailClient(dossier, { allowIfUnansweredInbound: true });
       if (sendGate.ok && deps.acquireCamilleClientEmailLock(dossier.id)) {

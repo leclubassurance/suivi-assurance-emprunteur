@@ -87,13 +87,18 @@ export async function processIncomingClientEmail(
       }
     }
 
-    const playbookHit = isProspectLead ? null : await tryPlaybookAutoReply(dossier, emailText);
+    const playbookHit = await tryPlaybookAutoReply(dossier, emailText);
     if (playbookHit) {
+      let plain = playbookHit.plain;
+      if (isProspectLead) {
+        const { enforceProspectReplyPlain } = await import("./camilleProspectInbound");
+        plain = enforceProspectReplyPlain(plain, dossier);
+      }
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
       const telegramAction = buildTelegramActionFromReply({
         dossier,
         clientMessage: emailText,
-        replyPlain: playbookHit.plain,
+        replyPlain: plain,
         emailSubject: options?.emailSubject,
         actionKind: "playbook",
         attachmentNames,
@@ -101,8 +106,8 @@ export async function processIncomingClientEmail(
       });
       return {
         status: "replied",
-        text: wrapCamilleHtmlReply(playbookHit.plain, prenom, nom, dossier),
-        replyPlain: playbookHit.plain,
+        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+        replyPlain: plain,
         telegramAction,
       };
     }

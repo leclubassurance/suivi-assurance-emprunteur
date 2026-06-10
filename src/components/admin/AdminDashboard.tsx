@@ -14,6 +14,7 @@ import {
   AdminWorkQueuePanel,
   AdminCamillePanel,
   AdminCamilleKnowledgePanel,
+  AdminCamillePlaybooksPanel,
   AdminOpsDailyReportPanel,
   useAdminOpsData,
 } from "./AdminOpsPanel";
@@ -959,6 +960,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       <ListTodo className="w-4 h-4 text-indigo-600" /> Checklist & notes
                     </h3>
                     <AdminOpsDailyReportPanel />
+                    <AdminCamillePlaybooksPanel />
                     <AdminCamilleKnowledgePanel />
                     <AdminCamillePanel
                       dossier={selectedDossier}

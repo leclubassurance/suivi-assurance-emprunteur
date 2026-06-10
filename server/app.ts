@@ -941,7 +941,7 @@ export function createApp() {
   app.post("/api/admin/dossiers/:id/send-email", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;
-    const { to, cc, subject, html } = (req.body || {}) as any;
+    const { to, cc, subject, html, saveAsPlaybook } = (req.body || {}) as any;
     if (!subject || !html) return res.status(400).json({ error: "Missing subject or html" });
 
     const db = await readDBAsync();
@@ -1035,6 +1035,32 @@ export function createApp() {
     });
     const { acknowledgeStaffOutboundToClient } = await import("./camilleStaffHandoff");
     acknowledgeStaffOutboundToClient(dossier, { source: "admin_send_email", subject });
+    if (saveAsPlaybook) {
+      try {
+        const { saveApprovedPlaybook, htmlToPlainForPlaybook } = await import("./camillePlaybooks");
+        const lastInbound = [...(dossier.communications || [])]
+          .reverse()
+          .find((c: any) => c.direction === "inbound");
+        await saveApprovedPlaybook({
+          dossier,
+          clientMessage: String(
+            saveAsPlaybook.clientMessage || lastInbound?.text || lastInbound?.subject || "",
+          ),
+          situationSummary: String(
+            saveAsPlaybook.situationSummary || `Réponse admin — ${String(subject || "").slice(0, 80)}`,
+          ),
+          staffGuidance: String(
+            saveAsPlaybook.staffGuidance ||
+              "Réponse validée par l'équipe depuis l'admin — réutiliser pour cas similaires.",
+          ),
+          approvedReplyPlain: htmlToPlainForPlaybook(String(html || "")),
+          approvedBy: "admin_send_email",
+          tags: Array.isArray(saveAsPlaybook.tags) ? saveAsPlaybook.tags.map(String) : undefined,
+        });
+      } catch (pbErr: any) {
+        console.warn(`[Playbooks] Enregistrement après envoi admin: ${pbErr?.message || pbErr}`);
+      }
+    }
     try {
       const { applyStudyKpiBestAvailable } = await import("./studyEmailKpi");
       const { hasStudyBeenSent } = await import("./dossierLifecycle");
@@ -1427,6 +1453,104 @@ export function createApp() {
         cache: cache || null,
         rag: getKnowledgeIndexStatus(DATA_DIR),
       });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/camille-playbooks", async (req, res) => {
+    try {
+      const { listPlaybooks, loadPlaybookStore } = await import("./camillePlaybooks");
+      const limit = Math.min(100, Number(req.query.limit || 50) || 50);
+      const store = await loadPlaybookStore();
+      res.json({
+        success: true,
+        playbooks: await listPlaybooks(limit),
+        total: store.playbooks.length,
+        updatedAt: store.updatedAt,
+        seededAt: store.seededAt,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/camille-playbooks", async (req, res) => {
+    try {
+      const body = (req.body || {}) as any;
+      const { saveApprovedPlaybook } = await import("./camillePlaybooks");
+      const db = await readDBAsync();
+      const dossier =
+        db.dossiers.find((d: any) => d.id === String(body.dossierId || "")) ||
+        db.dossiers.find((d: any) => d.id === "LCIF-999999") || {
+          id: "manual",
+          formData: { assures: [{ prenom: "Manuel", nom: "Playbook" }] },
+        };
+      const playbook = await saveApprovedPlaybook({
+        dossier,
+        clientMessage: String(body.clientMessagePattern || body.clientMessage || ""),
+        situationSummary: String(body.situationSummary || "Cas ajouté manuellement"),
+        staffGuidance: String(body.staffGuidance || "Consigne équipe"),
+        approvedReplyPlain: String(body.approvedReplyPlain || ""),
+        approvedBy: String(body.approvedBy || "admin"),
+        tags: Array.isArray(body.tags) ? body.tags.map(String) : undefined,
+      });
+      res.json({ success: true, playbook });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.patch("/api/admin/camille-playbooks/:id", async (req, res) => {
+    try {
+      const { updatePlaybook } = await import("./camillePlaybooks");
+      const playbook = await updatePlaybook(req.params.id, (req.body || {}) as any);
+      if (!playbook) return res.status(404).json({ error: "Playbook introuvable" });
+      res.json({ success: true, playbook });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.delete("/api/admin/camille-playbooks/:id", async (req, res) => {
+    try {
+      const { deletePlaybook } = await import("./camillePlaybooks");
+      const ok = await deletePlaybook(req.params.id);
+      if (!ok) return res.status(404).json({ error: "Playbook introuvable" });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/camille-playbooks/seed-defaults", async (req, res) => {
+    try {
+      const { seedDefaultPlaybooksIfEmpty } = await import("./camillePlaybooks");
+      const force = String((req.body as any)?.force || "").toLowerCase() === "true";
+      const result = await seedDefaultPlaybooksIfEmpty(force);
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/dossiers/:id/save-playbook-from-last-reply", async (req, res) => {
+    try {
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+      const body = (req.body || {}) as any;
+      const { savePlaybookFromDossierLastReply } = await import("./camillePlaybooks");
+      const playbook = await savePlaybookFromDossierLastReply({
+        dossier,
+        situationSummary: body.situationSummary,
+        staffGuidance: body.staffGuidance,
+        approvedBy: "admin",
+      });
+      if (!playbook) {
+        return res.status(400).json({ error: "Aucune réponse sortante trouvée sur ce dossier." });
+      }
+      res.json({ success: true, playbook });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }

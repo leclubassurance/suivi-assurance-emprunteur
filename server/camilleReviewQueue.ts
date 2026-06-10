@@ -430,7 +430,7 @@ export async function confirmAndSendReviewReply(
   });
 
   if (review.staffAnswer && review.proposedClientPlain) {
-    saveApprovedPlaybook({
+    await saveApprovedPlaybook({
       dossier,
       clientMessage: review.fullClientMessage,
       situationSummary: review.questionForStaff,
