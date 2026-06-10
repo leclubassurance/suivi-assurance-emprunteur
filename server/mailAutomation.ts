@@ -165,7 +165,7 @@ async function resolveGmailDriveUploadTarget(dossier: any, accessToken: string) 
   };
 }
 
-async function createGmailAuth(accessToken?: string | null) {
+export async function createGmailAuth(accessToken?: string | null) {
   if (accessToken) {
     const auth = new google.auth.OAuth2();
     auth.setCredentials({ access_token: accessToken });

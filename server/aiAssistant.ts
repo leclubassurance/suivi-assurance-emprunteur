@@ -92,7 +92,7 @@ export async function processIncomingClientEmail(
       let plain = playbookHit.plain;
       if (isProspectLead) {
         const { enforceProspectReplyPlain } = await import("./camilleProspectInbound");
-        plain = enforceProspectReplyPlain(plain, dossier);
+        plain = enforceProspectReplyPlain(plain, dossier, emailText);
       }
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
       const telegramAction = buildTelegramActionFromReply({
@@ -337,7 +337,7 @@ export async function processIncomingClientEmail(
       }
       if (isProspectLead) {
         const { enforceProspectReplyPlain } = await import("./camilleProspectInbound");
-        plain = enforceProspectReplyPlain(plain, dossier);
+        plain = enforceProspectReplyPlain(plain, dossier, emailText);
       }
       const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
         inboundAttachmentNames: attachmentNames,

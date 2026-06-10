@@ -48,13 +48,15 @@ export function recentCamilleClientEmailWithinMs(dossier: Dossier | any, withinM
 
 export function canCamilleEmailClient(
   dossier: Dossier | any,
-  options?: { allowIfUnansweredInbound?: boolean },
+  options?: { allowIfUnansweredInbound?: boolean; inboundGmailId?: string },
 ): { ok: boolean; reason?: string } {
   if (!dossier?.id) return { ok: false, reason: "no_dossier" };
   if (inFlightDossierIds.has(dossier.id)) {
     return { ok: false, reason: "in_flight" };
   }
-  const unanswered = options?.allowIfUnansweredInbound && hasUnansweredClientInbound(dossier);
+  const unanswered =
+    options?.allowIfUnansweredInbound &&
+    hasUnansweredClientInbound(dossier, options.inboundGmailId);
   if (unanswered) return { ok: true };
   if (isStaffActivelyHandling(dossier)) {
     return { ok: false, reason: "staff_handling" };

@@ -147,17 +147,66 @@ export function isSimpleProspectGreeting(clientMessage?: string): boolean {
   );
 }
 
+/** Réponse sûre quand le LLM invente des chiffres ou interprète mal le fil prospect. */
+export function isUnsafeProspectLlmReply(plain: string, clientMessage?: string): boolean {
+  const msg = String(clientMessage || "").toLowerCase();
+  const text = String(plain || "").toLowerCase();
+  if (
+    /arrêter|arreter|abandonner|reconsidérer|reconsiderer|souhaitez reconsidérer/.test(text) &&
+    !/arrêt|arret|abandon|plus intéress|ne souhaite plus|stop|renonc|ne veux plus/i.test(msg)
+  ) {
+    return true;
+  }
+  if (/(économie|economie).{0,40}\d{2,}|\d{3,}\s*€|plus de \d{3,}/i.test(plain)) {
+    return true;
+  }
+  if (/frais de (mise en place|courtage)|opportunité unique/i.test(text) && !/étude envoyée/i.test(msg)) {
+    return true;
+  }
+  return false;
+}
+
+/** Réponse prospect à une question métier (coût, Lemoine…) sans chiffre inventé. */
+export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: string): string {
+  const formUrl = getAssurancePlatformUrl();
+  const msg = String(clientMessage || "").trim();
+  const monthly = msg.match(/(\d{1,3})\s*€/i)?.[1];
+  const noReplyYet = /pas eu votre réponse|pas reçu|sans réponse|toujours pas/i.test(msg);
+
+  const lines = [
+    noReplyYet
+      ? `Toutes mes excuses pour l'attente — je reprends votre message.`
+      : `Merci pour votre message.`,
+    monthly
+      ? `Vous mentionnez environ ${monthly} € par mois : sans votre offre de prêt et votre tableau d'amortissement complets, Charles ne peut pas encore vous dire précisément ce qu'il est possible d'optimiser — c'est justement l'objet de l'étude gratuite.`
+      : `Sans l'offre de prêt et le tableau d'amortissement (PDF depuis votre espace banque), nous ne pouvons pas encore chiffrer une économie — l'étude personnalisée sert à cela.`,
+    `L'étude d'économie est gratuite et sans engagement.`,
+    `Pour démarrer, complétez le formulaire sécurisé (quelques minutes) :`,
+    formUrl,
+    `Vous y déposerez les PDF — pas besoin de les envoyer en pièce jointe par email.`,
+    `Référence interne : ${dossier.id}.`,
+  ];
+  return lines.join("\n\n");
+}
+
 /** Bloque les demandes de documents par mail dans une réponse prospect. */
-export function enforceProspectReplyPlain(plain: string, dossier: any): string {
+export function enforceProspectReplyPlain(
+  plain: string,
+  dossier: any,
+  clientMessage?: string,
+): string {
   const formUrl = getAssurancePlatformUrl();
   let text = String(plain || "").trim();
+  if (isUnsafeProspectLlmReply(text, clientMessage)) {
+    text = buildProspectQuestionReplyPlain(dossier, clientMessage);
+  }
   const asksDocsByEmail =
     /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(
       text,
     ) ||
     /(envoy|joindre|transmettre).{0,80}(offre de prêt|tableau d.amortissement|cni|rib)/i.test(text);
   if (asksDocsByEmail) {
-    text = buildProspectWelcomeReplyPlain(dossier, "");
+    text = buildProspectWelcomeReplyPlain(dossier, clientMessage || "");
   }
   if (!text.includes(formUrl)) {
     text = `${text}\n\nPour démarrer votre étude, complétez le formulaire en ligne : ${formUrl}`;
@@ -198,7 +247,7 @@ export async function syncProspectInboundFromGmail(
     isAiAutoReplyEnabled: () => boolean;
     canCamilleEmailClient: (
       d: any,
-      o?: { allowIfUnansweredInbound?: boolean },
+      o?: { allowIfUnansweredInbound?: boolean; inboundGmailId?: string },
     ) => { ok: boolean; reason?: string };
     acquireCamilleClientEmailLock: (id: string) => boolean;
     releaseCamilleClientEmailLock: (id: string) => void;
@@ -251,7 +300,25 @@ export async function syncProspectInboundFromGmail(
     if (!pageToken) break;
   }
 
-  const messages = messageIds.map((id) => ({ id }));
+  const datedMessages: Array<{ id: string; internalDate: number }> = [];
+  for (const id of messageIds) {
+    try {
+      const metaRes = await gmail.users.messages.get({
+        userId: "me",
+        id,
+        format: "metadata",
+        metadataHeaders: ["From"],
+      });
+      datedMessages.push({
+        id,
+        internalDate: Number(metaRes.data.internalDate || 0),
+      });
+    } catch {
+      datedMessages.push({ id, internalDate: 0 });
+    }
+  }
+  datedMessages.sort((a, b) => a.internalDate - b.internalDate || a.id.localeCompare(b.id));
+  const messages = datedMessages.map((m) => ({ id: m.id }));
 
   let inbound = 0;
   let aiReplies = 0;
@@ -393,6 +460,17 @@ export async function syncProspectInboundFromGmail(
       if (deps.persistLead) {
         await deps.persistLead(dossier);
       }
+      void import("./telegramNotify")
+        .then(({ notifyTelegramNewDossier }) =>
+          notifyTelegramNewDossier({
+            dossier,
+            clientEmail: senderEmail,
+            clientName: [dossier.formData?.assures?.[0]?.prenom, dossier.formData?.assures?.[0]?.nom]
+              .filter(Boolean)
+              .join(" "),
+          }),
+        )
+        .catch(() => undefined);
       if (isCamilleTestMode()) {
         console.log(`[Camille prospect] nouveau prospect ${dossier.id} (${senderEmail})`);
       }
@@ -403,19 +481,34 @@ export async function syncProspectInboundFromGmail(
     const { text, html } = deps.decodeEmailBodies(payload);
 
     let msgChanged = false;
-    if (
-      deps.upsertCommunication(dossier, {
-        id: `msg_${msgMeta.id}`,
-        gmailId: msgMeta.id,
-        direction: "inbound",
-        from: senderEmail,
-        subject,
-        text,
-        html: html || undefined,
-        date: msgDate,
-      })
-    ) {
+    const commInserted = deps.upsertCommunication(dossier, {
+      id: `msg_${msgMeta.id}`,
+      gmailId: msgMeta.id,
+      direction: "inbound",
+      from: senderEmail,
+      subject,
+      text,
+      html: html || undefined,
+      date: msgDate,
+    });
+    if (commInserted) {
       msgChanged = true;
+      void import("./telegramNotifyDedup")
+        .then(async ({ wasTelegramNotifiedRecently, markTelegramNotified, telegramNotifyKey }) => {
+          const tgKey = telegramNotifyKey(dossier.id, "prospect_inbound", msgMeta.id);
+          if (wasTelegramNotifiedRecently(dossier, tgKey, 24 * 60 * 60 * 1000)) return;
+          markTelegramNotified(dossier, tgKey);
+          const { notifyTelegramClientInbound } = await import("./telegramNotify");
+          await notifyTelegramClientInbound({
+            dossier,
+            clientEmail: senderEmail,
+            subject,
+            excerpt: String(text || "").slice(0, 500),
+            gmailId: msgMeta.id,
+            extra: "Prospect pré-étude",
+          });
+        })
+        .catch(() => undefined);
     }
 
     const alreadyHandled = deps.getProcessedIds(dossier).has(msgMeta.id);
@@ -441,7 +534,10 @@ export async function syncProspectInboundFromGmail(
       }
     } else if (!alreadyHandled && allowAutoReply && deps.isAiAutoReplyEnabled()) {
       inbound += 1;
-      const sendGate = deps.canCamilleEmailClient(dossier, { allowIfUnansweredInbound: true });
+      const sendGate = deps.canCamilleEmailClient(dossier, {
+        allowIfUnansweredInbound: true,
+        inboundGmailId: msgMeta.id,
+      });
       if (sendGate.ok && deps.acquireCamilleClientEmailLock(dossier.id)) {
         try {
           await deps.sleep(deps.getCamilleReplyDelayMs());
@@ -482,6 +578,21 @@ export async function syncProspectInboundFromGmail(
                 message: "Réponse prospect pré-étude envoyée.",
                 meta: { gmailId: msgMeta.id, lead: true },
               });
+              void import("./telegramNotify")
+                .then(({ notifyTelegramCamilleReplied }) =>
+                  notifyTelegramCamilleReplied({
+                    dossier,
+                    subject: replySubject,
+                    gmailId: sent.messageId || msgMeta.id,
+                    extra: "Prospect pré-étude",
+                    camilleAction: aiDecision.telegramAction,
+                  }),
+                )
+                .catch(() => undefined);
+            } else {
+              console.warn(
+                `[Camille prospect] échec envoi Gmail ${dossier.id} (${senderEmail}): ${sent.error || "?"}`,
+              );
             }
           } else if (aiDecision?.status === "review" || aiDecision?.status === "escalated") {
             deps.markProcessed(dossier, msgMeta.id);
@@ -494,13 +605,11 @@ export async function syncProspectInboundFromGmail(
         skipReasons.sendGateBlocked += 1;
         if (isCamilleTestMode()) {
           console.log(
-            `[Camille prospect] pas de réponse (${sendGate.reason || "gate"}): ${senderEmail} → ${dossier.id}`,
+            `[Camille prospect] pas de réponse (${sendGate.reason || "gate"}): ${senderEmail} → ${dossier.id} msg=${msgMeta.id}`,
           );
         }
-        deps.markProcessed(dossier, msgMeta.id);
-        msgChanged = true;
       }
-    } else if (!alreadyHandled) {
+    } else if (!alreadyHandled && !deps.isAiAutoReplyEnabled()) {
       deps.markProcessed(dossier, msgMeta.id);
       msgChanged = true;
     }

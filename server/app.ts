@@ -1333,6 +1333,26 @@ export function createApp() {
         }
       }
 
+      let gmailTrashed = 0;
+      const clientEmail = String(dossier.formData?.assures?.[0]?.email || "").trim();
+      const isProspectLead =
+        Boolean(dossier.isLead) || String(dossier.status || "").toUpperCase() === "PROSPECT";
+      if (clientEmail && isProspectLead) {
+        try {
+          const { createGmailAuth } = await import("./mailAutomation");
+          const { google } = await import("googleapis");
+          const { auth: assuranceAuth } = await createGmailAuth(null);
+          const gmail = google.gmail({ version: "v1", auth: assuranceAuth as any });
+          const { trashGmailMessagesFromSender } = await import("./gmailInboxCleanup");
+          const trashResult = await trashGmailMessagesFromSender(gmail, clientEmail);
+          gmailTrashed = trashResult.trashed;
+        } catch (gmailErr: any) {
+          appendLog(
+            `[Delete] Gmail corbeille non vidée pour ${clientEmail}: ${gmailErr?.message || gmailErr}`,
+          );
+        }
+      }
+
       await deleteDossierFromStore(id);
 
       try {
@@ -1341,8 +1361,8 @@ export function createApp() {
         console.error("Failed to remove uploads dir", err);
       }
 
-      appendLog(`Dossier ${id} supprimé.`);
-      res.json({ success: true });
+      appendLog(`Dossier ${id} supprimé.${gmailTrashed ? ` Gmail: ${gmailTrashed} mail(s) en corbeille.` : ""}`);
+      res.json({ success: true, gmailTrashed });
     } catch (err: any) {
       appendLog(`[Delete] Échec suppression ${id}: ${err?.message || err}`);
       res.status(500).json({
@@ -1805,6 +1825,61 @@ export function createApp() {
       return res.status(404).send("File not found");
     }
     res.download(p, doc.name || path.basename(p));
+  });
+
+  app.post("/api/admin/prospects/reset-test", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const dossierId = String((req.body as any)?.dossierId || "").trim();
+    const email = String((req.body as any)?.email || "").trim().toLowerCase();
+    if (!dossierId && !email) {
+      return res.status(400).json({ error: "dossierId ou email requis" });
+    }
+    try {
+      const db = await readDBAsync();
+      const dossier =
+        (dossierId ? db.dossiers.find((d: any) => d.id === dossierId) : null) ||
+        (email
+          ? db.dossiers.find((d: any) =>
+              String(d.formData?.assures?.[0]?.email || "")
+                .toLowerCase()
+                .includes(email),
+            )
+          : null);
+      const clientEmail =
+        email || String(dossier?.formData?.assures?.[0]?.email || "").trim().toLowerCase();
+      let gmailTrashed = 0;
+      if (clientEmail) {
+        const { createGmailAuth } = await import("./mailAutomation");
+        const { google } = await import("googleapis");
+        const { auth: assuranceAuth } = await createGmailAuth(null);
+        const gmail = google.gmail({ version: "v1", auth: assuranceAuth as any });
+        const { trashGmailMessagesFromSender } = await import("./gmailInboxCleanup");
+        const trashResult = await trashGmailMessagesFromSender(gmail, clientEmail);
+        gmailTrashed = trashResult.trashed;
+      }
+      let dossierDeleted = false;
+      if (dossier?.id) {
+        await deleteDossierFromStore(dossier.id);
+        try {
+          fs.rmSync(path.join(UPLOADS_DIR, dossier.id), { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+        dossierDeleted = true;
+      }
+      appendLog(
+        `[Reset prospect] ${dossier?.id || dossierId || email} — dossier supprimé=${dossierDeleted}, gmail corbeille=${gmailTrashed}`,
+      );
+      res.json({
+        success: true,
+        dossierId: dossier?.id || dossierId || null,
+        clientEmail,
+        dossierDeleted,
+        gmailTrashed,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
   });
 
   app.post("/api/admin/sync-prospects", async (req, res) => {
