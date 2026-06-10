@@ -740,7 +740,7 @@ export async function syncGmailInbox(
           toRaw,
           subject,
         });
-        if (inboundClass.ignore) {
+        if (inboundClass.ignore || inboundClass.category === "insurer") {
           if (!alreadyHandled) markProcessed(dossier, msgMeta.id);
           continue;
         }
@@ -1070,6 +1070,25 @@ export async function syncGmailInbox(
     }
   }
 
+  let insurerInboundHandled = 0;
+  try {
+    const { syncInsurerInboundEmails } = await import("./insurerMailSync");
+    insurerInboundHandled = await syncInsurerInboundEmails(gmail, db, {
+      processedIds,
+      decodeEmailBodies,
+      upsertCommunication,
+      markDossierDirty,
+      driveAccessToken,
+      resolveGmailDriveUploadTarget,
+      dossierDriveFilesCache,
+    });
+    if (insurerInboundHandled > 0) {
+      console.log(`[Gmail sync] ${insurerInboundHandled} mail(s) assureur rattaché(s) à des dossiers`);
+    }
+  } catch (err: any) {
+    console.warn(`[Gmail] Sync mails assureurs: ${err?.message || err}`);
+  }
+
   let staffEscalationHandled = 0;
   try {
     const { syncStaffEscalationReplyEmails } = await import("./camilleEscalationReply");
@@ -1107,7 +1126,7 @@ export async function syncGmailInbox(
   }
 
   console.log(
-    `[Gmail sync] ${Date.now() - syncStarted}ms processed=${processedIds.size} inbound=${inboundCount} aiReplies=${aiReplies}`,
+    `[Gmail sync] ${Date.now() - syncStarted}ms processed=${processedIds.size} inbound=${inboundCount} aiReplies=${aiReplies} insurer=${insurerInboundHandled}`,
   );
 
   return {

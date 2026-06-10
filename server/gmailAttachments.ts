@@ -680,6 +680,12 @@ function matchDossierByLcif(db: { dossiers: any[] }, subject: string) {
   return db.dossiers.find((d) => String(d.id).toUpperCase() === lcif) || null;
 }
 
+export function findDossierByLcifReference(db: { dossiers: any[] }, text: string) {
+  const lcif = String(text || "").match(/LCIF-\d{6}/i)?.[0]?.toUpperCase();
+  if (!lcif) return null;
+  return db.dossiers.find((d) => String(d.id).toUpperCase() === lcif) || null;
+}
+
 function pickBestDossierForClient(
   matches: any[],
   messageDate?: string,

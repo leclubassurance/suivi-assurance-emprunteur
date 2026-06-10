@@ -294,9 +294,10 @@ export async function syncProspectInboundFromGmail(
       },
       { requireAssuranceMailbox: true },
     );
-    if (!senderEmailMeta || metaClass.ignore) {
-      if (metaClass.category === "automated") skipReasons.automated += 1;
-      else skipReasons.ignoredSender += 1;
+    if (!senderEmailMeta || metaClass.ignore || metaClass.category === "insurer") {
+      if (metaClass.category === "automated" || metaClass.category === "insurer") {
+        skipReasons.automated += 1;
+      } else skipReasons.ignoredSender += 1;
       if (isCamilleTestMode() && metaClass.ignore) {
         console.log(`[Camille prospect] ignoré (${metaClass.reason})`);
       }
@@ -339,9 +340,10 @@ export async function syncProspectInboundFromGmail(
       { requireAssuranceMailbox: true },
     );
 
-    if (!senderEmail || fullClass.ignore) {
-      if (fullClass.category === "automated") skipReasons.automated += 1;
-      else skipReasons.ignoredSender += 1;
+    if (!senderEmail || fullClass.ignore || fullClass.category === "insurer") {
+      if (fullClass.category === "automated" || fullClass.category === "insurer") {
+        skipReasons.automated += 1;
+      } else skipReasons.ignoredSender += 1;
       continue;
     }
     if (known.has(senderEmail)) {

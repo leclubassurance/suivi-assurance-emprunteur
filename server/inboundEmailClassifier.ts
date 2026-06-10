@@ -46,8 +46,64 @@ const IGNORE_SUBJECT_RE =
 export type InboundEmailClassification = {
   ignore: boolean;
   reason: string;
-  category: "human" | "automated" | "internal";
+  category: "human" | "insurer" | "automated" | "internal";
 };
+
+const DEFAULT_INSURER_DOMAINS = [
+  "kereis.fr",
+  "kereis.com",
+  "cardif.fr",
+  "bnpparibascardif.com",
+  "iassure.fr",
+  "generali.fr",
+  "axa.fr",
+  "swisslife.fr",
+  "metlife.fr",
+  "metlife.com",
+  "cnp.fr",
+  "allianz.fr",
+  "april.fr",
+  "utwin.fr",
+  "spvie.com",
+  "gan.fr",
+  "groupama.fr",
+  "malakoffhumanis.com",
+  "probtp.fr",
+  "probtp.com",
+];
+
+export function getInsurerEmailDomains(): string[] {
+  const extra = String(process.env.INSURER_EMAIL_DOMAINS || "")
+    .split(/[,;\s]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return [...new Set([...DEFAULT_INSURER_DOMAINS, ...extra])];
+}
+
+/** Mail entrant d'un assureur / Kereis — suivi dossier, jamais prospect ni réponse Camille auto. */
+export function isInsurerSender(email: string, fromRaw?: string): boolean {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e.includes("@")) return false;
+  const domain = e.split("@")[1] || "";
+  for (const d of getInsurerEmailDomains()) {
+    if (domain === d || domain.endsWith(`.${d}`)) return true;
+  }
+  const blob = `${fromRaw || ""} ${e}`.toLowerCase();
+  if (
+    /\b(kereis|cardif|iassure|generali|axa|swiss\s*life|metlife|cnp|allianz|april|utwin|gan|groupama|malakoff|pro\s*btp)\b/i.test(
+      blob,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function buildInsurerGmailQuery(): string {
+  const domains = getInsurerEmailDomains().slice(0, 12);
+  const fromParts = domains.map((d) => `from:${d}`);
+  return `(${fromParts.join(" OR ")}) newer_than:180d -in:spam -in:trash`;
+}
 
 export type InboundEmailHeaders = {
   fromRaw?: string;
@@ -101,6 +157,14 @@ export function classifyInboundEmail(
 
   if (!from || !from.includes("@")) {
     return { ignore: true, reason: "expéditeur invalide", category: "automated" };
+  }
+
+  if (isInsurerSender(from, headers.fromRaw)) {
+    return {
+      ignore: true,
+      reason: `assureur (${from}) — suivi dossier uniquement`,
+      category: "insurer",
+    };
   }
 
   if (shouldIgnoreAutomatedSender(from)) {
