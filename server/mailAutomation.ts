@@ -978,6 +978,35 @@ export async function syncGmailInbox(
               continue;
             }
             if (aiDecision?.status === "replied" && aiDecision.text) {
+              const {
+                isCamilleDraftBeforeSendEnabled,
+                tryQueueCamilleReplyForValidation,
+              } = await import("./camilleReviewQueue");
+              if (isCamilleDraftBeforeSendEnabled()) {
+                const queued = await tryQueueCamilleReplyForValidation({
+                  dossier,
+                  gmailId: msgMeta.id,
+                  clientEmail: replyToEmail,
+                  emailSubject: subject,
+                  clientMessage: text,
+                  replyHtml: aiDecision.text,
+                  replyPlain: aiDecision.replyPlain,
+                  attachmentNames: addedAttachments.map((d) => d.name),
+                });
+                if (queued.queued) {
+                  markDossierDirty(dossier);
+                  continue;
+                }
+                addEvent(dossier, {
+                  type: "AI_DECISION",
+                  actor: { kind: "AI", label: "Camille" },
+                  message: `Brouillon non envoyé sur Telegram (${queued.error || "erreur"}) — pas d'envoi auto.`,
+                  meta: { gmailId: msgMeta.id, error: queued.error },
+                });
+                markDossierDirty(dossier);
+                continue;
+              }
+
               const sendResult = await sendEmailReplyWithGmailAPI(
                 accessToken,
                 replyToEmail,

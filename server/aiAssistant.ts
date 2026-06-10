@@ -29,6 +29,7 @@ import {
   isCamilleReviewEnabled,
   shouldForceReviewHeuristic,
 } from "./camilleReviewQueue";
+import { isLeadDossier } from "./leadDossierMerge";
 import {
   buildCamilleOperationalPromptBlock,
   isCamilleReasoningEnabled,
