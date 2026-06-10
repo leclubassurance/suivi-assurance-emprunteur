@@ -1,7 +1,7 @@
 import { addEvent, type Dossier } from "./dossierModel";
-import { isOutboundConfirmation } from "./dossierLifecycle";
+import { getLastStudyOutbound, isOutboundConfirmation } from "./dossierLifecycle";
 
-export type StudyKpiGrossSource = "draft" | "table" | "hero" | "text" | "subject";
+export type StudyKpiGrossSource = "draft" | "table" | "hero" | "text" | "subject" | "manual";
 
 export type StudyKpiRecord = {
   grossSavingsEur: number;
@@ -9,7 +9,7 @@ export type StudyKpiRecord = {
   feesAssureurEur?: number;
   scenario?: "A" | "B" | "C";
   confidence: "high" | "medium" | "low";
-  source: "gmail_outbound" | "study_draft";
+  source: "gmail_outbound" | "study_draft" | "manual";
   gmailId: string;
   extractedAt: string;
   subject?: string;
@@ -34,6 +34,7 @@ const NAMED_HTML_ENTITIES: Record<string, string> = {
 };
 
 const GROSS_SOURCE_RANK: Record<StudyKpiGrossSource, number> = {
+  manual: 200,
   draft: 100,
   table: 85,
   hero: 55,
@@ -350,6 +351,9 @@ function writeStudyKpi(
 ): boolean {
   const loanCapitalEur = getLoanCapitalFromDossier(dossier);
   const prev = dossier.studyKpi as StudyKpiRecord | undefined;
+  if (prev?.source === "manual" && meta.source !== "manual") {
+    return false;
+  }
   if (prev?.gmailId === meta.gmailId && prev && !isBetterKpi(parsed, prev, loanCapitalEur)) {
     return false;
   }
@@ -503,6 +507,9 @@ export function applyStudyKpiBestAvailable(
 
 /** Rejoue l'extraction sur l'historique Gmail déjà synchronisé (backfill KPI). */
 export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
+  const existing = dossier.studyKpi as StudyKpiRecord | undefined;
+  if (existing?.source === "manual") return false;
+
   if (applyStudyKpiFromStudyDraft(dossier)) {
     const loan = getLoanCapitalFromDossier(dossier);
     const kpi = dossier.studyKpi;
@@ -550,6 +557,62 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
   }
 
   return applyStudyKpiFromStudyDraft(dossier);
+}
+
+/** Date de référence pour les totaux bandeau admin (date d'envoi étude > date extraction). */
+export function getStudyKpiActivityDate(dossier: Dossier): number {
+  const kpi = dossier.studyKpi;
+  if (!kpi) return 0;
+  const study = getLastStudyOutbound(dossier);
+  const studyTs = study?.date ? new Date(study.date).getTime() : 0;
+  const extractedTs = new Date(kpi.extractedAt || 0).getTime();
+  if (studyTs > 0) return studyTs;
+  return extractedTs;
+}
+
+/** Saisie manuelle admin — prioritaire sur l'extraction automatique. */
+export function applyManualStudyKpi(
+  dossier: Dossier,
+  input: {
+    grossSavingsEur: number;
+    feesCourtageEur: number;
+    loanCapitalEur?: number;
+  },
+): StudyKpiRecord {
+  const gross = Math.round(Number(input.grossSavingsEur) || 0);
+  const feesCourtageEur = Math.round(Number(input.feesCourtageEur) || 0);
+  const loanCapitalEur =
+    Number(input.loanCapitalEur) > 0
+      ? Math.round(Number(input.loanCapitalEur))
+      : getLoanCapitalFromDossier(dossier);
+  const prev = dossier.studyKpi as StudyKpiRecord | undefined;
+  const now = new Date().toISOString();
+  const record: StudyKpiRecord = {
+    grossSavingsEur: gross,
+    feesCourtageEur,
+    loanCapitalEur,
+    scenario: gross <= 0 ? "C" : gross < 500 ? "B" : "A",
+    confidence: "high",
+    source: "manual",
+    grossSource: "manual",
+    gmailId: prev?.gmailId || `manual_${dossier.id}`,
+    extractedAt: now,
+    subject: prev?.subject,
+  };
+  dossier.studyKpi = record;
+  addEvent(dossier, {
+    type: "NOTE_ADDED",
+    actor: { kind: "ADMIN", label: "Admin" },
+    message: `KPI étude saisis manuellement : ${gross} € économie brute, ${feesCourtageEur} € courtage.`,
+    meta: {
+      template: "STUDY_KPI_MANUAL",
+      grossSavingsEur: gross,
+      feesCourtageEur,
+      loanCapitalEur,
+      source: "manual",
+    },
+  });
+  return record;
 }
 
 export function formatEurKpi(n: number): string {

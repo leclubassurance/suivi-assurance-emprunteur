@@ -1976,9 +1976,10 @@ export function createApp() {
       const { hasStudyBeenSent } = await import("./dossierLifecycle");
       const studySent = hasStudyBeenSent(d);
       const suspectKpi =
-        kpi?.confidence === "low" ||
+        kpi?.source !== "manual" &&
+        (kpi?.confidence === "low" ||
         (gross > 0 && loan > 0 && !isGrossSavingsPlausible(gross, loan)) ||
-        (gross <= 0 && studySent && kpi?.grossSource !== "draft");
+        (gross <= 0 && studySent && kpi?.grossSource !== "draft"));
       if (!kpi?.extractedAt || suspectKpi) {
         if (studySent && refreshStudyKpiFromCommunications(d)) {
           kpiBackfilled += 1;
@@ -2121,6 +2122,32 @@ export function createApp() {
     const ok = refreshStudyKpiFromCommunications(dossier);
     if (ok) await writeDB(db, dossier);
     res.json({ ok, studyKpi: dossier.studyKpi || null });
+  });
+
+  app.patch("/api/admin/dossiers/:id/study-kpi", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const body = (req.body || {}) as {
+      grossSavingsEur?: number;
+      feesCourtageEur?: number;
+      loanCapitalEur?: number;
+    };
+    if (body.grossSavingsEur == null || body.feesCourtageEur == null) {
+      return res.status(400).json({
+        error: "grossSavingsEur et feesCourtageEur sont requis.",
+      });
+    }
+    const { applyManualStudyKpi } = await import("./studyEmailKpi");
+    const studyKpi = applyManualStudyKpi(dossier, {
+      grossSavingsEur: Number(body.grossSavingsEur),
+      feesCourtageEur: Number(body.feesCourtageEur),
+      loanCapitalEur:
+        body.loanCapitalEur != null ? Number(body.loanCapitalEur) : undefined,
+    });
+    await writeDB(db, dossier);
+    res.json({ ok: true, studyKpi });
   });
 
   app.get("/api/admin/dossiers/:id/ai-audit", async (req, res) => {

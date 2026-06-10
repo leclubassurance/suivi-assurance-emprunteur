@@ -1,7 +1,7 @@
 import type { Dossier } from "./dossierModel";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
-import { formatEurKpi, getLoanCapitalFromDossier } from "./studyEmailKpi";
+import { formatEurKpi, getLoanCapitalFromDossier, getStudyKpiActivityDate } from "./studyEmailKpi";
 
 export type ActivityMetrics = {
   periodDays: number;
@@ -75,7 +75,7 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
     if (assessCertainLoanDocProblems(d).certain) certainDocProblemCount += 1;
 
     const kpi = d.studyKpi;
-    if (kpi?.extractedAt && new Date(kpi.extractedAt).getTime() >= cutoff) {
+    if (kpi && getStudyKpiActivityDate(d) >= cutoff) {
       studiesWithKpi += 1;
       if (Number(kpi.grossSavingsEur) > 0) {
         totalEconomiesRealiseesEur += Number(kpi.grossSavingsEur) || 0;

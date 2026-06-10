@@ -124,7 +124,7 @@ export interface Dossier {
     loanCapitalEur: number;
     scenario?: "A" | "B" | "C";
     confidence: "high" | "medium" | "low";
-    source: "gmail_outbound";
+    source: "gmail_outbound" | "study_draft" | "manual";
     gmailId: string;
     extractedAt: string;
     subject?: string;

@@ -66,9 +66,11 @@ const priorityStyle: Record<string, string> = {
 export function AdminActivityBar({
   metrics,
   onReanalyzeAll,
+  onRefreshMetrics,
 }: {
   metrics: Metrics | null;
   onReanalyzeAll?: () => void;
+  onRefreshMetrics?: () => void;
 }) {
   if (!metrics) return null;
 
@@ -110,6 +112,16 @@ export function AdminActivityBar({
           <p className="text-[10px] uppercase font-bold text-white/50 tracking-wide">
             Performance commerciale · {metrics.kpiHelp?.periodLabel || "7 jours"}
           </p>
+          {onRefreshMetrics && (
+            <button
+              type="button"
+              onClick={onRefreshMetrics}
+              className="text-[10px] font-bold uppercase tracking-wide text-white/70 hover:text-white border border-white/20 hover:border-white/40 rounded-lg px-2.5 py-1 transition"
+              title="Rafraîchir les totaux KPI"
+            >
+              Actualiser KPI
+            </button>
+          )}
           {onReanalyzeAll && (
             <button
               type="button"
@@ -522,10 +534,19 @@ export function AdminCamillePanel({
   const [showPortalPreview, setShowPortalPreview] = useState(false);
   const [resumingCamille, setResumingCamille] = useState(false);
   const [refreshingKpi, setRefreshingKpi] = useState(false);
+  const [savingManualKpi, setSavingManualKpi] = useState(false);
+  const [showManualKpi, setShowManualKpi] = useState(false);
+  const [manualGross, setManualGross] = useState("");
+  const [manualCourtage, setManualCourtage] = useState("");
+  const [manualCapital, setManualCapital] = useState("");
   const [studyKpi, setStudyKpi] = useState<any>((dossier as any).studyKpi ?? null);
 
   useEffect(() => {
-    setStudyKpi((dossier as any).studyKpi ?? null);
+    const kpi = (dossier as any).studyKpi ?? null;
+    setStudyKpi(kpi);
+    setManualGross(kpi?.grossSavingsEur != null ? String(kpi.grossSavingsEur) : "");
+    setManualCourtage(kpi?.feesCourtageEur != null ? String(kpi.feesCourtageEur) : "");
+    setManualCapital(kpi?.loanCapitalEur != null ? String(kpi.loanCapitalEur) : "");
   }, [dossier]);
 
   const reloadCamilleContext = useCallback(async () => {
@@ -580,10 +601,57 @@ export function AdminCamillePanel({
         "success",
       );
       await reloadCamilleContext();
+      onDossierUpdated?.();
     } catch {
       showToast("Erreur réseau", "error");
     } finally {
       setRefreshingKpi(false);
+    }
+  };
+
+  const handleSaveManualKpi = async () => {
+    const gross = Number(String(manualGross).replace(/\s/g, "").replace(",", "."));
+    const courtage = Number(String(manualCourtage).replace(/\s/g, "").replace(",", "."));
+    const capitalRaw = String(manualCapital).replace(/\s/g, "").replace(",", ".");
+    const capital = capitalRaw.trim() ? Number(capitalRaw) : undefined;
+    if (!Number.isFinite(gross) || gross < 0) {
+      showToast("Économie brute invalide", "error");
+      return;
+    }
+    if (!Number.isFinite(courtage) || courtage < 0) {
+      showToast("Courtage invalide", "error");
+      return;
+    }
+    if (capital != null && (!Number.isFinite(capital) || capital < 0)) {
+      showToast("Capital prêt invalide", "error");
+      return;
+    }
+    setSavingManualKpi(true);
+    try {
+      const res = await fetch(getApiUrl(`/api/admin/dossiers/${dossier.id}/study-kpi`), {
+        method: "PATCH",
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          grossSavingsEur: gross,
+          feesCourtageEur: courtage,
+          loanCapitalEur: capital,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        showToast(data.error || "Impossible d'enregistrer le KPI", "error");
+        return;
+      }
+      setStudyKpi(data.studyKpi);
+      (dossier as any).studyKpi = data.studyKpi;
+      showToast(`KPI enregistré manuellement : ${gross} €`, "success");
+      setShowManualKpi(false);
+      await reloadCamilleContext();
+      onDossierUpdated?.();
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setSavingManualKpi(false);
     }
   };
 
@@ -638,29 +706,94 @@ export function AdminCamillePanel({
 
       <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950">
         <div className="flex justify-between items-start gap-2 mb-1 flex-wrap">
-          <p className="font-black">KPI mail d&apos;étude (Gmail)</p>
-          <button
-            type="button"
-            disabled={refreshingKpi}
-            onClick={handleRefreshStudyKpi}
-            className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-800 text-white hover:bg-emerald-900 disabled:opacity-50"
-          >
-            {refreshingKpi ? "…" : "Recalculer"}
-          </button>
+          <p className="font-black">KPI mail d&apos;étude</p>
+          <div className="flex gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowManualKpi((v) => !v)}
+              className="text-[10px] font-bold px-2 py-1 rounded bg-white border border-emerald-400 text-emerald-900 hover:bg-emerald-100"
+            >
+              {showManualKpi ? "Fermer" : "Saisie manuelle"}
+            </button>
+            <button
+              type="button"
+              disabled={refreshingKpi}
+              onClick={handleRefreshStudyKpi}
+              className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-800 text-white hover:bg-emerald-900 disabled:opacity-50"
+            >
+              {refreshingKpi ? "…" : "Recalculer"}
+            </button>
+          </div>
         </div>
         {studyKpi ? (
           <>
             <p>Économie brute : <strong>{studyKpi.grossSavingsEur} €</strong></p>
             <p>Courtage : <strong>{studyKpi.feesCourtageEur} €</strong> · Capital prêt : <strong>{studyKpi.loanCapitalEur} €</strong></p>
-            {(studyKpi.confidence || studyKpi.grossSource) && (
+            {(studyKpi.confidence || studyKpi.grossSource || studyKpi.source) && (
               <p className="text-[10px] text-emerald-800 mt-1">
-                Confiance : {studyKpi.confidence || "—"}
-                {studyKpi.grossSource ? ` · source ${studyKpi.grossSource}` : ""}
+                {studyKpi.source === "manual" ? (
+                  <span className="font-bold">Saisie manuelle</span>
+                ) : (
+                  <>
+                    Confiance : {studyKpi.confidence || "—"}
+                    {studyKpi.grossSource ? ` · source ${studyKpi.grossSource}` : ""}
+                  </>
+                )}
               </p>
             )}
           </>
         ) : (
-          <p className="text-emerald-800">Aucun KPI extrait — synchronisez Gmail ou envoyez l&apos;étude depuis ce dossier.</p>
+          <p className="text-emerald-800">Aucun KPI — utilisez la saisie manuelle ou recalculer après sync Gmail.</p>
+        )}
+        {showManualKpi && (
+          <div className="mt-3 pt-3 border-t border-emerald-200 space-y-2">
+            <p className="text-[10px] text-emerald-800">
+              Valeurs affichées dans le mail d&apos;étude — prioritaire sur l&apos;extraction auto.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <label className="block">
+                <span className="text-[10px] font-bold">Économie brute (€)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={manualGross}
+                  onChange={(e) => setManualGross(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-emerald-300 px-2 py-1.5 text-sm"
+                  placeholder="ex. 12500"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold">Courtage LCIF (€)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={manualCourtage}
+                  onChange={(e) => setManualCourtage(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-emerald-300 px-2 py-1.5 text-sm"
+                  placeholder="ex. 990"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold">Capital prêt (€)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={manualCapital}
+                  onChange={(e) => setManualCapital(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-emerald-300 px-2 py-1.5 text-sm"
+                  placeholder="auto si vide"
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              disabled={savingManualKpi}
+              onClick={handleSaveManualKpi}
+              className="text-[10px] font-bold px-3 py-2 rounded bg-emerald-900 text-white hover:bg-emerald-950 disabled:opacity-50"
+            >
+              {savingManualKpi ? "Enregistrement…" : "Enregistrer le KPI"}
+            </button>
+          </div>
         )}
       </div>
 

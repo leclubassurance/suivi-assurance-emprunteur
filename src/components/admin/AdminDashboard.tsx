@@ -40,7 +40,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
   const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers">("queue");
-  const { metrics } = useAdminOpsData();
+  const { metrics, reloadMetrics } = useAdminOpsData();
   const [driveDiagnostic, setDriveDiagnostic] = useState<{
     summary: string;
     parentOk: boolean;
@@ -690,6 +690,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
         showToast(data.channel === "gmail" ? "Email envoyé via Gmail" : "Email envoyé", "success");
         setReplyBody("");
         loadDossiers();
+        reloadMetrics();
       } else {
         showToast(data.error || "Erreur d'envoi", "error");
       }
@@ -722,6 +723,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
         setEmailHtml("");
         setPreviewActive(false);
         loadDossiers();
+        reloadMetrics();
       } else {
         showToast(errData.error || "Erreur d'envoi", "error");
       }
@@ -772,7 +774,11 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <AdminActivityBar metrics={metrics} onReanalyzeAll={handleReanalyzeAllDocuments} />
+      <AdminActivityBar
+        metrics={metrics}
+        onReanalyzeAll={handleReanalyzeAllDocuments}
+        onRefreshMetrics={reloadMetrics}
+      />
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center">
         <h1 className="text-xl font-bold flex items-center gap-4">
           Espace conseiller — Assurance emprunteur
@@ -950,7 +956,13 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     </h3>
                     <AdminOpsDailyReportPanel />
                     <AdminCamilleKnowledgePanel />
-                    <AdminCamillePanel dossier={selectedDossier} onDossierUpdated={loadDossiers} />
+                    <AdminCamillePanel
+                      dossier={selectedDossier}
+                      onDossierUpdated={() => {
+                        loadDossiers();
+                        reloadMetrics();
+                      }}
+                    />
                     <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
                       <div className="font-black mb-1">Automatisation Gmail</div>
                       <p>
