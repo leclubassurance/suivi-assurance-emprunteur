@@ -294,7 +294,7 @@ export function buildProspectCamilleKnowledgeBlock(): string {
   return [
     PROSPECT_CAMILLE_RESPONSE_RULES.trim(),
     "",
-    "FAQ PROSPECT PRÉ-ÉTUDE (réponses autorisées — pas de chiffres personnalisés) :",
+    "FAQ PROSPECT (référence métier — REFORMULER naturellement, NE JAMAIS copier-coller ces paragraphes) :",
     formatLcifFaqForPrompt(PROSPECT_FAQ, 12),
     "",
     buildKereisPartnersKnowledgeBlock(),

@@ -121,7 +121,7 @@ export function isPureProspectGreeting(clientMessage?: string): boolean {
   return /^(bonjour|bonsoir|salut|hello|coucou|bonne journ[ée]e|bonne soir[ée]e)[\s!.?,]*$/i.test(msg);
 }
 
-/** Salutation seule — courte et naturelle, sans formulaire. */
+/** @deprecated Aperçu admin uniquement — les mails auto passent par l'IA (camilleProspectReply). */
 export function buildProspectPureGreetingReplyPlain(dossier: any): string {
   return [
     `Merci pour votre message.`,
@@ -131,7 +131,7 @@ export function buildProspectPureGreetingReplyPlain(dossier: any): string {
   ].join("\n\n");
 }
 
-/** Réponse prospect fiable (sans LLM) — accueil léger ou CTA formulaire si demande explicite. */
+/** @deprecated Aperçu admin uniquement — les mails auto passent par l'IA (camilleProspectReply). */
 export function buildProspectWelcomeReplyPlain(dossier: any, clientMessage?: string): string {
   if (isPureProspectGreeting(clientMessage)) {
     return buildProspectPureGreetingReplyPlain(dossier);
@@ -379,25 +379,31 @@ export function patchProspectReplyHardRules(
   const formUrl = getAssurancePlatformUrl();
   let text = String(plain || "").trim();
 
-  if (prospectReplyViolatesInsurerDisclosureRules(text)) {
-    if (isProspectInsurerPartnerQuestion(clientMessage) || detectMentionedKereisPartner(clientMessage)) {
-      text = [
-        `Merci pour votre message.`,
-        buildProspectInsurerPartnerReplyParagraph(clientMessage),
-        `L'étude d'économie est gratuite et sans engagement.`,
-        formUrl,
-        `Référence interne : ${dossier.id}.`,
-      ].join("\n\n");
-    }
-  }
-
   const asksDocsByEmail =
     /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(
       text,
     ) ||
     /(envoy|joindre|transmettre).{0,80}(offre de prêt|tableau d.amortissement|cni|rib)/i.test(text);
   if (asksDocsByEmail) {
-    text = buildProspectWelcomeReplyPlain(dossier, clientMessage || "");
+    text = text
+      .replace(
+        /(envoy|joindre|transmettre|transmettez).{0,100}(par mail|par email|en pi[eè]ce jointe)/gi,
+        "déposer sur notre formulaire en ligne",
+      )
+      .replace(
+        /(offre de prêt|tableau d.amortissement).{0,60}(par mail|par email|en pi[eè]ce jointe)/gi,
+        "documents sur le formulaire en ligne",
+      );
+    if (!text.includes(formUrl)) {
+      text = `${text}\n\nFormulaire sécurisé : ${formUrl}`;
+    }
+  }
+
+  if (prospectReplyViolatesInsurerDisclosureRules(text)) {
+    text = text.replace(
+      /\b(Allianz|Axa|Cardif|CNP|Generali|Harmonie Mutuelle|Malakoff Humanis|MNCAP|Mutlog)(,\s*(Allianz|Axa|Cardif|CNP|Generali|Harmonie Mutuelle|Malakoff Humanis|MNCAP|Mutlog)){2,}/gi,
+      "nos partenaires assureurs (dont Kereis Prévoyance)",
+    );
   }
 
   const mentionsStudyPath =

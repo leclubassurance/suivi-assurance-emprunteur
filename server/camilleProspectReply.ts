@@ -1,15 +1,15 @@
 /**
- * Réponse prospect : 1 salutation courte (sans LLM) ou 1 appel LLM structuré.
- * Volontairement simple — pas de pipeline multi-étapes.
+ * Prospect pré-formulaire : 100 % rédaction IA.
+ * La base de connaissances = contraintes métier, pas des textes à copier-coller.
  */
 import { generateContentWithRetry } from "./geminiClient";
 import { buildProspectCamilleKnowledgeBlock } from "../shared/lcifKnowledge";
 import { getAssurancePlatformUrl } from "../shared/lcifLegalIdentity";
+import { extractNewClientMessageText } from "./emailQuoteStrip";
 import {
   buildProspectLeadPromptBlock,
-  buildProspectPureGreetingReplyPlain,
-  isPureProspectGreeting,
   patchProspectReplyHardRules,
+  prospectReplyViolatesInsurerDisclosureRules,
 } from "./camilleProspectInbound";
 
 export type ProspectInboundDecision = {
@@ -24,6 +24,11 @@ function prospectModel(): string {
   return process.env.CAMILLE_PROSPECT_MODEL || "gemini-2.5-flash";
 }
 
+function prospectTemperature(): number {
+  const n = Number(process.env.CAMILLE_PROSPECT_TEMPERATURE || "0.72");
+  return Number.isFinite(n) ? Math.min(1, Math.max(0.2, n)) : 0.72;
+}
+
 function parseJson<T extends Record<string, unknown>>(text: string, fallback: T): T {
   try {
     return { ...fallback, ...JSON.parse(text || "{}") } as T;
@@ -32,38 +37,125 @@ function parseJson<T extends Record<string, unknown>>(text: string, fallback: T)
   }
 }
 
-const PROSPECT_REPLY_PROMPT = `
-Tu es Camille, assistante de Charles Victor (Club Immobilier Français — assurance emprunteur).
-Tu rédiges un mail prospect qui n'a pas encore rempli le formulaire en ligne.
+const PROSPECT_PERSONA = `
+Tu es Camille, assistante de Charles Victor au Club Immobilier Français (assurance emprunteur).
+Tu écris des mails comme une vraie personne : naturel, chaleureux, direct — jamais un script commercial.
 
-STYLE (obligatoire) :
-- Comme une personne professionnelle et chaleureuse — PAS un robot commercial.
-- Longueur adaptée au message : 2 à 4 lignes si le client dit juste bonjour ; 5 à 12 lignes si questions détaillées.
-- Répondre à CHAQUE point du client (y compris taquineries, « êtes-vous humaine », météo…).
-- Pas de formule « Bonjour » (ajoutée automatiquement).
+PRINCIPES DE CONVERSATION :
+- Réponds d'abord à ce que le client vient de dire, avec tes propres mots.
+- Un simple « Bonjour » → réponse courte et humaine (2-4 phrases), une question ouverte. Pas de discours marketing.
+- Plusieurs sujets dans le même mail → traiter chacun (humour, IA, météo, assurance…).
+- Varie tes formulations ; ne répète pas les mêmes phrases d'un mail à l'autre.
+- La FAQ / doc métier t'indique quoi dire ou ne pas dire — tu reformules, tu ne recopies pas un bloc.
+- Pas de « Bonjour » dans messageToClient (ajouté automatiquement).
+- Référence dossier en fin de mail : LCIF-XXXXXX (fournie dans le contexte).
 
-INTERDITS :
-- Coller le bloc marketing (gratuit + formulaire + PDF) si le client n'a demandé que bonjour ou une question simple.
-- Liste complète des assureurs — renvoyer vers Charles ; 2-4 exemples max si question assureurs.
+INTERDITS MÉTIER (non négociables) :
+- Liste complète des assureurs → Charles communiquera la suite ; 2-4 exemples max si question assureurs.
 - Codes produits, chiffres d'économie inventés, météo inventée.
-- Demander offre/tableau/CNI/RIB par email (formulaire en ligne uniquement).
+- Demander PDF / offre / tableau / CNI / RIB par email (formulaire en ligne uniquement).
 - Numéro de téléphone.
 
-FORMULAIRE :
-- Lien à inclure SEULEMENT si le client veut démarrer / demande comment envoyer des documents / question sur la suite concrète.
-- URL : fournie dans le contexte.
+REVIEW si médical, juridique, menace, chiffrage personnalisé, ou impossibilité de répondre honnêtement.
+`;
 
-REVIEW si : médical, juridique, menace, chiffrage personnalisé, doute sérieux.
-Sinon REPLY.
+async function callProspectLlm(
+  userPayload: string,
+  temperature: number,
+): Promise<Record<string, unknown>> {
+  const response = await generateContentWithRetry({
+    model: prospectModel(),
+    contents: [
+      { role: "user", parts: [{ text: PROSPECT_PERSONA }] },
+      { role: "user", parts: [{ text: userPayload }] },
+    ],
+    config: { responseMimeType: "application/json", temperature },
+  });
+  return parseJson(response.text || "{}", {
+    action: "REVIEW",
+    messageToClient: null,
+    questionForStaff: "Réponse IA invalide — validation équipe",
+    reasonForEscalation: null,
+  });
+}
 
-JSON uniquement :
+/** Détecte les réponses type script marketing (à éviter). */
+export function prospectReplyLooksRobotic(plain: string, clientMessage?: string): string[] {
+  const issues: string[] = [];
+  const text = String(plain || "").toLowerCase();
+  const fresh = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
+
+  const cannedPatterns = [
+    /merci pour votre message et l'intérêt que vous portez/,
+    /pour démarrer, complétez le formulaire sécurisé/,
+    /vous pourrez y déposer l'offre de prêt et le tableau/,
+    /pas besoin de les envoyer en pièce jointe par email/,
+  ];
+  for (const re of cannedPatterns) {
+    if (re.test(text)) issues.push("formulation script marketing détectée");
+  }
+
+  const isShortHi = /^(bonjour|bonsoir|salut|hello|coucou)[\s!.?,]*$/i.test(fresh);
+  if (isShortHi) {
+    const pushes = [/formulaire/, /pdf/, /tableau/, /offre de prêt/, /gratuite et sans engagement/].filter(
+      (re) => re.test(text),
+    ).length;
+    if (pushes >= 2) issues.push("trop de contenu commercial pour un simple bonjour");
+  }
+
+  if (text.length > 80 && fresh.length < 15 && !text.includes("?")) {
+    issues.push("réponse longue sans question ouverte pour un message très court");
+  }
+
+  return [...new Set(issues)];
+}
+
+function buildUserPayload(params: {
+  dossier: any;
+  clientMessage: string;
+  emailSubject?: string;
+  clientEmail: string;
+  prenom: string;
+  nom: string;
+  conversationTail: string;
+  correctionHint?: string;
+}): string {
+  const formUrl = getAssurancePlatformUrl();
+  const knowledgeBlock = buildProspectCamilleKnowledgeBlock();
+  const correction = params.correctionHint
+    ? `\n\nCORRECTION DEMANDÉE (réécris entièrement, plus naturel) :\n${params.correctionHint}\n`
+    : "";
+
+  return `
+${knowledgeBlock}
+
+---
+
+${buildProspectLeadPromptBlock(params.dossier)}
+
+Dossier : ${params.dossier.id}
+Client : ${params.prenom} ${params.nom} <${params.clientEmail}>
+Sujet : ${params.emailSubject || "—"}
+Formulaire (si tu invites à démarrer) : ${formUrl}
+
+Fil de conversation :
+${params.conversationTail || "(premier échange)"}
+
+Message client à traiter :
+"""
+${params.clientMessage.slice(0, 8000)}
+"""
+${correction}
+
+JSON :
 {
   "action": "REPLY" | "REVIEW" | "ESCALATE",
-  "messageToClient": "string ou null",
+  "messageToClient": "texte plain sans Bonjour ni signature",
   "questionForStaff": "string ou null",
   "reasonForEscalation": "string ou null"
 }
-`;
+`.trim();
+}
 
 export async function runProspectInboundReply(params: {
   dossier: any;
@@ -74,50 +166,32 @@ export async function runProspectInboundReply(params: {
   nom: string;
   conversationTail: string;
 }): Promise<ProspectInboundDecision> {
-  if (isPureProspectGreeting(params.clientMessage)) {
-    return {
-      action: "REPLY",
-      messageToClient: buildProspectPureGreetingReplyPlain(params.dossier),
-      model: "template",
-    };
+  const model = prospectModel();
+  const temperature = prospectTemperature();
+  console.log(`[Camille prospect] IA (${model}, t=${temperature}) ${params.dossier.id}`);
+
+  let parsed = await callProspectLlm(
+    buildUserPayload(params),
+    temperature,
+  );
+
+  const issues = [
+    ...prospectReplyLooksRobotic(String(parsed.messageToClient || ""), params.clientMessage),
+  ];
+  if (prospectReplyViolatesInsurerDisclosureRules(String(parsed.messageToClient || ""))) {
+    issues.push("violation règles assureurs (liste complète ou codes produits)");
   }
 
-  const formUrl = getAssurancePlatformUrl();
-  const knowledgeBlock = buildProspectCamilleKnowledgeBlock();
-  const context = `
-Dossier : ${params.dossier.id} (prospect pré-formulaire)
-Client : ${params.prenom} ${params.nom} <${params.clientEmail}>
-Formulaire (si pertinent) : ${formUrl}
-
-${buildProspectLeadPromptBlock(params.dossier)}
-
-Fil récent :
-${params.conversationTail || "(vide)"}
-
-Message client :
-"""
-${params.clientMessage.slice(0, 8000)}
-"""
-`.trim();
-
-  const model = prospectModel();
-  console.log(`[Camille prospect] Réponse unique (${model}) ${params.dossier.id}`);
-
-  const response = await generateContentWithRetry({
-    model,
-    contents: [
-      { role: "user", parts: [{ text: PROSPECT_REPLY_PROMPT }] },
-      { role: "user", parts: [{ text: `${knowledgeBlock}\n\n---\n\n${context}` }] },
-    ],
-    config: { responseMimeType: "application/json", temperature: 0.4 },
-  });
-
-  const parsed = parseJson(response.text || "{}", {
-    action: "REVIEW",
-    messageToClient: null,
-    questionForStaff: `Comment répondre au prospect ? « ${params.clientMessage.slice(0, 300)} »`,
-    reasonForEscalation: null,
-  });
+  if (issues.length > 0 && String(parsed.action || "").toUpperCase() === "REPLY") {
+    console.log(`[Camille prospect] Réécriture (${issues.join("; ")}) ${params.dossier.id}`);
+    parsed = await callProspectLlm(
+      buildUserPayload({
+        ...params,
+        correctionHint: issues.join("\n- "),
+      }),
+      Math.max(0.5, temperature - 0.1),
+    );
+  }
 
   const action = String(parsed.action || "REVIEW").toUpperCase();
   if (action === "REVIEW") {
@@ -140,17 +214,31 @@ ${params.clientMessage.slice(0, 8000)}
   }
 
   let plain = String(parsed.messageToClient || "").trim();
-  if (plain.length < 10) {
+  if (plain.length < 8) {
     return {
       action: "REVIEW",
-      questionForStaff: `Réponse prospect trop courte — que dire ? « ${params.clientMessage.slice(0, 300)} »`,
+      questionForStaff: `Réponse IA vide ou trop courte — « ${params.clientMessage.slice(0, 300)} »`,
       model,
     };
   }
 
   plain = patchProspectReplyHardRules(plain, params.dossier, params.clientMessage);
+
+  const postIssues = [
+    ...prospectReplyLooksRobotic(plain, params.clientMessage),
+  ];
+  if (prospectReplyViolatesInsurerDisclosureRules(plain)) {
+    postIssues.push("assureurs");
+  }
+  if (postIssues.length > 0) {
+    return {
+      action: "REVIEW",
+      questionForStaff: `Camille n'a pas produit une réponse satisfaisante (${postIssues.join(", ")}) — votre consigne pour : « ${params.clientMessage.slice(0, 280)} »`,
+      model,
+    };
+  }
+
   return { action: "REPLY", messageToClient: plain, model };
 }
 
-/** @deprecated Alias */
 export const runProspectInboundReplyPipeline = runProspectInboundReply;

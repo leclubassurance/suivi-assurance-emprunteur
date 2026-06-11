@@ -140,7 +140,7 @@ export async function processIncomingClientEmail(
           clientMessage: clientMessageForAi,
           replyPlain: plain,
           emailSubject: options?.emailSubject,
-          actionKind: prospectDecision.model === "template" ? "prospect_welcome" : "prospect_reply",
+          actionKind: "prospect_ai_reply",
           attachmentNames,
         });
         return {
