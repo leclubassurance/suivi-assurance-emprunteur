@@ -97,7 +97,7 @@ async function buildNewsMessage(
       `<i>Prospect pré-étude — nouveau message</i>`,
       excerpt ? `<b>Message :</b> <i>« ${escapeTelegramHtml(excerpt)} »</i>` : "",
       ``,
-      `<b>➡️ Pour vous :</b> Camille va répondre automatiquement (ou vous posera une question sur ce fil si besoin).`,
+      `<b>➡️ Pour vous :</b> Camille traite ce message — réponse auto si possible. Si un message <b>🔴 INTERVENTION REQUISE</b> suit, aucun mail n'a encore été envoyé : répondez à ce message-là.`,
     ]
       .filter(Boolean)
       .join("\n");

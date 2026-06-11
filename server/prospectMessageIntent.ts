@@ -145,12 +145,42 @@ function isPricingQuestion(msgLower: string): boolean {
   );
 }
 
+/** Pathologie / litige explicite — pas le mot « santé » seul (FAQ assurance courante). */
 function isMedicalLegal(msgLower: string): boolean {
-  return (
-    /cancer|maladie|pathologie|médical|medical|santé|sante|surprime|exclusion|contentieux|avocat|tribunal|plainte|réclamation officielle|discrimination/i.test(
+  if (
+    /cancer|maladie grave|pathologie chronique|contentieux|avocat|tribunal|plainte|réclamation officielle|discrimination|refus médical|surprime (médicale|santé)|exclusion (médicale|santé)/i.test(
       msgLower,
-    ) || (/questionnaire santé|qs médical/i.test(msgLower) && /\?/.test(msgLower))
-  );
+    )
+  ) {
+    return true;
+  }
+  if (/(antécédent|antecedent).*(médical|santé|maladie)/i.test(msgLower)) return true;
+  if (/questionnaire (de )?santé|qs (médical|santé)/i.test(msgLower) && /\?/.test(msgLower)) {
+    if (/lemoine|délégation|delegation|garantie|couverture|équivalent|equivalent/i.test(msgLower)) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+/** medical_legal seul ou dominant — pas quand le mail est surtout une demande d'étude / FAQ. */
+function medicalLegalShouldForceReview(
+  intents: ProspectMessageIntent[],
+  msgLower: string,
+): boolean {
+  if (!intents.includes("medical_legal")) return false;
+  const routineProspect: ProspectMessageIntent[] = [
+    "wants_study",
+    "documents",
+    "faq_insurance",
+    "faq_process",
+    "greeting",
+    "club_identity",
+    "insurers",
+  ];
+  if (intents.some((i) => routineProspect.includes(i))) return false;
+  return isMedicalLegal(msgLower);
 }
 
 function isAggressive(msgLower: string): boolean {
@@ -398,7 +428,7 @@ export function analyzeProspectMessageIntent(clientMessage: string): ProspectInt
 
   const shouldForceReview =
     intents.includes("aggressive") ||
-    intents.includes("medical_legal") ||
+    medicalLegalShouldForceReview(intents, msgLower) ||
     (intents.includes("pricing") &&
       /insiste|urgent|exactement|précisément|precisement|montant exact/i.test(msgLower));
 
