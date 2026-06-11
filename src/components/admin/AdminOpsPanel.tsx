@@ -473,15 +473,39 @@ export function AdminCamillePlaybooksPanel() {
         body: JSON.stringify({ force: false }),
       });
       const data = await res.json();
+      const audit = data.audit;
+      const errCount = audit?.issues?.filter((i: { severity: string }) => i.severity === "error").length ?? 0;
       showToast(
         data.added > 0
           ? `${data.added} playbook(s) de base ajouté(s) — total ${data.total}`
-          : `Playbooks déjà présents (${data.total || total})`,
-        data.added > 0 ? "success" : "info",
+          : `Playbooks déjà présents (${data.total || total})${errCount ? ` — ${errCount} alerte(s) audit` : ""}`,
+        data.added > 0 ? "success" : errCount ? "error" : "info",
       );
       await loadPlaybooks();
     } catch {
       showToast("Erreur chargement playbooks", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const auditPlaybooks = async () => {
+    setBusy(true);
+    try {
+      const res = await adminFetch("/api/admin/camille-playbooks/audit");
+      const data = await res.json();
+      if (!data.success) {
+        showToast(data.error || "Audit impossible", "error");
+        return;
+      }
+      const errors = (data.issues || []).filter((i: { severity: string }) => i.severity === "error");
+      const warns = (data.issues || []).filter((i: { severity: string }) => i.severity === "warn");
+      showToast(
+        `Audit : ${data.total} playbooks — self-check ${data.selfCheck?.ok ? "OK" : "FAIL"} — ${errors.length} erreur(s), ${warns.length} alerte(s)`,
+        errors.length || !data.selfCheck?.ok ? "error" : warns.length ? "info" : "success",
+      );
+    } catch {
+      showToast("Erreur audit playbooks", "error");
     } finally {
       setBusy(false);
     }
@@ -576,6 +600,14 @@ export function AdminCamillePlaybooksPanel() {
         <button
           type="button"
           disabled={busy}
+          onClick={auditPlaybooks}
+          className="text-[11px] font-bold px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-950 flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <AlertTriangle className="w-3.5 h-3.5" /> Vérifier cohérence
+        </button>
+        <button
+          type="button"
+          disabled={busy}
           onClick={loadPlaybooks}
           className="text-[11px] font-bold px-3 py-2 rounded-lg border border-violet-200 bg-white text-violet-800"
         >
@@ -641,6 +673,9 @@ export function AdminCamillePlaybooksPanel() {
               </div>
               <p className="text-violet-700 mt-0.5">
                 {(pb.tags || []).join(" · ")} — utilisé {pb.useCount || 0}×
+              </p>
+              <p className="text-violet-400 font-mono text-[9px] mt-0.5 truncate" title={pb.id}>
+                {pb.id}
               </p>
             </div>
           ))}

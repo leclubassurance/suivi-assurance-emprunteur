@@ -242,6 +242,7 @@ export function createApp() {
           String(process.env.CAMILLE_PRODUCTION_SAFE_MODE ?? "true").toLowerCase() !== "false",
         playbookSeedVersion: (await import("./camillePlaybooks")).getPlaybookSeedVersion(),
         playbookCount: (await (await import("./camillePlaybooks")).listPlaybooks(500)).length,
+        playbookSelfCheckOk: (await (await import("./camillePlaybooks")).runPlaybookSelfCheck()).ok,
       },
     });
   });
@@ -1499,6 +1500,7 @@ export function createApp() {
         total: store.playbooks.length,
         updatedAt: store.updatedAt,
         seededAt: store.seededAt,
+        seedVersion: store.seedVersion,
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
@@ -1553,12 +1555,23 @@ export function createApp() {
     }
   });
 
+  app.get("/api/admin/camille-playbooks/audit", async (_req, res) => {
+    try {
+      const { auditPlaybookStore } = await import("./camillePlaybooks");
+      const audit = await auditPlaybookStore();
+      res.json({ success: true, ...audit });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/camille-playbooks/seed-defaults", async (req, res) => {
     try {
       const { seedDefaultPlaybooksIfEmpty } = await import("./camillePlaybooks");
       const force = String((req.body as any)?.force || "").toLowerCase() === "true";
       const result = await seedDefaultPlaybooksIfEmpty(force);
-      res.json({ success: true, ...result });
+      const audit = await (await import("./camillePlaybooks")).auditPlaybookStore();
+      res.json({ success: true, ...result, seedVersion: audit.seedVersion, audit });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }

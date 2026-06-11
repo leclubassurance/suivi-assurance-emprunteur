@@ -78,6 +78,9 @@ export function isCamilleDraftBeforeSendEnabled(): boolean {
 export function shouldForceReviewHeuristic(clientMessage: string, dossier: any): boolean {
   const blob = String(clientMessage || "").toLowerCase();
   if (/m[eé]dical|juridique|menace|avocat|tribunal|contentieux/i.test(blob)) return true;
+  if (/fum(?:e|eur|ais|ait|euse|er)?|tabac|cigarette|alcool|maladie|patholog|hospital|chirurg|m[eé]dicament/i.test(blob)) {
+    return true;
+  }
   if (/multi|monsieur|madame|second pr[eê]t|co-emprunteur|autre contrat|partie monsieur/i.test(blob)) {
     return true;
   }
