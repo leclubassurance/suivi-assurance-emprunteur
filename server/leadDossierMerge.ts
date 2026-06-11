@@ -1,18 +1,14 @@
+import { isLeadDossier } from "../shared/leadDossierStatus";
 import { addEvent, ensureDossierShape, type Dossier } from "./dossierModel";
 import { getDossierClientEmails } from "./gmailAttachments";
 import { isDossierActiveForClient } from "./clientMultipleDossiers";
 import type { PrivacyConsentRecord } from "./privacyConsent";
 
+export { isLeadDossier };
+
 export function normalizeClientEmail(email: unknown): string | null {
   const e = String(email || "").trim().toLowerCase();
   return e.includes("@") ? e : null;
-}
-
-export function isLeadDossier(dossier: any): boolean {
-  if (Boolean(dossier?.isLead)) return true;
-  if (String(dossier?.status || "").toUpperCase() === "PROSPECT") return true;
-  const src = String(dossier?.leadSource || "");
-  return src === "gmail_inbound" || src === "public_help";
 }
 
 export function findLeadDossiersByEmail(db: { dossiers: any[] }, email: string): any[] {
@@ -134,7 +130,8 @@ export function adoptLeadForFormSubmission(
   const promoted = ensureDossierShape({
     ...leadRest,
     id: lead.id,
-    status: lead.status === "CLOS" ? "NOUVEAU" : lead.status || "NOUVEAU",
+    status: "NOUVEAU",
+    isLead: false,
     updatedAt: now,
     formData: params.formData,
     privacyConsent: params.privacyConsent,

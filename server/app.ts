@@ -1347,8 +1347,8 @@ export function createApp() {
 
       let gmailTrashed = 0;
       const clientEmail = String(dossier.formData?.assures?.[0]?.email || "").trim();
-      const isProspectLead =
-        Boolean(dossier.isLead) || String(dossier.status || "").toUpperCase() === "PROSPECT";
+      const { isLeadDossier } = await import("./leadDossierMerge");
+      const isProspectLead = isLeadDossier(dossier);
       if (clientEmail && isProspectLead) {
         try {
           const { createGmailAuth } = await import("./mailAutomation");

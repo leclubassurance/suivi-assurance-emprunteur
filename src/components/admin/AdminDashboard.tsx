@@ -21,6 +21,7 @@ import {
 } from "./AdminOpsPanel";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
+import { isLeadDossier } from "../../../shared/leadDossierStatus";
 
 export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onLogout: () => void; }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
@@ -644,12 +645,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     return null;
   };
 
-  const isProspectDossier = (d: Dossier) => {
-    const lead = Boolean((d as any).isLead);
-    const prospectStatus = String(d.status || "").toUpperCase() === "PROSPECT";
-    const src = String((d as any).leadSource || "");
-    return lead || prospectStatus || src === "gmail_inbound" || src === "public_help";
-  };
+  const isProspectDossier = (d: Dossier) => isLeadDossier(d);
 
   const getAlerts = (d: Dossier) => {
     const alerts: { title: string; detail: string }[] = [];

@@ -205,13 +205,19 @@ export function newId(prefix: string) {
 
 export function ensureDossierShape(d: any): Dossier {
   const now = new Date().toISOString();
+  const isPromoted = Boolean(d.leadPromotedAt);
   const isLead =
-    Boolean(d.isLead) ||
-    String(d.status || "").toUpperCase() === "PROSPECT" ||
-    (Boolean(d.leadSource) && !d.leadPromotedAt);
+    !isPromoted &&
+    (Boolean(d.isLead) ||
+      String(d.status || "").toUpperCase() === "PROSPECT" ||
+      Boolean(d.leadSource));
+  let status = (d.status || "NOUVEAU") as Dossier["status"];
+  if (isPromoted && String(status).toUpperCase() === "PROSPECT") {
+    status = "NOUVEAU";
+  }
   const dossier: Dossier = {
     id: String(d.id),
-    status: (d.status || "NOUVEAU") as any,
+    status,
     createdAt: d.createdAt || now,
     updatedAt: d.updatedAt || now,
     formData: d.formData || d,
