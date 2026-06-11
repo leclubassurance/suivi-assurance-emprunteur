@@ -728,16 +728,21 @@ export async function tryHandleCamilleReviewStaffReply(
   const {
     findDossierWithReviewReply,
     findDossierWithAwaitingConfirmReview,
+    findDossierWithAwaitingStaffReview,
     looksLikeReviewSendConfirmation,
     looksLikeReviewCancel,
     looksLikeReviewRedraft,
+    looksLikeReviewStaffGuidance,
   } = await import("./camilleReviewTelegram");
 
   const db = await readDB();
   let dossier =
     findDossierWithReviewReply(db.dossiers, chatId, replyToMessageId) ||
-    (looksLikeReviewSendConfirmation(text) || looksLikeReviewRedraft(text)
+    (looksLikeReviewSendConfirmation(text)
       ? findDossierWithAwaitingConfirmReview(db.dossiers, chatId)
+      : null) ||
+    (looksLikeReviewStaffGuidance(text)
+      ? findDossierWithAwaitingStaffReview(db.dossiers, chatId)
       : null);
 
   if (!dossier) return false;
@@ -756,7 +761,7 @@ export async function tryHandleCamilleReviewStaffReply(
       return true;
     }
 
-    if (looksLikeReviewSendConfirmation(text) && !looksLikeReviewRedraft(text)) {
+    if (looksLikeReviewSendConfirmation(text)) {
       const result = await confirmAndSendReviewReply(dossier, chatId);
       dossier.updatedAt = new Date().toISOString();
       await writeDB(db, dossier);
@@ -770,7 +775,11 @@ export async function tryHandleCamilleReviewStaffReply(
       return true;
     }
 
-    if (looksLikeReviewRedraft(text) || replyToMessageId || text.length >= 10) {
+    if (
+      looksLikeReviewRedraft(text) ||
+      (looksLikeReviewStaffGuidance(text) &&
+        (replyToMessageId || text.trim().length >= 12))
+    ) {
       const result = await reviseDraftFromStaffFeedback(dossier, review, text, chatId, db.dossiers);
       dossier.updatedAt = new Date().toISOString();
       await writeDB(db, dossier);
@@ -779,10 +788,20 @@ export async function tryHandleCamilleReviewStaffReply(
       });
       return true;
     }
+
+    await sendTelegramMessage(
+      chatId,
+      `ℹ️ Brouillon en attente pour <b>${dossier.id}</b> — utilisez les boutons <b>Envoyer</b> / <b>Annuler</b>, ou écrivez <code>ok envoie</code> / <code>je valide</code>.`,
+      { dossierId: dossier.id, reply_markup: reviewConfirmKeyboard(dossier.id) },
+    );
+    return true;
   }
 
   if (review.status === "awaiting_staff") {
-    if (!replyToMessageId) return false;
+    const onQuestion =
+      replyToMessageId &&
+      Number(review.telegramQuestionMessageId) === Number(replyToMessageId);
+    if (!onQuestion && !looksLikeReviewStaffGuidance(text)) return false;
     const result = await applyStaffAnswerToReview(dossier, text, chatId, db.dossiers);
     dossier.updatedAt = new Date().toISOString();
     await writeDB(db, dossier);
@@ -810,6 +829,8 @@ export async function handleReviewConfirmCallback(
 
   if (action === "send") {
     const result = await confirmAndSendReviewReply(dossier, chatId);
+    dossier.updatedAt = new Date().toISOString();
+    await writeDB(db, dossier);
     await sendTelegramMessage(
       chatId,
       result.ok ? `📤 ${result.summary}` : `❌ ${result.summary}`,

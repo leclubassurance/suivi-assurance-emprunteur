@@ -23,9 +23,16 @@ export function extractNewClientMessageText(raw: string): string {
   }
 
   // Citation Gmail française inline (« … Le jeu. 11 juin 2026 à … a écrit : »)
-  const inlineFrenchQuote = text.match(/\sLe\s+.{8,140}\s+a\s+[eé]crit\s*:/i);
-  if (inlineFrenchQuote?.index != null && inlineFrenchQuote.index > 8) {
+  const inlineFrenchQuote = text.match(
+    /\sLe\s+(?:[a-z]{3,4}\.\s+)?\d{1,2}\s+.+\s+a\s+[eé]crit\s*:/i,
+  );
+  if (inlineFrenchQuote?.index != null && inlineFrenchQuote.index > 4) {
     text = text.slice(0, inlineFrenchQuote.index).trim();
+  } else {
+    const legacyQuote = text.match(/\sLe\s+.{8,140}\s+a\s+[eé]crit\s*:/i);
+    if (legacyQuote?.index != null && legacyQuote.index > 8) {
+      text = text.slice(0, legacyQuote.index).trim();
+    }
   }
 
   text = text

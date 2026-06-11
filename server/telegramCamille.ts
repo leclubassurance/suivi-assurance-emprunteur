@@ -280,25 +280,74 @@ async function answerAndSend(
   });
 }
 
+async function clearTelegramInlineKeyboard(chatId: string, messageId?: number) {
+  if (!chatId || !messageId) return;
+  try {
+    await telegramApi("editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
+    });
+  } catch {
+    /* message trop ancien ou déjà édité */
+  }
+}
+
 async function handleTelegramCallbackQuery(query: any) {
   const chatId = String(query?.message?.chat?.id || "");
+  const messageId = Number(query?.message?.message_id || 0);
   const data = String(query?.data || "");
   if (!chatId || !data) return;
 
-  try {
-    await telegramApi("answerCallbackQuery", { callback_query_id: query.id });
-  } catch {
-    /* ignore */
+  console.log(`[Telegram] callback chatId=${chatId} data=${data}`);
+
+  const allowed = getAllowedChatIds();
+  if (!allowed.includes(chatId)) {
+    try {
+      await telegramApi("answerCallbackQuery", {
+        callback_query_id: query.id,
+        text: "Chat non autorisé",
+        show_alert: true,
+      });
+    } catch {
+      /* ignore */
+    }
+    return;
   }
 
   const { parseCallbackData, PRESET_DIRECTIVES, dossierCollaborationKeyboard } = await import("./telegramUi");
   const { findDossierById, rememberChatDossier } = await import("./camilleTelegramChat");
   const parsed = parseCallbackData(data);
-  if (!parsed) return;
+  if (!parsed) {
+    try {
+      await telegramApi("answerCallbackQuery", {
+        callback_query_id: query.id,
+        text: "Action inconnue",
+        show_alert: false,
+      });
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  try {
+    await telegramApi("answerCallbackQuery", {
+      callback_query_id: query.id,
+      text:
+        parsed.action === "rvsend"
+          ? "Envoi au client…"
+          : parsed.action === "rvno"
+            ? "Annulé"
+            : "OK",
+    });
+  } catch {
+    /* ignore */
+  }
 
   const dossier = await findDossierById(parsed.dossierId);
   if (!dossier) {
-    await sendTelegramMessage(chatId, "Ce dossier n'est plus en base.");
+    await sendTelegramMessage(chatId, `Ce dossier (${parsed.dossierId}) n'est plus en base.`);
     return;
   }
 
@@ -340,13 +389,32 @@ async function handleTelegramCallbackQuery(query: any) {
     return;
   }
 
+  if (parsed.action === "rvhint") {
+    await sendTelegramMessage(
+      chatId,
+      `✏️ <b>${escapeHtml(parsed.dossierId)}</b> — répondez à ce message avec votre modification (ex. « raccourcis le paragraphe sur les PDF »). Pour envoyer sans changer le texte : <code>ok envoie</code> ou bouton 📤.`,
+      { dossierId: parsed.dossierId },
+    );
+    return;
+  }
+
   if (parsed.action === "rvsend" || parsed.action === "rvno") {
     const { handleReviewConfirmCallback } = await import("./camilleReviewQueue");
-    await handleReviewConfirmCallback(
-      chatId,
-      parsed.dossierId,
-      parsed.action === "rvsend" ? "send" : "reject",
-    );
+    try {
+      await handleReviewConfirmCallback(
+        chatId,
+        parsed.dossierId,
+        parsed.action === "rvsend" ? "send" : "reject",
+      );
+      await clearTelegramInlineKeyboard(chatId, messageId);
+    } catch (e: any) {
+      console.error("[Telegram] review callback:", e?.message || e);
+      await sendTelegramMessage(
+        chatId,
+        `❌ Bouton review échoué (${parsed.dossierId}) : ${escapeHtml(String(e?.message || e))}`,
+        { dossierId: parsed.dossierId },
+      );
+    }
     return;
   }
 }

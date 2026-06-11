@@ -4,12 +4,20 @@ import { getPendingReview, type CamillePendingReview } from "./camilleReviewQueu
 /** Détecte une demande d'envoi du brouillon en validation. */
 export function looksLikeReviewSendConfirmation(text: string): boolean {
   const t = text.trim().toLowerCase();
-  if (t.length < 3) return false;
+  if (t.length < 2) return false;
   if (/^(non|annule|stop|pas envoyer|ne pas envoyer)\b/.test(t)) return false;
-  if (/^(oui|ok|valide|envoie|envoyer|go|c'est bon|c est bon)\b/.test(t)) return true;
+  if (
+    /^(oui|ok|valide|envoie|envoyer|go|c'est bon|c est bon|parfait|d'accord|d accord)\b/.test(t)
+  ) {
+    return true;
+  }
+  if (/^(je valide|j'valide|je confirme|j'confirme|je suis d'accord|je suis d accord)\b/.test(t)) {
+    return true;
+  }
   if (/\b(peux-tu|tu peux|pourrais-tu)\b.*\b(envoyer|lui envoyer|mail)\b/.test(t)) return true;
   if (/\b(envoie(-| )?lui|envoie le mail|envoie ce mail|envoie le brouillon)\b/.test(t)) return true;
-  if (/\b(envoie|envoyer)\b/.test(t) && t.length < 40) return true;
+  if (/\b(ok|oui|valide)\b.{0,12}\b(envoie|envoyer|envoyez)\b/.test(t)) return true;
+  if (/\b(envoie|envoyer|envoyez)\b/.test(t) && t.length < 48) return true;
   return false;
 }
 
@@ -59,13 +67,54 @@ export function findDossierWithAwaitingConfirmReview(
   dossiers: Dossier[],
   chatId: string,
 ): Dossier | null {
+  const matches: Dossier[] = [];
   for (const d of dossiers) {
     const r = getPendingReview(d);
     if (!r || r.status !== "awaiting_confirm") continue;
     if (r.telegramChatId && String(r.telegramChatId) !== String(chatId)) continue;
-    return d;
+    matches.push(d);
+  }
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    return matches.sort(
+      (a, b) =>
+        new Date(getPendingReview(b)?.updatedAt || 0).getTime() -
+        new Date(getPendingReview(a)?.updatedAt || 0).getTime(),
+    )[0];
   }
   return null;
+}
+
+export function findDossierWithAwaitingStaffReview(
+  dossiers: Dossier[],
+  chatId: string,
+): Dossier | null {
+  const matches: Dossier[] = [];
+  for (const d of dossiers) {
+    const r = getPendingReview(d);
+    if (!r || r.status !== "awaiting_staff") continue;
+    if (r.telegramChatId && String(r.telegramChatId) !== String(chatId)) continue;
+    matches.push(d);
+  }
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    return matches.sort(
+      (a, b) =>
+        new Date(getPendingReview(b)?.updatedAt || 0).getTime() -
+        new Date(getPendingReview(a)?.updatedAt || 0).getTime(),
+    )[0];
+  }
+  return null;
+}
+
+/** Texte libre = consigne de rédaction, pas validation / envoi. */
+export function looksLikeReviewStaffGuidance(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (t.length < 8) return false;
+  if (looksLikeReviewSendConfirmation(t) || looksLikeReviewCancel(t) || looksLikeReviewRedraft(t)) {
+    return false;
+  }
+  return true;
 }
 
 export function buildFactualMailStatusBlock(dossier: Dossier): string {

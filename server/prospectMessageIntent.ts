@@ -77,7 +77,26 @@ function isInsurerQuestion(msgLower: string): boolean {
   );
 }
 
+function isInformationNeedQuestion(msgLower: string): boolean {
+  if (
+    /il a besoin de quelques informations|de quelques informations|quelques informations\s*\?/.test(
+      msgLower,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /de quoi a.t.il besoin|de quelles informations|il a besoin|il vous faut quoi|que faut.il|qu'est.ce qu'il (vous )?faut|de quoi avez.vous besoin|quels documents|quelles pi[eè]ces|vous avez besoin de quoi/i.test(
+      msgLower,
+    ) &&
+    /charles|étude|etude|information|document|prêt|pret|assurance|lancer|démarrer|demarrer|besoin/i.test(
+      msgLower,
+    )
+  );
+}
+
 function isDocumentsQuestion(msgLower: string): boolean {
+  if (isInformationNeedQuestion(msgLower)) return true;
   return (
     /document|offre de prêt|tableau d.amortissement|échéancier|echeancier|espace bancaire|espace banque|pdf|joindre|pi[eè]ce jointe|envoy(er|ez)|transmettre/i.test(
       msgLower,
@@ -144,6 +163,7 @@ function isRefusal(msgLower: string): boolean {
 }
 
 function isClubIdentity(msgLower: string): boolean {
+  if (isInformationNeedQuestion(msgLower) || isDocumentsQuestion(msgLower)) return false;
   return (
     /club immobilier|le club|qui [êe]tes.vous|pourquoi (vous )?m.contact|pourquoi (vous )?m.écri|agence immo|vous faites quoi|faites de l.immobilier/i.test(
       msgLower,
@@ -347,6 +367,7 @@ export function analyzeProspectMessageIntent(clientMessage: string): ProspectInt
   const shouldIncludeFormLink =
     !blocksFormLink &&
     (intents.some((i) => formLinkIntents.includes(i)) ||
+      isInformationNeedQuestion(msgLower) ||
       (intents.includes("faq_process") && isDocumentsQuestion(msgLower)) ||
       (intents.includes("pricing") && /document|formulaire|offre|tableau/i.test(msgLower)));
 

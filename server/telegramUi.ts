@@ -164,12 +164,15 @@ export function reviewConfirmKeyboard(dossierId: string) {
         { text: "📤 Envoyer au client", callback_data: `rvsend:${id}` },
         { text: "❌ Annuler", callback_data: `rvno:${id}` },
       ],
+      [{ text: "✏️ Modifier le texte (répondre ici)", callback_data: `rvhint:${id}` }],
     ],
   };
 }
 
 export function parseCallbackData(data: string): { action: string; dossierId: string } | null {
-  const m = String(data || "").match(/^(pick|pdf|cni|etude|sum|ok|info|rvsend|rvno):(LCIF-\d{6})$/i);
+  const m = String(data || "").match(
+    /^(pick|pdf|cni|etude|sum|ok|info|rvsend|rvno|rvhint):(LCIF-\d{6})$/i,
+  );
   if (!m) return null;
   return { action: m[1].toLowerCase(), dossierId: m[2].toUpperCase() };
 }
