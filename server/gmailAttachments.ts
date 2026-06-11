@@ -660,6 +660,20 @@ export function collectKnownCorrespondenceEmails(db: { dossiers: any[] }): Set<s
   return out;
 }
 
+/** Dossier client (non-prospect) dont l'email figure au formulaire (pas l'historique Gmail seul). */
+export function findFullDossierByFormEmail(
+  db: { dossiers: any[] },
+  email: string,
+): any | null {
+  const e = normalizeCorrespondenceEmail(email);
+  if (!e) return null;
+  for (const d of db.dossiers || []) {
+    if (d?.isLead) continue;
+    if (getDossierClientEmails(d).includes(e)) return d;
+  }
+  return null;
+}
+
 /** Dossier client (non-prospect) déjà rattaché à cette adresse, y compris via l'historique Gmail. */
 export function findNonLeadDossierByCorrespondenceEmail(
   db: { dossiers: any[] },

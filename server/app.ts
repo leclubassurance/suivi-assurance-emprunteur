@@ -1898,6 +1898,38 @@ export function createApp() {
     }
   };
 
+  app.get("/api/admin/prospects/preview-intent", async (req, res) => {
+    const message = typeof req.query.message === "string" ? req.query.message : "";
+    if (!message.trim()) {
+      return res.status(400).json({ error: "Paramètre message requis" });
+    }
+    try {
+      const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
+      res.json({ success: true, ...analyzeProspectMessageIntent(message) });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/prospects/diagnostic", async (req, res) => {
+    const email = typeof req.query.email === "string" ? req.query.email.trim() : "";
+    if (!email || !email.includes("@")) {
+      return res.status(400).json({ error: "Paramètre email requis" });
+    }
+    try {
+      const db = await readDBAsync();
+      const { diagnoseProspectEmailRouting } = await import("./camilleProspectInbound");
+      const diagnosis = diagnoseProspectEmailRouting(db, email);
+      res.json({
+        success: true,
+        gitCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
+        ...diagnosis,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/prospects/reset-test", async (req, res) => {
     await resetProspectTestHandler(req, res, {
       dossierId: (req.body as any)?.dossierId,

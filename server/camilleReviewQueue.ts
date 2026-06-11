@@ -435,7 +435,7 @@ export async function reviseDraftFromStaffFeedback(
 
   await sendTelegramMessage(chatId, "⏳ Je révise le brouillon…", { dossierId: dossier.id });
 
-  const plain = await draftClientReplyFromStaffGuidanceInner(
+  let plain = await draftClientReplyFromStaffGuidanceInner(
     dossier,
     review,
     mergedGuidance,
@@ -445,6 +445,15 @@ export async function reviseDraftFromStaffFeedback(
       revisionNote: note,
     },
   );
+  const { isLeadDossier: isLeadForRevise } = await import("./leadDossierMerge");
+  if (isLeadForRevise(dossier)) {
+    const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
+    const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
+    const intent = analyzeProspectMessageIntent(review.fullClientMessage || "");
+    plain = patchProspectReplyHardRules(plain, dossier, review.fullClientMessage, {
+      shouldIncludeFormLink: intent.shouldIncludeFormLink,
+    });
+  }
 
   const prenom = dossier.formData?.assures?.[0]?.prenom || "";
   const nom = dossier.formData?.assures?.[0]?.nom || "";
@@ -503,7 +512,16 @@ export async function applyStaffAnswerToReview(
 
   await sendTelegramMessage(chatId, "⏳ Je rédige le brouillon…", { dossierId: dossier.id });
 
-  const plain = await draftClientReplyFromStaffGuidance(dossier, review, answer, allDossiers);
+  let plain = await draftClientReplyFromStaffGuidance(dossier, review, answer, allDossiers);
+  const { isLeadDossier } = await import("./leadDossierMerge");
+  if (isLeadDossier(dossier)) {
+    const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
+    const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
+    const intent = analyzeProspectMessageIntent(review.fullClientMessage || "");
+    plain = patchProspectReplyHardRules(plain, dossier, review.fullClientMessage, {
+      shouldIncludeFormLink: intent.shouldIncludeFormLink,
+    });
+  }
   const prenom = dossier.formData?.assures?.[0]?.prenom || "";
   const nom = dossier.formData?.assures?.[0]?.nom || "";
   const html = wrapCamilleHtmlReply(plain, prenom, nom, dossier);
@@ -557,12 +575,32 @@ export async function confirmAndSendReviewReply(
   }
 
   const { sendEmailReplyWithGmailAPI, upsertCommunication } = await import("./mailAutomation");
+  const { isLeadDossier } = await import("./leadDossierMerge");
+  let sendHtml = review.proposedClientHtml;
+  if (isLeadDossier(dossier) && review.proposedClientPlain) {
+    const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
+    const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
+    const intent = analyzeProspectMessageIntent(review.fullClientMessage || "");
+    const prenom = dossier.formData?.assures?.[0]?.prenom || "";
+    const nom = dossier.formData?.assures?.[0]?.nom || "";
+    const patchedPlain = patchProspectReplyHardRules(
+      review.proposedClientPlain,
+      dossier,
+      review.fullClientMessage,
+      { shouldIncludeFormLink: intent.shouldIncludeFormLink },
+    );
+    if (patchedPlain !== review.proposedClientPlain) {
+      review.proposedClientPlain = patchedPlain;
+      sendHtml = wrapCamilleHtmlReply(patchedPlain, prenom, nom, dossier);
+      review.proposedClientHtml = sendHtml;
+    }
+  }
 
   const send = await sendEmailReplyWithGmailAPI(
     null,
     review.clientEmail,
     review.emailSubject.startsWith("Re:") ? review.emailSubject : `Re: ${review.emailSubject}`,
-    review.proposedClientHtml,
+    sendHtml,
   );
 
   if (!send.ok) {
@@ -602,7 +640,6 @@ export async function confirmAndSendReviewReply(
     }
   }
 
-  const { isLeadDossier } = await import("./leadDossierMerge");
   if (isLeadDossier(dossier)) {
     dossier.status = "PROSPECT";
     (dossier as { isLead?: boolean }).isLead = true;

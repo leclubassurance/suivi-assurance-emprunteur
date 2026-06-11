@@ -1,6 +1,5 @@
 /**
- * Prospect pré-formulaire : 100 % rédaction IA.
- * La base de connaissances = contraintes métier, pas des textes à copier-coller.
+ * Prospect pré-formulaire : rédaction IA guidée par intention + garde-fous code.
  */
 import { generateContentWithRetry } from "./geminiClient";
 import { buildProspectCamilleKnowledgeBlock } from "../shared/lcifKnowledge";
@@ -10,8 +9,13 @@ import {
   buildProspectLeadPromptBlock,
   patchProspectReplyHardRules,
   prospectReplyViolatesDocumentChannelRules,
-  prospectReplyViolatesInsurerDisclosureRules,
 } from "./camilleProspectInbound";
+import { prospectReplyViolatesInsurerDisclosureRules } from "../shared/kereisPartners";
+import {
+  analyzeProspectMessageIntent,
+  prospectReplyMatchesIntentStrategy,
+  type ProspectIntentAnalysis,
+} from "./prospectMessageIntent";
 
 export type ProspectInboundDecision = {
   action: "REPLY" | "REVIEW" | "ESCALATE";
@@ -19,6 +23,7 @@ export type ProspectInboundDecision = {
   questionForStaff?: string;
   reasonForEscalation?: string;
   model?: string;
+  intentPrimary?: string;
 };
 
 function prospectModel(): string {
@@ -42,27 +47,19 @@ const PROSPECT_PERSONA = `
 Tu es Camille, assistante de Charles Victor au Club Immobilier Français (assurance emprunteur).
 Tu écris des mails comme une vraie personne : naturel, chaleureux, direct — jamais un script commercial.
 
-PRINCIPES DE CONVERSATION :
+Suis le bloc STRATÉGIE D'INTENTION fourni dans le message utilisateur — il prime sur tes réflexes généraux.
+
+PRINCIPES :
 - Réponds d'abord à ce que le client vient de dire, avec tes propres mots.
-- Un simple « Bonjour » → réponse courte et humaine (2-4 phrases), une question ouverte. Pas de discours marketing.
-- Plusieurs sujets dans le même mail → traiter chacun (humour, IA, météo, assurance…).
-- Varie tes formulations ; ne répète pas les mêmes phrases d'un mail à l'autre.
-- La FAQ / doc métier t'indique quoi dire ou ne pas dire — tu reformules, tu ne recopies pas un bloc.
+- Plusieurs sujets → traiter chacun dans l'ordre.
 - Pas de « Bonjour » dans messageToClient (ajouté automatiquement).
-- Référence dossier en fin de mail : LCIF-XXXXXX (fournie dans le contexte).
+- Référence dossier LCIF-XXXXXX en fin de mail.
 
-DOCUMENTS (offre de prêt, tableau d'amortissement) :
-- Si tu en parles : indiquer OBLIGATOIREMENT le lien formulaire (URL dans le contexte).
-- Dire explicitement de NE PAS envoyer les PDF en réponse à ce mail — dépôt sur le formulaire uniquement.
-- Tu peux expliquer où les trouver (espace bancaire) MAIS toujours conclure par le formulaire.
+DOCUMENTS : lien formulaire + « ne pas envoyer par mail » UNIQUEMENT si la stratégie le demande.
 
-INTERDITS MÉTIER (non négociables) :
-- Liste complète des assureurs → Charles communiquera la suite ; 2-4 exemples max si question assureurs.
-- Codes produits, chiffres d'économie inventés, météo inventée.
-- Laisser entendre qu'on peut joindre les documents à un mail de réponse.
-- Numéro de téléphone.
+INTERDITS : liste complète assureurs, chiffres inventés, météo inventée, numéro de téléphone.
 
-REVIEW si médical, juridique, menace, chiffrage personnalisé, ou impossibilité de répondre honnêtement.
+REVIEW si la stratégie l'indique ou si médical/juridique/menace/chiffrage impossible honnêtement.
 `;
 
 async function callProspectLlm(
@@ -85,11 +82,16 @@ async function callProspectLlm(
   });
 }
 
-/** Détecte les réponses type script marketing (à éviter). */
-export function prospectReplyLooksRobotic(plain: string, clientMessage?: string): string[] {
+function collectProspectReplyIssues(
+  plain: string,
+  clientMessage: string,
+  intent: ProspectIntentAnalysis,
+): string[] {
   const issues: string[] = [];
   const text = String(plain || "").toLowerCase();
   const fresh = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
+
+  issues.push(...prospectReplyMatchesIntentStrategy(plain, clientMessage, intent));
 
   const cannedPatterns = [
     /merci pour votre message et l'intérêt que vous portez/,
@@ -109,7 +111,7 @@ export function prospectReplyLooksRobotic(plain: string, clientMessage?: string)
     if (pushes >= 2) issues.push("trop de contenu commercial pour un simple bonjour");
   }
 
-  if (text.length > 80 && fresh.length < 15 && !text.includes("?")) {
+  if (text.length > 80 && fresh.length < 15 && !text.includes("?") && !intent.intents.includes("refusal")) {
     issues.push("réponse longue sans question ouverte pour un message très court");
   }
 
@@ -124,6 +126,7 @@ function buildUserPayload(params: {
   prenom: string;
   nom: string;
   conversationTail: string;
+  intent: ProspectIntentAnalysis;
   correctionHint?: string;
 }): string {
   const formUrl = getAssurancePlatformUrl();
@@ -131,6 +134,9 @@ function buildUserPayload(params: {
   const correction = params.correctionHint
     ? `\n\nCORRECTION DEMANDÉE (réécris entièrement, plus naturel) :\n${params.correctionHint}\n`
     : "";
+  const formLine = params.intent.shouldIncludeFormLink
+    ? `Formulaire à inclure si tu cites documents / démarrage : ${formUrl}`
+    : `Ne PAS inclure le lien formulaire sur ce mail (stratégie intention).`;
 
   return `
 ${knowledgeBlock}
@@ -139,10 +145,16 @@ ${knowledgeBlock}
 
 ${buildProspectLeadPromptBlock(params.dossier)}
 
+---
+
+${params.intent.strategyBlock}
+
+---
+
 Dossier : ${params.dossier.id}
 Client : ${params.prenom} ${params.nom} <${params.clientEmail}>
 Sujet : ${params.emailSubject || "—"}
-Formulaire OBLIGATOIRE dès que tu cites offre de prêt / tableau / documents à fournir : ${formUrl}
+${formLine}
 
 Fil de conversation :
 ${params.conversationTail || "(premier échange)"}
@@ -174,16 +186,32 @@ export async function runProspectInboundReply(params: {
 }): Promise<ProspectInboundDecision> {
   const model = prospectModel();
   const temperature = prospectTemperature();
-  console.log(`[Camille prospect] IA (${model}, t=${temperature}) ${params.dossier.id}`);
+  const intent = analyzeProspectMessageIntent(params.clientMessage);
+
+  console.log(
+    `[Camille prospect] IA (${model}, t=${temperature}) ${params.dossier.id} — intent=${intent.primary} [${intent.intents.join(",")}] formLink=${intent.shouldIncludeFormLink}`,
+  );
+
+  if (intent.shouldForceReview) {
+    return {
+      action: "REVIEW",
+      questionForStaff: `Prospect (${intent.primary}) — ${intent.reviewReason || "validation équipe"} : « ${params.clientMessage.slice(0, 320)} »`,
+      reasonForEscalation: intent.reviewReason,
+      model,
+      intentPrimary: intent.primary,
+    };
+  }
 
   let parsed = await callProspectLlm(
-    buildUserPayload(params),
+    buildUserPayload({ ...params, intent }),
     temperature,
   );
 
-  const issues = [
-    ...prospectReplyLooksRobotic(String(parsed.messageToClient || ""), params.clientMessage),
-  ];
+  let issues = collectProspectReplyIssues(
+    String(parsed.messageToClient || ""),
+    params.clientMessage,
+    intent,
+  );
   if (prospectReplyViolatesInsurerDisclosureRules(String(parsed.messageToClient || ""))) {
     issues.push("violation règles assureurs (liste complète ou codes produits)");
   }
@@ -198,10 +226,22 @@ export async function runProspectInboundReply(params: {
     parsed = await callProspectLlm(
       buildUserPayload({
         ...params,
+        intent,
         correctionHint: issues.join("\n- "),
       }),
       Math.max(0.5, temperature - 0.1),
     );
+    issues = collectProspectReplyIssues(
+      String(parsed.messageToClient || ""),
+      params.clientMessage,
+      intent,
+    );
+    if (prospectReplyViolatesInsurerDisclosureRules(String(parsed.messageToClient || ""))) {
+      issues.push("assureurs");
+    }
+    if (prospectReplyViolatesDocumentChannelRules(String(parsed.messageToClient || ""))) {
+      issues.push("documents sans formulaire");
+    }
   }
 
   const action = String(parsed.action || "REVIEW").toUpperCase();
@@ -210,9 +250,10 @@ export async function runProspectInboundReply(params: {
       action: "REVIEW",
       questionForStaff:
         String(parsed.questionForStaff || "").trim() ||
-        `Comment répondre ? « ${params.clientMessage.slice(0, 350)} »`,
+        `Comment répondre (${intent.primary}) ? « ${params.clientMessage.slice(0, 350)} »`,
       reasonForEscalation: String(parsed.reasonForEscalation || "").trim() || undefined,
       model,
+      intentPrimary: intent.primary,
     };
   }
   if (action === "ESCALATE") {
@@ -221,6 +262,7 @@ export async function runProspectInboundReply(params: {
       reasonForEscalation:
         String(parsed.reasonForEscalation || "").trim() || "Escalade prospect",
       model,
+      intentPrimary: intent.primary,
     };
   }
 
@@ -228,28 +270,37 @@ export async function runProspectInboundReply(params: {
   if (plain.length < 8) {
     return {
       action: "REVIEW",
-      questionForStaff: `Réponse IA vide ou trop courte — « ${params.clientMessage.slice(0, 300)} »`,
+      questionForStaff: `Réponse IA vide ou trop courte (${intent.primary}) — « ${params.clientMessage.slice(0, 300)} »`,
       model,
+      intentPrimary: intent.primary,
     };
   }
 
-  plain = patchProspectReplyHardRules(plain, params.dossier, params.clientMessage);
+  plain = patchProspectReplyHardRules(plain, params.dossier, params.clientMessage, {
+    shouldIncludeFormLink: intent.shouldIncludeFormLink,
+  });
 
-  const postIssues = [
-    ...prospectReplyLooksRobotic(plain, params.clientMessage),
-  ];
+  const postIssues = collectProspectReplyIssues(plain, params.clientMessage, intent);
   if (prospectReplyViolatesInsurerDisclosureRules(plain)) {
     postIssues.push("assureurs");
   }
   if (postIssues.length > 0) {
     return {
       action: "REVIEW",
-      questionForStaff: `Camille n'a pas produit une réponse satisfaisante (${postIssues.join(", ")}) — votre consigne pour : « ${params.clientMessage.slice(0, 280)} »`,
+      questionForStaff: `Camille (${intent.primary}) — ${postIssues.join(", ")} — consigne pour : « ${params.clientMessage.slice(0, 280)} »`,
       model,
+      intentPrimary: intent.primary,
     };
   }
 
-  return { action: "REPLY", messageToClient: plain, model };
+  return { action: "REPLY", messageToClient: plain, model, intentPrimary: intent.primary };
 }
 
+/** @deprecated alias */
 export const runProspectInboundReplyPipeline = runProspectInboundReply;
+
+/** Détecte les réponses type script marketing (à éviter). */
+export function prospectReplyLooksRobotic(plain: string, clientMessage?: string): string[] {
+  const intent = analyzeProspectMessageIntent(String(clientMessage || ""));
+  return collectProspectReplyIssues(plain, String(clientMessage || ""), intent);
+}

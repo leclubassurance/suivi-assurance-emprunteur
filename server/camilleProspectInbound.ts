@@ -1,6 +1,8 @@
 import { addEvent } from "./dossierModel";
 import {
+  collectAllDossierCorrespondenceEmails,
   collectKnownCorrespondenceEmails,
+  findFullDossierByFormEmail,
   findNonLeadDossierByCorrespondenceEmail,
   getDossierClientEmails,
 } from "./gmailAttachments";
@@ -19,11 +21,14 @@ function extractSenderEmail(fromRaw: string): string {
 export { shouldIgnoreProspectSender } from "./inboundEmailClassifier";
 import { isLeadDossier } from "./leadDossierMerge";
 import { extractNewClientMessageText } from "./emailQuoteStrip";
+import { analyzeProspectMessageIntent } from "./prospectMessageIntent";
 import {
   buildProspectInsurerPartnerReplyParagraph,
   detectMentionedKereisPartner,
   prospectReplyViolatesInsurerDisclosureRules,
 } from "../shared/kereisPartners";
+
+export { prospectReplyViolatesInsurerDisclosureRules };
 
 export function isProspectInboundEnabled(): boolean {
   const raw = String(process.env.CAMILLE_PROSPECT_INBOUND_ENABLED ?? "").toLowerCase();
@@ -43,6 +48,138 @@ export function findLeadDossierByEmail(db: { dossiers: any[] }, email: string) {
       (d) => isLeadDossier(d) && getDossierClientEmails(d).some((ce) => ce === e),
     ) || null
   );
+}
+
+function summarizeDossierForDiagnostic(d: any) {
+  const comms = d.communications || [];
+  const lastInbound = [...comms]
+    .filter((c: any) => c.direction === "inbound")
+    .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())[0];
+  const lastOutbound = [...comms]
+    .filter((c: any) => c.direction === "outbound")
+    .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())[0];
+  return {
+    id: d.id,
+    status: d.status,
+    isLead: Boolean(d.isLead),
+    leadSource: d.leadSource || null,
+    formEmail: String(d.formData?.assures?.[0]?.email || "").toLowerCase() || null,
+    outboundCamilleCount: comms.filter(
+      (c: any) => c.direction === "outbound" && /camille/i.test(String(c.from || "")),
+    ).length,
+    lastInbound: lastInbound
+      ? {
+          date: lastInbound.date,
+          subject: lastInbound.subject,
+          excerpt: String(lastInbound.text || "").slice(0, 120),
+        }
+      : null,
+    lastOutbound: lastOutbound
+      ? {
+          date: lastOutbound.date,
+          subject: lastOutbound.subject,
+          excerpt: String(lastOutbound.text || "").slice(0, 160),
+          hasFormLink: /formulaire|assurance-emprunteur\.up\.railway\.app/i.test(
+            String(lastOutbound.text || ""),
+          ),
+        }
+      : null,
+  };
+}
+
+/** Décide si le sync prospect doit ignorer un expéditeur (client dossier complet sans lead actif). */
+export function shouldBlockProspectInbound(
+  db: { dossiers: any[] },
+  senderEmail: string,
+): { block: boolean; reason?: string; blockingDossierId?: string } {
+  const e = String(senderEmail || "").trim().toLowerCase();
+  if (!e) return { block: false };
+
+  if (findLeadDossierByEmail(db, e)) {
+    return { block: false, reason: "active_lead" };
+  }
+
+  const fullByForm = findFullDossierByFormEmail(db, e);
+  if (fullByForm) {
+    return {
+      block: true,
+      reason: "full_dossier_form_email",
+      blockingDossierId: fullByForm.id,
+    };
+  }
+
+  return { block: false };
+}
+
+export function diagnoseProspectEmailRouting(db: { dossiers: any[] }, email: string) {
+  const e = String(email || "").trim().toLowerCase();
+  const leads = (db.dossiers || []).filter(
+    (d) => isLeadDossier(d) && getDossierClientEmails(d).includes(e),
+  );
+  const fullByForm = (db.dossiers || []).filter(
+    (d) => !isLeadDossier(d) && getDossierClientEmails(d).includes(e),
+  );
+  const fullByCorrespondenceOnly = (db.dossiers || []).filter((d) => {
+    if (isLeadDossier(d)) return false;
+    const formEmails = new Set(getDossierClientEmails(d));
+    if (formEmails.has(e)) return false;
+    return collectAllDossierCorrespondenceEmails(d).includes(e);
+  });
+  const blockDecision = shouldBlockProspectInbound(db, e);
+  const legacyCorrespondenceBlock = findNonLeadDossierByCorrespondenceEmail(db, e);
+
+  const recommendations: string[] = [];
+  if (!isProspectInboundEnabled()) {
+    recommendations.push("Activer CAMILLE_PROSPECT_INBOUND_ENABLED=true sur Railway.");
+  }
+  if (leads.length > 0 && fullByForm.length > 0) {
+    recommendations.push(
+      `Conflit : prospect ${leads.map((l) => l.id).join(", ")} ET dossier client ${fullByForm.map((f) => f.id).join(", ")} partagent ${e}. Le flux prospect doit gagner (lead actif).`,
+    );
+  }
+  if (blockDecision.block) {
+    recommendations.push(
+      `Les mails de ${e} sont routés vers le dossier client ${blockDecision.blockingDossierId} (sans garde-fous prospect). Corriger l'email au formulaire ou fusionner / supprimer le doublon.`,
+    );
+  } else if (leads.length === 0 && fullByCorrespondenceOnly.length > 0) {
+    recommendations.push(
+      `Ancienne logique aurait bloqué le prospect à cause de ${fullByCorrespondenceOnly.map((d) => d.id).join(", ")} (historique Gmail seul) — corrigé côté code.`,
+    );
+  }
+  if (legacyCorrespondenceBlock && !blockDecision.block && leads.length === 0) {
+    recommendations.push(
+      `Attention : ${legacyCorrespondenceBlock.id} contient ${e} dans l'historique Gmail mais pas au formulaire — le prospect peut maintenant passer.`,
+    );
+  }
+  let lastInboundIntent: ReturnType<typeof analyzeProspectMessageIntent> | null = null;
+  if (leads.length >= 1) {
+    const leadSummary = summarizeDossierForDiagnostic(leads[0]);
+    const lastOut = leadSummary.lastOutbound;
+    if (lastOut && !lastOut.hasFormLink && /offre|tableau|espace bancaire|document/i.test(lastOut.excerpt)) {
+      recommendations.push(
+        `Dernière réponse Camille (${leads[0].id}) mentionne des documents sans lien formulaire — vérifier le déploiement ou resync après reset.`,
+      );
+    }
+    if (leadSummary.lastInbound?.excerpt) {
+      lastInboundIntent = analyzeProspectMessageIntent(leadSummary.lastInbound.excerpt);
+    }
+  }
+
+  return {
+    email: e,
+    camilleProspectInboundEnabled: isProspectInboundEnabled(),
+    lastInboundIntent,
+    routing: {
+      usesProspectFlow: !blockDecision.block,
+      blockDecision,
+      legacyWouldBlockOnCorrespondence: legacyCorrespondenceBlock?.id || null,
+      activeLeadDossiers: leads.map(summarizeDossierForDiagnostic),
+      fullDossiersWithFormEmail: fullByForm.map(summarizeDossierForDiagnostic),
+      fullDossiersCorrespondenceOnly: fullByCorrespondenceOnly.map(summarizeDossierForDiagnostic),
+      emailConflict: leads.length > 0 && fullByForm.length > 0,
+    },
+    recommendations,
+  };
 }
 
 function parseDisplayName(fromRaw: string): { prenom: string; nom: string } {
@@ -392,8 +529,12 @@ export function prospectReplyViolatesDocumentChannelRules(plain?: string): boole
     ) ||
     (/besoin de (vos |votre )?(documents|pièces|offre|tableau)/i.test(text) &&
       /prêt|emprunt|assurance|étude|etude/i.test(text)) ||
+    (/aurons besoin|avons besoin|il nous faudra|nous faudra/i.test(text) &&
+      /offre|tableau|amortissement|document|prêt|pret/i.test(text)) ||
     (/format pdf|espace bancaire|espace banque/i.test(text) &&
-      /offre|tableau|amortissement|prêt|pret|document/i.test(text));
+      /offre|tableau|amortissement|prêt|pret|document/i.test(text)) ||
+    (/pour (démarrer|lancer|commencer|finaliser)/i.test(text) &&
+      /offre|tableau|document|prêt|pret/i.test(text));
 
   return mentionsLoanDocs;
 }
@@ -428,16 +569,24 @@ export function injectProspectFormLinkForLoanDocs(
   return text;
 }
 
+export type ProspectPatchOptions = {
+  shouldIncludeFormLink?: boolean;
+};
+
 /** Corrections ciblées (sans écraser toute la réponse par un template générique). */
 export function patchProspectReplyHardRules(
   plain: string,
   dossier: any,
   clientMessage?: string,
+  options?: ProspectPatchOptions,
 ): string {
   const formUrl = getAssurancePlatformUrl();
   let text = String(plain || "").trim();
+  const allowFormLink = options?.shouldIncludeFormLink !== false;
 
-  text = injectProspectFormLinkForLoanDocs(text, dossier);
+  if (allowFormLink || prospectReplyViolatesDocumentChannelRules(text)) {
+    text = injectProspectFormLinkForLoanDocs(text, dossier);
+  }
 
   const asksDocsByEmail =
     /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(
@@ -468,7 +617,7 @@ export function patchProspectReplyHardRules(
 
   const mentionsStudyPath =
     /(étude|formulaire|démarrer|demarrer|lancer|commencer|déposer|deposer)/i.test(text);
-  if (mentionsStudyPath && !text.includes(formUrl)) {
+  if (allowFormLink && mentionsStudyPath && !text.includes(formUrl)) {
     text = `${text}\n\nFormulaire en ligne : ${formUrl}`;
   }
   if (!text.includes(dossier.id)) {
@@ -652,8 +801,14 @@ export async function syncProspectInboundFromGmail(
       }
       continue;
     }
-    if (findNonLeadDossierByCorrespondenceEmail(db, senderEmailMeta)) {
+    const blockMeta = shouldBlockProspectInbound(db, senderEmailMeta);
+    if (blockMeta.block) {
       skipReasons.knownClient += 1;
+      if (isCamilleTestMode()) {
+        console.log(
+          `[Camille prospect] ignoré (${blockMeta.reason} ${blockMeta.blockingDossierId}): ${senderEmailMeta}`,
+        );
+      }
       continue;
     }
 
@@ -695,10 +850,13 @@ export async function syncProspectInboundFromGmail(
       } else skipReasons.ignoredSender += 1;
       continue;
     }
-    if (findNonLeadDossierByCorrespondenceEmail(db, senderEmail)) {
+    const blockSender = shouldBlockProspectInbound(db, senderEmail);
+    if (blockSender.block) {
       skipReasons.knownClient += 1;
       if (isCamilleTestMode()) {
-        console.log(`[Camille prospect] ignoré (client connu): ${senderEmail}`);
+        console.log(
+          `[Camille prospect] ignoré (${blockSender.reason} ${blockSender.blockingDossierId}): ${senderEmail}`,
+        );
       }
       continue;
     }
@@ -707,17 +865,6 @@ export async function syncProspectInboundFromGmail(
 
     const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
     const msgAgeH = (Date.now() - new Date(msgDate).getTime()) / (3600 * 1000);
-
-    const linkedFull = findNonLeadDossierByCorrespondenceEmail(db, senderEmail);
-    if (linkedFull) {
-      skipReasons.fullDossier += 1;
-      if (isCamilleTestMode()) {
-        console.log(
-          `[Camille prospect] ignoré (dossier client ${linkedFull.id}): ${senderEmail}`,
-        );
-      }
-      continue;
-    }
 
     let dossier = findLeadDossierByEmail(db, senderEmail);
     if (!dossier && msgAgeH > maxLeadAgeH) {

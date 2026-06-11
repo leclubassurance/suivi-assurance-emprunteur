@@ -165,7 +165,11 @@ export async function processIncomingClientEmail(
       let plain = playbookHit.plain;
       if (isProspectLead) {
         const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
-        plain = patchProspectReplyHardRules(plain, dossier, clientMessageForAi);
+        const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
+        const intent = analyzeProspectMessageIntent(clientMessageForAi);
+        plain = patchProspectReplyHardRules(plain, dossier, clientMessageForAi, {
+          shouldIncludeFormLink: intent.shouldIncludeFormLink,
+        });
       }
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
       const telegramAction = buildTelegramActionFromReply({
@@ -422,7 +426,11 @@ export async function processIncomingClientEmail(
       }
       if (isProspectLead) {
         const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
-        plain = patchProspectReplyHardRules(plain, dossier, clientMessageForAi);
+        const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
+        const intent = analyzeProspectMessageIntent(clientMessageForAi);
+        plain = patchProspectReplyHardRules(plain, dossier, clientMessageForAi, {
+          shouldIncludeFormLink: intent.shouldIncludeFormLink,
+        });
       }
       const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
         inboundAttachmentNames: attachmentNames,
