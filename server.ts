@@ -59,8 +59,9 @@ async function startServer() {
         const untilH = getCamilleTestModeUntilParisH();
         const aiReply = String(process.env.AI_AUTO_REPLY_ENABLED ?? "true").toLowerCase();
         const untilLabel = untilH == null ? "aucune" : `${String(untilH).padStart(2, "0")}h Paris`;
+        const safeMode = String(process.env.CAMILLE_PRODUCTION_SAFE_MODE ?? "true").toLowerCase();
         console.log(
-          `[boot] Camille: testMode=${testModeActive} (until=${untilLabel}) aiAutoReply=${aiReply} (clients dossier uniquement)`,
+          `[boot] Camille: testMode=${testModeActive} (until=${untilLabel}) aiAutoReply=${aiReply} productionSafe=${safeMode !== "false" && safeMode !== "0"} (clients dossier)`,
         );
       })
       .catch((err) => {

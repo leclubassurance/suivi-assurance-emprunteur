@@ -14,6 +14,7 @@ import { escapeTelegramHtml, reviewConfirmKeyboard } from "./telegramUi";
 import { borrowerDisplayName } from "./telegramUi";
 import { persistTelegramDossierRef } from "./telegramDossierRefs";
 import { findDossierWithReviewReply } from "./camilleReviewTelegram";
+import { isCamilleProductionSafeMode } from "./camilleClientSafety";
 
 export type CamillePendingReviewStatus =
   | "awaiting_staff"
@@ -65,9 +66,10 @@ export function isCamilleReviewEnabled(): boolean {
   return isTelegramEnabled();
 }
 
-/** Optionnel : brouillon Telegram avant chaque réponse auto (désactivé par défaut). */
+/** Brouillon Telegram avant envoi des réponses IA libres (actif par défaut en mode prod). */
 export function isCamilleDraftBeforeSendEnabled(): boolean {
   if (!isCamilleReviewEnabled()) return false;
+  if (isCamilleProductionSafeMode()) return true;
   const raw = String(process.env.CAMILLE_DRAFT_BEFORE_SEND ?? "false").toLowerCase();
   return raw === "true" || raw === "1";
 }
@@ -80,6 +82,13 @@ export function shouldForceReviewHeuristic(clientMessage: string, dossier: any):
     return true;
   }
   if (/€\s*\d|[eé]conom.*\d|combien.*(gagn|économ|co[uû]t)/i.test(blob)) return true;
+  if (/r[eé]clamation|insatisfait|m[eé]content|arnaque|honte|inadmissible|scandale/i.test(blob)) {
+    return true;
+  }
+  if (/refus(e|er)?|ne veux pas|pas int[eé]ress|stop|d[eé]sabonn|ne plus me contacter/i.test(blob)) {
+    return true;
+  }
+  if (/humain|vrai conseiller|parler [àa] charles|personne r[eé]elle/i.test(blob)) return true;
   return false;
 }
 

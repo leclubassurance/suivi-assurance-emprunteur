@@ -891,6 +891,50 @@ export async function syncGmailInbox(
               }
               continue;
             }
+            if (aiDecision?.status === "pending_validation" && aiDecision.text) {
+              const { tryQueueCamilleReplyForValidation } = await import("./camilleReviewQueue");
+              const queued = await tryQueueCamilleReplyForValidation({
+                dossier,
+                gmailId: msgMeta.id,
+                clientEmail: replyToEmail,
+                emailSubject: subject,
+                clientMessage: text,
+                replyHtml: aiDecision.text,
+                replyPlain: aiDecision.replyPlain,
+                reason: aiDecision.reason,
+                attachmentNames: addedAttachments.map((d) => d.name),
+                extraTelegramLabel: aiDecision.validationLabel,
+              });
+              if (queued.queued) {
+                finishInbound();
+                markDossierDirty(dossier);
+                addEvent(dossier, {
+                  type: "AI_DECISION",
+                  actor: { kind: "AI", label: "Camille" },
+                  message:
+                    "Brouillon client sur Telegram — aucun mail envoyé tant que vous n'avez pas validé.",
+                  meta: { gmailId: msgMeta.id, reviewId: queued.reviewId },
+                });
+                continue;
+              }
+              const { createCamilleReviewRequest } = await import("./camilleReviewQueue");
+              const reviewResult = await createCamilleReviewRequest({
+                dossier,
+                gmailId: msgMeta.id,
+                clientEmail: replyToEmail,
+                emailSubject: subject,
+                clientMessage: text,
+                questionForStaff:
+                  `Validation Telegram indisponible (${queued.error || "erreur"}). Comment répondre ? « ${text.slice(0, 200)} »`,
+                reason: aiDecision.reason,
+                attachmentNames: addedAttachments.map((d) => d.name),
+              });
+              if (reviewResult.ok) {
+                finishInbound();
+                markDossierDirty(dossier);
+              }
+              continue;
+            }
             if (aiDecision?.status === "replied" && aiDecision.text) {
               const sendResult = await sendEmailReplyWithGmailAPI(
                 accessToken,

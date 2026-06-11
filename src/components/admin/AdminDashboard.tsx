@@ -960,7 +960,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
                       <div className="font-black mb-1">Automatisation Gmail</div>
                       <p>
-                        Camille répond automatiquement aux clients ayant déposé le formulaire — pas aux prospects pré-formulaire. Les relances respectent un délai anti-spam.
+                        Camille suit les clients ayant déposé le formulaire. En production, chaque réponse IA libre passe d'abord par Telegram pour validation — seuls les playbooks et accusés types partent seuls.
                       </p>
                     </div>
                     <div className="flex gap-3 flex-wrap mb-4">

@@ -238,6 +238,7 @@ Règles décision :
 - REVIEW si doute réel, multi-contrat ambigu, sujet commercial sensible sans certitude — PAS de brouillon client.
 - ESCALATE seulement : médical complexe, juridique, menace, réclamation agressive, impasse après plusieurs échanges.
 - Si hésitation REPLY vs ESCALATE sur sujet métier : préférer REVIEW.
+- Si confidence < 8 ou riskFlags non vides (hors « aucun ») : préférer REVIEW.
 - CNI/RIB uniquement si clientAccepted=true.
 - studySent=true : ne jamais promettre une étude à venir.
 JSON uniquement :
@@ -451,7 +452,9 @@ export async function runCamilleReasoningPipeline(params: {
 
   if (!critique.approved) {
     const revised = String(critique.revisedMessage || "").trim();
-    if (revised.length >= 20) {
+    const allowRevisedAutoReply =
+      String(process.env.CAMILLE_PRODUCTION_SAFE_MODE ?? "true").toLowerCase() === "false";
+    if (allowRevisedAutoReply && revised.length >= 20) {
       console.log(`[Camille Phase 3] Brouillon corrigé après critique (${critique.issues.length} issue(s))`);
       return {
         action: "REPLY",

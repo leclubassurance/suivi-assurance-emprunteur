@@ -42,6 +42,15 @@ import {
   buildTelegramActionFromReply,
   stripHtmlForTelegram as stripHtmlForNotify,
 } from "./camilleTelegramActionNotify";
+import {
+  buildClientSafetyReviewQuestion,
+  extractPipelineConfidence,
+  isUnsafeClientLlmReply,
+  shouldBlockClientAutoSendByConfidence,
+  shouldForceClientReviewByConfidence,
+  shouldQueueClientReplyForValidation,
+  type ClientReplyValidationKind,
+} from "./camilleClientSafety";
 
 export async function processIncomingClientEmail(
   dossier: any,
@@ -322,6 +331,81 @@ export async function processIncomingClientEmail(
           `[AI] Demande de pièces prêt bloquée (déjà présentes) pour ${dossier.id}`,
         );
       }
+      const pipeline = "pipeline" in decision ? decision.pipeline : undefined;
+      const confidence = extractPipelineConfidence({ pipeline });
+      const safety = isUnsafeClientLlmReply(text, dossier, {
+        clientMessage: clientMessageForAi,
+      });
+      const critiqueApproved = pipeline?.critique?.approved === true;
+
+      const actionKind: ClientReplyValidationKind = "autonomous_reply";
+      const html = wrapCamilleHtmlReply(text, prenom, nom, dossier);
+      const needsSafetyReview =
+        safety.unsafe ||
+        shouldForceClientReviewByConfidence(confidence) ||
+        shouldBlockClientAutoSendByConfidence(confidence) ||
+        (pipeline?.critique && !critiqueApproved);
+
+      if (isCamilleReviewEnabled() && needsSafetyReview) {
+        const reason = safety.unsafe
+          ? `Garde-fous : ${safety.issues.join(" ; ")}`
+          : !critiqueApproved
+            ? "Critique qualité non validée"
+            : `Confiance ${confidence ?? "?"}/10 insuffisante pour envoi direct`;
+        if (shouldQueueClientReplyForValidation(actionKind)) {
+          console.log(`[AI] Brouillon sécurité en validation Telegram — ${dossier.id} (${reason})`);
+          return {
+            status: "pending_validation",
+            text: html,
+            replyPlain: text,
+            reason,
+            validationLabel: `Brouillon à corriger — ${reason}`,
+          };
+        }
+        console.log(`[AI] REVIEW sécurité client pour ${dossier.id} — ${reason}`);
+        return {
+          status: "review",
+          questionForStaff: buildClientSafetyReviewQuestion(
+            safety.issues.length ? safety.issues : [reason],
+            clientMessageForAi,
+          ),
+          reason,
+        };
+      }
+      const telegramAction = buildTelegramActionFromReply({
+        dossier,
+        clientMessage: emailText,
+        replyPlain: text,
+        emailSubject: options?.emailSubject,
+        actionKind,
+        attachmentNames,
+        blockedDocRequest,
+        analyze: pipeline?.analyze,
+        plan: pipeline?.plan,
+        critiqueApproved,
+      });
+
+      if (shouldQueueClientReplyForValidation(actionKind) && isCamilleReviewEnabled()) {
+        console.log(`[AI] Brouillon client en attente validation Telegram — ${dossier.id}`);
+        logAiAudit(dossier, {
+          action: "REVIEW",
+          channel: "gmail_auto_reply",
+          actor: "Camille",
+          outcome: "info",
+          model: pipelineModel,
+          summary: `Brouillon en attente validation (conf=${confidence ?? "?"}/10)`,
+          instructionPreview: text.slice(0, 300),
+          meta: { ...auditMeta, pendingValidation: true, confidence },
+        });
+        return {
+          status: "pending_validation",
+          text: html,
+          replyPlain: text,
+          telegramAction,
+          reason: "Validation Telegram requise avant envoi client",
+        };
+      }
+
       logAiAudit(dossier, {
         action: "REPLY",
         channel: "gmail_auto_reply",
@@ -332,23 +416,9 @@ export async function processIncomingClientEmail(
         instructionPreview: text.slice(0, 300),
         meta: auditMeta,
       });
-      const pipeline =
-        "pipeline" in decision ? decision.pipeline : undefined;
-      const telegramAction = buildTelegramActionFromReply({
-        dossier,
-        clientMessage: emailText,
-        replyPlain: text,
-        emailSubject: options?.emailSubject,
-        actionKind: "autonomous_reply",
-        attachmentNames,
-        blockedDocRequest,
-        analyze: pipeline?.analyze,
-        plan: pipeline?.plan,
-        critiqueApproved: pipeline?.critique?.approved,
-      });
       return {
         status: "replied",
-        text: wrapCamilleHtmlReply(text, prenom, nom, dossier),
+        text: html,
         replyPlain: text,
         telegramAction,
       };
