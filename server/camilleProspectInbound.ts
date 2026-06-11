@@ -103,7 +103,8 @@ MODE PROSPECT / PRÉ-ÉTUDE (isLead=true — pas encore de dossier formulaire)
 - INTERDIT ABSOLU : demander d'envoyer offre de prêt, tableau d'amortissement, CNI ou RIB par réponse email ou pièce jointe mail.
 - INTERDIT : promettre une étude chiffrée avant réception du formulaire complété.
 - Le lien formulaire (${formUrl}) doit apparaître clairement dans la réponse (URL cliquable).
-- NE PAS parler d'étude déjà envoyée, Kereis, espace adhésion.
+- NE PAS parler d'étude déjà envoyée ni d'espace adhésion Kereis.
+- Si le prospect demande avec quels assureurs nous travaillons : mentionner Kereis Prévoyance comme partenaire (sans inventer d'autres noms).
 - Ton accueillant, pédagogique. Référence interne : ${dossier.id}.
 `.trim();
 }
@@ -135,7 +136,7 @@ export function buildProspectWelcomeReplyPlain(dossier: any, clientMessage?: str
   return lines.join("\n\n");
 }
 
-/** Question sur les assureurs / partenaires — réponse sensible, review équipe. */
+/** Question sur les assureurs / partenaires — réponse template autorisée. */
 export function isProspectInsurerPartnerQuestion(clientMessage?: string): boolean {
   const msg = extractNewClientMessageText(String(clientMessage || "")).toLowerCase();
   return (
@@ -144,6 +145,21 @@ export function isProspectInsurerPartnerQuestion(clientMessage?: string): boolea
     /partenaires?\s+(assurance|assureur)/i.test(msg) ||
     /travaillez avec quels/i.test(msg)
   );
+}
+
+/** Questions prospect courantes → réponse template fiable (sans LLM). */
+export function isProspectTemplateQuestion(clientMessage?: string): boolean {
+  const msg = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
+  if (!msg || msg.length > 600) return false;
+  if (isProspectInsurerPartnerQuestion(msg)) return true;
+  if (
+    /(gratuit|sans engagement|lemoine|délégation|delegation|obligatoire|c'est quoi|qu'est.ce|quest.ce|comment (ça|ca) (marche|fonctionne)|pourquoi (vous|m').{0,30}(contact|écri|ecri)|club immobilier|agence immo|faites.{0,20}(immobilier|assurance)|documents?.{0,20}(faut|besoin|nécessaire|necessaire)|offre de prêt|tableau d.amortissement|formulaire|combien de temps|délai|delai)/i.test(
+      msg,
+    )
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Salutation courte sans question métier → réponse template (pas de LLM). */
@@ -219,6 +235,31 @@ export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: st
   if (/je ne comprends pas|pas compris|gagn(er|e).{0,25}(argent|€)|pourquoi|comment (ça|ca) marche/.test(msgLower)) {
     contextual.push(
       `En résumé : nous analysons gratuitement votre assurance de prêt ; si un autre contrat équivalent coûte moins cher, Charles vous le montre chiffré dans une étude — vous gardez la main sur la décision, sans engagement.`,
+    );
+  }
+  if (/gratuit|sans engagement|payant|coût|cout|frais/.test(msgLower)) {
+    contextual.push(
+      `L'étude d'économie est entièrement gratuite et sans engagement : elle sert uniquement à vous montrer s'il existe une alternative équivalente moins chère.`,
+    );
+  }
+  if (/lemoine/.test(msgLower)) {
+    contextual.push(
+      `La loi Lemoine peut, sous conditions, permettre de changer d'assurance emprunteur sans nouveau questionnaire médical. Charles vérifie l'éligibilité de votre dossier dans l'étude une fois vos documents reçus via le formulaire.`,
+    );
+  }
+  if (/délégation|delegation|banque|assurance (de la )?banque|groupe bancaire/.test(msgLower)) {
+    contextual.push(
+      `Vous n'êtes pas obligé de garder l'assurance proposée par votre banque : la délégation consiste à souscrire ailleurs une assurance aux garanties équivalentes — c'est précisément l'objet de notre étude comparative.`,
+    );
+  }
+  if (/document|offre de prêt|tableau|formulaire|envoy|joindre|pi[eè]ce jointe/.test(msgLower)) {
+    contextual.push(
+      `Pour lancer l'étude, l'offre de prêt et le tableau d'amortissement complets en PDF se déposent sur notre formulaire en ligne sécurisé — pas besoin de les envoyer en pièce jointe par email.`,
+    );
+  }
+  if (/délai|delai|combien de temps|quand|rapidement/.test(msgLower)) {
+    contextual.push(
+      `Dès que le formulaire est complété avec des PDF exploitables, Charles prépare votre étude personnalisée. Nous vous tenons informé par email sur l'avancement.`,
     );
   }
 

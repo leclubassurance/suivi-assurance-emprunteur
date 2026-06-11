@@ -13,6 +13,7 @@ import {
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
+import { buildProspectCamilleKnowledgeBlock } from "../shared/lcifKnowledge";
 import { getPreStudyLoanReminderLabels } from "../shared/documentChecklist";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
@@ -72,21 +73,11 @@ export async function processIncomingClientEmail(
     if (isProspectLead) {
       const {
         buildProspectWelcomeReplyPlain,
+        buildProspectQuestionReplyPlain,
         isSimpleProspectGreeting,
+        isProspectTemplateQuestion,
         enforceProspectReplyPlain,
-        isProspectInsurerPartnerQuestion,
       } = await import("./camilleProspectInbound");
-      if (
-        isProspectInsurerPartnerQuestion(clientMessageForAi) &&
-        isCamilleReviewEnabled()
-      ) {
-        console.log(`[AI] REVIEW prospect assureurs pour ${dossier.id}`);
-        return {
-          status: "review",
-          questionForStaff: `Le prospect demande avec quels assureurs nous travaillons. Quelle formulation souhaitez-vous envoyer ?\n\nMail client : « ${clientMessageForAi.slice(0, 400)} »`,
-          reason: "Question partenaires/assureurs — validation équipe",
-        };
-      }
       if (isSimpleProspectGreeting(clientMessageForAi)) {
         const plain = buildProspectWelcomeReplyPlain(dossier, clientMessageForAi);
         const telegramAction = buildTelegramActionFromReply({
@@ -98,6 +89,24 @@ export async function processIncomingClientEmail(
           attachmentNames,
         });
         console.log(`[AI] Réponse prospect template pour ${dossier.id}`);
+        return {
+          status: "replied",
+          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+          replyPlain: plain,
+          telegramAction,
+        };
+      }
+      if (isProspectTemplateQuestion(clientMessageForAi)) {
+        const plain = buildProspectQuestionReplyPlain(dossier, clientMessageForAi);
+        const telegramAction = buildTelegramActionFromReply({
+          dossier,
+          clientMessage: clientMessageForAi,
+          replyPlain: plain,
+          emailSubject: options?.emailSubject,
+          actionKind: "prospect_faq",
+          attachmentNames,
+        });
+        console.log(`[AI] Réponse prospect FAQ template pour ${dossier.id}`);
         return {
           status: "replied",
           text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
@@ -191,11 +200,13 @@ export async function processIncomingClientEmail(
     const ctx = buildCamilleContextBlock(dossier, attachmentNames, options?.allDossiers);
     const staffHandling = isStaffActivelyHandling(dossier);
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
-    const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
-      clientMessage: emailText,
-      subscriptionPhase: ctx.subscriptionPhase,
-      studySent: ctx.studySent,
-    });
+    const knowledgeBlock = isProspectLead
+      ? buildProspectCamilleKnowledgeBlock()
+      : await buildCamilleKnowledgePromptBlock(null, undefined, {
+          clientMessage: clientMessageForAi,
+          subscriptionPhase: ctx.subscriptionPhase,
+          studySent: ctx.studySent,
+        });
     const playbooksBlock = await buildPlaybooksPromptBlock(emailText, dossier);
     const studySent = hasStudyBeenSent(dossier);
     const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
