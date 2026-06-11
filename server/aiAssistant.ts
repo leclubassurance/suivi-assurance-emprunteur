@@ -30,6 +30,7 @@ import {
   shouldForceReviewHeuristic,
 } from "./camilleReviewQueue";
 import { isLeadDossier } from "./leadDossierMerge";
+import { extractNewClientMessageText } from "./emailQuoteStrip";
 import {
   buildCamilleOperationalPromptBlock,
   isCamilleReasoningEnabled,
@@ -64,15 +65,33 @@ export async function processIncomingClientEmail(
     const attachmentNames = options?.newAttachmentNames || [];
     const nom = dossier.formData?.assures?.[0]?.nom || "";
     const isProspectLead = Boolean(options?.isProspectLead || isLeadDossier(dossier));
+    const clientMessageFresh = extractNewClientMessageText(emailText);
+    const clientMessageForAi =
+      clientMessageFresh.length >= 3 ? clientMessageFresh : emailText;
 
     if (isProspectLead) {
-      const { buildProspectWelcomeReplyPlain, isSimpleProspectGreeting, enforceProspectReplyPlain } =
-        await import("./camilleProspectInbound");
-      if (isSimpleProspectGreeting(emailText)) {
-        const plain = buildProspectWelcomeReplyPlain(dossier, emailText);
+      const {
+        buildProspectWelcomeReplyPlain,
+        isSimpleProspectGreeting,
+        enforceProspectReplyPlain,
+        isProspectInsurerPartnerQuestion,
+      } = await import("./camilleProspectInbound");
+      if (
+        isProspectInsurerPartnerQuestion(clientMessageForAi) &&
+        isCamilleReviewEnabled()
+      ) {
+        console.log(`[AI] REVIEW prospect assureurs pour ${dossier.id}`);
+        return {
+          status: "review",
+          questionForStaff: `Le prospect demande avec quels assureurs nous travaillons. Quelle formulation souhaitez-vous envoyer ?\n\nMail client : « ${clientMessageForAi.slice(0, 400)} »`,
+          reason: "Question partenaires/assureurs — validation équipe",
+        };
+      }
+      if (isSimpleProspectGreeting(clientMessageForAi)) {
+        const plain = buildProspectWelcomeReplyPlain(dossier, clientMessageForAi);
         const telegramAction = buildTelegramActionFromReply({
           dossier,
-          clientMessage: emailText,
+          clientMessage: clientMessageForAi,
           replyPlain: plain,
           emailSubject: options?.emailSubject,
           actionKind: "prospect_welcome",
@@ -88,17 +107,23 @@ export async function processIncomingClientEmail(
       }
     }
 
-    const playbookHit = await tryPlaybookAutoReply(dossier, emailText);
+    const playbookProspectOk =
+      !isProspectLead ||
+      String(process.env.CAMILLE_PLAYBOOK_PROSPECT_ENABLED ?? "false").toLowerCase() ===
+        "true";
+    const playbookHit = playbookProspectOk
+      ? await tryPlaybookAutoReply(dossier, clientMessageForAi)
+      : null;
     if (playbookHit) {
       let plain = playbookHit.plain;
       if (isProspectLead) {
         const { enforceProspectReplyPlain } = await import("./camilleProspectInbound");
-        plain = enforceProspectReplyPlain(plain, dossier, emailText);
+        plain = enforceProspectReplyPlain(plain, dossier, clientMessageForAi);
       }
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
       const telegramAction = buildTelegramActionFromReply({
         dossier,
-        clientMessage: emailText,
+        clientMessage: clientMessageForAi,
         replyPlain: plain,
         emailSubject: options?.emailSubject,
         actionKind: "playbook",
@@ -193,10 +218,14 @@ export async function processIncomingClientEmail(
           })
         : null;
 
-    if (!isProspectLead && shouldForceReviewHeuristic(emailText, dossier) && isCamilleReviewEnabled()) {
+    if (
+      !isProspectLead &&
+      shouldForceReviewHeuristic(clientMessageForAi, dossier) &&
+      isCamilleReviewEnabled()
+    ) {
       return {
         status: "review",
-        questionForStaff: `Comment répondre à ce mail client ? « ${emailText.slice(0, 350)} »`,
+        questionForStaff: `Comment répondre à ce mail client ? « ${clientMessageForAi.slice(0, 350)} »`,
         reason: "Situation sensible ou multi-contrat — validation équipe requise",
       };
     }
@@ -213,7 +242,7 @@ export async function processIncomingClientEmail(
       prenom,
       nom,
       emailSubject: options?.emailSubject,
-      emailText,
+      emailText: clientMessageForAi,
       attachmentNames,
       ctx,
       staffHandling,
@@ -344,7 +373,7 @@ export async function processIncomingClientEmail(
       }
       if (isProspectLead) {
         const { enforceProspectReplyPlain } = await import("./camilleProspectInbound");
-        plain = enforceProspectReplyPlain(plain, dossier, emailText);
+        plain = enforceProspectReplyPlain(plain, dossier, clientMessageForAi);
       }
       const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
         inboundAttachmentNames: attachmentNames,

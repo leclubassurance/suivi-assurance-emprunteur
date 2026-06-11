@@ -18,6 +18,7 @@ function extractSenderEmail(fromRaw: string): string {
 
 export { shouldIgnoreProspectSender } from "./inboundEmailClassifier";
 import { isLeadDossier } from "./leadDossierMerge";
+import { extractNewClientMessageText } from "./emailQuoteStrip";
 
 export function isProspectInboundEnabled(): boolean {
   const raw = String(process.env.CAMILLE_PROSPECT_INBOUND_ENABLED ?? "").toLowerCase();
@@ -134,9 +135,20 @@ export function buildProspectWelcomeReplyPlain(dossier: any, clientMessage?: str
   return lines.join("\n\n");
 }
 
+/** Question sur les assureurs / partenaires — réponse sensible, review équipe. */
+export function isProspectInsurerPartnerQuestion(clientMessage?: string): boolean {
+  const msg = extractNewClientMessageText(String(clientMessage || "")).toLowerCase();
+  return (
+    /assurances?\s+(pour\s+)?(lesquel|laquel|quel)/i.test(msg) ||
+    /avec quels? assureurs|quels? assureurs|compagnies?\s+d.assurance/i.test(msg) ||
+    /partenaires?\s+(assurance|assureur)/i.test(msg) ||
+    /travaillez avec quels/i.test(msg)
+  );
+}
+
 /** Salutation courte sans question métier → réponse template (pas de LLM). */
 export function isSimpleProspectGreeting(clientMessage?: string): boolean {
-  const msg = String(clientMessage || "").trim().toLowerCase();
+  const msg = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
   if (!msg) return true;
   if (msg.length > 120) return false;
   if (/\?/.test(msg) && /(lemoine|économ|econom|gratuit|tarif|délai|delai|comment|pourquoi|assurance|prêt|pret|fonctionne)/i.test(msg)) {
@@ -149,7 +161,7 @@ export function isSimpleProspectGreeting(clientMessage?: string): boolean {
 
 /** Réponse sûre quand le LLM invente des chiffres ou interprète mal le fil prospect. */
 export function isUnsafeProspectLlmReply(plain: string, clientMessage?: string): boolean {
-  const msg = String(clientMessage || "").toLowerCase();
+  const msg = extractNewClientMessageText(String(clientMessage || "")).toLowerCase();
   const text = String(plain || "").toLowerCase();
   if (
     /arrêter|arreter|abandonner|reconsidérer|reconsiderer|souhaitez reconsidérer/.test(text) &&
@@ -188,13 +200,18 @@ export function isUnsafeProspectLlmReply(plain: string, clientMessage?: string):
 /** Réponse prospect à une question métier (coût, Lemoine…) sans chiffre inventé. */
 export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: string): string {
   const formUrl = getAssurancePlatformUrl();
-  const msg = String(clientMessage || "").trim();
+  const msg = extractNewClientMessageText(String(clientMessage || "")).trim();
   const monthly = msg.match(/(\d{1,3})\s*€/i)?.[1];
   const noReplyYet = /pas eu votre réponse|pas reçu|sans réponse|toujours pas/i.test(msg);
 
   const msgLower = msg.toLowerCase();
   const contextual: string[] = [];
-  if (/agence immo|immobilier/.test(msgLower) && /assurance|faites|fait quoi|vous faites/.test(msgLower)) {
+  if (isProspectInsurerPartnerQuestion(msg)) {
+    contextual.push(
+      `Nous travaillons notamment avec des partenaires assureurs reconnus (dont Kereis Prévoyance) : Charles compare les garanties équivalentes à votre contrat actuel et vous présente l'offre la plus adaptée dans l'étude gratuite — sans engagement de votre part.`,
+    );
+  }
+  if (/agence immo/.test(msgLower) && /assurance|faites|fait quoi|vous faites/.test(msgLower)) {
     contextual.push(
       `Le Club Immobilier Français accompagne aussi les projets immobiliers ; côté assurance emprunteur, Charles compare votre contrat actuel à des alternatives (Loi Lemoine) pour identifier une économie possible — c'est une activité distincte mais complémentaire de l'agence.`,
     );
@@ -534,11 +551,12 @@ export async function syncProspectInboundFromGmail(
           if (wasTelegramNotifiedRecently(dossier, tgKey, 24 * 60 * 60 * 1000)) return;
           markTelegramNotified(dossier, tgKey);
           const { notifyTelegramClientInbound } = await import("./telegramNotify");
+          const { extractNewClientMessageText } = await import("./emailQuoteStrip");
           await notifyTelegramClientInbound({
             dossier,
             clientEmail: senderEmail,
             subject,
-            excerpt: String(text || "").slice(0, 500),
+            excerpt: extractNewClientMessageText(String(text || "")).slice(0, 500),
             gmailId: msgMeta.id,
             extra: "Prospect pré-étude",
           });

@@ -17,6 +17,8 @@ import {
   formatCamilleActionTelegramHtml,
   type CamilleTelegramActionDetails,
 } from "./camilleTelegramActionNotify";
+import { isLeadDossier } from "./leadDossierMerge";
+import { extractNewClientMessageText } from "./emailQuoteStrip";
 
 export type DossierNewsKind =
   | "new_dossier"
@@ -85,6 +87,20 @@ async function buildNewsMessage(
     details.camilleAction
   ) {
     return formatCamilleActionTelegramHtml(dossier, details.camilleAction);
+  }
+  if (kind === "client_message" && isLeadDossier(dossier)) {
+    const a = dossier.formData?.assures?.[0];
+    const clientName = [a?.prenom, a?.nom].filter(Boolean).join(" ") || "Prospect";
+    const excerpt = extractNewClientMessageText(details.excerpt || "").slice(0, 500);
+    return [
+      `<b>📩 ${escapeTelegramHtml(dossier.id)} — ${escapeTelegramHtml(clientName)}</b>`,
+      `<i>Prospect pré-étude — nouveau message</i>`,
+      excerpt ? `<b>Message :</b> <i>« ${escapeTelegramHtml(excerpt)} »</i>` : "",
+      ``,
+      `<b>➡️ Pour vous :</b> Camille va répondre automatiquement (ou vous posera une question sur ce fil si besoin).`,
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
   const a = dossier.formData?.assures?.[0];
   const clientName = [a?.prenom, a?.nom].filter(Boolean).join(" ") || "Client";
