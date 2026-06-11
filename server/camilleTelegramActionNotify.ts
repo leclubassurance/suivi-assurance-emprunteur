@@ -5,6 +5,7 @@ import type { CamilleAnalyzeResult, CamillePlanResult } from "./camilleReasoning
 
 export type CamilleActionKind =
   | "autonomous_reply"
+  | "prospect_ai_reply"
   | "playbook"
   | "template_identity"
   | "template_complementary_docs"
@@ -39,6 +40,7 @@ export type CamilleTelegramActionDetails = {
 
 const ACTION_LABEL: Record<CamilleActionKind, string> = {
   autonomous_reply: "Réponse autonome (IA Phase 3)",
+  prospect_ai_reply: "Réponse prospect autonome (IA)",
   playbook: "Réponse playbook validé",
   template_identity: "Accusé réception CNI/RIB",
   template_complementary_docs: "Accusé pièces complémentaires post-étude",
@@ -80,6 +82,14 @@ export function assessInterventionLevel(params: {
   blockedDocRequest?: boolean;
 }): InterventionLevel {
   if (params.actionKind === "staff_directive" || params.actionKind === "cooldown_ack") {
+    return "none";
+  }
+  if (params.actionKind === "prospect_ai_reply") {
+    const risks = (params.riskFlags || []).map((r) => r.toLowerCase());
+    if (risks.some((r) => /medical|juridique|menace|commercial/.test(r) && r !== "aucun")) {
+      return "watch";
+    }
+    if (params.confidence !== undefined && params.confidence < 6) return "watch";
     return "none";
   }
   if (params.actionKind === "doc_followup" || params.actionKind === "doc_clarify") {

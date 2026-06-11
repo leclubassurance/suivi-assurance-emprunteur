@@ -4,6 +4,7 @@
  */
 import { extractNewClientMessageText } from "./emailQuoteStrip";
 import { detectMentionedKereisPartner } from "../shared/kereisPartners";
+import { assessProspectRisk } from "./prospectConfidence";
 
 export type ProspectMessageIntent =
   | "greeting"
@@ -26,10 +27,13 @@ export type ProspectIntentAnalysis = {
   intents: ProspectMessageIntent[];
   primary: ProspectMessageIntent;
   shouldIncludeFormLink: boolean;
+  /** Blocage immédiat pré-LLM — réservé aux cas graves (menace). */
   shouldForceReview: boolean;
   strategyBlock: string;
   formLinkReason?: string;
   reviewReason?: string;
+  riskFlags: string[];
+  confidenceHint: number;
 };
 
 function freshMessage(clientMessage: string): string {
@@ -164,28 +168,9 @@ function isMedicalLegal(msgLower: string): boolean {
   return false;
 }
 
-/** medical_legal seul ou dominant — pas quand le mail est surtout une demande d'étude / FAQ. */
-function medicalLegalShouldForceReview(
-  intents: ProspectMessageIntent[],
-  msgLower: string,
-): boolean {
-  if (!intents.includes("medical_legal")) return false;
-  const routineProspect: ProspectMessageIntent[] = [
-    "wants_study",
-    "documents",
-    "faq_insurance",
-    "faq_process",
-    "greeting",
-    "club_identity",
-    "insurers",
-  ];
-  if (intents.some((i) => routineProspect.includes(i))) return false;
-  return isMedicalLegal(msgLower);
-}
-
 function isAggressive(msgLower: string): boolean {
   return (
-    /arnaque|escroc|honte|inadmissible|porter plainte|avocat|tribunal|menace|harcèlement|harcelement|insulte|nul\b|merde|connard|idiot/i.test(
+    /arnaque|escroc|honte|inadmissible|menace|harcèlement|harcelement|insulte|nul\b|merde|connard|idiot/i.test(
       msgLower,
     ) || (/!!+/.test(msgLower) && /réclamation|plainte|scandale/i.test(msgLower))
   );
@@ -256,18 +241,20 @@ function buildStrategyLines(
   intents: ProspectMessageIntent[],
   primary: ProspectMessageIntent,
   shouldIncludeFormLink: boolean,
-  shouldForceReview: boolean,
+  riskFlags: string[],
+  confidenceHint: number,
 ): string[] {
   const lines: string[] = [
     `INTENTIONS DÉTECTÉES : ${intents.join(", ")}`,
     `INTENTION PRINCIPALE : ${primary}`,
+    `RISQUES DÉTECTÉS : ${riskFlags.join(", ")}`,
+    `INDICE CONFIANCE (heuristique) : ${confidenceHint}/10`,
     "",
     "STRATÉGIE DE RÉPONSE (prioritaire sur les réflexes commerciaux) :",
+    "- Tu es experte assurance emprunteur (Kereis, Loi Lemoine, Club Immobilier Français) : action par défaut REPLY.",
+    "- REVIEW uniquement si tu ne peux pas répondre honnêtement (confiance < 5) ou menace/litige actif.",
+    "- Sujet médical/juridique prospect : réponds au niveau FAQ (questionnaire, Lemoine, Charles après formulaire) — pas de REVIEW pour ça seul.",
   ];
-
-  if (shouldForceReview) {
-    lines.push("- Action JSON recommandée : REVIEW (ne pas inventer de réponse risquée).");
-  }
 
   if (intents.includes("greeting") && intents.length <= 2) {
     lines.push(
@@ -426,34 +413,34 @@ export function analyzeProspectMessageIntent(clientMessage: string): ProspectInt
         : "contexte étude/documents";
   }
 
-  const shouldForceReview =
-    intents.includes("aggressive") ||
-    medicalLegalShouldForceReview(intents, msgLower) ||
-    (intents.includes("pricing") &&
-      /insiste|urgent|exactement|précisément|precisement|montant exact/i.test(msgLower));
+  const shouldForceReview = intents.includes("aggressive");
 
   let reviewReason: string | undefined;
   if (shouldForceReview) {
-    if (intents.includes("aggressive")) reviewReason = "message agressif ou menaçant";
-    else if (intents.includes("medical_legal")) reviewReason = "sujet médical ou juridique";
-    else reviewReason = "chiffrage personnalisé insistant";
+    reviewReason = "message agressif ou menaçant";
   }
+
+  const uniqueIntents = [...new Set(intents)];
+  const risk = assessProspectRisk(fresh, uniqueIntents);
 
   const strategyBlock = buildStrategyLines(
     intents,
     primary,
     shouldIncludeFormLink,
-    shouldForceReview,
+    risk.riskFlags,
+    risk.confidenceHint,
   ).join("\n");
 
   return {
-    intents: [...new Set(intents)],
+    intents: uniqueIntents,
     primary,
     shouldIncludeFormLink,
     shouldForceReview,
     strategyBlock,
     formLinkReason,
     reviewReason,
+    riskFlags: risk.riskFlags,
+    confidenceHint: risk.confidenceHint,
   };
 }
 

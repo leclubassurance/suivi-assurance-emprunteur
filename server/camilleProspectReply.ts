@@ -7,9 +7,16 @@ import { getAssurancePlatformUrl } from "../shared/lcifLegalIdentity";
 import { extractNewClientMessageText } from "./emailQuoteStrip";
 import {
   buildProspectLeadPromptBlock,
+  isUnsafeProspectLlmReply,
   patchProspectReplyHardRules,
   prospectReplyViolatesDocumentChannelRules,
 } from "./camilleProspectInbound";
+import {
+  clampProspectConfidence,
+  isHardProspectQualityIssue,
+  shouldProspectRequireReview,
+} from "./prospectConfidence";
+import type { CamilleAnalyzeResult } from "./camilleReasoningPipeline";
 import { prospectReplyViolatesInsurerDisclosureRules } from "../shared/kereisPartners";
 import {
   analyzeProspectMessageIntent,
@@ -24,6 +31,9 @@ export type ProspectInboundDecision = {
   reasonForEscalation?: string;
   model?: string;
   intentPrimary?: string;
+  confidence?: number;
+  riskFlags?: string[];
+  analyze?: CamilleAnalyzeResult;
 };
 
 function prospectModel(): string {
@@ -44,22 +54,24 @@ function parseJson<T extends Record<string, unknown>>(text: string, fallback: T)
 }
 
 const PROSPECT_PERSONA = `
-Tu es Camille, assistante de Charles Victor au Club Immobilier Français (assurance emprunteur).
-Tu écris des mails comme une vraie personne : naturel, chaleureux, direct — jamais un script commercial.
+Tu es Camille, experte assurance emprunteur au Club Immobilier Français (Kereis, Loi Lemoine, substitution).
+Tu écris comme une vraie personne : naturel, chaleureux, direct — jamais un script commercial.
 
-Suis le bloc STRATÉGIE D'INTENTION fourni dans le message utilisateur — il prime sur tes réflexes généraux.
+Suis le bloc STRATÉGIE D'INTENTION fourni — il prime sur tes réflexes généraux.
 
 PRINCIPES :
 - Réponds d'abord à ce que le client vient de dire, avec tes propres mots.
 - Plusieurs sujets → traiter chacun dans l'ordre.
 - Pas de « Bonjour » dans messageToClient (ajouté automatiquement).
 - Référence dossier LCIF-XXXXXX en fin de mail.
+- Par défaut : REPLY — tu maîtrises la FAQ prospect (process, Lemoine, garanties, documents, Kereis).
 
 DOCUMENTS : lien formulaire + « ne pas envoyer par mail » UNIQUEMENT si la stratégie le demande.
 
-INTERDITS : liste complète assureurs, chiffres inventés, météo inventée, numéro de téléphone.
+INTERDITS : liste complète assureurs, chiffres d'économie inventés, météo inventée, numéro de téléphone.
 
-REVIEW si la stratégie l'indique ou si médical/juridique/menace/chiffrage impossible honnêtement.
+REVIEW seulement si tu ne peux vraiment pas répondre honnêtement (confidence < 5) ou menace/litige actif.
+ESCALATE : menace grave, insulte, impasse totale — rare en prospect.
 `;
 
 async function callProspectLlm(
@@ -76,10 +88,43 @@ async function callProspectLlm(
   });
   return parseJson(response.text || "{}", {
     action: "REVIEW",
+    confidence: 4,
+    riskFlags: ["aucun"],
     messageToClient: null,
     questionForStaff: "Réponse IA invalide — validation équipe",
     reasonForEscalation: null,
   });
+}
+
+function mergeProspectRiskFlags(...groups: unknown[]): string[] {
+  const flags = groups
+    .flatMap((g) => (Array.isArray(g) ? g : []))
+    .map((f) => String(f || "").trim().toLowerCase())
+    .filter((f) => f && f !== "aucun");
+  return flags.length ? [...new Set(flags)] : ["aucun"];
+}
+
+function buildProspectAnalyzeResult(params: {
+  clientMessage: string;
+  intent: ProspectIntentAnalysis;
+  confidence: number;
+  riskFlags: string[];
+}): CamilleAnalyzeResult {
+  return {
+    clientIntent: params.clientMessage.slice(0, 200),
+    primaryTopic: params.intent.primary,
+    openQuestions: [],
+    riskFlags: params.riskFlags,
+    dossierFactsToHonor: [],
+    forbiddenMoves: ["chiffres inventés", "liste complète assureurs"],
+    confidence: params.confidence,
+  };
+}
+
+function splitQualityIssues(issues: string[]): { hard: string[]; soft: string[] } {
+  const hard = issues.filter(isHardProspectQualityIssue);
+  const soft = issues.filter((i) => !isHardProspectQualityIssue(i));
+  return { hard, soft };
 }
 
 function patchProspectReplyForSend(
@@ -192,6 +237,8 @@ ${correction}
 JSON :
 {
   "action": "REPLY" | "REVIEW" | "ESCALATE",
+  "confidence": 0-10,
+  "riskFlags": ["medical" | "juridique" | "menace" | "commercial" | "aucun"],
   "messageToClient": "texte plain sans Bonjour ni signature",
   "questionForStaff": "string ou null",
   "reasonForEscalation": "string ou null"
@@ -212,8 +259,11 @@ export async function runProspectInboundReply(params: {
   const temperature = prospectTemperature();
   const intent = analyzeProspectMessageIntent(params.clientMessage);
 
+  const riskFlags = mergeProspectRiskFlags(intent.riskFlags, []);
+  let confidence = intent.confidenceHint;
+
   console.log(
-    `[Camille prospect] IA (${model}, t=${temperature}) ${params.dossier.id} — intent=${intent.primary} [${intent.intents.join(",")}] formLink=${intent.shouldIncludeFormLink}`,
+    `[Camille prospect] IA (${model}, t=${temperature}) ${params.dossier.id} — intent=${intent.primary} [${intent.intents.join(",")}] formLink=${intent.shouldIncludeFormLink} confHint=${confidence}/10 risks=${riskFlags.join(",")}`,
   );
 
   if (intent.shouldForceReview) {
@@ -223,6 +273,14 @@ export async function runProspectInboundReply(params: {
       reasonForEscalation: intent.reviewReason,
       model,
       intentPrimary: intent.primary,
+      confidence,
+      riskFlags,
+      analyze: buildProspectAnalyzeResult({
+        clientMessage: params.clientMessage,
+        intent,
+        confidence,
+        riskFlags,
+      }),
     };
   }
 
@@ -233,6 +291,8 @@ export async function runProspectInboundReply(params: {
 
   let draft = String(parsed.messageToClient || "").trim();
   let issues = collectBlockingReplyIssues(draft, params.clientMessage, intent);
+  confidence = clampProspectConfidence(parsed.confidence, intent.confidenceHint);
+  const mergedRiskFlags = mergeProspectRiskFlags(riskFlags, parsed.riskFlags);
 
   if (issues.length > 0 && String(parsed.action || "").toUpperCase() === "REPLY") {
     console.log(`[Camille prospect] Réécriture (${issues.join("; ")}) ${params.dossier.id}`);
@@ -246,9 +306,23 @@ export async function runProspectInboundReply(params: {
     );
     draft = String(parsed.messageToClient || "").trim();
     issues = collectBlockingReplyIssues(draft, params.clientMessage, intent);
+    confidence = clampProspectConfidence(parsed.confidence, confidence);
   }
 
-  let action = String(parsed.action || "REVIEW").toUpperCase();
+  let action = String(parsed.action || "REPLY").toUpperCase();
+  const analyze = buildProspectAnalyzeResult({
+    clientMessage: params.clientMessage,
+    intent,
+    confidence,
+    riskFlags: mergeProspectRiskFlags(mergedRiskFlags, parsed.riskFlags),
+  });
+
+  if (action === "ESCALATE" && confidence >= 5 && !intent.intents.includes("aggressive")) {
+    console.log(
+      `[Camille prospect] ESCALATE → REPLY (conf=${confidence}/10) ${params.dossier.id}`,
+    );
+    action = "REPLY";
+  }
 
   if (action === "ESCALATE") {
     return {
@@ -257,15 +331,21 @@ export async function runProspectInboundReply(params: {
         String(parsed.reasonForEscalation || "").trim() || "Escalade prospect",
       model,
       intentPrimary: intent.primary,
+      confidence,
+      riskFlags: analyze.riskFlags,
+      analyze,
     };
   }
 
   if (draft.length < 8) {
     return {
       action: "REVIEW",
-      questionForStaff: `Réponse IA vide ou trop courte (${intent.primary}) — « ${params.clientMessage.slice(0, 300)} »`,
+      questionForStaff: `Réponse IA vide ou trop courte (${intent.primary}, conf=${confidence}/10) — « ${params.clientMessage.slice(0, 300)} »`,
       model,
       intentPrimary: intent.primary,
+      confidence,
+      riskFlags: analyze.riskFlags,
+      analyze,
     };
   }
 
@@ -276,37 +356,65 @@ export async function runProspectInboundReply(params: {
   }
 
   let postIssues = collectBlockingReplyIssues(plain, params.clientMessage, intent);
+  const { hard: hardIssues, soft: softIssues } = splitQualityIssues(postIssues);
 
-  // L'IA a mis REVIEW mais le texte est exploitable après injection formulaire → envoyer.
-  if (action === "REVIEW" && postIssues.length === 0) {
+  if (action === "REVIEW" && hardIssues.length === 0 && softIssues.length === 0 && confidence >= 6) {
     console.log(
-      `[Camille prospect] REVIEW annulé — réponse patchée OK (${params.dossier.id}, intent=${intent.primary})`,
+      `[Camille prospect] REVIEW IA annulé — conf=${confidence}/10 (${params.dossier.id}, intent=${intent.primary})`,
     );
     action = "REPLY";
   }
 
-  if (action === "REVIEW") {
-    return {
-      action: "REVIEW",
-      questionForStaff:
-        String(parsed.questionForStaff || "").trim() ||
-        `Camille (${intent.primary}) — ${postIssues.join(", ") || "validation équipe"} — « ${params.clientMessage.slice(0, 280)} »`,
-      reasonForEscalation: String(parsed.reasonForEscalation || "").trim() || undefined,
-      model,
-      intentPrimary: intent.primary,
-    };
+  const unsafe = isUnsafeProspectLlmReply(plain, params.clientMessage);
+  const reviewGate = shouldProspectRequireReview({
+    llmAction: action,
+    confidence,
+    riskFlags: analyze.riskFlags,
+    hardQualityIssues: hardIssues,
+    unsafeReply: unsafe,
+    aggressiveIntent: intent.intents.includes("aggressive"),
+  });
+
+  if (reviewGate.review) {
+    if (
+      softIssues.length > 0 &&
+      hardIssues.length === 0 &&
+      !unsafe &&
+      confidence >= 6 &&
+      plain.length >= 40
+    ) {
+      console.log(
+        `[Camille prospect] Qualité soft ignorée (conf=${confidence}/10) — envoi ${params.dossier.id}: ${softIssues.join("; ")}`,
+      );
+    } else {
+      return {
+        action: "REVIEW",
+        questionForStaff:
+          String(parsed.questionForStaff || "").trim() ||
+          `Camille (${intent.primary}, conf=${confidence}/10) — ${reviewGate.reason || softIssues.join(", ") || "validation équipe"} — « ${params.clientMessage.slice(0, 280)} »`,
+        reasonForEscalation: String(parsed.reasonForEscalation || "").trim() || undefined,
+        model,
+        intentPrimary: intent.primary,
+        confidence,
+        riskFlags: analyze.riskFlags,
+        analyze,
+      };
+    }
   }
 
-  if (postIssues.length > 0) {
-    return {
-      action: "REVIEW",
-      questionForStaff: `Camille (${intent.primary}) — ${postIssues.join(", ")} — consigne pour : « ${params.clientMessage.slice(0, 280)} »`,
-      model,
-      intentPrimary: intent.primary,
-    };
-  }
+  console.log(
+    `[Camille prospect] Envoi auto conf=${confidence}/10 risks=${analyze.riskFlags.join(",")} ${params.dossier.id}`,
+  );
 
-  return { action: "REPLY", messageToClient: plain, model, intentPrimary: intent.primary };
+  return {
+    action: "REPLY",
+    messageToClient: plain,
+    model,
+    intentPrimary: intent.primary,
+    confidence,
+    riskFlags: analyze.riskFlags,
+    analyze,
+  };
 }
 
 /** @deprecated alias */

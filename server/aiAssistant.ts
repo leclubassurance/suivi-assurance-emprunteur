@@ -85,12 +85,18 @@ export async function processIncomingClientEmail(
       });
 
       const prospectModel = prospectDecision.model || "gemini-2.5-flash";
-      const prospectAudit = { prospectSingleShot: true };
+      const prospectAudit = {
+        prospectSingleShot: true,
+        confidence: prospectDecision.confidence,
+        riskFlags: prospectDecision.riskFlags,
+      };
 
       if (prospectDecision.action === "REVIEW") {
         const question = String(prospectDecision.questionForStaff || "").trim();
         if (isCamilleReviewEnabled() && question.length >= 10) {
-          console.log(`[AI] REVIEW prospect pipeline pour ${dossier.id}`);
+          console.log(
+            `[AI] REVIEW prospect pipeline pour ${dossier.id} (conf=${prospectDecision.confidence ?? "?"}/10)`,
+          );
           logAiAudit(dossier, {
             action: "REVIEW",
             channel: "gmail_auto_reply",
@@ -142,6 +148,8 @@ export async function processIncomingClientEmail(
           emailSubject: options?.emailSubject,
           actionKind: "prospect_ai_reply",
           attachmentNames,
+          analyze: prospectDecision.analyze,
+          critiqueApproved: true,
         });
         return {
           status: "replied",
