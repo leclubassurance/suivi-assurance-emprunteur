@@ -79,6 +79,43 @@ Dans les **logs de déploiement** au démarrage, cherchez :
 
 Voir [FIREBASE_CONFIGURATION_ASSURANCE.md](./FIREBASE_CONFIGURATION_ASSURANCE.md) pour `FIREBASE_*`, `DATA_STORE=firestore`, compte de service Google, etc.
 
+## Si aucun déploiement ne part après un push GitHub
+
+Le webhook Railway ↔ GitHub est souvent coupé. Trois solutions (par ordre de simplicité) :
+
+### A. Deploy Hook + GitHub Actions (recommandé)
+
+1. Railway → service → **Settings** → **Deploy** → **Deploy Hook** → **Generate**
+2. GitHub → repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+   - Nom : `RAILWAY_DEPLOY_HOOK`
+   - Valeur : l’URL du hook Railway
+3. GitHub → **Actions** → **Deploy to Railway** → **Run workflow** (ou pousser sur `main`)
+
+Le workflow `.github/workflows/deploy-railway.yml` déclenche le redeploy à chaque push sur `main`.
+
+### B. Project Token + GitHub Actions
+
+1. Railway → **Project Settings** → **Tokens** → créer un **Project Token** (pas le token compte)
+2. GitHub secret `RAILWAY_TOKEN` = ce token
+3. GitHub variable `RAILWAY_SERVICE_ID` = ID du service (Railway → service → Settings)
+4. Push sur `main` ou Run workflow
+
+### C. Reconnecter GitHub dans Railway
+
+1. Service → **Settings** → **Source** → **Disconnect** puis **Connect** `leclubassurance/suivi-assurance-emprunteur`
+2. Branche : `main`
+3. **Deployments** → ⋮ → **Redeploy**
+
+### D. Railway CLI (local)
+
+```bash
+npm i -g @railway/cli
+railway login
+cd suivi-assurance-emprunteur-4
+railway link   # choisir le projet Assurance
+railway up --detach
+```
+
 ## Après un push GitHub
 
 1. Attendre la fin du déploiement Railway (1–3 min).

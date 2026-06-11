@@ -1,0 +1,51 @@
+# Déploie sur Railway quand le webhook GitHub natif ne réagit plus.
+# Configurer AU MOINS UNE des options dans GitHub → Settings → Secrets and variables → Actions :
+#
+# Option A (la plus simple) — Secret RAILWAY_DEPLOY_HOOK
+#   Railway → service → Settings → Deploy → Deploy Hook → Generate
+#
+# Option B — Secret RAILWAY_TOKEN (Project Token, pas API account token)
+#   + Variable RAILWAY_SERVICE_ID (Settings → service → copier l'ID du service)
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: railway-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_DEPLOY_HOOK: ${{ secrets.RAILWAY_DEPLOY_HOOK }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${RAILWAY_DEPLOY_HOOK}" ]; then
+            echo "Triggering Railway deploy hook..."
+            curl -fsS -X POST "${RAILWAY_DEPLOY_HOOK}"
+            echo "Deploy hook OK."
+            exit 0
+          fi
+
+          if [ -n "${RAILWAY_TOKEN}" ] && [ -n "${RAILWAY_SERVICE_ID}" ]; then
+            echo "Deploying via Railway CLI..."
+            npm install -g @railway/cli@4.5.4
+            railway up --service="${RAILWAY_SERVICE_ID}" --detach
+            echo "CLI deploy OK."
+            exit 0
+          fi
+
+          echo "::error::Configure RAILWAY_DEPLOY_HOOK (secret) or RAILWAY_TOKEN + RAILWAY_SERVICE_ID (secret + variable)."
+          echo "See docs/RAILWAY_DEPLOY.md"
+          exit 1
