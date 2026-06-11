@@ -370,23 +370,62 @@ export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: st
   return lines.join("\n\n");
 }
 
-/** Mentionne offre/tableau sans orienter vers le formulaire en ligne. */
+function prospectReplyHasFormLink(text: string): boolean {
+  const lower = text.toLowerCase();
+  const formUrl = getAssurancePlatformUrl().toLowerCase();
+  return (
+    lower.includes(formUrl) ||
+    /formulaire en ligne|formulaire sécurisé|formulaire:\s*https|assurance-emprunteur\.up\.railway\.app/i.test(
+      lower,
+    )
+  );
+}
+
+/** Mentionne offre/tableau / dépôt docs sans lien formulaire. */
 export function prospectReplyViolatesDocumentChannelRules(plain?: string): boolean {
   const text = String(plain || "").toLowerCase();
-  const formUrl = getAssurancePlatformUrl().toLowerCase();
-  const hasFormLink =
-    text.includes(formUrl) ||
-    /formulaire en ligne|formulaire sécurisé|formulaire:\s*https/i.test(text);
+  if (prospectReplyHasFormLink(text)) return false;
 
   const mentionsLoanDocs =
-    /offre de prêt|tableau d.amortissement|tableau d'amortissement|échéancier|echeancier|amortissement complet/i.test(
+    /offre de prêt|tableau d.amortissement|tableau d'amortissement|échéancier|echeancier|amortissement/i.test(
       text,
     ) ||
     (/besoin de (vos |votre )?(documents|pièces|offre|tableau)/i.test(text) &&
-      /prêt|emprunt|assurance/i.test(text));
+      /prêt|emprunt|assurance|étude|etude/i.test(text)) ||
+    (/format pdf|espace bancaire|espace banque/i.test(text) &&
+      /offre|tableau|amortissement|prêt|pret|document/i.test(text));
 
-  if (!mentionsLoanDocs) return false;
-  return !hasFormLink;
+  return mentionsLoanDocs;
+}
+
+export function injectProspectFormLinkForLoanDocs(
+  plain: string,
+  dossier: any,
+): string {
+  const formUrl = getAssurancePlatformUrl();
+  let text = String(plain || "").trim();
+  if (!prospectReplyViolatesDocumentChannelRules(text)) return text;
+
+  const formBlock = [
+    `Pour nous transmettre l'offre de prêt et le tableau d'amortissement en PDF, utilisez notre formulaire en ligne sécurisé (quelques minutes) :`,
+    formUrl,
+    `Inutile de les envoyer en réponse à ce mail ou en pièce jointe — le formulaire est le seul canal de dépôt.`,
+  ].join("\n");
+
+  if (/espace bancaire|espace banque|format pdf/i.test(text)) {
+    text = text.replace(
+      /([^\n]*(?:espace bancaire|espace banque|format pdf)[^\n]*\.)/i,
+      `$1\n\n${formBlock}`,
+    );
+  } else {
+    text = `${text}\n\n${formBlock}`;
+  }
+
+  if (!text.includes(dossier.id)) {
+    text = `${text}\n\nRéférence interne : ${dossier.id}.`;
+  }
+  console.log(`[Camille prospect] Lien formulaire injecté (${dossier.id})`);
+  return text;
 }
 
 /** Corrections ciblées (sans écraser toute la réponse par un template générique). */
@@ -398,14 +437,7 @@ export function patchProspectReplyHardRules(
   const formUrl = getAssurancePlatformUrl();
   let text = String(plain || "").trim();
 
-  if (prospectReplyViolatesDocumentChannelRules(text)) {
-    const hasNegativeEmail = /pas (besoin|la peine).{0,40}(email|mail|pi[eè]ce jointe)/i.test(text);
-    if (!hasNegativeEmail) {
-      text = `${text}\n\nPour déposer l'offre de prêt et le tableau d'amortissement en PDF, utilisez notre formulaire en ligne sécurisé — pas besoin de les envoyer en réponse à ce mail :\n${formUrl}`;
-    } else if (!text.includes(formUrl)) {
-      text = `${text}\n\n${formUrl}`;
-    }
-  }
+  text = injectProspectFormLinkForLoanDocs(text, dossier);
 
   const asksDocsByEmail =
     /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(

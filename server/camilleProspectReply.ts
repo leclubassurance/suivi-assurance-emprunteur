@@ -241,9 +241,6 @@ export async function runProspectInboundReply(params: {
   if (prospectReplyViolatesInsurerDisclosureRules(plain)) {
     postIssues.push("assureurs");
   }
-  if (prospectReplyViolatesDocumentChannelRules(plain)) {
-    postIssues.push("documents sans formulaire");
-  }
   if (postIssues.length > 0) {
     return {
       action: "REVIEW",
