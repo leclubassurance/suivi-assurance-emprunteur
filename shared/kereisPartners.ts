@@ -91,6 +91,43 @@ RÈGLES RÉDACTION CLIENT :
 `.trim();
 }
 
+/** Compte combien de compagnies partenaires sont citées dans un texte (garde-fou LLM). */
+export function countMentionedKereisPartnersInText(text?: string): number {
+  const normalized = String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  let count = 0;
+  for (const partner of KEREIS_PARTNER_INSURERS) {
+    for (const alias of partner.aliases) {
+      const a = alias
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      if (a.length >= 3 && normalized.includes(a)) {
+        count += 1;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
+/** True si une réponse prospect énumère trop de compagnies ou des codes produits internes. */
+export function prospectReplyViolatesInsurerDisclosureRules(plain?: string): boolean {
+  const text = String(plain || "");
+  if (countMentionedKereisPartnersInText(text) >= 5) return true;
+  if (
+    /5369|4097|2827\/736|2828\/737|premium\s*2795|7357|7358|kredit.?assur|441066crd|441067ci|20259\s*ci|qua25g01602/i.test(
+      text,
+    ) &&
+    !/vous (avez |m').{0,30}(mentionn|cite|indiqu)/i.test(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Paragraphe client pour questions assureurs / partenaires (templates prospect). */
 export function buildProspectInsurerPartnerReplyParagraph(clientMessage?: string): string {
   const specific = detectMentionedKereisPartner(clientMessage);

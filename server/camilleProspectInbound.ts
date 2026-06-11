@@ -22,6 +22,7 @@ import { extractNewClientMessageText } from "./emailQuoteStrip";
 import {
   buildProspectInsurerPartnerReplyParagraph,
   detectMentionedKereisPartner,
+  prospectReplyViolatesInsurerDisclosureRules,
 } from "../shared/kereisPartners";
 
 export function isProspectInboundEnabled(): boolean {
@@ -215,6 +216,7 @@ export function isUnsafeProspectLlmReply(plain: string, clientMessage?: string):
     return true;
   }
   if (msg.length > 80 && plain.length < 120 && replyOnlyAsksDocs) return true;
+  if (prospectReplyViolatesInsurerDisclosureRules(plain)) return true;
   return false;
 }
 

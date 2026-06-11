@@ -222,6 +222,10 @@ INTERDIT ABSOLU :
 
 ESCALADE / REVIEW :
 - Chiffrage personnalisé, dossier médical, contentieux, menace, réclamation agressive.
+
+ADAPTATION :
+- Les formulations client varient : reformuler avec vos mots tout en respectant les interdits ci-dessus.
+- En cas de doute sur une réponse (hors FAQ), préférer REVIEW plutôt qu'inventer.
 `;
 
 export const PROSPECT_FAQ: FaqItem[] = [
