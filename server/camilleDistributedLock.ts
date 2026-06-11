@@ -39,7 +39,13 @@ export async function tryAcquireDistributedLock(lockKey: string): Promise<boolea
       return true;
     });
   } catch (err: any) {
-    console.warn(`[Lock] acquire ${lockKey} failed:`, err?.message || err);
+    const msg = String(err?.message || err);
+    console.warn(`[Lock] acquire ${lockKey} failed:`, msg);
+    // Firestore rules ou indispo → on retombe sur le verrou mémoire (ne pas bloquer l'envoi).
+    if (/PERMISSION_DENIED|permission|insufficient/i.test(msg)) {
+      console.warn(`[Lock] ${lockKey} — fallback verrou local uniquement`);
+      return true;
+    }
     return false;
   }
 }

@@ -192,19 +192,35 @@ export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: st
   const monthly = msg.match(/(\d{1,3})\s*€/i)?.[1];
   const noReplyYet = /pas eu votre réponse|pas reçu|sans réponse|toujours pas/i.test(msg);
 
+  const msgLower = msg.toLowerCase();
+  const contextual: string[] = [];
+  if (/agence immo|immobilier/.test(msgLower) && /assurance|faites|fait quoi|vous faites/.test(msgLower)) {
+    contextual.push(
+      `Le Club Immobilier Français accompagne aussi les projets immobiliers ; côté assurance emprunteur, Charles compare votre contrat actuel à des alternatives (Loi Lemoine) pour identifier une économie possible — c'est une activité distincte mais complémentaire de l'agence.`,
+    );
+  }
+  if (/je ne comprends pas|pas compris|gagn(er|e).{0,25}(argent|€)|pourquoi|comment (ça|ca) marche/.test(msgLower)) {
+    contextual.push(
+      `En résumé : nous analysons gratuitement votre assurance de prêt ; si un autre contrat équivalent coûte moins cher, Charles vous le montre chiffré dans une étude — vous gardez la main sur la décision, sans engagement.`,
+    );
+  }
+
   const lines = [
     noReplyYet
       ? `Toutes mes excuses pour l'attente — je reprends votre message.`
       : `Merci pour votre message.`,
+    ...contextual,
     monthly
       ? `Vous mentionnez environ ${monthly} € par mois : sans votre offre de prêt et votre tableau d'amortissement complets, Charles ne peut pas encore vous dire précisément ce qu'il est possible d'optimiser — c'est justement l'objet de l'étude gratuite.`
-      : `Sans l'offre de prêt et le tableau d'amortissement (PDF depuis votre espace banque), nous ne pouvons pas encore chiffrer une économie — l'étude personnalisée sert à cela.`,
+      : contextual.length === 0
+        ? `Sans l'offre de prêt et le tableau d'amortissement (PDF depuis votre espace banque), nous ne pouvons pas encore chiffrer une économie — l'étude personnalisée sert à cela.`
+        : null,
     `L'étude d'économie est gratuite et sans engagement.`,
     `Pour démarrer, complétez le formulaire sécurisé (quelques minutes) :`,
     formUrl,
     `Vous y déposerez les PDF — pas besoin de les envoyer en pièce jointe par email.`,
     `Référence interne : ${dossier.id}.`,
-  ];
+  ].filter(Boolean) as string[];
   return lines.join("\n\n");
 }
 
@@ -562,7 +578,8 @@ export async function syncProspectInboundFromGmail(
         allowIfUnansweredInbound: true,
         inboundGmailId: msgMeta.id,
       });
-      if (sendGate.ok && (await deps.acquireCamilleClientEmailLock(dossier.id))) {
+      const lockOk = sendGate.ok ? await deps.acquireCamilleClientEmailLock(dossier.id) : false;
+      if (sendGate.ok && lockOk) {
         try {
           await deps.sleep(deps.getCamilleReplyDelayMs());
           const aiDecision = await deps.aiCallback(dossier, text, senderEmail, {
@@ -679,10 +696,17 @@ export async function syncProspectInboundFromGmail(
           await deps.releaseCamilleClientEmailLock(dossier.id);
         }
       } else if (!alreadyHandled) {
-        skipReasons.sendGateBlocked += 1;
+        if (!sendGate.ok) {
+          skipReasons.sendGateBlocked += 1;
+        } else if (!lockOk) {
+          skipReasons.sendGateBlocked += 1;
+          console.warn(
+            `[Camille prospect] verrou email indisponible — réponse reportée: ${dossier.id} (${senderEmail})`,
+          );
+        }
         if (isCamilleTestMode()) {
           console.log(
-            `[Camille prospect] pas de réponse (${sendGate.reason || "gate"}): ${senderEmail} → ${dossier.id} msg=${msgMeta.id}`,
+            `[Camille prospect] pas de réponse (${sendGate.reason || (lockOk ? "gate" : "lock")}): ${senderEmail} → ${dossier.id} msg=${msgMeta.id}`,
           );
         }
       }

@@ -229,7 +229,13 @@ export async function processIncomingClientEmail(
       prospectLeadBlock,
     };
 
-    const decision = isCamilleReasoningEnabled()
+    const useReasoningPipeline =
+      isCamilleReasoningEnabled() &&
+      (!isProspectLead ||
+        String(process.env.CAMILLE_PROSPECT_REASONING_ENABLED ?? "false").toLowerCase() ===
+          "true");
+
+    const decision = useReasoningPipeline
       ? await runCamilleReasoningPipeline({
           knowledgeBlock,
           playbooksBlock: playbooksBlock || "Aucun playbook similaire validé par l'équipe.",
