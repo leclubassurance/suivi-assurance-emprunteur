@@ -53,15 +53,29 @@ async function startServer() {
       `[boot] build=${RAILWAY_BUILD_ID} deploySource=tsx-server.ts git=${process.env.RAILWAY_GIT_COMMIT_SHA || "local"}`,
     );
     console.log(`Server listening on 0.0.0.0:${PORT} (NODE_ENV=${process.env.NODE_ENV || "unset"})`);
-    void import("./server/businessHours")
-      .then(({ isCamilleTestMode, getCamilleTestModeUntilParisH }) => {
+    void Promise.all([
+      import("./server/businessHours"),
+      import("./server/telegramCamille"),
+      import("./server/camillePlaybooks"),
+    ])
+      .then(async ([{ isCamilleTestMode, getCamilleTestModeUntilParisH }, telegram, playbooks]) => {
         const testModeActive = isCamilleTestMode();
         const untilH = getCamilleTestModeUntilParisH();
         const aiReply = String(process.env.AI_AUTO_REPLY_ENABLED ?? "true").toLowerCase();
         const untilLabel = untilH == null ? "aucune" : `${String(untilH).padStart(2, "0")}h Paris`;
         const safeMode = String(process.env.CAMILLE_PRODUCTION_SAFE_MODE ?? "true").toLowerCase();
+        const tgOk = telegram.isTelegramEnabled();
         console.log(
-          `[boot] Camille: testMode=${testModeActive} (until=${untilLabel}) aiAutoReply=${aiReply} productionSafe=${safeMode !== "false" && safeMode !== "0"} (clients dossier)`,
+          `[boot] Camille: testMode=${testModeActive} (until=${untilLabel}) aiAutoReply=${aiReply} productionSafe=${safeMode !== "false" && safeMode !== "0"} telegram=${tgOk} (clients dossier)`,
+        );
+        if (!tgOk) {
+          console.warn(
+            "[boot] Telegram inactif — configurez TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_CHAT_IDS puis GET /api/telegram/setup-webhook",
+          );
+        }
+        const seed = await playbooks.seedDefaultPlaybooksIfEmpty();
+        console.log(
+          `[boot] Playbooks: ${seed.total} en base (seed +${seed.added}, version=${playbooks.getPlaybookSeedVersion()})`,
         );
       })
       .catch((err) => {

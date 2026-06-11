@@ -48,8 +48,21 @@ export function isPreApprovedClientReplyKind(kind: ClientReplyValidationKind): b
   );
 }
 
-export function shouldQueueClientReplyForValidation(kind: ClientReplyValidationKind): boolean {
+export function isHighConfidenceAutoSendAllowed(confidence?: number): boolean {
+  const enabled =
+    String(process.env.CAMILLE_ALLOW_HIGH_CONFIDENCE_AUTO ?? "true").toLowerCase() !== "false";
+  if (!enabled) return false;
+  const min = Number(process.env.CAMILLE_CLIENT_HIGH_CONFIDENCE_AUTO ?? "9");
+  const threshold = Number.isFinite(min) ? min : 9;
+  return confidence !== undefined && confidence >= threshold;
+}
+
+export function shouldQueueClientReplyForValidation(
+  kind: ClientReplyValidationKind,
+  confidence?: number,
+): boolean {
   if (isPreApprovedClientReplyKind(kind)) return false;
+  if (isHighConfidenceAutoSendAllowed(confidence)) return false;
   if (!isCamilleProductionSafeMode()) {
     const raw = String(process.env.CAMILLE_DRAFT_BEFORE_SEND ?? "false").toLowerCase();
     return raw === "true" || raw === "1";

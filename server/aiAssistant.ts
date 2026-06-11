@@ -45,6 +45,7 @@ import {
 import {
   buildClientSafetyReviewQuestion,
   extractPipelineConfidence,
+  isHighConfidenceAutoSendAllowed,
   isUnsafeClientLlmReply,
   shouldBlockClientAutoSendByConfidence,
   shouldForceClientReviewByConfidence,
@@ -340,11 +341,14 @@ export async function processIncomingClientEmail(
 
       const actionKind: ClientReplyValidationKind = "autonomous_reply";
       const html = wrapCamilleHtmlReply(text, prenom, nom, dossier);
+      const canTrustedAutoSend =
+        !safety.unsafe && critiqueApproved && isHighConfidenceAutoSendAllowed(confidence);
       const needsSafetyReview =
-        safety.unsafe ||
-        shouldForceClientReviewByConfidence(confidence) ||
-        shouldBlockClientAutoSendByConfidence(confidence) ||
-        (pipeline?.critique && !critiqueApproved);
+        !canTrustedAutoSend &&
+        (safety.unsafe ||
+          shouldForceClientReviewByConfidence(confidence) ||
+          shouldBlockClientAutoSendByConfidence(confidence) ||
+          (pipeline?.critique && !critiqueApproved));
 
       if (isCamilleReviewEnabled() && needsSafetyReview) {
         const reason = safety.unsafe
@@ -352,7 +356,7 @@ export async function processIncomingClientEmail(
           : !critiqueApproved
             ? "Critique qualité non validée"
             : `Confiance ${confidence ?? "?"}/10 insuffisante pour envoi direct`;
-        if (shouldQueueClientReplyForValidation(actionKind)) {
+        if (shouldQueueClientReplyForValidation(actionKind, confidence)) {
           console.log(`[AI] Brouillon sécurité en validation Telegram — ${dossier.id} (${reason})`);
           return {
             status: "pending_validation",
@@ -385,7 +389,10 @@ export async function processIncomingClientEmail(
         critiqueApproved,
       });
 
-      if (shouldQueueClientReplyForValidation(actionKind) && isCamilleReviewEnabled()) {
+      if (
+        shouldQueueClientReplyForValidation(actionKind, confidence) &&
+        isCamilleReviewEnabled()
+      ) {
         console.log(`[AI] Brouillon client en attente validation Telegram — ${dossier.id}`);
         logAiAudit(dossier, {
           action: "REVIEW",

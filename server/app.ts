@@ -237,6 +237,12 @@ export function createApp() {
         botToken: (await import("./telegramCamille")).hasTelegramBotToken(),
         operational: (await import("./telegramCamille")).isTelegramEnabled(),
       },
+      camille: {
+        productionSafeMode:
+          String(process.env.CAMILLE_PRODUCTION_SAFE_MODE ?? "true").toLowerCase() !== "false",
+        playbookSeedVersion: (await import("./camillePlaybooks")).getPlaybookSeedVersion(),
+        playbookCount: (await (await import("./camillePlaybooks")).listPlaybooks(500)).length,
+      },
     });
   });
 
