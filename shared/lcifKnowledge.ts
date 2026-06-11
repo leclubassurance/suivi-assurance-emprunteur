@@ -277,6 +277,14 @@ export const PROSPECT_FAQ: FaqItem[] = [
     q: "Puis-je vous appeler ?",
     a: "Le suivi se fait par email pour garder une trace écrite. Écrivez votre question en répondant à ce fil.",
   },
+  {
+    q: "Êtes-vous humaine / un robot / une IA ?",
+    a: "Je suis Camille, assistante de Charles au Club Immobilier Français : suivi email au quotidien ; Charles prépare les études. Réponses rapides possibles sur les sujets courants — ton humain et transparent, sans prétendre être Charles.",
+  },
+  {
+    q: "Question hors-sujet (météo, etc.) ?",
+    a: "Refuser poliment : hors périmètre assurance emprunteur. Revenir au formulaire ou aux questions sur le prêt — ne pas inventer de réponse (météo, actualités…).",
+  },
 ];
 
 /** Base statique injectée uniquement pour les prospects (sans Kereis adhésion / substitution). */

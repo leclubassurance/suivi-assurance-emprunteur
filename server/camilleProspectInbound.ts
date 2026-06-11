@@ -153,10 +153,68 @@ export function isProspectInsurerPartnerQuestion(clientMessage?: string): boolea
   );
 }
 
+/** Humain vs IA, hors-sujet (météo…) — ne pas répondre avec le template documents. */
+export function isProspectRelationalSmallTalk(clientMessage?: string): boolean {
+  const msg = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
+  if (!msg) return false;
+  return (
+    /humaine?|humain|robot|intelligence artificielle|\bia\b|chatgpt|bot\b|automatique|pas une vraie|vraie personne|vous [êe]tes (une )?ia/i.test(
+      msg,
+    ) ||
+    /météo|meteo|weather|il va (pleuvoir|faire|neiger)/i.test(msg) ||
+    (/réactivité|réactif|trop vite|trop rapide/i.test(msg) &&
+      /humaine?|humain|robot|\bia\b|automatique/i.test(msg))
+  );
+}
+
+/** Réponse aux questions relationnelles / hors-sujet (prospect). */
+export function buildProspectRelationalReplyPlain(dossier: any, clientMessage?: string): string {
+  const formUrl = getAssurancePlatformUrl();
+  const msg = extractNewClientMessageText(String(clientMessage || "")).trim();
+  const msgLower = msg.toLowerCase();
+  const lines = [`Merci pour votre message.`];
+
+  if (
+    /humaine?|humain|robot|intelligence artificielle|\bia\b|chatgpt|bot\b|automatique|pas une vraie|vraie personne|vous [êe]tes (une )?ia/i.test(
+      msgLower,
+    )
+  ) {
+    lines.push(
+      `Je suis Camille, l'assistante de Charles Victor au Club Immobilier Français. Je gère le suivi par email au quotidien (questions, formulaire, documents) ; Charles, conseiller en assurance emprunteur, prépare les études personnalisées. Nos réponses peuvent être rapides sur les demandes courantes — je reste à votre disposition pour votre assurance de prêt.`,
+    );
+  } else if (/réactivité|réactif|trop vite|trop rapide/i.test(msgLower)) {
+    lines.push(
+      `Merci pour votre retour : nous faisons au mieux pour répondre clairement et rapidement à chaque message.`,
+    );
+  }
+
+  if (/météo|meteo|weather|il va (pleuvoir|faire|neiger)/i.test(msgLower)) {
+    lines.push(
+      `En revanche, je ne peux pas vous renseigner sur la météo : mon périmètre est l'accompagnement assurance emprunteur. Pour la météo, Météo-France ou votre application habituelle seront plus fiables.`,
+    );
+  }
+
+  lines.push(
+    `L'étude d'économie est gratuite et sans engagement.`,
+    `Pour lancer votre dossier ou poser une question sur votre assurance de prêt, le formulaire en ligne est ici :`,
+    formUrl,
+    `Référence interne : ${dossier.id}.`,
+  );
+  return lines.join("\n\n");
+}
+
+function prospectMessageNeedsLoanDocsReminder(clientMessage?: string): boolean {
+  const msg = extractNewClientMessageText(String(clientMessage || "")).toLowerCase();
+  return /document|offre de prêt|tableau|formulaire|pdf|chiffr|économ|econom|étude|etude|optimis|tarif|co[uû]t|prêt|pret|gratuit|sans engagement|lemoine|délégation|delegation|combien|€|euro|assurance emprunteur/i.test(
+    msg,
+  );
+}
+
 /** Questions prospect courantes → réponse template fiable (sans LLM). */
 export function isProspectTemplateQuestion(clientMessage?: string): boolean {
   const msg = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
   if (!msg || msg.length > 600) return false;
+  if (isProspectRelationalSmallTalk(msg)) return false;
   if (isProspectInsurerPartnerQuestion(msg) || detectMentionedKereisPartner(msg)) return true;
   if (
     /(gratuit|sans engagement|lemoine|délégation|delegation|obligatoire|c'est quoi|qu'est.ce|quest.ce|comment (ça|ca) (marche|fonctionne)|pourquoi (vous|m').{0,30}(contact|écri|ecri)|club immobilier|agence immo|faites.{0,20}(immobilier|assurance)|documents?.{0,20}(faut|besoin|nécessaire|necessaire)|offre de prêt|tableau d.amortissement|formulaire|combien de temps|délai|delai)/i.test(
@@ -217,6 +275,19 @@ export function isUnsafeProspectLlmReply(plain: string, clientMessage?: string):
   }
   if (msg.length > 80 && plain.length < 120 && replyOnlyAsksDocs) return true;
   if (prospectReplyViolatesInsurerDisclosureRules(plain)) return true;
+  if (
+    isProspectRelationalSmallTalk(msg) &&
+    replyOnlyAsksDocs &&
+    !/(camille|assistante|charles|humain|météo|meteo|weather|assurance emprunteur|club)/i.test(text)
+  ) {
+    return true;
+  }
+  if (
+    isProspectRelationalSmallTalk(msg) &&
+    !/(camille|assistante|charles|humain|météo|meteo|weather)/i.test(text)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -275,9 +346,11 @@ export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: st
     ...contextual,
     monthly
       ? `Vous mentionnez environ ${monthly} € par mois : sans votre offre de prêt et votre tableau d'amortissement complets, Charles ne peut pas encore vous dire précisément ce qu'il est possible d'optimiser — c'est justement l'objet de l'étude gratuite.`
-      : contextual.length === 0
+      : contextual.length === 0 && prospectMessageNeedsLoanDocsReminder(msg)
         ? `Sans l'offre de prêt et le tableau d'amortissement (PDF depuis votre espace banque), nous ne pouvons pas encore chiffrer une économie — l'étude personnalisée sert à cela.`
-        : null,
+        : contextual.length === 0
+          ? `Je reste à votre disposition pour toute question sur l'assurance emprunteur ou pour lancer votre étude gratuite via le formulaire ci-dessous.`
+          : null,
     `L'étude d'économie est gratuite et sans engagement.`,
     `Pour démarrer, complétez le formulaire sécurisé (quelques minutes) :`,
     formUrl,
@@ -296,7 +369,9 @@ export function enforceProspectReplyPlain(
   const formUrl = getAssurancePlatformUrl();
   let text = String(plain || "").trim();
   if (isUnsafeProspectLlmReply(text, clientMessage)) {
-    text = buildProspectQuestionReplyPlain(dossier, clientMessage);
+    text = isProspectRelationalSmallTalk(clientMessage)
+      ? buildProspectRelationalReplyPlain(dossier, clientMessage)
+      : buildProspectQuestionReplyPlain(dossier, clientMessage);
   }
   const asksDocsByEmail =
     /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(

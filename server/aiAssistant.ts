@@ -74,10 +74,30 @@ export async function processIncomingClientEmail(
       const {
         buildProspectWelcomeReplyPlain,
         buildProspectQuestionReplyPlain,
+        buildProspectRelationalReplyPlain,
         isSimpleProspectGreeting,
+        isProspectRelationalSmallTalk,
         isProspectTemplateQuestion,
         enforceProspectReplyPlain,
       } = await import("./camilleProspectInbound");
+      if (isProspectRelationalSmallTalk(clientMessageForAi)) {
+        const plain = buildProspectRelationalReplyPlain(dossier, clientMessageForAi);
+        const telegramAction = buildTelegramActionFromReply({
+          dossier,
+          clientMessage: clientMessageForAi,
+          replyPlain: plain,
+          emailSubject: options?.emailSubject,
+          actionKind: "prospect_relational",
+          attachmentNames,
+        });
+        console.log(`[AI] Réponse prospect relationnelle pour ${dossier.id}`);
+        return {
+          status: "replied",
+          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+          replyPlain: plain,
+          telegramAction,
+        };
+      }
       if (isSimpleProspectGreeting(clientMessageForAi)) {
         const plain = buildProspectWelcomeReplyPlain(dossier, clientMessageForAi);
         const telegramAction = buildTelegramActionFromReply({
