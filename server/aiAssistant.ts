@@ -72,31 +72,9 @@ export async function processIncomingClientEmail(
     const conversationTailEarly = getConversationTailForAi(dossier);
 
     if (isProspectLead) {
-      const { buildProspectWelcomeReplyPlain, isSimpleProspectGreeting } = await import(
-        "./camilleProspectInbound",
-      );
-      const { runProspectInboundReplyPipeline } = await import("./camilleProspectReply");
+      const { runProspectInboundReply } = await import("./camilleProspectReply");
 
-      if (isSimpleProspectGreeting(clientMessageForAi)) {
-        const plain = buildProspectWelcomeReplyPlain(dossier, clientMessageForAi);
-        const telegramAction = buildTelegramActionFromReply({
-          dossier,
-          clientMessage: clientMessageForAi,
-          replyPlain: plain,
-          emailSubject: options?.emailSubject,
-          actionKind: "prospect_welcome",
-          attachmentNames,
-        });
-        console.log(`[AI] Réponse prospect accueil pour ${dossier.id}`);
-        return {
-          status: "replied",
-          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-          replyPlain: plain,
-          telegramAction,
-        };
-      }
-
-      const prospectDecision = await runProspectInboundReplyPipeline({
+      const prospectDecision = await runProspectInboundReply({
         dossier,
         clientMessage: clientMessageForAi,
         emailSubject: options?.emailSubject,
@@ -106,13 +84,8 @@ export async function processIncomingClientEmail(
         conversationTail: conversationTailEarly,
       });
 
-      const prospectModel = prospectDecision.pipeline?.model || "gemini-2.5-flash";
-      const prospectAudit = {
-        prospectPipeline: true,
-        primaryTopic: prospectDecision.pipeline?.analyze?.primaryTopic,
-        clientPoints: prospectDecision.pipeline?.analyze?.clientPoints?.length,
-        critiqueApproved: prospectDecision.pipeline?.critiqueApproved,
-      };
+      const prospectModel = prospectDecision.model || "gemini-2.5-flash";
+      const prospectAudit = { prospectSingleShot: true };
 
       if (prospectDecision.action === "REVIEW") {
         const question = String(prospectDecision.questionForStaff || "").trim();
@@ -158,7 +131,7 @@ export async function processIncomingClientEmail(
           actor: "Camille",
           outcome: "sent",
           model: prospectModel,
-          summary: `Pipeline prospect (${prospectDecision.pipeline?.analyze?.primaryTopic || "—"})`,
+          summary: `Réponse prospect (${prospectModel})`,
           instructionPreview: plain.slice(0, 300),
           meta: prospectAudit,
         });
@@ -167,11 +140,8 @@ export async function processIncomingClientEmail(
           clientMessage: clientMessageForAi,
           replyPlain: plain,
           emailSubject: options?.emailSubject,
-          actionKind: "prospect_pipeline",
+          actionKind: prospectDecision.model === "template" ? "prospect_welcome" : "prospect_reply",
           attachmentNames,
-          analyze: prospectDecision.pipeline?.analyze as any,
-          plan: prospectDecision.pipeline?.plan as any,
-          critiqueApproved: prospectDecision.pipeline?.critiqueApproved,
         });
         return {
           status: "replied",

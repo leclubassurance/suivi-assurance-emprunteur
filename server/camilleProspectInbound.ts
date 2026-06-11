@@ -103,42 +103,53 @@ export function buildProspectLeadPromptBlock(dossier: any): string {
 MODE PROSPECT / PRÉ-ÉTUDE (isLead=true — pas encore de dossier formulaire)
 - Ce contact a écrit à assurance@ SANS avoir rempli le formulaire en ligne.
 - Répondre aux questions générales (gratuité de l'étude, Loi Lemoine, délais indicatifs, fonctionnement de l'étude d'économie).
-- ÉTAPE SUIVANTE OBLIGATOIRE : inviter à démarrer via le formulaire en ligne : ${formUrl}
+- Inviter au formulaire en ligne (${formUrl}) UNIQUEMENT si le client veut démarrer, demande la suite, ou parle des documents — PAS sur un simple bonjour.
 - Le formulaire recueille les informations du projet ET permet de déposer l'offre de prêt et le tableau d'amortissement (PDF).
 - INTERDIT ABSOLU : demander d'envoyer offre de prêt, tableau d'amortissement, CNI ou RIB par réponse email ou pièce jointe mail.
 - INTERDIT : promettre une étude chiffrée avant réception du formulaire complété.
-- Le lien formulaire (${formUrl}) doit apparaître clairement dans la réponse (URL cliquable).
+- Le lien formulaire (${formUrl}) seulement quand c'est le bon moment (pas à chaque mail).
 - NE PAS parler d'étude déjà envoyée ni d'espace adhésion Kereis.
 - Si le prospect demande avec quels assureurs nous travaillons : Kereis + 2 à 4 exemples max, contrats particuliers / tarifs privilégiés — JAMAIS la liste complète ; si demande explicite → Charles la communiquera ensuite.
 - Ton accueillant, pédagogique. Référence interne : ${dossier.id}.
 `.trim();
 }
 
-/** Réponse prospect fiable (sans LLM) — accueil + lien formulaire uniquement. */
-export function buildProspectWelcomeReplyPlain(dossier: any, clientMessage?: string): string {
-  const formUrl = getAssurancePlatformUrl();
-  const msg = String(clientMessage || "").trim().toLowerCase();
-  const isOnlyGreeting =
-    !msg ||
-    /^(bonjour|bonsoir|salut|hello|bonne journ[ée]e|bonne soir[ée]e|info|renseignement|question)[\s!.?]*$/i.test(
-      msg,
-    );
-  const lines = [
-    `Merci pour votre message et l'intérêt que vous portez à notre étude d'assurance emprunteur.`,
-    `L'étude d'économie est gratuite et sans engagement.`,
-  ];
-  if (!isOnlyGreeting && msg.length > 3) {
-    lines.push(
-      `Nous avons bien noté votre demande ; le formulaire en ligne permet de nous transmettre les éléments de votre projet pour que Charles puisse préparer une étude personnalisée.`,
-    );
-  }
-  lines.push(
-    `Pour démarrer, complétez le formulaire sécurisé (quelques minutes) :`,
-    formUrl,
-    `Vous pourrez y déposer l'offre de prêt et le tableau d'amortissement en PDF — pas besoin de les envoyer en pièce jointe par email.`,
+/** Bonjour / salut seul — sans citation du fil précédent. */
+export function isPureProspectGreeting(clientMessage?: string): boolean {
+  const msg = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
+  if (!msg || msg.length > 80) return false;
+  return /^(bonjour|bonsoir|salut|hello|coucou|bonne journ[ée]e|bonne soir[ée]e)[\s!.?,]*$/i.test(msg);
+}
+
+/** Salutation seule — courte et naturelle, sans formulaire. */
+export function buildProspectPureGreetingReplyPlain(dossier: any): string {
+  return [
+    `Merci pour votre message.`,
+    `Je suis Camille, l'assistante de Charles Victor au Club Immobilier Français. Je peux répondre à vos questions sur l'assurance emprunteur, ou vous accompagner si vous souhaitez lancer une étude d'économie gratuite et sans engagement.`,
+    `De quoi souhaitez-vous qu'on parle ?`,
     `Référence interne : ${dossier.id}.`,
-  );
-  return lines.join("\n\n");
+  ].join("\n\n");
+}
+
+/** Réponse prospect fiable (sans LLM) — accueil léger ou CTA formulaire si demande explicite. */
+export function buildProspectWelcomeReplyPlain(dossier: any, clientMessage?: string): string {
+  if (isPureProspectGreeting(clientMessage)) {
+    return buildProspectPureGreetingReplyPlain(dossier);
+  }
+  const formUrl = getAssurancePlatformUrl();
+  const msg = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
+  const isLightIntro =
+    /^(info|renseignement|question)[\s!.?]*$/i.test(msg) || msg.length <= 40;
+  if (isLightIntro) {
+    return buildProspectPureGreetingReplyPlain(dossier);
+  }
+  return [
+    `Merci pour votre message.`,
+    `Nous avons bien noté votre demande. L'étude d'économie est gratuite et sans engagement.`,
+    `Pour que Charles prépare une étude personnalisée, le formulaire en ligne permet de nous transmettre votre offre de prêt et votre tableau d'amortissement en PDF :`,
+    formUrl,
+    `Référence interne : ${dossier.id}.`,
+  ].join("\n\n");
 }
 
 /** Question sur les assureurs / partenaires — réponse template autorisée. */
@@ -230,13 +241,12 @@ export function isProspectTemplateQuestion(clientMessage?: string): boolean {
 export function isSimpleProspectGreeting(clientMessage?: string): boolean {
   const msg = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
   if (!msg) return true;
+  if (isPureProspectGreeting(clientMessage)) return true;
   if (msg.length > 120) return false;
   if (/\?/.test(msg) && /(lemoine|économ|econom|gratuit|tarif|délai|delai|comment|pourquoi|assurance|prêt|pret|fonctionne)/i.test(msg)) {
     return false;
   }
-  return /^(bonjour|bonsoir|salut|hello|bonne journ[ée]e|bonne soir[ée]e|info|renseignement|question|coucou|bonjour[,!\s].{0,40})[\s!.?]*$/i.test(
-    msg,
-  );
+  return /^(info|renseignement|question)[\s!.?]*$/i.test(msg);
 }
 
 /** Réponse sûre quand le LLM invente des chiffres ou interprète mal le fil prospect. */
