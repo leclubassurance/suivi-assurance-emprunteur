@@ -9,6 +9,7 @@ import { extractNewClientMessageText } from "./emailQuoteStrip";
 import {
   buildProspectLeadPromptBlock,
   patchProspectReplyHardRules,
+  prospectReplyViolatesDocumentChannelRules,
   prospectReplyViolatesInsurerDisclosureRules,
 } from "./camilleProspectInbound";
 
@@ -50,10 +51,15 @@ PRINCIPES DE CONVERSATION :
 - Pas de « Bonjour » dans messageToClient (ajouté automatiquement).
 - Référence dossier en fin de mail : LCIF-XXXXXX (fournie dans le contexte).
 
+DOCUMENTS (offre de prêt, tableau d'amortissement) :
+- Si tu en parles : indiquer OBLIGATOIREMENT le lien formulaire (URL dans le contexte).
+- Dire explicitement de NE PAS envoyer les PDF en réponse à ce mail — dépôt sur le formulaire uniquement.
+- Tu peux expliquer où les trouver (espace bancaire) MAIS toujours conclure par le formulaire.
+
 INTERDITS MÉTIER (non négociables) :
 - Liste complète des assureurs → Charles communiquera la suite ; 2-4 exemples max si question assureurs.
 - Codes produits, chiffres d'économie inventés, météo inventée.
-- Demander PDF / offre / tableau / CNI / RIB par email (formulaire en ligne uniquement).
+- Laisser entendre qu'on peut joindre les documents à un mail de réponse.
 - Numéro de téléphone.
 
 REVIEW si médical, juridique, menace, chiffrage personnalisé, ou impossibilité de répondre honnêtement.
@@ -136,7 +142,7 @@ ${buildProspectLeadPromptBlock(params.dossier)}
 Dossier : ${params.dossier.id}
 Client : ${params.prenom} ${params.nom} <${params.clientEmail}>
 Sujet : ${params.emailSubject || "—"}
-Formulaire (si tu invites à démarrer) : ${formUrl}
+Formulaire OBLIGATOIRE dès que tu cites offre de prêt / tableau / documents à fournir : ${formUrl}
 
 Fil de conversation :
 ${params.conversationTail || "(premier échange)"}
@@ -180,6 +186,11 @@ export async function runProspectInboundReply(params: {
   ];
   if (prospectReplyViolatesInsurerDisclosureRules(String(parsed.messageToClient || ""))) {
     issues.push("violation règles assureurs (liste complète ou codes produits)");
+  }
+  if (prospectReplyViolatesDocumentChannelRules(String(parsed.messageToClient || ""))) {
+    issues.push(
+      "documents mentionnés sans lien formulaire — inclure l'URL et dire de ne pas envoyer par email",
+    );
   }
 
   if (issues.length > 0 && String(parsed.action || "").toUpperCase() === "REPLY") {
@@ -229,6 +240,9 @@ export async function runProspectInboundReply(params: {
   ];
   if (prospectReplyViolatesInsurerDisclosureRules(plain)) {
     postIssues.push("assureurs");
+  }
+  if (prospectReplyViolatesDocumentChannelRules(plain)) {
+    postIssues.push("documents sans formulaire");
   }
   if (postIssues.length > 0) {
     return {

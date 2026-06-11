@@ -370,6 +370,25 @@ export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: st
   return lines.join("\n\n");
 }
 
+/** Mentionne offre/tableau sans orienter vers le formulaire en ligne. */
+export function prospectReplyViolatesDocumentChannelRules(plain?: string): boolean {
+  const text = String(plain || "").toLowerCase();
+  const formUrl = getAssurancePlatformUrl().toLowerCase();
+  const hasFormLink =
+    text.includes(formUrl) ||
+    /formulaire en ligne|formulaire sécurisé|formulaire:\s*https/i.test(text);
+
+  const mentionsLoanDocs =
+    /offre de prêt|tableau d.amortissement|tableau d'amortissement|échéancier|echeancier|amortissement complet/i.test(
+      text,
+    ) ||
+    (/besoin de (vos |votre )?(documents|pièces|offre|tableau)/i.test(text) &&
+      /prêt|emprunt|assurance/i.test(text));
+
+  if (!mentionsLoanDocs) return false;
+  return !hasFormLink;
+}
+
 /** Corrections ciblées (sans écraser toute la réponse par un template générique). */
 export function patchProspectReplyHardRules(
   plain: string,
@@ -378,6 +397,15 @@ export function patchProspectReplyHardRules(
 ): string {
   const formUrl = getAssurancePlatformUrl();
   let text = String(plain || "").trim();
+
+  if (prospectReplyViolatesDocumentChannelRules(text)) {
+    const hasNegativeEmail = /pas (besoin|la peine).{0,40}(email|mail|pi[eè]ce jointe)/i.test(text);
+    if (!hasNegativeEmail) {
+      text = `${text}\n\nPour déposer l'offre de prêt et le tableau d'amortissement en PDF, utilisez notre formulaire en ligne sécurisé — pas besoin de les envoyer en réponse à ce mail :\n${formUrl}`;
+    } else if (!text.includes(formUrl)) {
+      text = `${text}\n\n${formUrl}`;
+    }
+  }
 
   const asksDocsByEmail =
     /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(

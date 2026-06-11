@@ -76,7 +76,7 @@ export const LCIF_FAQ: FaqItem[] = [
   },
   {
     q: "Quels documents pour lancer l'étude ?",
-    a: "En priorité : l'offre de prêt et le tableau d'amortissement complets en PDF depuis votre espace bancaire. Ensuite, pour activer un changement : pièce d'identité et RIB — Charles vous le précisera au bon moment.",
+    a: "Offre de prêt + tableau d'amortissement en PDF (espace bancaire). À déposer sur le formulaire en ligne — jamais en pièce jointe par email. Citer l'URL du formulaire dès qu'on mentionne ces documents.",
   },
   {
     q: "Combien de temps pour l'étude ?",
@@ -245,7 +245,7 @@ export const PROSPECT_FAQ: FaqItem[] = [
   },
   {
     q: "Quels documents faut-il ?",
-    a: "Pour lancer l'étude : l'offre de prêt et le tableau d'amortissement complets en PDF depuis votre espace bancaire — à déposer sur le formulaire en ligne, pas par email.",
+    a: "Offre de prêt + tableau d'amortissement (PDF banque). Toujours donner le lien formulaire quand on en parle ; préciser de ne pas les envoyer en réponse à ce mail.",
   },
   {
     q: "Puis-je envoyer les documents par email ?",
