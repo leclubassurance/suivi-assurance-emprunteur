@@ -3,6 +3,8 @@
  * « Documentation Camille » (variable CAMILLE_KNOWLEDGE_DRIVE_FOLDER_ID).
  */
 
+import { buildKereisPartnersKnowledgeBlock } from "./kereisPartners";
+
 /** À utiliser uniquement si le client pose une question sur le Club ou « pourquoi l'assurance ». */
 export const LCIF_PRESENTATION_WHEN_ASKED = `
 LE CLUB IMMOBILIER FRANÇAIS (si le client demande qui vous êtes ou pourquoi vous faites de l'assurance emprunteur) :
@@ -207,7 +209,7 @@ TU RÉPONDS SEULE (questions générales autorisées) :
 - Loi Lemoine (principe général, sans éligibilité personnalisée).
 - Documents nécessaires pour lancer l'étude : offre de prêt + tableau d'amortissement via le formulaire en ligne.
 - Qui est Camille / Charles, pourquoi le Club Immobilier Français propose ce service.
-- Avec quels assureurs nous travaillons : mentionner Kereis Prévoyance comme partenaire reconnu ; Charles compare les garanties équivalentes dans l'étude gratuite.
+- Avec quels assureurs nous travaillons : Kereis Prévoyance + exemples de compagnies accessibles (voir bloc partenaires) — liste complète uniquement si le client la demande explicitement.
 
 ÉTAPE SUIVANTE OBLIGATOIRE dans chaque réponse :
 - Inviter à compléter le formulaire en ligne sécurisé (URL fournie dans le contexte dossier).
@@ -249,7 +251,7 @@ export const PROSPECT_FAQ: FaqItem[] = [
   },
   {
     q: "Avec quels assureurs travaillez-vous ?",
-    a: "Nous travaillons notamment avec des partenaires assureurs reconnus, dont Kereis Prévoyance. Charles compare les garanties équivalentes à votre contrat actuel et vous présente l'offre la plus adaptée dans l'étude gratuite.",
+    a: "Nous passons par Kereis Prévoyance, avec accès notamment à Allianz, Axa, Cardif, CNP, Generali, Harmonie Mutuelle, Malakoff Humanis, MNCAP ou Mutlog selon le profil. Ne pas énumérer toute la liste sauf demande explicite du client ; Charles précise l'offre retenue dans l'étude gratuite.",
   },
   {
     q: "Pourquoi le Club Immobilier Français me contacte ?",
@@ -280,6 +282,8 @@ export function buildProspectCamilleKnowledgeBlock(): string {
     "",
     "FAQ PROSPECT PRÉ-ÉTUDE (réponses autorisées — pas de chiffres personnalisés) :",
     formatLcifFaqForPrompt(PROSPECT_FAQ, 12),
+    "",
+    buildKereisPartnersKnowledgeBlock(),
     "",
     "PRÉSENTATION CLUB (si le prospect la demande) :",
     LCIF_PRESENTATION_WHEN_ASKED.trim(),

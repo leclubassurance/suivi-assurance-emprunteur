@@ -19,6 +19,10 @@ function extractSenderEmail(fromRaw: string): string {
 export { shouldIgnoreProspectSender } from "./inboundEmailClassifier";
 import { isLeadDossier } from "./leadDossierMerge";
 import { extractNewClientMessageText } from "./emailQuoteStrip";
+import {
+  buildProspectInsurerPartnerReplyParagraph,
+  detectMentionedKereisPartner,
+} from "../shared/kereisPartners";
 
 export function isProspectInboundEnabled(): boolean {
   const raw = String(process.env.CAMILLE_PROSPECT_INBOUND_ENABLED ?? "").toLowerCase();
@@ -104,7 +108,7 @@ MODE PROSPECT / PRÉ-ÉTUDE (isLead=true — pas encore de dossier formulaire)
 - INTERDIT : promettre une étude chiffrée avant réception du formulaire complété.
 - Le lien formulaire (${formUrl}) doit apparaître clairement dans la réponse (URL cliquable).
 - NE PAS parler d'étude déjà envoyée ni d'espace adhésion Kereis.
-- Si le prospect demande avec quels assureurs nous travaillons : mentionner Kereis Prévoyance comme partenaire (sans inventer d'autres noms).
+- Si le prospect demande avec quels assureurs nous travaillons : Kereis Prévoyance + exemples (Allianz, Axa, Cardif, Generali…) — liste complète des 9 compagnies partenaires uniquement si demande explicite (voir bloc partenaires Kereis).
 - Ton accueillant, pédagogique. Référence interne : ${dossier.id}.
 `.trim();
 }
@@ -143,7 +147,8 @@ export function isProspectInsurerPartnerQuestion(clientMessage?: string): boolea
     /assurances?\s+(pour\s+)?(lesquel|laquel|quel)/i.test(msg) ||
     /avec quels? assureurs|quels? assureurs|compagnies?\s+d.assurance/i.test(msg) ||
     /partenaires?\s+(assurance|assureur)/i.test(msg) ||
-    /travaillez avec quels/i.test(msg)
+    /travaillez avec quels/i.test(msg) ||
+    Boolean(detectMentionedKereisPartner(msg))
   );
 }
 
@@ -151,7 +156,7 @@ export function isProspectInsurerPartnerQuestion(clientMessage?: string): boolea
 export function isProspectTemplateQuestion(clientMessage?: string): boolean {
   const msg = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
   if (!msg || msg.length > 600) return false;
-  if (isProspectInsurerPartnerQuestion(msg)) return true;
+  if (isProspectInsurerPartnerQuestion(msg) || detectMentionedKereisPartner(msg)) return true;
   if (
     /(gratuit|sans engagement|lemoine|délégation|delegation|obligatoire|c'est quoi|qu'est.ce|quest.ce|comment (ça|ca) (marche|fonctionne)|pourquoi (vous|m').{0,30}(contact|écri|ecri)|club immobilier|agence immo|faites.{0,20}(immobilier|assurance)|documents?.{0,20}(faut|besoin|nécessaire|necessaire)|offre de prêt|tableau d.amortissement|formulaire|combien de temps|délai|delai)/i.test(
       msg,
@@ -222,10 +227,8 @@ export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: st
 
   const msgLower = msg.toLowerCase();
   const contextual: string[] = [];
-  if (isProspectInsurerPartnerQuestion(msg)) {
-    contextual.push(
-      `Nous travaillons notamment avec des partenaires assureurs reconnus (dont Kereis Prévoyance) : Charles compare les garanties équivalentes à votre contrat actuel et vous présente l'offre la plus adaptée dans l'étude gratuite — sans engagement de votre part.`,
-    );
+  if (isProspectInsurerPartnerQuestion(msg) || detectMentionedKereisPartner(msg)) {
+    contextual.push(buildProspectInsurerPartnerReplyParagraph(msg));
   }
   if (/agence immo/.test(msgLower) && /assurance|faites|fait quoi|vous faites/.test(msgLower)) {
     contextual.push(
