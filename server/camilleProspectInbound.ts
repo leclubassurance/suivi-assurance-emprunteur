@@ -108,7 +108,7 @@ MODE PROSPECT / PRÉ-ÉTUDE (isLead=true — pas encore de dossier formulaire)
 - INTERDIT : promettre une étude chiffrée avant réception du formulaire complété.
 - Le lien formulaire (${formUrl}) doit apparaître clairement dans la réponse (URL cliquable).
 - NE PAS parler d'étude déjà envoyée ni d'espace adhésion Kereis.
-- Si le prospect demande avec quels assureurs nous travaillons : Kereis Prévoyance + exemples (Allianz, Axa, Cardif, Generali…) — liste complète des 9 compagnies partenaires uniquement si demande explicite (voir bloc partenaires Kereis).
+- Si le prospect demande avec quels assureurs nous travaillons : Kereis + 2 à 4 exemples max, contrats particuliers / tarifs privilégiés — JAMAIS la liste complète ; si demande explicite → Charles la communiquera ensuite.
 - Ton accueillant, pédagogique. Référence interne : ${dossier.id}.
 `.trim();
 }

@@ -39,6 +39,12 @@ export const KEREIS_PARTNER_INSURER_NAMES = KEREIS_PARTNER_INSURERS.map((p) => p
 
 const DEFAULT_EXAMPLE_NAMES = ["Allianz", "Axa", "Cardif", "Generali"];
 
+const PRIVILEGED_TARIFF_LINE =
+  `Nous avons des contrats particuliers avec ces compagnies, ce qui nous permet de vous proposer des tarifs privilégiés sur ces assurances emprunteur.`;
+
+const CHARLES_FULL_LIST_LINE =
+  `Pour la liste complète de nos assureurs partenaires, Charles reviendra vers vous par la suite pour vous la communiquer.`;
+
 /** Détecte si le client cite une compagnie de la liste Kereis. */
 export function detectMentionedKereisPartner(clientMessage?: string): KereisPartnerInsurer | null {
   const msg = String(clientMessage || "")
@@ -76,9 +82,10 @@ PARTENAIRES ASSUREURS VIA KEREIS PRÉVOYANCE (référence interne — ne pas tou
 ${internalLines}
 
 RÈGLES RÉDACTION CLIENT :
-- Par défaut : mentionner Kereis Prévoyance comme partenaire courtier ; éventuellement 2 à 4 exemples (${DEFAULT_EXAMPLE_NAMES.join(", ")}…) — PAS la liste complète sauf demande explicite.
-- Si le client demande la liste complète des compagnies : énumérer les noms uniquement (${KEREIS_PARTNER_INSURER_NAMES.join(", ")}), sans les codes produits internes.
-- Si le client cite une compagnie de la liste : confirmer que Charles peut étudier une solution via Kereis incluant cette compagnie si le profil le permet — sans promettre le contrat ni garantir le choix final.
+- Par défaut : Kereis Prévoyance + 2 à 4 exemples maximum (${DEFAULT_EXAMPLE_NAMES.join(", ")}…) — JAMAIS énumérer l'ensemble des ${KEREIS_PARTNER_INSURER_NAMES.length} compagnies partenaires.
+- Toujours rappeler que nous avons des contrats particuliers avec ces assureurs pour proposer des tarifs privilégiés.
+- Si le client demande la liste complète : ${CHARLES_FULL_LIST_LINE} — ne jamais donner tous les noms par email automatique.
+- Si le client cite une compagnie de la liste : confirmer que Charles peut étudier une solution via Kereis incluant cette compagnie si le profil le permet — sans promettre le contrat.
 - Ne jamais communiquer les codes / références produits (5369, CLE, Premium 2795, etc.) au client, sauf s'il les cite lui-même.
 - Le choix définitif de la compagnie et du contrat figure uniquement dans l'étude personnalisée de Charles.
 `.trim();
@@ -88,10 +95,22 @@ RÈGLES RÉDACTION CLIENT :
 export function buildProspectInsurerPartnerReplyParagraph(clientMessage?: string): string {
   const specific = detectMentionedKereisPartner(clientMessage);
   if (specific) {
-    return `Oui : via notre partenaire Kereis Prévoyance, Charles peut étudier des solutions incluant ${specific.name} selon votre profil et les garanties équivalentes exigées par votre banque. Le choix définitif vous est présenté dans l'étude gratuite — sans engagement.`;
+    return [
+      `Oui : via notre partenaire Kereis Prévoyance, Charles peut étudier des solutions incluant ${specific.name} selon votre profil et les garanties équivalentes exigées par votre banque.`,
+      PRIVILEGED_TARIFF_LINE,
+      `Le choix définitif vous est présenté dans l'étude gratuite — sans engagement.`,
+    ].join(" ");
   }
   if (clientWantsFullInsurerList(clientMessage)) {
-    return `Via notre partenaire Kereis Prévoyance, nous pouvons accéder à des contrats parmi les compagnies suivantes selon votre dossier : ${KEREIS_PARTNER_INSURER_NAMES.join(", ")}. Charles sélectionne celle la plus adaptée à votre profil dans l'étude gratuite.`;
+    return [
+      CHARLES_FULL_LIST_LINE,
+      `Nous collaborons avec plusieurs grands assureurs partenaires via Kereis Prévoyance.`,
+      PRIVILEGED_TARIFF_LINE,
+    ].join(" ");
   }
-  return `Nous passons par notre partenaire Kereis Prévoyance, qui nous donne accès notamment à des solutions ${DEFAULT_EXAMPLE_NAMES.join(", ")} et d'autres grands assureurs partenaires selon votre profil. Charles compare les garanties équivalentes à votre contrat actuel dans l'étude gratuite — sans engagement de votre part.`;
+  return [
+    `Nous passons par notre partenaire Kereis Prévoyance, avec accès notamment à des solutions ${DEFAULT_EXAMPLE_NAMES.join(", ")} et d'autres assureurs partenaires selon votre profil.`,
+    PRIVILEGED_TARIFF_LINE,
+    `Charles compare les garanties équivalentes à votre contrat actuel dans l'étude gratuite — sans engagement de votre part.`,
+  ].join(" ");
 }

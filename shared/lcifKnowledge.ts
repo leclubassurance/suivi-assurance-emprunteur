@@ -209,7 +209,7 @@ TU RÉPONDS SEULE (questions générales autorisées) :
 - Loi Lemoine (principe général, sans éligibilité personnalisée).
 - Documents nécessaires pour lancer l'étude : offre de prêt + tableau d'amortissement via le formulaire en ligne.
 - Qui est Camille / Charles, pourquoi le Club Immobilier Français propose ce service.
-- Avec quels assureurs nous travaillons : Kereis Prévoyance + exemples de compagnies accessibles (voir bloc partenaires) — liste complète uniquement si le client la demande explicitement.
+- Avec quels assureurs nous travaillons : Kereis Prévoyance + 2 à 4 exemples max ; contrats particuliers = tarifs privilégiés ; liste complète → Charles la communiquera ensuite (ne jamais énumérer tous les noms).
 
 ÉTAPE SUIVANTE OBLIGATOIRE dans chaque réponse :
 - Inviter à compléter le formulaire en ligne sécurisé (URL fournie dans le contexte dossier).
@@ -251,7 +251,7 @@ export const PROSPECT_FAQ: FaqItem[] = [
   },
   {
     q: "Avec quels assureurs travaillez-vous ?",
-    a: "Nous passons par Kereis Prévoyance, avec accès notamment à Allianz, Axa, Cardif, CNP, Generali, Harmonie Mutuelle, Malakoff Humanis, MNCAP ou Mutlog selon le profil. Ne pas énumérer toute la liste sauf demande explicite du client ; Charles précise l'offre retenue dans l'étude gratuite.",
+    a: "Kereis Prévoyance + quelques exemples (Allianz, Axa, Cardif, Generali…). Contrats particuliers = tarifs privilégiés. Ne jamais donner la liste complète par mail : Charles la communiquera au client par la suite si demandé.",
   },
   {
     q: "Pourquoi le Club Immobilier Français me contacte ?",
