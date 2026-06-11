@@ -375,7 +375,16 @@ export function analyzeProspectMessageIntent(clientMessage: string): ProspectInt
     !blocksFormLink &&
     (intents.some((i) => formLinkIntents.includes(i)) ||
       isInformationNeedQuestion(msgLower) ||
-      (intents.includes("faq_process") && isDocumentsQuestion(msgLower)) ||
+      isWantsStudy(msgLower) ||
+      isDocumentsQuestion(msgLower) ||
+      (intents.includes("faq_process") &&
+        (isDocumentsQuestion(msgLower) ||
+          /comment|procéder|proceder|étape|etape|marche à suivre|suite|démarrer|demarrer/i.test(
+            msgLower,
+          ))) ||
+      (intents.includes("faq_insurance") &&
+        (isDocumentsQuestion(msgLower) ||
+          /document|formulaire|offre|tableau|procéder|proceder|comment faire/i.test(msgLower))) ||
       (intents.includes("pricing") && /document|formulaire|offre|tableau/i.test(msgLower)));
 
   let formLinkReason: string | undefined;
@@ -425,6 +434,14 @@ export function prospectReplyHasInappropriateFormLink(
 ): boolean {
   if (analysis.shouldIncludeFormLink) return false;
   const lower = String(plain || "").toLowerCase();
+  // Lien formulaire requis si la réponse parle de documents prêt (injection code ou LLM).
+  if (
+    /offre de prêt|tableau d.amortissement|formulaire en ligne|formulaire sécurisé|ne pas envoyer.*mail|inutile de les envoyer/i.test(
+      lower,
+    )
+  ) {
+    return false;
+  }
   return (
     /formulaire|assurance-emprunteur\.up\.railway\.app/i.test(lower) ||
     (/offre de prêt|tableau d.amortissement/i.test(lower) &&
@@ -488,7 +505,11 @@ export function prospectReplyMatchesIntentStrategy(
     issues.push("relance commerciale après un refus");
   }
 
-  if (analysis.intents.includes("multi") && text.length < 80) {
+  if (
+    analysis.intents.includes("multi") &&
+    text.length < 80 &&
+    !/formulaire en ligne|assurance-emprunteur\.up\.railway\.app/i.test(text)
+  ) {
     issues.push("réponse trop courte pour un mail multi-sujets");
   }
 

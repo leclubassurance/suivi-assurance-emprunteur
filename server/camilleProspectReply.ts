@@ -82,6 +82,18 @@ async function callProspectLlm(
   });
 }
 
+function patchProspectReplyForSend(
+  plain: string,
+  dossier: any,
+  clientMessage: string | undefined,
+  intent: ProspectIntentAnalysis,
+): string {
+  const needsDocLink = prospectReplyViolatesDocumentChannelRules(plain);
+  return patchProspectReplyHardRules(plain, dossier, clientMessage, {
+    shouldIncludeFormLink: intent.shouldIncludeFormLink || needsDocLink,
+  });
+}
+
 function collectProspectReplyIssues(
   plain: string,
   clientMessage: string,
@@ -115,6 +127,18 @@ function collectProspectReplyIssues(
     issues.push("réponse longue sans question ouverte pour un message très court");
   }
 
+  return [...new Set(issues)];
+}
+
+function collectBlockingReplyIssues(
+  plain: string,
+  clientMessage: string,
+  intent: ProspectIntentAnalysis,
+): string[] {
+  const issues = collectProspectReplyIssues(plain, clientMessage, intent);
+  if (prospectReplyViolatesInsurerDisclosureRules(plain)) {
+    issues.push("violation règles assureurs (liste complète ou codes produits)");
+  }
   return [...new Set(issues)];
 }
 
@@ -207,19 +231,8 @@ export async function runProspectInboundReply(params: {
     temperature,
   );
 
-  let issues = collectProspectReplyIssues(
-    String(parsed.messageToClient || ""),
-    params.clientMessage,
-    intent,
-  );
-  if (prospectReplyViolatesInsurerDisclosureRules(String(parsed.messageToClient || ""))) {
-    issues.push("violation règles assureurs (liste complète ou codes produits)");
-  }
-  if (prospectReplyViolatesDocumentChannelRules(String(parsed.messageToClient || ""))) {
-    issues.push(
-      "documents mentionnés sans lien formulaire — inclure l'URL et dire de ne pas envoyer par email",
-    );
-  }
+  let draft = String(parsed.messageToClient || "").trim();
+  let issues = collectBlockingReplyIssues(draft, params.clientMessage, intent);
 
   if (issues.length > 0 && String(parsed.action || "").toUpperCase() === "REPLY") {
     console.log(`[Camille prospect] Réécriture (${issues.join("; ")}) ${params.dossier.id}`);
@@ -231,31 +244,12 @@ export async function runProspectInboundReply(params: {
       }),
       Math.max(0.5, temperature - 0.1),
     );
-    issues = collectProspectReplyIssues(
-      String(parsed.messageToClient || ""),
-      params.clientMessage,
-      intent,
-    );
-    if (prospectReplyViolatesInsurerDisclosureRules(String(parsed.messageToClient || ""))) {
-      issues.push("assureurs");
-    }
-    if (prospectReplyViolatesDocumentChannelRules(String(parsed.messageToClient || ""))) {
-      issues.push("documents sans formulaire");
-    }
+    draft = String(parsed.messageToClient || "").trim();
+    issues = collectBlockingReplyIssues(draft, params.clientMessage, intent);
   }
 
-  const action = String(parsed.action || "REVIEW").toUpperCase();
-  if (action === "REVIEW") {
-    return {
-      action: "REVIEW",
-      questionForStaff:
-        String(parsed.questionForStaff || "").trim() ||
-        `Comment répondre (${intent.primary}) ? « ${params.clientMessage.slice(0, 350)} »`,
-      reasonForEscalation: String(parsed.reasonForEscalation || "").trim() || undefined,
-      model,
-      intentPrimary: intent.primary,
-    };
-  }
+  let action = String(parsed.action || "REVIEW").toUpperCase();
+
   if (action === "ESCALATE") {
     return {
       action: "ESCALATE",
@@ -266,8 +260,7 @@ export async function runProspectInboundReply(params: {
     };
   }
 
-  let plain = String(parsed.messageToClient || "").trim();
-  if (plain.length < 8) {
+  if (draft.length < 8) {
     return {
       action: "REVIEW",
       questionForStaff: `Réponse IA vide ou trop courte (${intent.primary}) — « ${params.clientMessage.slice(0, 300)} »`,
@@ -276,14 +269,34 @@ export async function runProspectInboundReply(params: {
     };
   }
 
-  plain = patchProspectReplyHardRules(plain, params.dossier, params.clientMessage, {
-    shouldIncludeFormLink: intent.shouldIncludeFormLink,
-  });
-
-  const postIssues = collectProspectReplyIssues(plain, params.clientMessage, intent);
-  if (prospectReplyViolatesInsurerDisclosureRules(plain)) {
-    postIssues.push("assureurs");
+  const hadDocViolation = prospectReplyViolatesDocumentChannelRules(draft);
+  let plain = patchProspectReplyForSend(draft, params.dossier, params.clientMessage, intent);
+  if (hadDocViolation && !prospectReplyViolatesDocumentChannelRules(plain)) {
+    console.log(`[Camille prospect] Lien formulaire injecté avant envoi (${params.dossier.id})`);
   }
+
+  let postIssues = collectBlockingReplyIssues(plain, params.clientMessage, intent);
+
+  // L'IA a mis REVIEW mais le texte est exploitable après injection formulaire → envoyer.
+  if (action === "REVIEW" && postIssues.length === 0) {
+    console.log(
+      `[Camille prospect] REVIEW annulé — réponse patchée OK (${params.dossier.id}, intent=${intent.primary})`,
+    );
+    action = "REPLY";
+  }
+
+  if (action === "REVIEW") {
+    return {
+      action: "REVIEW",
+      questionForStaff:
+        String(parsed.questionForStaff || "").trim() ||
+        `Camille (${intent.primary}) — ${postIssues.join(", ") || "validation équipe"} — « ${params.clientMessage.slice(0, 280)} »`,
+      reasonForEscalation: String(parsed.reasonForEscalation || "").trim() || undefined,
+      model,
+      intentPrimary: intent.primary,
+    };
+  }
+
   if (postIssues.length > 0) {
     return {
       action: "REVIEW",
