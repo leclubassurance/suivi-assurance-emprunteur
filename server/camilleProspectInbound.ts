@@ -1089,11 +1089,9 @@ export async function syncProspectInboundFromGmail(
             `[Camille prospect] verrou email indisponible — réponse reportée: ${dossier.id} (${senderEmail})`,
           );
         }
-        if (isCamilleTestMode()) {
-          console.log(
-            `[Camille prospect] pas de réponse (${sendGate.reason || (lockOk ? "gate" : "lock")}): ${senderEmail} → ${dossier.id} msg=${msgMeta.id}`,
-          );
-        }
+        console.warn(
+          `[Camille prospect] pas de réponse auto (${sendGate.reason || (lockOk ? "gate" : "lock")}): ${senderEmail} → ${dossier.id} msg=${msgMeta.id}`,
+        );
       }
     } else if (!alreadyHandled && !deps.isAiAutoReplyEnabled()) {
       deps.markProcessed(dossier, msgMeta.id);

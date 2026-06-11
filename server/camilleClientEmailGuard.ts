@@ -63,6 +63,14 @@ export function canCamilleEmailClient(
   }
   const cooldown = getCamilleClientEmailCooldownMs();
   if (recentCamilleClientEmailWithinMs(dossier, cooldown)) {
+    if (options?.inboundGmailId) {
+      const processed = new Set(
+        (dossier.processedGmailIds || []).map((id: string) => String(id)),
+      );
+      if (!processed.has(String(options.inboundGmailId))) {
+        return { ok: true };
+      }
+    }
     return { ok: false, reason: "cooldown" };
   }
   return { ok: true };

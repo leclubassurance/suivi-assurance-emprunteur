@@ -105,6 +105,13 @@ function isDocumentsQuestion(msgLower: string): boolean {
 }
 
 function isWantsStudy(msgLower: string): boolean {
+  if (
+    /je suis intéress|intéressé|comment (je )?(doit|dois) procéder|comment procéder|comment faire|quelle est la suite|la marche à suivre|je veux (avancer|continuer|démarrer|demarrer)/i.test(
+      msgLower,
+    )
+  ) {
+    return true;
+  }
   return (
     /je (veux|souhaite|voudrais)|on peut commencer|lancer (l')?étude|démarrer|demarrer|commencer (l')?étude|envoyer (mon|mes) (dossier|documents)|faire l'étude/i.test(
       msgLower,

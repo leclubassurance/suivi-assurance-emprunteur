@@ -12,24 +12,29 @@ export function hasUnansweredClientInbound(
   gmailId?: string,
 ): boolean {
   const comms = sortedComms(dossier);
+  const processed = new Set<string>(
+    (dossier.processedGmailIds || []).map((id: string) => String(id)),
+  );
+
   if (gmailId) {
-    const target = comms.find((c) => c.gmailId === gmailId && c.direction === "inbound");
-    if (!target) return false;
-    const t = new Date(target.date || 0).getTime();
-    const answered = comms.some(
-      (c) =>
-        c.direction === "outbound" &&
-        new Date(c.date || 0).getTime() > t &&
-        !String(c.from || "").toLowerCase().includes("système"),
-    );
-    return !answered;
+    const gid = String(gmailId);
+    // Source de vérité : un mail entrant traité (répondu ou escaladé) est dans processedGmailIds.
+    // Évite le faux « déjà répondu » quand une réponse à un message précédent a un horodatage
+    // postérieur à un mail client plus récent (fil rapide type SCI LCAP).
+    if (!processed.has(gid)) return true;
+    return false;
   }
 
   const lastInbound = [...comms].reverse().find((c) => c.direction === "inbound");
   if (!lastInbound) return false;
+  if (lastInbound.gmailId && processed.has(String(lastInbound.gmailId))) return false;
+
   const t = new Date(lastInbound.date || 0).getTime();
   return !comms.some(
-    (c) => c.direction === "outbound" && new Date(c.date || 0).getTime() > t,
+    (c) =>
+      c.direction === "outbound" &&
+      new Date(c.date || 0).getTime() > t &&
+      !String(c.from || "").toLowerCase().includes("système"),
   );
 }
 
