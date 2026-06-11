@@ -69,35 +69,14 @@ export async function processIncomingClientEmail(
     const clientMessageFresh = extractNewClientMessageText(emailText);
     const clientMessageForAi =
       clientMessageFresh.length >= 3 ? clientMessageFresh : emailText;
+    const conversationTailEarly = getConversationTailForAi(dossier);
 
     if (isProspectLead) {
-      const {
-        buildProspectWelcomeReplyPlain,
-        buildProspectQuestionReplyPlain,
-        buildProspectRelationalReplyPlain,
-        isSimpleProspectGreeting,
-        isProspectRelationalSmallTalk,
-        isProspectTemplateQuestion,
-        enforceProspectReplyPlain,
-      } = await import("./camilleProspectInbound");
-      if (isProspectRelationalSmallTalk(clientMessageForAi)) {
-        const plain = buildProspectRelationalReplyPlain(dossier, clientMessageForAi);
-        const telegramAction = buildTelegramActionFromReply({
-          dossier,
-          clientMessage: clientMessageForAi,
-          replyPlain: plain,
-          emailSubject: options?.emailSubject,
-          actionKind: "prospect_relational",
-          attachmentNames,
-        });
-        console.log(`[AI] Réponse prospect relationnelle pour ${dossier.id}`);
-        return {
-          status: "replied",
-          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-          replyPlain: plain,
-          telegramAction,
-        };
-      }
+      const { buildProspectWelcomeReplyPlain, isSimpleProspectGreeting } = await import(
+        "./camilleProspectInbound",
+      );
+      const { runProspectInboundReplyPipeline } = await import("./camilleProspectReply");
+
       if (isSimpleProspectGreeting(clientMessageForAi)) {
         const plain = buildProspectWelcomeReplyPlain(dossier, clientMessageForAi);
         const telegramAction = buildTelegramActionFromReply({
@@ -108,7 +87,7 @@ export async function processIncomingClientEmail(
           actionKind: "prospect_welcome",
           attachmentNames,
         });
-        console.log(`[AI] Réponse prospect template pour ${dossier.id}`);
+        console.log(`[AI] Réponse prospect accueil pour ${dossier.id}`);
         return {
           status: "replied",
           text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
@@ -116,17 +95,84 @@ export async function processIncomingClientEmail(
           telegramAction,
         };
       }
-      if (isProspectTemplateQuestion(clientMessageForAi)) {
-        const plain = buildProspectQuestionReplyPlain(dossier, clientMessageForAi);
+
+      const prospectDecision = await runProspectInboundReplyPipeline({
+        dossier,
+        clientMessage: clientMessageForAi,
+        emailSubject: options?.emailSubject,
+        clientEmail,
+        prenom,
+        nom,
+        conversationTail: conversationTailEarly,
+      });
+
+      const prospectModel = prospectDecision.pipeline?.model || "gemini-2.5-flash";
+      const prospectAudit = {
+        prospectPipeline: true,
+        primaryTopic: prospectDecision.pipeline?.analyze?.primaryTopic,
+        clientPoints: prospectDecision.pipeline?.analyze?.clientPoints?.length,
+        critiqueApproved: prospectDecision.pipeline?.critiqueApproved,
+      };
+
+      if (prospectDecision.action === "REVIEW") {
+        const question = String(prospectDecision.questionForStaff || "").trim();
+        if (isCamilleReviewEnabled() && question.length >= 10) {
+          console.log(`[AI] REVIEW prospect pipeline pour ${dossier.id}`);
+          logAiAudit(dossier, {
+            action: "REVIEW",
+            channel: "gmail_auto_reply",
+            actor: "Camille",
+            outcome: "info",
+            model: prospectModel,
+            summary: question.slice(0, 200),
+            meta: prospectAudit,
+          });
+          return {
+            status: "review",
+            questionForStaff: question,
+            reason: prospectDecision.reasonForEscalation || "Pipeline prospect — validation équipe",
+          };
+        }
+        return { status: "escalated", reason: question || "Review prospect indisponible" };
+      }
+
+      if (prospectDecision.action === "ESCALATE") {
+        if (
+          isCamilleReviewEnabled() &&
+          String(process.env.CAMILLE_REVIEW_INSTEAD_ESCALATE ?? "true").toLowerCase() !== "false"
+        ) {
+          const question =
+            String(prospectDecision.questionForStaff || "").trim() ||
+            `Comment répondre au prospect : « ${clientMessageForAi.slice(0, 200)} » ?`;
+          return { status: "review", questionForStaff: question, reason: prospectDecision.reasonForEscalation };
+        }
+        return { status: "escalated", reason: prospectDecision.reasonForEscalation };
+      }
+
+      if (prospectDecision.action === "REPLY" && prospectDecision.messageToClient) {
+        const plain = prospectDecision.messageToClient;
+        console.log(`[AI] Réponse prospect pipeline pour ${dossier.id}`);
+        logAiAudit(dossier, {
+          action: "REPLY",
+          channel: "gmail_auto_reply",
+          actor: "Camille",
+          outcome: "sent",
+          model: prospectModel,
+          summary: `Pipeline prospect (${prospectDecision.pipeline?.analyze?.primaryTopic || "—"})`,
+          instructionPreview: plain.slice(0, 300),
+          meta: prospectAudit,
+        });
         const telegramAction = buildTelegramActionFromReply({
           dossier,
           clientMessage: clientMessageForAi,
           replyPlain: plain,
           emailSubject: options?.emailSubject,
-          actionKind: "prospect_faq",
+          actionKind: "prospect_pipeline",
           attachmentNames,
+          analyze: prospectDecision.pipeline?.analyze as any,
+          plan: prospectDecision.pipeline?.plan as any,
+          critiqueApproved: prospectDecision.pipeline?.critiqueApproved,
         });
-        console.log(`[AI] Réponse prospect FAQ template pour ${dossier.id}`);
         return {
           status: "replied",
           text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
@@ -134,6 +180,8 @@ export async function processIncomingClientEmail(
           telegramAction,
         };
       }
+
+      return { status: "escalated", reason: "Pipeline prospect sans réponse" };
     }
 
     const playbookProspectOk =
@@ -146,8 +194,8 @@ export async function processIncomingClientEmail(
     if (playbookHit) {
       let plain = playbookHit.plain;
       if (isProspectLead) {
-        const { enforceProspectReplyPlain } = await import("./camilleProspectInbound");
-        plain = enforceProspectReplyPlain(plain, dossier, clientMessageForAi);
+        const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
+        plain = patchProspectReplyHardRules(plain, dossier, clientMessageForAi);
       }
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
       const telegramAction = buildTelegramActionFromReply({
@@ -403,8 +451,8 @@ export async function processIncomingClientEmail(
         return { status: "escalated", reason: "Réponse IA vide" };
       }
       if (isProspectLead) {
-        const { enforceProspectReplyPlain } = await import("./camilleProspectInbound");
-        plain = enforceProspectReplyPlain(plain, dossier, clientMessageForAi);
+        const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
+        plain = patchProspectReplyHardRules(plain, dossier, clientMessageForAi);
       }
       const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
         inboundAttachmentNames: attachmentNames,

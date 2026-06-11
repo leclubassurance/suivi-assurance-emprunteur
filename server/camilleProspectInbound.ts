@@ -360,19 +360,27 @@ export function buildProspectQuestionReplyPlain(dossier: any, clientMessage?: st
   return lines.join("\n\n");
 }
 
-/** Bloque les demandes de documents par mail dans une réponse prospect. */
-export function enforceProspectReplyPlain(
+/** Corrections ciblées (sans écraser toute la réponse par un template générique). */
+export function patchProspectReplyHardRules(
   plain: string,
   dossier: any,
   clientMessage?: string,
 ): string {
   const formUrl = getAssurancePlatformUrl();
   let text = String(plain || "").trim();
-  if (isUnsafeProspectLlmReply(text, clientMessage)) {
-    text = isProspectRelationalSmallTalk(clientMessage)
-      ? buildProspectRelationalReplyPlain(dossier, clientMessage)
-      : buildProspectQuestionReplyPlain(dossier, clientMessage);
+
+  if (prospectReplyViolatesInsurerDisclosureRules(text)) {
+    if (isProspectInsurerPartnerQuestion(clientMessage) || detectMentionedKereisPartner(clientMessage)) {
+      text = [
+        `Merci pour votre message.`,
+        buildProspectInsurerPartnerReplyParagraph(clientMessage),
+        `L'étude d'économie est gratuite et sans engagement.`,
+        formUrl,
+        `Référence interne : ${dossier.id}.`,
+      ].join("\n\n");
+    }
   }
+
   const asksDocsByEmail =
     /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(
       text,
@@ -381,10 +389,25 @@ export function enforceProspectReplyPlain(
   if (asksDocsByEmail) {
     text = buildProspectWelcomeReplyPlain(dossier, clientMessage || "");
   }
-  if (!text.includes(formUrl)) {
-    text = `${text}\n\nPour démarrer votre étude, complétez le formulaire en ligne : ${formUrl}`;
+
+  const mentionsStudyPath =
+    /(étude|formulaire|démarrer|demarrer|lancer|commencer|déposer|deposer)/i.test(text);
+  if (mentionsStudyPath && !text.includes(formUrl)) {
+    text = `${text}\n\nFormulaire en ligne : ${formUrl}`;
+  }
+  if (!text.includes(dossier.id)) {
+    text = `${text}\n\nRéférence interne : ${dossier.id}.`;
   }
   return text;
+}
+
+/** @deprecated Préférer patchProspectReplyHardRules après le pipeline prospect. */
+export function enforceProspectReplyPlain(
+  plain: string,
+  dossier: any,
+  clientMessage?: string,
+): string {
+  return patchProspectReplyHardRules(plain, dossier, clientMessage);
 }
 
 function countProspectAutoReplies(dossier: any): number {
