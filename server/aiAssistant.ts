@@ -259,7 +259,9 @@ export async function processIncomingClientEmail(
           ? ctx.missingBlocking.map((c) => c.label)
           : []
         : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
-    const conversationTail = getConversationTailForAi(dossier);
+    const conversationTail = getConversationTailForAi(dossier, 15, 800, {
+      clientPhaseOnly: Boolean(dossier.leadPromotedAt),
+    });
     const needsReply = hasUnansweredClientInbound(dossier);
     const multiDossier =
       options?.allDossiers && options.allDossiers.length > 0

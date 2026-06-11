@@ -41,17 +41,19 @@ export function hasUnansweredClientInbound(
 const DEFAULT_TAIL_LIMIT = 15;
 const DEFAULT_TAIL_CHARS = 800;
 const SUMMARY_THRESHOLD = 12;
+/** Marge autour de leadPromotedAt pour rattacher mails formulaire / confirmation. */
+const PROMOTION_TIME_SLACK_MS = 120_000;
 
-export function getConversationTailForAi(
-  dossier: Dossier | any,
-  limit = DEFAULT_TAIL_LIMIT,
-  maxCharsPerMessage = DEFAULT_TAIL_CHARS,
+export type ConversationTailOptions = {
+  /** Dossier client : n'envoyer à l'IA que les échanges post-formulaire (évite confusion prospect). */
+  clientPhaseOnly?: boolean;
+};
+
+function formatCommLines(
+  comms: any[],
+  maxCharsPerMessage: number,
 ): string {
-  const all = sortedComms(dossier);
-  const slice = all.slice(-limit);
-  if (!slice.length) return "Aucun échange enregistré.";
-
-  const tail = slice
+  return comms
     .map((c) => {
       const who = c.direction === "inbound" ? "Client" : "Équipe/Camille";
       const subj = c.subject ? ` — ${String(c.subject).slice(0, 100)}` : "";
@@ -59,10 +61,21 @@ export function getConversationTailForAi(
       return `[${c.date?.slice(0, 16) || "?"}] ${who}${subj}\n${body}`;
     })
     .join("\n\n");
+}
+
+function buildTailFromComms(
+  all: any[],
+  limit: number,
+  maxCharsPerMessage: number,
+): string {
+  const slice = all.slice(-limit);
+  if (!slice.length) return "Aucun échange enregistré.";
+
+  const tail = formatCommLines(slice, maxCharsPerMessage);
 
   if (all.length <= SUMMARY_THRESHOLD) return tail;
 
-  const older = all.slice(0, -limit);
+  const older = all.slice(0, Math.max(0, all.length - limit));
   const inboundCount = older.filter((c) => c.direction === "inbound").length;
   const outboundCount = older.filter((c) => c.direction === "outbound").length;
   const firstDate = older[0]?.date?.slice(0, 10) || "?";
@@ -75,4 +88,53 @@ export function getConversationTailForAi(
   ].join("\n");
 
   return `${summary}\n\n--- Messages récents ---\n\n${tail}`;
+}
+
+function buildClientPhasePrefix(dossier: Dossier | any, prospectCount: number): string {
+  const promotedOn = String(dossier.leadPromotedAt || "").slice(0, 10) || "?";
+  return [
+    `[Contexte conversion prospect → dossier]`,
+    `${prospectCount} échange(s) en phase prospect avant le ${promotedOn} (formulaire pas encore déposé).`,
+    "Le client a depuis complété le formulaire — répondre en mode dossier client :",
+    "- ne plus envoyer le lien formulaire ni le ton pré-étude ;",
+    "- s'appuyer sur les documents déposés et la phase souscription (checklist / étude).",
+    "Le fil détaillé ci-dessous = échanges APRÈS dépôt du formulaire uniquement.",
+    "",
+  ].join("\n");
+}
+
+export function getConversationTailForAi(
+  dossier: Dossier | any,
+  limit = DEFAULT_TAIL_LIMIT,
+  maxCharsPerMessage = DEFAULT_TAIL_CHARS,
+  options?: ConversationTailOptions,
+): string {
+  const all = sortedComms(dossier);
+  const promotedAt = dossier.leadPromotedAt
+    ? new Date(dossier.leadPromotedAt).getTime()
+    : null;
+
+  if (options?.clientPhaseOnly && promotedAt) {
+    const prospectPhase = all.filter(
+      (c) => new Date(c.date || 0).getTime() < promotedAt - PROMOTION_TIME_SLACK_MS,
+    );
+    const clientPhase = all.filter(
+      (c) => new Date(c.date || 0).getTime() >= promotedAt - PROMOTION_TIME_SLACK_MS,
+    );
+
+    if (clientPhase.length > 0) {
+      const prefix =
+        prospectPhase.length > 0 ? buildClientPhasePrefix(dossier, prospectPhase.length) : "";
+      return prefix + buildTailFromComms(clientPhase, limit, maxCharsPerMessage);
+    }
+
+    if (prospectPhase.length > 0) {
+      return (
+        buildClientPhasePrefix(dossier, prospectPhase.length) +
+        "Aucun échange post-dépôt enregistré pour l'instant — le dernier mail client peut concerner le formulaire lui-même."
+      );
+    }
+  }
+
+  return buildTailFromComms(all, limit, maxCharsPerMessage);
 }

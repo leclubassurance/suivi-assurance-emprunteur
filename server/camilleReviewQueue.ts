@@ -7,6 +7,7 @@ import { buildPlaybooksPromptBlock, saveApprovedPlaybook } from "./camillePlaybo
 import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import { getConversationTailForAi } from "./gmailConversation";
+import { isLeadDossier } from "../shared/leadDossierStatus";
 import { registerTelegramDossierContext } from "./telegramCamille";
 import { isTelegramEnabled, sendTelegramMessage } from "./telegramCamille";
 import { escapeTelegramHtml, reviewConfirmKeyboard } from "./telegramUi";
@@ -331,7 +332,9 @@ async function draftClientReplyFromStaffGuidanceInner(
     review.fullClientMessage,
     dossier,
   );
-  const conversationTail = getConversationTailForAi(dossier);
+  const conversationTail = getConversationTailForAi(dossier, 15, 800, {
+    clientPhaseOnly: !isLeadDossier(dossier) && Boolean(dossier.leadPromotedAt),
+  });
   const prenom = dossier.formData?.assures?.[0]?.prenom || "";
 
   const response = await generateContentWithRetry({

@@ -1660,7 +1660,9 @@ export function createApp() {
           ctx,
           staffHandling: isStaffActivelyHandling(dossier),
           staffOutbound: getRecentStaffOutboundSummary(dossier),
-          conversationTail: getConversationTailForAi(dossier),
+          conversationTail: getConversationTailForAi(dossier, 15, 800, {
+            clientPhaseOnly: Boolean(dossier.leadPromotedAt),
+          }),
           needsReply: hasUnansweredClientInbound(dossier),
           studySent,
           clientAccepted,
