@@ -186,19 +186,3 @@ export function classifyInboundEmail(
 
   return { ignore: false, reason: "humain", category: "human" };
 }
-
-/** @deprecated Utiliser classifyInboundEmail — conservé pour compat. */
-export function shouldIgnoreProspectSender(email: string): boolean {
-  return shouldIgnoreAutomatedSender(email);
-}
-
-export function buildProspectGmailQueryExtras(): string {
-  return [
-    "-from:stripe.com",
-    "-from:notify.railway.app",
-    "-from:paypal.com",
-    "-subject:receipt",
-    "-subject:invoice",
-    "-subject:facture",
-  ].join(" ");
-}

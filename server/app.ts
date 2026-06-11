@@ -854,25 +854,17 @@ export function createApp() {
       addEvent(leadDossier, {
         type: "DOSSIER_CREATED",
         actor: { kind: "SYSTEM" },
-        message: "Pré-dossier créé via aide formulaire (Camille).",
+        message: "Pré-dossier créé via aide formulaire — traitement manuel (pas de réponse auto Camille).",
+        meta: { clientMessage: message.slice(0, 500) },
       });
       db.dossiers.push(leadDossier);
       await writeDB(db, leadDossier);
 
-      const { buildProspectWelcomeReplyPlain } = await import("./camilleProspectInbound");
-      const { wrapCamilleHtmlReply } = await import("./camilleMail");
-      const welcomePlain = buildProspectWelcomeReplyPlain(leadDossier, message);
-      const draft = {
-        subject: `Re: Aide formulaire — Réf. ${leadId}`,
-        html: wrapCamilleHtmlReply(welcomePlain, prenom, "", leadDossier),
-      };
-      const subj = draft.subject;
-
-      const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
-      const send = await sendEmailReplyWithGmailAPI(null, email, subj, draft.html);
-      if (!send.ok) return res.status(500).json({ error: send.error || "Echec envoi email" });
-
-      res.json({ success: true, ref: leadId });
+      res.json({
+        success: true,
+        ref: leadId,
+        message: "Votre demande a été enregistrée. L'équipe vous recontactera sous peu.",
+      });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || String(e) });
     }
@@ -1900,38 +1892,6 @@ export function createApp() {
     }
   };
 
-  app.get("/api/admin/prospects/preview-intent", async (req, res) => {
-    const message = typeof req.query.message === "string" ? req.query.message : "";
-    if (!message.trim()) {
-      return res.status(400).json({ error: "Paramètre message requis" });
-    }
-    try {
-      const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
-      res.json({ success: true, ...analyzeProspectMessageIntent(message) });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || String(err) });
-    }
-  });
-
-  app.get("/api/admin/prospects/diagnostic", async (req, res) => {
-    const email = typeof req.query.email === "string" ? req.query.email.trim() : "";
-    if (!email || !email.includes("@")) {
-      return res.status(400).json({ error: "Paramètre email requis" });
-    }
-    try {
-      const db = await readDBAsync();
-      const { diagnoseProspectEmailRouting } = await import("./camilleProspectInbound");
-      const diagnosis = diagnoseProspectEmailRouting(db, email);
-      res.json({
-        success: true,
-        gitCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
-        ...diagnosis,
-      });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || String(err) });
-    }
-  });
-
   app.post("/api/admin/prospects/reset-test", async (req, res) => {
     await resetProspectTestHandler(req, res, {
       dossierId: (req.body as any)?.dossierId,
@@ -1944,30 +1904,6 @@ export function createApp() {
       dossierId: typeof req.query.dossierId === "string" ? req.query.dossierId : undefined,
       email: typeof req.query.email === "string" ? req.query.email : undefined,
     });
-  });
-
-  app.post("/api/admin/sync-prospects", async (req, res) => {
-    await ensureBackgroundServicesStarted();
-    try {
-      const { syncProspectsOnly } = await import("./mailAutomation");
-      const { processIncomingClientEmail } = await import("./aiAssistant");
-      const db = await readDBAsync();
-      const result = await syncProspectsOnly(db, processIncomingClientEmail);
-      const { writeDirtyDossiers } = await import("./db");
-      const persist = await writeDirtyDossiers(result.db, result.dirtyDossierIds || []);
-      res.json({
-        success: true,
-        leadsCreated: result.leadsCreated,
-        inbound: result.inbound,
-        aiReplies: result.aiReplies,
-        dossiersPersisted: persist.written,
-        dossiersPersistFailed: persist.failed,
-        skippedConcurrent: result.skippedConcurrent,
-      });
-    } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
-    }
   });
 
   app.post("/api/admin/sync-emails", async (req, res) => {

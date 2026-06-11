@@ -11,7 +11,7 @@ import {
   isGmailAutosyncWindowOpen,
   isRailwayEcoMode,
 } from "./businessHours";
-import { syncGmailInbox, syncProspectsOnly } from "./mailAutomation";
+import { syncGmailInbox } from "./mailAutomation";
 import { processIncomingClientEmail } from "./aiAssistant";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
@@ -207,7 +207,7 @@ export function startScheduler() {
     const untilH = Number(process.env.CAMILLE_TEST_MODE_UNTIL_PARIS_H ?? "1");
     const untilLabel = Number.isFinite(untilH) ? `${String(untilH).padStart(2, "0")}h Paris` : "sans limite";
     console.log(
-      `[Camille] Mode test actif jusqu'à ${untilLabel} — sync Gmail 24h/24, cooldown réduit, prospects pré-étude.`,
+      `[Camille] Mode test actif jusqu'à ${untilLabel} — sync Gmail 24h/24, cooldown réduit.`,
     );
   }
   setInterval(() => {
@@ -243,27 +243,6 @@ export function startScheduler() {
         .finally(() => {
           gmailSyncInProgress = false;
         });
-    }, gmailIntervalMs);
-
-    // Prospects seuls (rapide, assurance@) — ne bloque pas sur le sync client long
-    setInterval(() => {
-      if (!isGmailAutosyncWindowOpen()) return;
-      if (!hasServerOAuthRefreshToken() && !canUseDomainWideDelegation()) return;
-      readDB()
-        .then((db) => syncProspectsOnly(db, processIncomingClientEmail))
-        .then(async (result) => {
-          if (result.skippedConcurrent) return;
-          if (result.leadsCreated > 0 || result.aiReplies > 0) {
-            console.log(
-              `[Camille prospect autosync] leads=${result.leadsCreated} aiReplies=${result.aiReplies}`,
-            );
-          }
-          const { written, failed } = await writeDirtyDossiers(result.db, result.dirtyDossierIds || []);
-          if (failed > 0) {
-            console.warn(`[Camille prospect autosync] Firestore: ${written} OK, ${failed} échec(s).`);
-          }
-        })
-        .catch((err) => console.error("[Camille prospect autosync]", err?.message || err));
     }, gmailIntervalMs);
   }
 

@@ -94,10 +94,10 @@ async function buildNewsMessage(
     const excerpt = extractNewClientMessageText(details.excerpt || "").slice(0, 500);
     return [
       `<b>📩 ${escapeTelegramHtml(dossier.id)} — ${escapeTelegramHtml(clientName)}</b>`,
-      `<i>Prospect pré-étude — nouveau message</i>`,
+      `<i>Prospect pré-formulaire — nouveau message</i>`,
       excerpt ? `<b>Message :</b> <i>« ${escapeTelegramHtml(excerpt)} »</i>` : "",
       ``,
-      `<b>➡️ Pour vous :</b> Camille traite ce message — réponse auto si possible. Si un message <b>🔴 INTERVENTION REQUISE</b> suit, aucun mail n'a encore été envoyé : répondez à ce message-là.`,
+      `<b>➡️ Pour vous :</b> pas de réponse automatique Camille sur les prospects — répondez manuellement depuis Gmail ou l'admin.`,
     ]
       .filter(Boolean)
       .join("\n");

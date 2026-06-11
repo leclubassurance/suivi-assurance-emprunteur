@@ -3,7 +3,6 @@ import path from "path";
 import { CAMILLE_META_DOSSIER_ID as META_DOSSIER_ID } from "../shared/camilleMeta";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
-import { isLeadDossier } from "./leadDossierMerge";
 
 export type CamillePlaybook = {
   id: string;
@@ -38,33 +37,6 @@ let cachedStore: PlaybookStore | null = null;
 let cachedAt = 0;
 
 const DEFAULT_SEED_PLAYBOOKS: Array<Omit<CamillePlaybook, "id" | "approvedAt" | "useCount">> = [
-  {
-    tags: ["prospect", "pre-etude", "question-client"],
-    situationSummary: "Prospect demande si l'étude est gratuite ou s'il y a des frais cachés.",
-    staffGuidance:
-      "Confirmer gratuité et sans engagement. Orienter vers le formulaire en ligne pour démarrer l'étude.",
-    clientMessagePattern: "est ce gratuit combien coute etude gratuite sans engagement frais",
-    approvedReplyPlain:
-      "L'étude d'économie sur votre assurance emprunteur est entièrement gratuite et sans engagement.\n\nPour que Charles puisse préparer une analyse personnalisée, complétez le formulaire sécurisé en ligne (quelques minutes) : vous y déposerez l'offre de prêt et le tableau d'amortissement en PDF.\n\nNous ne demandons pas ces documents par email — tout se fait via le formulaire.",
-  },
-  {
-    tags: ["prospect", "pre-etude", "question-client", "changement-assurance"],
-    situationSummary: "Prospect pose une question sur la Loi Lemoine ou le changement d'assurance.",
-    staffGuidance:
-      "Expliquer brièvement la Loi Lemoine (changement possible à tout moment, sans frais médicaux dans la plupart des cas). Inviter au formulaire pour une étude chiffrée.",
-    clientMessagePattern: "loi lemoine changer assurance substitution resilier banque",
-    approvedReplyPlain:
-      "La Loi Lemoine permet en principe de changer d'assurance emprunteur à tout moment, avec une équivalence de garanties et sans nouveau questionnaire médical dans la plupart des cas.\n\nChaque situation est unique : Charles vérifie votre contrat et votre offre de prêt lors de l'étude gratuite.\n\nPour démarrer, complétez le formulaire en ligne — vous pourrez y joindre votre offre de prêt et votre tableau d'amortissement en PDF.",
-  },
-  {
-    tags: ["prospect", "pre-etude", "question-client"],
-    situationSummary: "Prospect demande comment fonctionne l'étude ou les prochaines étapes.",
-    staffGuidance:
-      "Décrire le parcours : formulaire → analyse Charles → étude par email. Pas de promesse chiffrée avant formulaire.",
-    clientMessagePattern: "comment ca marche etapes procedure fonctionnement demarche",
-    approvedReplyPlain:
-      "Voici comment cela se déroule :\n\n1. Vous complétez le formulaire en ligne (projet + dépôt des PDF banque).\n2. Charles analyse votre dossier et compare les garanties et tarifs.\n3. Vous recevez une étude personnalisée par email avec les économies possibles.\n\nL'étude est gratuite. Si les économies vous conviennent, nous vous accompagnons pour la substitution auprès de votre banque.",
-  },
   {
     tags: ["pre-etude", "documents-pret", "question-client"],
     situationSummary: "Client demande quels documents envoyer pour l'étude.",
@@ -195,7 +167,6 @@ export function extractSituationTags(
   const tags = new Set<string>();
   const blob = normalizeText(`${clientMessage} ${staffGuidance || ""}`);
 
-  if (isLeadDossier(dossier)) tags.add("prospect");
   if (hasStudyBeenSent(dossier)) tags.add("post-etude");
   else tags.add("pre-etude");
 

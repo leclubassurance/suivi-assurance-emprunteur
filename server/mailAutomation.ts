@@ -376,89 +376,6 @@ export async function seedDossierGmailImportRegistry(
 }
 
 let gmailSyncRunning = false;
-let prospectSyncRunning = false;
-
-async function persistProspectDossier(db: any, dossier: any): Promise<boolean> {
-  try {
-    const { writeDB } = await import("./db");
-    await writeDB(db, dossier);
-    console.log(`[Camille prospect] dossier ${dossier.id} enregistré (Firestore)`);
-    return true;
-  } catch (err: any) {
-    console.error(`[Camille prospect] échec persistance ${dossier?.id}: ${err?.message || err}`);
-    return false;
-  }
-}
-
-async function runProspectInboundSync(
-  db: any,
-  aiCallback: Function,
-  markDossierDirty: (dossier: any) => void,
-): Promise<{ inbound: number; aiReplies: number; leadsCreated: number; skippedConcurrent: boolean }> {
-  const empty = { inbound: 0, aiReplies: 0, leadsCreated: 0, skippedConcurrent: false };
-  if (prospectSyncRunning) {
-    console.log("[Camille prospect] scan ignoré — déjà en cours");
-    return { ...empty, skippedConcurrent: true };
-  }
-  prospectSyncRunning = true;
-  try {
-    const { auth: assuranceAuth } = await createGmailAuth(null);
-    const assuranceGmail = google.gmail({ version: "v1", auth: assuranceAuth as any });
-    const prospectProcessedIds = new Set<string>();
-    const { syncProspectInboundFromGmail } = await import("./camilleProspectInbound");
-    const prospect = await syncProspectInboundFromGmail(assuranceGmail, db, {
-      processedIds: prospectProcessedIds,
-      accessToken: null,
-      aiCallback,
-      markDossierDirty,
-      persistLead: (d) => persistProspectDossier(db, d),
-      upsertCommunication,
-      getProcessedIds,
-      markProcessed,
-      decodeEmailBodies,
-      isAiAutoReplyEnabled,
-      canCamilleEmailClient,
-      acquireCamilleClientEmailLock,
-      releaseCamilleClientEmailLock,
-      sendEmailReplyWithGmailAPI,
-      getCamilleReplyDelayMs,
-      sleep,
-    });
-    if (prospect.leadsCreated > 0) {
-      console.log(`[Camille prospect] +${prospect.leadsCreated} prospect(s) créé(s) ce cycle`);
-    }
-    return prospect;
-  } catch (err: any) {
-    console.warn(`[Camille prospect] Sync: ${err?.message || err}`);
-    return empty;
-  } finally {
-    prospectSyncRunning = false;
-  }
-}
-
-/** Sync prospects uniquement (assurance@ via DWD) — indépendant du sync client long. */
-export async function syncProspectsOnly(db: any, aiCallback: Function) {
-  const dirtyDossierIds = new Set<string>();
-  const markDossierDirty = (dossier: any) => {
-    if (!dossier?.id) return;
-    dirtyDossierIds.add(String(dossier.id));
-    dossier.updatedAt = new Date().toISOString();
-  };
-  const prospect = await runProspectInboundSync(db, aiCallback, markDossierDirty);
-  if (!prospect.skippedConcurrent) {
-    console.log(
-      `[Camille prospect] sync terminé leads=${prospect.leadsCreated} aiReplies=${prospect.aiReplies}`,
-    );
-  }
-  return {
-    db,
-    inbound: prospect.inbound,
-    aiReplies: prospect.aiReplies,
-    leadsCreated: prospect.leadsCreated,
-    dirtyDossierIds: [...dirtyDossierIds],
-    skippedConcurrent: prospect.skippedConcurrent,
-  };
-}
 
 export async function syncGmailInbox(
   accessToken: string | null,
@@ -493,8 +410,6 @@ export async function syncGmailInbox(
 
   let inboundCount = 0;
   let aiReplies = 0;
-  // Prospects : syncProspectsOnly (autosync dédié) — évite blocage prospectSyncRunning pendant le sync client long.
-
   const clientEmails = new Set<string>();
   for (const d of db.dossiers || []) {
     if (isLeadDossier(d)) continue;

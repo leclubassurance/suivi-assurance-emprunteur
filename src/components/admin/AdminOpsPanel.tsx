@@ -604,7 +604,7 @@ export function AdminCamillePlaybooksPanel() {
           />
           <input
             className="w-full text-xs border rounded-lg px-2 py-1.5"
-            placeholder="Tags (virgules) : prospect, pre-etude, question-client"
+            placeholder="Tags (virgules) : pre-etude, post-etude, question-client"
             value={tagsText}
             onChange={(e) => setTagsText(e.target.value)}
           />

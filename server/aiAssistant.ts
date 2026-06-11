@@ -13,7 +13,6 @@ import {
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
-import { buildProspectCamilleKnowledgeBlock } from "../shared/lcifKnowledge";
 import { getPreStudyLoanReminderLabels } from "../shared/documentChecklist";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
@@ -53,7 +52,6 @@ export async function processIncomingClientEmail(
     emailSubject?: string;
     allDossiers?: any[];
     gmailId?: string;
-    isProspectLead?: boolean;
   },
 ) {
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
@@ -65,120 +63,19 @@ export async function processIncomingClientEmail(
     const prenom = dossier.formData?.assures?.[0]?.prenom || "";
     const attachmentNames = options?.newAttachmentNames || [];
     const nom = dossier.formData?.assures?.[0]?.nom || "";
-    const isProspectLead = Boolean(options?.isProspectLead || isLeadDossier(dossier));
+    if (isLeadDossier(dossier)) {
+      console.log(`[AI] ${dossier.id} prospect pré-formulaire — réponse automatique Camille désactivée`);
+      return {
+        status: "skipped",
+        reason: "Prospect pré-formulaire — Camille ne répond pas avant dépôt du formulaire",
+      };
+    }
     const clientMessageFresh = extractNewClientMessageText(emailText);
     const clientMessageForAi =
       clientMessageFresh.length >= 3 ? clientMessageFresh : emailText;
-    const conversationTailEarly = getConversationTailForAi(dossier);
-
-    if (isProspectLead) {
-      const { runProspectInboundReply } = await import("./camilleProspectReply");
-
-      const prospectDecision = await runProspectInboundReply({
-        dossier,
-        clientMessage: clientMessageForAi,
-        emailSubject: options?.emailSubject,
-        clientEmail,
-        prenom,
-        nom,
-        conversationTail: conversationTailEarly,
-      });
-
-      const prospectModel = prospectDecision.model || "gemini-2.5-flash";
-      const prospectAudit = {
-        prospectSingleShot: true,
-        confidence: prospectDecision.confidence,
-        riskFlags: prospectDecision.riskFlags,
-      };
-
-      if (prospectDecision.action === "REVIEW") {
-        const question = String(prospectDecision.questionForStaff || "").trim();
-        if (isCamilleReviewEnabled() && question.length >= 10) {
-          console.log(
-            `[AI] REVIEW prospect pipeline pour ${dossier.id} (conf=${prospectDecision.confidence ?? "?"}/10)`,
-          );
-          logAiAudit(dossier, {
-            action: "REVIEW",
-            channel: "gmail_auto_reply",
-            actor: "Camille",
-            outcome: "info",
-            model: prospectModel,
-            summary: question.slice(0, 200),
-            meta: prospectAudit,
-          });
-          return {
-            status: "review",
-            questionForStaff: question,
-            reason: prospectDecision.reasonForEscalation || "Pipeline prospect — validation équipe",
-          };
-        }
-        return { status: "escalated", reason: question || "Review prospect indisponible" };
-      }
-
-      if (prospectDecision.action === "ESCALATE") {
-        if (
-          isCamilleReviewEnabled() &&
-          String(process.env.CAMILLE_REVIEW_INSTEAD_ESCALATE ?? "true").toLowerCase() !== "false"
-        ) {
-          const question =
-            String(prospectDecision.questionForStaff || "").trim() ||
-            `Comment répondre au prospect : « ${clientMessageForAi.slice(0, 200)} » ?`;
-          return { status: "review", questionForStaff: question, reason: prospectDecision.reasonForEscalation };
-        }
-        return { status: "escalated", reason: prospectDecision.reasonForEscalation };
-      }
-
-      if (prospectDecision.action === "REPLY" && prospectDecision.messageToClient) {
-        const plain = prospectDecision.messageToClient;
-        console.log(`[AI] Réponse prospect pipeline pour ${dossier.id}`);
-        logAiAudit(dossier, {
-          action: "REPLY",
-          channel: "gmail_auto_reply",
-          actor: "Camille",
-          outcome: "sent",
-          model: prospectModel,
-          summary: `Réponse prospect (${prospectModel})`,
-          instructionPreview: plain.slice(0, 300),
-          meta: prospectAudit,
-        });
-        const telegramAction = buildTelegramActionFromReply({
-          dossier,
-          clientMessage: clientMessageForAi,
-          replyPlain: plain,
-          emailSubject: options?.emailSubject,
-          actionKind: "prospect_ai_reply",
-          attachmentNames,
-          analyze: prospectDecision.analyze,
-          critiqueApproved: true,
-        });
-        return {
-          status: "replied",
-          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-          replyPlain: plain,
-          telegramAction,
-        };
-      }
-
-      return { status: "escalated", reason: "Pipeline prospect sans réponse" };
-    }
-
-    const playbookProspectOk =
-      !isProspectLead ||
-      String(process.env.CAMILLE_PLAYBOOK_PROSPECT_ENABLED ?? "false").toLowerCase() ===
-        "true";
-    const playbookHit = playbookProspectOk
-      ? await tryPlaybookAutoReply(dossier, clientMessageForAi)
-      : null;
+    const playbookHit = await tryPlaybookAutoReply(dossier, clientMessageForAi);
     if (playbookHit) {
-      let plain = playbookHit.plain;
-      if (isProspectLead) {
-        const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
-        const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
-        const intent = analyzeProspectMessageIntent(clientMessageForAi);
-        plain = patchProspectReplyHardRules(plain, dossier, clientMessageForAi, {
-          shouldIncludeFormLink: intent.shouldIncludeFormLink,
-        });
-      }
+      const plain = playbookHit.plain;
       console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
       const telegramAction = buildTelegramActionFromReply({
         dossier,
@@ -198,7 +95,6 @@ export async function processIncomingClientEmail(
     }
 
     if (
-      !isProspectLead &&
       hasStudyBeenSent(dossier) &&
       inboundHasIdentityAttachments(attachmentNames)
     ) {
@@ -222,7 +118,6 @@ export async function processIncomingClientEmail(
     }
 
     if (
-      !isProspectLead &&
       shouldUsePostStudyComplementaryDocsReply(dossier, {
         inboundAttachmentNames: attachmentNames,
         clientMessage: emailText,
@@ -250,23 +145,19 @@ export async function processIncomingClientEmail(
     const ctx = buildCamilleContextBlock(dossier, attachmentNames, options?.allDossiers);
     const staffHandling = isStaffActivelyHandling(dossier);
     const staffOutbound = getRecentStaffOutboundSummary(dossier);
-    const knowledgeBlock = isProspectLead
-      ? buildProspectCamilleKnowledgeBlock()
-      : await buildCamilleKnowledgePromptBlock(null, undefined, {
-          clientMessage: clientMessageForAi,
-          subscriptionPhase: ctx.subscriptionPhase,
-          studySent: ctx.studySent,
-        });
+    const knowledgeBlock = await buildCamilleKnowledgePromptBlock(null, undefined, {
+      clientMessage: clientMessageForAi,
+      subscriptionPhase: ctx.subscriptionPhase,
+      studySent: ctx.studySent,
+    });
     const playbooksBlock = await buildPlaybooksPromptBlock(emailText, dossier);
     const studySent = hasStudyBeenSent(dossier);
     const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
-    const missingLoanLabels = isProspectLead
-      ? []
-      : studySent
-        ? clientAccepted
-          ? ctx.missingBlocking.map((c) => c.label)
-          : []
-        : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
+    const missingLoanLabels = studySent
+      ? clientAccepted
+        ? ctx.missingBlocking.map((c) => c.label)
+        : []
+      : getPreStudyLoanReminderLabels(dossier.formData?.documents || []);
     const conversationTail = getConversationTailForAi(dossier, 15, 800, {
       clientPhaseOnly: Boolean(dossier.leadPromotedAt),
     });
@@ -282,7 +173,6 @@ export async function processIncomingClientEmail(
         : null;
 
     if (
-      !isProspectLead &&
       shouldForceReviewHeuristic(clientMessageForAi, dossier) &&
       isCamilleReviewEnabled()
     ) {
@@ -291,12 +181,6 @@ export async function processIncomingClientEmail(
         questionForStaff: `Comment répondre à ce mail client ? « ${clientMessageForAi.slice(0, 350)} »`,
         reason: "Situation sensible ou multi-contrat — validation équipe requise",
       };
-    }
-
-    let prospectLeadBlock = "";
-    if (isProspectLead) {
-      const { buildProspectLeadPromptBlock } = await import("./camilleProspectInbound");
-      prospectLeadBlock = buildProspectLeadPromptBlock(dossier);
     }
 
     const operational: CamilleOperationalInput = {
@@ -317,15 +201,9 @@ export async function processIncomingClientEmail(
       studySent,
       clientAccepted,
       missingLoanLabels,
-      isProspectLead,
-      prospectLeadBlock,
     };
 
-    const useReasoningPipeline =
-      isCamilleReasoningEnabled() &&
-      (!isProspectLead ||
-        String(process.env.CAMILLE_PROSPECT_REASONING_ENABLED ?? "false").toLowerCase() ===
-          "true");
+    const useReasoningPipeline = isCamilleReasoningEnabled();
 
     const decision = useReasoningPipeline
       ? await runCamilleReasoningPipeline({
@@ -433,14 +311,6 @@ export async function processIncomingClientEmail(
       let plain = String(decision.messageToClient || "").trim();
       if (!plain) {
         return { status: "escalated", reason: "Réponse IA vide" };
-      }
-      if (isProspectLead) {
-        const { patchProspectReplyHardRules } = await import("./camilleProspectInbound");
-        const { analyzeProspectMessageIntent } = await import("./prospectMessageIntent");
-        const intent = analyzeProspectMessageIntent(clientMessageForAi);
-        plain = patchProspectReplyHardRules(plain, dossier, clientMessageForAi, {
-          shouldIncludeFormLink: intent.shouldIncludeFormLink,
-        });
       }
       const { text, blockedDocRequest } = sanitizeCamilleClientMessage(plain, dossier, {
         inboundAttachmentNames: attachmentNames,

@@ -407,26 +407,6 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
-  const handleSyncProspects = async () => {
-    try {
-      showToast("Sync prospects en cours…", "info");
-      const res = await adminFetch("/api/admin/sync-prospects", { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        showToast(
-          `Prospects : ${data.leadsCreated || 0} créé(s), ${data.aiReplies || 0} réponse(s) IA` +
-            (data.skippedConcurrent ? " (sync déjà en cours)" : ""),
-          data.leadsCreated || data.aiReplies ? "success" : "info",
-        );
-        loadDossiers();
-      } else {
-        showToast(data.error || "Erreur sync prospects", "error");
-      }
-    } catch {
-      showToast("Erreur réseau", "error");
-    }
-  };
-
   const handleSyncGmail = async () => {
     const token = await getAccessToken();
     if (!token) {
@@ -651,8 +631,8 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     const alerts: { title: string; detail: string }[] = [];
     if (isProspectDossier(d)) {
       alerts.push({
-        title: "En attente formulaire",
-        detail: "Prospect contacté par mail — en attente du formulaire en ligne et des documents.",
+        title: "Prospect pré-formulaire",
+        detail: "Pas de réponse automatique Camille — traitement manuel jusqu'au dépôt du formulaire.",
       });
       return alerts;
     }
@@ -878,15 +858,6 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-            {sidebarMode === "prospects" && (
-              <button
-                type="button"
-                onClick={handleSyncProspects}
-                className="mt-3 w-full text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-950 py-2.5 px-3 rounded-lg transition-colors"
-              >
-                Sync prospects (assurance@)
-              </button>
-            )}
           </div>
           <div className="flex-1 overflow-y-auto">
             {sidebarMode === "prospects" ? (
@@ -989,7 +960,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
                       <div className="font-black mb-1">Automatisation Gmail</div>
                       <p>
-                        Camille répond aux clients ; les relances respectent un délai anti-spam (pas de doublon si contact récent).
+                        Camille répond automatiquement aux clients ayant déposé le formulaire — pas aux prospects pré-formulaire. Les relances respectent un délai anti-spam.
                       </p>
                     </div>
                     <div className="flex gap-3 flex-wrap mb-4">
