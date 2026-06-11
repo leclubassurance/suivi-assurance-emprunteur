@@ -81,8 +81,7 @@ export function isHardProspectQualityIssue(issue: string): boolean {
   const i = issue.toLowerCase();
   return (
     i.includes("violation règles assureurs") ||
-    i.includes("relance commerciale après un refus") ||
-    i.includes("lien formulaire ou push documents inapproprié")
+    i.includes("relance commerciale après un refus")
   );
 }
 

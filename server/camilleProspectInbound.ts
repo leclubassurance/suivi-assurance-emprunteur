@@ -539,41 +539,32 @@ export function prospectReplyViolatesDocumentChannelRules(plain?: string): boole
   return mentionsLoanDocs;
 }
 
+/** Ajoute uniquement l'URL si le LLM a oublié — pas de paragraphe marketing préfabriqué. */
+export function appendProspectFormUrlIfMissing(plain: string, dossier: any): string {
+  const formUrl = getAssurancePlatformUrl();
+  let text = String(plain || "").trim();
+  if (prospectReplyHasFormLink(text)) return text;
+  text = `${text}\n\n${formUrl}`;
+  if (!text.includes(dossier.id)) {
+    text = `${text}\n\nRéférence interne : ${dossier.id}.`;
+  }
+  console.log(`[Camille prospect] URL formulaire ajoutée (${dossier.id})`);
+  return text;
+}
+
+/** @deprecated Utiliser appendProspectFormUrlIfMissing — ne plus injecter de bloc template. */
 export function injectProspectFormLinkForLoanDocs(
   plain: string,
   dossier: any,
 ): string {
-  const formUrl = getAssurancePlatformUrl();
-  let text = String(plain || "").trim();
-  if (!prospectReplyViolatesDocumentChannelRules(text)) return text;
-
-  const formBlock = [
-    `Pour nous transmettre l'offre de prêt et le tableau d'amortissement en PDF, utilisez notre formulaire en ligne sécurisé (quelques minutes) :`,
-    formUrl,
-    `Inutile de les envoyer en réponse à ce mail ou en pièce jointe — le formulaire est le seul canal de dépôt.`,
-  ].join("\n");
-
-  if (/espace bancaire|espace banque|format pdf/i.test(text)) {
-    text = text.replace(
-      /([^\n]*(?:espace bancaire|espace banque|format pdf)[^\n]*\.)/i,
-      `$1\n\n${formBlock}`,
-    );
-  } else {
-    text = `${text}\n\n${formBlock}`;
-  }
-
-  if (!text.includes(dossier.id)) {
-    text = `${text}\n\nRéférence interne : ${dossier.id}.`;
-  }
-  console.log(`[Camille prospect] Lien formulaire injecté (${dossier.id})`);
-  return text;
+  return appendProspectFormUrlIfMissing(plain, dossier);
 }
 
 export type ProspectPatchOptions = {
   shouldIncludeFormLink?: boolean;
 };
 
-/** Corrections ciblées (sans écraser toute la réponse par un template générique). */
+/** Corrections ciblées uniquement — jamais de remplacement par un mail préfabriqué. */
 export function patchProspectReplyHardRules(
   plain: string,
   dossier: any,
@@ -582,11 +573,7 @@ export function patchProspectReplyHardRules(
 ): string {
   const formUrl = getAssurancePlatformUrl();
   let text = String(plain || "").trim();
-  const allowFormLink = options?.shouldIncludeFormLink !== false;
-
-  if (allowFormLink || prospectReplyViolatesDocumentChannelRules(text)) {
-    text = injectProspectFormLinkForLoanDocs(text, dossier);
-  }
+  const allowFormLink = options?.shouldIncludeFormLink === true;
 
   const asksDocsByEmail =
     /(offre de prêt|tableau d.amortissement|échéancier|echeancier|cni|rib).{0,80}(envoy|joindre|transmettre|pi[eè]ce jointe|par mail|par email)/i.test(
@@ -597,15 +584,12 @@ export function patchProspectReplyHardRules(
     text = text
       .replace(
         /(envoy|joindre|transmettre|transmettez).{0,100}(par mail|par email|en pi[eè]ce jointe)/gi,
-        "déposer sur notre formulaire en ligne",
+        "déposer sur le formulaire en ligne",
       )
       .replace(
         /(offre de prêt|tableau d.amortissement).{0,60}(par mail|par email|en pi[eè]ce jointe)/gi,
         "documents sur le formulaire en ligne",
       );
-    if (!text.includes(formUrl)) {
-      text = `${text}\n\nFormulaire sécurisé : ${formUrl}`;
-    }
   }
 
   if (prospectReplyViolatesInsurerDisclosureRules(text)) {
@@ -615,14 +599,14 @@ export function patchProspectReplyHardRules(
     );
   }
 
-  const mentionsStudyPath =
-    /(étude|formulaire|démarrer|demarrer|lancer|commencer|déposer|deposer)/i.test(text);
-  if (allowFormLink && mentionsStudyPath && !text.includes(formUrl)) {
-    text = `${text}\n\nFormulaire en ligne : ${formUrl}`;
+  if (allowFormLink && !prospectReplyHasFormLink(text)) {
+    text = appendProspectFormUrlIfMissing(text, dossier);
   }
   if (!text.includes(dossier.id)) {
     text = `${text}\n\nRéférence interne : ${dossier.id}.`;
   }
+  void clientMessage;
+  void formUrl;
   return text;
 }
 

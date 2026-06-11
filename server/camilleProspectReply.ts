@@ -9,7 +9,6 @@ import {
   buildProspectLeadPromptBlock,
   isUnsafeProspectLlmReply,
   patchProspectReplyHardRules,
-  prospectReplyViolatesDocumentChannelRules,
 } from "./camilleProspectInbound";
 import {
   clampProspectConfidence,
@@ -68,7 +67,10 @@ PRINCIPES :
 
 DOCUMENTS : lien formulaire + « ne pas envoyer par mail » UNIQUEMENT si la stratégie le demande.
 
-INTERDITS : liste complète assureurs, chiffres d'économie inventés, météo inventée, numéro de téléphone.
+INTERDITS :
+- Phrases toutes faites : « Merci pour votre message et l'intérêt que vous portez », « complétez le formulaire sécurisé », « gratuite et sans engagement » en bloc, « pas besoin de les envoyer en pièce jointe ».
+- Liste complète assureurs, chiffres d'économie inventés, météo inventée, numéro de téléphone.
+- Copier un modèle : chaque mail doit sonner comme une vraie conversation email.
 
 REVIEW seulement si tu ne peux vraiment pas répondre honnêtement (confidence < 5) ou menace/litige actif.
 ESCALATE : menace grave, insulte, impasse totale — rare en prospect.
@@ -133,9 +135,8 @@ function patchProspectReplyForSend(
   clientMessage: string | undefined,
   intent: ProspectIntentAnalysis,
 ): string {
-  const needsDocLink = prospectReplyViolatesDocumentChannelRules(plain);
   return patchProspectReplyHardRules(plain, dossier, clientMessage, {
-    shouldIncludeFormLink: intent.shouldIncludeFormLink || needsDocLink,
+    shouldIncludeFormLink: intent.shouldIncludeFormLink,
   });
 }
 
@@ -149,16 +150,6 @@ function collectProspectReplyIssues(
   const fresh = extractNewClientMessageText(String(clientMessage || "")).trim().toLowerCase();
 
   issues.push(...prospectReplyMatchesIntentStrategy(plain, clientMessage, intent));
-
-  const cannedPatterns = [
-    /merci pour votre message et l'intérêt que vous portez/,
-    /pour démarrer, complétez le formulaire sécurisé/,
-    /vous pourrez y déposer l'offre de prêt et le tableau/,
-    /pas besoin de les envoyer en pièce jointe par email/,
-  ];
-  for (const re of cannedPatterns) {
-    if (re.test(text)) issues.push("formulation script marketing détectée");
-  }
 
   const isShortHi = /^(bonjour|bonsoir|salut|hello|coucou)[\s!.?,]*$/i.test(fresh);
   if (isShortHi) {
@@ -349,13 +340,26 @@ export async function runProspectInboundReply(params: {
     };
   }
 
-  const hadDocViolation = prospectReplyViolatesDocumentChannelRules(draft);
   let plain = patchProspectReplyForSend(draft, params.dossier, params.clientMessage, intent);
-  if (hadDocViolation && !prospectReplyViolatesDocumentChannelRules(plain)) {
-    console.log(`[Camille prospect] Lien formulaire injecté avant envoi (${params.dossier.id})`);
-  }
 
   let postIssues = collectBlockingReplyIssues(plain, params.clientMessage, intent);
+
+  if (isUnsafeProspectLlmReply(plain, params.clientMessage) && confidence >= 5) {
+    console.log(`[Camille prospect] Réécriture (réponse risquée) ${params.dossier.id}`);
+    parsed = await callProspectLlm(
+      buildUserPayload({
+        ...params,
+        intent,
+        correctionHint:
+          "Ta réponse précédente était risquée ou hors-sujet. Réécris entièrement : réponds au mail du client, sans chiffre inventé, sans phrase toute faite, ton naturel.",
+      }),
+      Math.max(0.5, temperature - 0.15),
+    );
+    draft = String(parsed.messageToClient || "").trim();
+    confidence = clampProspectConfidence(parsed.confidence, confidence);
+    plain = patchProspectReplyForSend(draft, params.dossier, params.clientMessage, intent);
+    postIssues = collectBlockingReplyIssues(plain, params.clientMessage, intent);
+  }
   const { hard: hardIssues, soft: softIssues } = splitQualityIssues(postIssues);
 
   if (action === "REVIEW" && hardIssues.length === 0 && softIssues.length === 0 && confidence >= 6) {
