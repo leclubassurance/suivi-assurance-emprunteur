@@ -24,13 +24,18 @@ import { runSchedulerOnce, startScheduler } from "./scheduler";
 import { isEmailConfigured, sendEmail } from "./emailProvider";
 import { auditAiDecision, proposeNextActions } from "./nextActionEngine";
 import { RAILWAY_BUILD_ID } from "./buildInfo";
-import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
 import { isVisibleAdminDossier } from "../shared/camilleMeta";
 import { DRIVE_CONFIG_VERSION, resolveDriveParentFolderId } from "./driveConfig";
 import { mergeFormDocumentsWithUploads } from "./documentMerge";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
 import { getServerAccessToken } from "./googleOAuthServer";
+import { sendDossierConfirmationEmail } from "./dossierConfirmationEmail";
+import {
+  canAutonomousGoogleMailOrDrive,
+  getBearerTokenFromRequest,
+  resolveAutonomousGoogleAccessToken,
+} from "./requestAuth";
 import {
   hasServiceAccountConfigured,
   hasServiceAccountReady,
@@ -59,6 +64,9 @@ function ensureBackgroundServicesStarted() {
     schedulerStarted = true;
     const { scheduleRgpdRegisterSyncOnBoot } = require("./rgpdGoogleSheets") as typeof import("./rgpdGoogleSheets");
     scheduleRgpdRegisterSyncOnBoot((msg) => console.log(msg));
+    const { scheduleConfirmationEmailRecoveryOnBoot } =
+      require("./confirmationEmailRecovery") as typeof import("./confirmationEmailRecovery");
+    scheduleConfirmationEmailRecoveryOnBoot((msg) => console.log(msg));
   }
   return firebaseInitPromise;
 }
@@ -112,15 +120,6 @@ export function createApp() {
     appendLog(
       `${req.method} ${req.url} - Content-Length: ${req.headers["content-length"] || 0} - IP: ${req.ip}`,
     );
-    next();
-  });
-
-  let latestAccessToken = "";
-  app.use((req, _res, next) => {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      latestAccessToken = authHeader.split(" ")[1] || "";
-    }
     next();
   });
 
@@ -463,284 +462,21 @@ export function createApp() {
         .catch(() => undefined);
 
       const toEmail = formData.assures?.[0]?.email;
-      const ccEmails = Array.isArray(formData.assures)
-        ? formData.assures
-            .map((a: any) => String(a?.email || "").trim().toLowerCase())
-            .filter((e: string) => e && e !== String(toEmail || "").trim().toLowerCase())
-        : [];
-      const clientName = formData.assures?.[0]?.prenom || "Cher client";
       if (toEmail) {
-        const confirmationSubject = `Confirmation de réception - Dossier N° ${newDossier.id}`;
-        const confirmationHtml = `
-<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background-color:#F8FAFC;color:#1F2937;line-height:1.6;">
-  <div style="max-width:640px;margin:0 auto;background-color:#FFFFFF;border:1px solid #E5E7EB;">
-    <div style="background-color:#1E3A8A;padding:24px 20px;text-align:center;">
-      ${LCIF_EMAIL_LOGO_HEADER_IMG}
-    </div>
-    <div style="padding:24px 22px;">
-      <p style="font-size:16px;margin:0 0 14px 0;color:#111827;"><strong>Bonjour ${clientName},</strong></p>
-      <p style="font-size:14px;margin:0 0 12px 0;color:#374151;">
-        Nous avons bien reçu votre dossier d'assurance emprunteur sous le numéro <strong>${newDossier.id}</strong>.
-      </p>
-      <p style="font-size:14px;margin:0 0 18px 0;color:#374151;">
-        Notre équipe vous revient sous 48h ouvrées.
-      </p>
-      ${portalCtaHtml}
-      <p style="font-size:14px;margin:18px 0 0 0;color:#111827;">Bien cordialement,<br/>
-        <strong>Charles Victor</strong><br/>
-        <span style="color:#6B7280;">Le Club Immobilier Français</span>
-      </p>
-    </div>
-    <div style="background-color:#F8FAFC;padding:16px 22px;border-top:1px solid #E5E7EB;">
-      <p style="font-size:11px;margin:0;color:#9CA3AF;line-height:1.5;">
-        Le Club Immobilier Français — 17 Passage Leroy, 44000 Nantes<br/>
-        N° ORIAS : 24002253
-      </p>
-    </div>
-  </div>
-</div>`;
-        if (latestAccessToken) {
-          sendEmailReplyWithGmailAPI(
-            latestAccessToken,
-            toEmail,
-            confirmationSubject,
-            confirmationHtml,
-            { cc: ccEmails },
-          )
-            .then(async (sendResult) => {
-              if (sendResult?.ok) {
-                appendLog(
-                  `[Email] Mail de confirmation automatique envoyé de Charles Victor à ${toEmail} pour le dossier ${newDossier.id}`,
-                );
-                addEvent(newDossier, {
-                  type: "EMAIL_SENT",
-                  actor: { kind: "SYSTEM" },
-                  meta: { template: "CONFIRMATION", to: toEmail, cc: ccEmails.join(", "), subject: confirmationSubject },
-                });
-                await writeDB(db, newDossier);
-              } else {
-                appendLog(`[Email Warning] Échec d'envoi automatique du mail de confirmation à ${toEmail}`);
-                addEvent(newDossier, {
-                  type: "EMAIL_FAILED",
-                  actor: { kind: "SYSTEM" },
-                  meta: {
-                    template: "CONFIRMATION",
-                    to: toEmail,
-                    cc: ccEmails.join(", "),
-                    subject: confirmationSubject,
-                  },
-                });
-                await writeDB(db, newDossier);
-              }
-            })
-            .catch(async (err: any) => {
-              appendLog(`[Email Error] Erreur d'envoi automatique du mail : ${err.message}`);
-              addEvent(newDossier, {
-                type: "EMAIL_FAILED",
-                actor: { kind: "SYSTEM" },
-                meta: {
-                  template: "CONFIRMATION",
-                  to: toEmail,
-                  cc: ccEmails.join(", "),
-                  subject: confirmationSubject,
-                  error: err.message,
-                },
-              });
-              await writeDB(db, newDossier);
-            });
-        } else if (hasServerOAuthRefreshToken()) {
-          // Mode autonome 24/7 : envoi Gmail via refresh_token OAuth serveur (sans login admin)
-          sendEmailReplyWithGmailAPI(null, toEmail, confirmationSubject, confirmationHtml, { cc: ccEmails })
-            .then(async (sendResult) => {
-              if (sendResult?.ok) {
-                appendLog(
-                  `[Email] Mail de confirmation automatique envoyé via Gmail (refresh_token) à ${toEmail} pour le dossier ${newDossier.id}`,
-                );
-                addEvent(newDossier, {
-                  type: "EMAIL_SENT",
-                  actor: { kind: "SYSTEM" },
-                  meta: {
-                    template: "CONFIRMATION",
-                    to: toEmail,
-                    cc: ccEmails.join(", "),
-                    subject: confirmationSubject,
-                    channel: "GMAIL_REFRESH_TOKEN",
-                  },
-                });
-              } else {
-                appendLog(
-                  `[Email Warning] Échec d'envoi Gmail (refresh_token) du mail de confirmation à ${toEmail}: ${sendResult?.error || "unknown"}`,
-                );
-                addEvent(newDossier, {
-                  type: "EMAIL_FAILED",
-                  actor: { kind: "SYSTEM" },
-                  meta: {
-                    template: "CONFIRMATION",
-                    to: toEmail,
-                    cc: ccEmails.join(", "),
-                    subject: confirmationSubject,
-                    channel: "GMAIL_REFRESH_TOKEN",
-                    error: sendResult?.error || "unknown",
-                  },
-                });
-              }
-              await writeDB(db, newDossier);
-            })
-            .catch(async (err: any) => {
-              appendLog(
-                `[Email Error] Erreur Gmail (refresh_token) mail de confirmation : ${err?.message || String(err)}`,
-              );
-              addEvent(newDossier, {
-                type: "EMAIL_FAILED",
-                actor: { kind: "SYSTEM" },
-                meta: {
-                  template: "CONFIRMATION",
-                  to: toEmail,
-                  cc: ccEmails.join(", "),
-                  subject: confirmationSubject,
-                  channel: "GMAIL_REFRESH_TOKEN",
-                  error: err?.message || String(err),
-                },
-              });
-              await writeDB(db, newDossier);
-            });
-        } else if (canUseDomainWideDelegation()) {
-          // Mode autonome 24/7 : envoi Gmail via service account + délégation domaine (sans login admin)
-          sendEmailReplyWithGmailAPI(null, toEmail, confirmationSubject, confirmationHtml, { cc: ccEmails })
-            .then(async (sendResult) => {
-              if (sendResult?.ok) {
-                appendLog(
-                  `[Email] Mail de confirmation automatique envoyé via Gmail (DWD) à ${toEmail} pour le dossier ${newDossier.id}`,
-                );
-                addEvent(newDossier, {
-                  type: "EMAIL_SENT",
-                  actor: { kind: "SYSTEM" },
-                  meta: { template: "CONFIRMATION", to: toEmail, cc: ccEmails.join(", "), subject: confirmationSubject, channel: "GMAIL_DWD" },
-                });
-              } else {
-                appendLog(
-                  `[Email Warning] Échec d'envoi Gmail (DWD) du mail de confirmation à ${toEmail}: ${sendResult?.error || "unknown"}`,
-                );
-                addEvent(newDossier, {
-                  type: "EMAIL_FAILED",
-                  actor: { kind: "SYSTEM" },
-                  meta: {
-                    template: "CONFIRMATION",
-                    to: toEmail,
-                    cc: ccEmails.join(", "),
-                    subject: confirmationSubject,
-                    channel: "GMAIL_DWD",
-                    error: sendResult?.error || "unknown",
-                  },
-                });
-              }
-              await writeDB(db, newDossier);
-            })
-            .catch(async (err: any) => {
-              appendLog(`[Email Error] Erreur Gmail (DWD) mail de confirmation : ${err?.message || String(err)}`);
-              addEvent(newDossier, {
-                type: "EMAIL_FAILED",
-                actor: { kind: "SYSTEM" },
-                meta: {
-                  template: "CONFIRMATION",
-                  to: toEmail,
-                  cc: ccEmails.join(", "),
-                  subject: confirmationSubject,
-                  channel: "GMAIL_DWD",
-                  error: err?.message || String(err),
-                },
-              });
-              await writeDB(db, newDossier);
-            });
-        } else if (isEmailConfigured()) {
-          // Pas d'OAuth admin : on envoie via SMTP si configuré (pour que le formulaire client fonctionne sans admin connecté)
-          sendEmail({ to: [toEmail, ...ccEmails].join(","), subject: confirmationSubject, html: confirmationHtml })
-            .then(async (smtpResult) => {
-              if (smtpResult.ok) {
-                appendLog(
-                  `[Email] Mail de confirmation automatique envoyé via SMTP à ${toEmail} pour le dossier ${newDossier.id}`,
-                );
-                addEvent(newDossier, {
-                  type: "EMAIL_SENT",
-                  actor: { kind: "SYSTEM" },
-                  meta: {
-                    template: "CONFIRMATION",
-                    to: toEmail,
-                    cc: ccEmails.join(", "),
-                    subject: confirmationSubject,
-                    channel: "SMTP",
-                    providerId: smtpResult.providerId,
-                  },
-                });
-              } else if (smtpResult.ok === false) {
-                appendLog(
-                  `[Email Warning] Échec d'envoi SMTP du mail de confirmation à ${toEmail}: ${smtpResult.error}`,
-                );
-                addEvent(newDossier, {
-                  type: "EMAIL_FAILED",
-                  actor: { kind: "SYSTEM" },
-                  meta: {
-                    template: "CONFIRMATION",
-                    to: toEmail,
-                    cc: ccEmails.join(", "),
-                    subject: confirmationSubject,
-                    channel: "SMTP",
-                    error: smtpResult.error,
-                  },
-                });
-              } else {
-                appendLog(
-                  `[Email Warning] Échec d'envoi SMTP du mail de confirmation à ${toEmail}: résultat inconnu`,
-                );
-                addEvent(newDossier, {
-                  type: "EMAIL_FAILED",
-                  actor: { kind: "SYSTEM" },
-                  meta: {
-                    template: "CONFIRMATION",
-                    to: toEmail,
-                    cc: ccEmails.join(", "),
-                    subject: confirmationSubject,
-                    channel: "SMTP",
-                    error: "Unknown SMTP result shape",
-                  },
-                });
-              }
-              await writeDB(db, newDossier);
-            })
-            .catch(async (err: any) => {
-              appendLog(`[Email Error] Erreur SMTP mail de confirmation : ${err?.message || String(err)}`);
-              addEvent(newDossier, {
-                type: "EMAIL_FAILED",
-                actor: { kind: "SYSTEM" },
-                meta: {
-                  template: "CONFIRMATION",
-                  to: toEmail,
-                  cc: ccEmails.join(", "),
-                  subject: confirmationSubject,
-                  channel: "SMTP",
-                  error: err?.message || String(err),
-                },
-              });
-              await writeDB(db, newDossier);
-            });
-        } else {
-          appendLog(
-            `[Email Skipped] Aucun token OAuth admin et SMTP non configuré : confirmation non envoyée à ${toEmail} (dossier ${newDossier.id}).`,
-          );
-          addEvent(newDossier, {
-            type: "EMAIL_FAILED",
-            actor: { kind: "SYSTEM" },
-            meta: {
-              template: "CONFIRMATION",
-              to: toEmail,
-              cc: ccEmails.join(", "),
-              subject: confirmationSubject,
-              channel: "NONE",
-              error: "No OAuth token available and SMTP is not configured",
-            },
+        const requestAccessToken = getBearerTokenFromRequest(req);
+        const portalBase = resolvePublicAppBaseUrl(
+          String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+        );
+        sendDossierConfirmationEmail(newDossier, {
+          adminAccessToken: requestAccessToken || null,
+          portalBaseUrl: portalBase,
+          log: appendLog,
+        })
+          .then(() => writeDB(db, newDossier))
+          .catch(async (err: any) => {
+            appendLog(`[Email Error] Erreur confirmation : ${err?.message || String(err)}`);
+            await writeDB(db, newDossier);
           });
-          await writeDB(db, newDossier);
-        }
       }
 
       // Export auto Drive (compte de service recommandé — formulaire sans admin connecté)
@@ -750,7 +486,9 @@ export function createApp() {
         loadServiceAccountDetails,
       } = await import("./serviceAccount");
       const saDetails = loadServiceAccountDetails();
-      const canAutoDrive = hasServiceAccountReady() || Boolean(latestAccessToken);
+      const requestAccessToken = getBearerTokenFromRequest(req);
+      const canAutoDrive =
+        hasServiceAccountReady() || canAutonomousGoogleMailOrDrive() || Boolean(requestAccessToken);
 
       if (!canAutoDrive) {
         newDossier.workspaceStatus = "FAILED";
@@ -767,18 +505,10 @@ export function createApp() {
       }
 
       let driveTokenForAutoExport: string | null = null;
-      if (latestAccessToken) {
-        driveTokenForAutoExport = latestAccessToken;
-      } else if (hasServerOAuthRefreshToken()) {
-        try {
-          driveTokenForAutoExport = await getServerAccessToken();
-        } catch (e: any) {
-          appendLog(`[Drive Warning] Impossible d'obtenir un token OAuth serveur: ${e?.message || String(e)}`);
-          driveTokenForAutoExport = hasServiceAccountReady() ? null : null;
-        }
+      if (requestAccessToken) {
+        driveTokenForAutoExport = requestAccessToken;
       } else {
-        // fallback service account si configuré
-        driveTokenForAutoExport = hasServiceAccountReady() ? null : null;
+        driveTokenForAutoExport = await resolveAutonomousGoogleAccessToken();
       }
 
       exportDossierToGoogleWorkspace(newDossier, driveTokenForAutoExport)
@@ -979,9 +709,7 @@ export function createApp() {
             .map((a: any) => String(a?.email || "").trim())
             .filter((e: string) => e && e.toLowerCase() !== String(toEmail).toLowerCase());
 
-    const authHeader = req.headers.authorization;
-    const googleToken =
-      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+    const googleToken = getBearerTokenFromRequest(req);
 
     let providerId: string | null = null;
     let channel: "gmail" | "smtp" | "simulated" = "simulated";
@@ -1745,9 +1473,7 @@ export function createApp() {
   app.post("/api/admin/rgpd/sync-register", rgpdSyncRegisterHandler);
 
   app.get("/api/admin/drive-check", async (req, res) => {
-    const authHeader = req.headers.authorization;
-    const token =
-      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+    const token = getBearerTokenFromRequest(req);
     if (!token) {
       return res.status(401).json({ error: "Connexion Google requise (reconnectez-vous dans l'admin)." });
     }
@@ -1762,6 +1488,36 @@ export function createApp() {
         error: err?.message || String(err),
         hint: "Reconnectez Google dans l'admin pour autoriser Drive (scope complet).",
       });
+    }
+  });
+
+  app.post("/api/dossiers/:id/resend-confirmation", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id } = req.params;
+    try {
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier non trouvé" });
+
+      const adminToken = getBearerTokenFromRequest(req) || null;
+      const result = await sendDossierConfirmationEmail(dossier, {
+        adminAccessToken: adminToken,
+        log: appendLog,
+      });
+      await writeDB(db, dossier);
+
+      if (!result.ok) {
+        return res.status(500).json({
+          success: false,
+          error: result.error || "Échec d'envoi du mail de confirmation",
+          channel: result.channel,
+        });
+      }
+
+      res.json({ success: true, channel: result.channel });
+    } catch (err: any) {
+      console.error("Resend confirmation error:", err);
+      res.status(500).json({ error: err.message || err });
     }
   });
 
@@ -1793,11 +1549,9 @@ export function createApp() {
       dossier.workspaceWarning = undefined;
       await writeDB(db, dossier);
 
-      const authHeader = req.headers.authorization;
-      let token =
-        authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
-      if (!token && hasServerOAuthRefreshToken()) {
-        token = await getServerAccessToken();
+      let token = getBearerTokenFromRequest(req);
+      if (!token) {
+        token = (await resolveAutonomousGoogleAccessToken()) || "";
       }
 
       const result = await exportDossierToGoogleWorkspace(dossier, token || null);
@@ -2304,9 +2058,7 @@ export function createApp() {
     await writeDB(db, dossier);
 
     let aiReplies = 0;
-    const authHeader = req.headers.authorization;
-    const token =
-      authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : latestAccessToken;
+    const token = getBearerTokenFromRequest(req);
     if (reprocess && token) {
       try {
         const { syncGmailInbox } = await import("./mailAutomation");

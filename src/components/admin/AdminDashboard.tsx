@@ -498,6 +498,26 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
+  const handleResendConfirmation = async () => {
+    if (!selectedDossier) return;
+    try {
+      showToast("Renvoi du mail de confirmation...", "info");
+      const res = await adminFetch(`/api/dossiers/${selectedDossier.id}/resend-confirmation`, {
+        method: "POST",
+        headers: await authHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success) {
+        showToast(`Mail de confirmation renvoyé (${data.channel || "gmail"})`, "success");
+        loadDossiers();
+      } else {
+        showToast(data.error || "Échec du renvoi de confirmation", "error");
+      }
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
   const handleExportDrive = async () => {
     if (!selectedDossier) return;
     const token = await getAccessToken();
@@ -1729,6 +1749,16 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                               L&apos;envoi part toujours vers l&apos;email du dossier ouvert — regénérez le brouillon
                               ici après avoir changé de LCIF.
                             </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            <button
+                              type="button"
+                              onClick={handleResendConfirmation}
+                              className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-800 hover:bg-indigo-100"
+                            >
+                              <Send className="w-4 h-4" />
+                              Renvoyer mail de confirmation
+                            </button>
                           </div>
                           {siblings.length > 0 && (
                             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
