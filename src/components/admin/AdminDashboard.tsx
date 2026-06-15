@@ -518,7 +518,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     }
   };
 
-  const handleExportDrive = async () => {
+  const handleExportDrive = async (options?: { syncFiles?: boolean }) => {
     if (!selectedDossier) return;
     const token = await getAccessToken();
     if (!token) {
@@ -526,11 +526,17 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
       return;
     }
     try {
-      showToast("Envoi des documents vers Drive...", "info");
+      showToast(
+        options?.syncFiles ? "Synchronisation des fichiers vers Drive..." : "Envoi des documents vers Drive...",
+        "info",
+      );
       const res = await adminFetch(`/api/dossiers/${selectedDossier.id}/retry-workspace`, {
         method: "POST",
         headers: await authHeaders(),
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          syncFiles: options?.syncFiles === true,
+          force: options?.syncFiles === true,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -1024,7 +1030,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       {!(selectedDossier as any).workspaceFolderId ||
                       (selectedDossier as any).workspaceStatus === "FAILED" ? (
                         <button
-                          onClick={handleExportDrive}
+                          onClick={() => handleExportDrive()}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2"
                         >
                           <FileText className="w-4 h-4" />
@@ -1033,14 +1039,25 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                             : "Créer dossier Drive"}
                         </button>
                       ) : (
-                        <a
-                          href={`https://drive.google.com/drive/folders/${(selectedDossier as any).workspaceFolderId}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold py-2.5 px-4 rounded-xl border border-indigo-200 text-xs transition-all flex items-center gap-2"
-                        >
-                          <FileText className="w-4 h-4" /> Ouvrir Drive
-                        </a>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <a
+                            href={`https://drive.google.com/drive/folders/${(selectedDossier as any).workspaceFolderId}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold py-2.5 px-4 rounded-xl border border-indigo-200 text-xs transition-all flex items-center gap-2"
+                          >
+                            <FileText className="w-4 h-4" /> Ouvrir Drive
+                          </a>
+                          {(selectedDossier as any).workspaceStatus === "WARNING" && (
+                            <button
+                              type="button"
+                              onClick={() => handleExportDrive({ syncFiles: true })}
+                              className="bg-amber-50 hover:bg-amber-100 text-amber-950 font-bold py-2.5 px-4 rounded-xl border border-amber-200 text-xs transition-all flex items-center gap-2"
+                            >
+                              <Upload className="w-4 h-4" /> Synchroniser fichiers Drive
+                            </button>
+                          )}
+                        </div>
                       )}
                       <button
                         type="button"

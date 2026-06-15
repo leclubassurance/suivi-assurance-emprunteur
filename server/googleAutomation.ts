@@ -1,13 +1,97 @@
 import { google } from 'googleapis';
 import fs from 'fs';
+import path from 'path';
 import {
   DRIVE_CONFIG_VERSION,
   resolveDriveParentFolderId,
 } from './driveConfig';
 import { loadServiceAccountCredentials } from './serviceAccount';
+import { ensureDocumentLocalFile } from './documentFileResolve';
+import { findDriveFileIdInFolder } from './gmailDriveUpload';
 
 export { DRIVE_CONFIG_VERSION };
 
+function getUploadsDir(): string {
+  const base =
+    process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT
+      ? path.join('/tmp', 'data')
+      : path.join(process.cwd(), 'data');
+  return path.join(base, 'uploads');
+}
+
+type DriveDocSyncResult = {
+  uploaded: number;
+  linkedExisting: number;
+  missing: string[];
+};
+
+async function syncDocumentsToDriveFolder(
+  drive: any,
+  dossier: any,
+  folderId: string,
+  accessToken?: string | null,
+): Promise<DriveDocSyncResult> {
+  const uploadsDir = getUploadsDir();
+  let uploaded = 0;
+  let linkedExisting = 0;
+  const missing: string[] = [];
+
+  for (const doc of dossier.formData?.documents || []) {
+    const name = String(doc?.name || '').trim();
+    if (!name) continue;
+
+    if (doc.driveFileId) {
+      linkedExisting++;
+      continue;
+    }
+
+    const existingId = await findDriveFileIdInFolder(folderId, name, accessToken);
+    if (existingId) {
+      doc.driveFileId = existingId;
+      doc.driveLink = `https://drive.google.com/file/d/${existingId}/view`;
+      linkedExisting++;
+      continue;
+    }
+
+    const resolved = await ensureDocumentLocalFile(dossier, doc, uploadsDir);
+    const localPath = resolved.localPath;
+    if (!localPath || !fs.existsSync(localPath)) {
+      missing.push(name);
+      continue;
+    }
+
+    const up = await drive.files.create({
+      requestBody: {
+        name: doc.name,
+        parents: [folderId],
+      },
+      media: {
+        mimeType: doc.type || 'application/octet-stream',
+        body: fs.createReadStream(localPath),
+      },
+      supportsAllDrives: true,
+      fields: 'id,webViewLink',
+    });
+    if (up.data?.id) {
+      doc.driveFileId = up.data.id;
+      doc.driveLink = up.data.webViewLink || `https://drive.google.com/file/d/${up.data.id}/view`;
+    }
+    uploaded++;
+  }
+
+  return { uploaded, linkedExisting, missing };
+}
+
+function buildDocumentsDriveWarning(sync: DriveDocSyncResult): string | undefined {
+  if (!sync.missing.length) return undefined;
+  const preview = sync.missing.slice(0, 3).join(', ');
+  const extra = sync.missing.length > 3 ? ` (+${sync.missing.length - 3})` : '';
+  return (
+    `Fichiers non copiés vers Drive : ${preview}${extra}. ` +
+    'Les fichiers uploadés ne sont plus sur le serveur Railway (disque éphémère). ' +
+    'Déposez les PDF dans le dossier Drive à la main, puis cliquez « Synchroniser fichiers Drive ».'
+  );
+}
 function isMockAccessToken(token?: string | null) {
   return !token || token.startsWith('mock-gdrive');
 }
@@ -342,33 +426,10 @@ export async function exportDossierToGoogleWorkspace(
       (await findWorkspaceFolderInParent(drive, configuredParent, dossierId));
     if (existingInParent) {
       const folderId = existingInParent;
-      let uploaded = 0;
-      if (dossier.formData?.documents?.length > 0) {
-        for (const doc of dossier.formData.documents) {
-          if (!doc.localPath || !fs.existsSync(doc.localPath)) continue;
-          const up = await drive.files.create({
-            requestBody: {
-              name: doc.name,
-              parents: [folderId],
-            },
-            media: {
-              mimeType: doc.type || 'application/octet-stream',
-              body: fs.createReadStream(doc.localPath),
-            },
-            supportsAllDrives: true,
-            fields: 'id,webViewLink',
-          });
-          if (up.data?.id) {
-            doc.driveFileId = up.data.id;
-            doc.driveLink = up.data.webViewLink || `https://drive.google.com/file/d/${up.data.id}/view`;
-          }
-          uploaded++;
-        }
-      }
-      if (uploaded === 0 && dossier.formData?.documents?.length > 0) {
-        warning =
-          (warning ? `${warning} ` : '') +
-          'Fichiers non copiés : chemins absents sur le serveur (réessayez après un nouvel envoi formulaire).';
+      const sync = await syncDocumentsToDriveFolder(drive, dossier, folderId, accessToken);
+      const docWarning = buildDocumentsDriveWarning(sync);
+      if (docWarning) {
+        warning = (warning ? `${warning} ` : '') + docWarning;
       }
       return {
         success: true,
@@ -408,34 +469,10 @@ export async function exportDossierToGoogleWorkspace(
 
     const folderId = folderRes.data.id!;
 
-    let uploaded = 0;
-    if (dossier.formData?.documents?.length > 0) {
-      for (const doc of dossier.formData.documents) {
-        if (!doc.localPath || !fs.existsSync(doc.localPath)) continue;
-        const up = await drive.files.create({
-          requestBody: {
-            name: doc.name,
-            parents: [folderId],
-          },
-          media: {
-            mimeType: doc.type || 'application/octet-stream',
-            body: fs.createReadStream(doc.localPath),
-          },
-          supportsAllDrives: true,
-          fields: "id,webViewLink",
-        });
-        if (up.data?.id) {
-          doc.driveFileId = up.data.id;
-          doc.driveLink = up.data.webViewLink || `https://drive.google.com/file/d/${up.data.id}/view`;
-        }
-        uploaded++;
-      }
-    }
-
-    if (uploaded === 0 && dossier.formData?.documents?.length > 0) {
-      warning =
-        (warning ? `${warning} ` : '') +
-        'Fichiers non copiés : chemins absents sur le serveur (réessayez après un nouvel envoi formulaire).';
+    const sync = await syncDocumentsToDriveFolder(drive, dossier, folderId, accessToken);
+    const docWarning = buildDocumentsDriveWarning(sync);
+    if (docWarning) {
+      warning = (warning ? `${warning} ` : '') + docWarning;
     }
 
     return {

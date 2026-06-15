@@ -1530,11 +1530,14 @@ export function createApp() {
       if (!dossier) return res.status(404).json({ error: "Dossier non trouvé" });
 
       const force = Boolean((req.body as any)?.force);
-      if (
+      const syncFiles = Boolean((req.body as any)?.syncFiles);
+      const canReuseFolder =
         dossier.workspaceFolderId &&
         dossier.workspaceStatus !== "FAILED" &&
-        !force
-      ) {
+        dossier.workspaceStatus !== "WARNING" &&
+        !force &&
+        !syncFiles;
+      if (canReuseFolder) {
         return res.json({
           success: true,
           folderId: dossier.workspaceFolderId,
