@@ -107,13 +107,35 @@ export function findDossierWithAwaitingStaffReview(
   return null;
 }
 
-/** Texte libre = consigne de rédaction, pas validation / envoi. */
+function looksLikeNewClientStaffDirective(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  if (/^(envoie|écris|ecris|relance|demande|préviens|previens|peux-tu|tu peux|pourrais-tu)\b/i.test(text)) {
+    return true;
+  }
+  if (
+    /\b(relancer|relance|signature|signer|signe|espace d.adh[eé]sion|espace adherent|contrat|kereis|docaposte)\b/i.test(
+      lower,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(monsieur|madame|mme|mr|mle)\b/i.test(lower) &&
+    /\b(relancer|signer|signe|mail|écrire|ecrire|relance)\b/i.test(lower)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Texte libre = consigne de rédaction pour une relecture en cours — pas une nouvelle consigne client. */
 export function looksLikeReviewStaffGuidance(text: string): boolean {
   const t = text.trim().toLowerCase();
   if (t.length < 8) return false;
   if (looksLikeReviewSendConfirmation(t) || looksLikeReviewCancel(t) || looksLikeReviewRedraft(t)) {
     return false;
   }
+  if (looksLikeNewClientStaffDirective(text)) return false;
   return true;
 }
 

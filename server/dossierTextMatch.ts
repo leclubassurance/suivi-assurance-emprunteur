@@ -22,6 +22,16 @@ export type DossierTextMatchResult =
   | { kind: "ambiguous"; labels: string[] }
   | { kind: "none" };
 
+function extractHonorificSurnames(normalizedText: string): string[] {
+  const out: string[] = [];
+  const re = /\b(?:monsieur|madame|mme|mr|mle|m)\s+([a-z]{3,})\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(normalizedText))) {
+    out.push(m[1]);
+  }
+  return out;
+}
+
 function scoreBorrowerInText(
   normalizedText: string,
   dossier: Dossier,
@@ -47,6 +57,15 @@ function scoreBorrowerInText(
       for (let i = 0; i < tokens.length - 1; i++) {
         if (`${tokens[i]} ${tokens[i + 1]}` === full) {
           score = 100;
+          break;
+        }
+      }
+    }
+
+    if (nom.length >= 3) {
+      for (const hinted of extractHonorificSurnames(normalizedText)) {
+        if (hinted === nom || nom.startsWith(hinted) || hinted.startsWith(nom)) {
+          score = Math.max(score, 95);
           break;
         }
       }

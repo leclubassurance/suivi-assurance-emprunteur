@@ -66,11 +66,9 @@ export async function hybridOcrExtractText(
   }
 
   const configured = process.env.OCR_HYBRID_MODEL || "gemini-2.5-flash";
-  const modelCandidates = [
-    configured,
-    "gemini-2.5-flash",
-    "gemini-2.0-flash-lite",
-  ].filter((m, i, arr) => m && arr.indexOf(m) === i);
+  const modelCandidates = [configured, "gemini-2.5-flash"].filter(
+    (m, i, arr) => m && arr.indexOf(m) === i,
+  );
 
   const promptText = `Document bancaire français (offre de prêt ou tableau d'amortissement).
 Extrais tout le texte visible, dans l'ordre de lecture (tableaux : une ligne par échéance si possible).

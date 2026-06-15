@@ -713,14 +713,40 @@ export async function tryHandleCamilleReviewStaffReply(
   } = await import("./camilleReviewTelegram");
 
   const db = await readDB();
+  const { resolveDossierFromBorrowerText } = await import("./dossierTextMatch");
+
   let dossier =
-    findDossierWithReviewReply(db.dossiers, chatId, replyToMessageId) ||
-    (looksLikeReviewSendConfirmation(text)
-      ? findDossierWithAwaitingConfirmReview(db.dossiers, chatId)
-      : null) ||
-    (looksLikeReviewStaffGuidance(text)
-      ? findDossierWithAwaitingStaffReview(db.dossiers, chatId)
-      : null);
+    findDossierWithReviewReply(db.dossiers, chatId, replyToMessageId) || null;
+
+  if (!dossier && looksLikeReviewSendConfirmation(text)) {
+    dossier = findDossierWithAwaitingConfirmReview(db.dossiers, chatId);
+  }
+
+  if (!dossier && looksLikeReviewStaffGuidance(text)) {
+    const named = resolveDossierFromBorrowerText(db, text, { minScore: 55, excludeLeads: false });
+    if (named.kind === "found") {
+      const reviewOnNamed = getPendingReview(named.dossier);
+      const sameChat =
+        !reviewOnNamed?.telegramChatId || String(reviewOnNamed.telegramChatId) === String(chatId);
+      if (
+        reviewOnNamed &&
+        (reviewOnNamed.status === "awaiting_staff" || reviewOnNamed.status === "awaiting_confirm") &&
+        sameChat
+      ) {
+        dossier = named.dossier;
+      }
+    } else if (named.kind === "ambiguous") {
+      return false;
+    }
+
+    if (!dossier && !replyToMessageId) {
+      return false;
+    }
+
+    if (!dossier) {
+      dossier = findDossierWithAwaitingStaffReview(db.dossiers, chatId);
+    }
+  }
 
   if (!dossier) return false;
 

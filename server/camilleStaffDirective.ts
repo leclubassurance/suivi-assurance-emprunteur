@@ -30,6 +30,7 @@ Règles mail client:
 ${insurerRule}
 - Ne jamais dire "document illisible/mauvais".
 - Si la consigne demande de demander des PDF banque: uniquement si offre/tableau pas déjà présents (voir contexte).
+- Si la consigne demande de relancer pour signature / espace d'adhésion / contrat / Kereis / Docaposte : ne PAS redemander offre de prêt ni tableau — rappeler l'étape de signature en ligne (voir subscriptionPhaseLabel et subscriptionGuidance dans le contexte).
 - NE JAMAIS demander CNI/RIB tant que le client n'a pas confirmé vouloir activer le changement d'assurance (clientAcceptedInsurance dans le contexte).
 - Après envoi de l'étude SANS accord client : relances possibles sur la réception de l'étude ou les questions — jamais CNI/RIB.
 - CNI/RIB uniquement si clientAcceptedInsurance=true ET consigne équipe ou pièces manquantes pour souscription.
@@ -107,6 +108,9 @@ Client: ${prenom} <${clientEmail}>
 Canal consigne: ${options?.channel || "telegram"}
 
 ${ctx.dossierSituationBlock}
+
+Phase souscription: ${ctx.subscriptionPhaseLabel || "—"}
+${ctx.subscriptionGuidance || ""}
 
 Contexte pièces:
 ${ctx.documentSummary}

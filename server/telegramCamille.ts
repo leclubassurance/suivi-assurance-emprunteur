@@ -562,7 +562,37 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
     if (resolved.kind === "found") dossier = resolved.dossier;
   }
 
-  if (!dossier) {
+  const isStaffMailRequest =
+    intent === "STAFF_DIRECTIVE" || looksLikeStaffDirective(text) || (replyToCamille && text.length >= 3);
+
+  if (!dossier && isStaffMailRequest) {
+    const { resolveDossierForTelegramStaffMessage } = await import("./camilleTelegramChat");
+    const staffResolved = await resolveDossierForTelegramStaffMessage(text);
+    if (staffResolved.kind === "ambiguous") {
+      const { buildDossierPickerKeyboard } = await import("./telegramUi");
+      await sendTelegramMessage(chatId, "<b>Quel client pour cette consigne ?</b>", {
+        reply_markup: buildDossierPickerKeyboard(staffResolved.matches.map((m) => m.dossier)),
+      });
+      return;
+    }
+    if (staffResolved.kind === "found") {
+      dossier = staffResolved.dossier;
+    } else {
+      const db = await readDB();
+      const recent = [...(db.dossiers || [])]
+        .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+        .slice(0, 8);
+      const { buildDossierPickerKeyboard } = await import("./telegramUi");
+      await sendTelegramMessage(
+        chatId,
+        `<b>Client introuvable</b> pour : <i>${escapeTelegramHtml(text.slice(0, 120))}</i>\n\nChoisissez le dossier ou précisez <code>LCIF-…</code>.`,
+        { reply_markup: buildDossierPickerKeyboard(recent) },
+      );
+      return;
+    }
+  }
+
+  if (!dossier && !isStaffMailRequest) {
     dossier = await getDefaultDossierForChat(chatId);
   }
 

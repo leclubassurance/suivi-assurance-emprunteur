@@ -57,6 +57,18 @@ export function looksLikeStaffDirective(text: string): boolean {
     return true;
   }
   if (
+    /\b(relancer|relance|signature|signer|signe|espace d.adh[eé]sion|espace adherent|contrat)\b/i.test(lower) &&
+    /\b(client|mail|lui|leur|monsieur|madame)\b/i.test(lower)
+  ) {
+    return true;
+  }
+  if (
+    /\b(monsieur|madame|mme|mr|mle)\s+[a-zàâäéèêëïîôùûüç-]{3,}/i.test(text) &&
+    /\b(relancer|signer|signe|relance|mail|écrire|ecrire)\b/i.test(lower)
+  ) {
+    return true;
+  }
+  if (
     /\b(envoie|envoyer|écris|ecris|relance|relancer|demande|demander|transmet|renvoie|renvoyer)\b/i.test(lower) &&
     /\b(lui|leur|client|mail|pdf|offre|tableau|document|pi[eè]ce)\b/i.test(lower)
   ) {
@@ -256,6 +268,17 @@ export async function answerCamilleTelegramQuestion(
   });
 
   return String(response.text || "").trim() || "Je n'ai pas pu formuler une réponse.";
+}
+
+export async function resolveDossierForTelegramStaffMessage(
+  text: string,
+): Promise<DossierResolveResult> {
+  const primary = await resolveDossierFromText(text);
+  if (primary.kind !== "none") return primary;
+
+  const db = await readDB();
+  const { resolveDossierFromBorrowerText } = await import("./dossierTextMatch");
+  return resolveDossierFromBorrowerText(db, text, { minScore: 55, excludeLeads: false });
 }
 
 export async function handleStaffDirectiveFromTelegram(
