@@ -72,6 +72,8 @@ async function startServer() {
           console.warn(
             "[boot] Telegram inactif — configurez TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_CHAT_IDS puis GET /api/telegram/setup-webhook",
           );
+        } else {
+          await telegram.ensureTelegramWebhookOnBoot();
         }
         const seed = await playbooks.seedDefaultPlaybooksIfEmpty();
         console.log(

@@ -195,6 +195,7 @@ export function createApp() {
       return res.status(403).json({ error: "Forbidden" });
     }
     const base =
+      (await import("./telegramCamille")).resolveTelegramWebhookBaseUrl() ||
       String(process.env.APP_URL || process.env.VITE_API_URL || "").trim() ||
       `https://${req.get("host")}`;
     try {

@@ -32,6 +32,38 @@ function getAllowedChatIds(): string[] {
     .filter(Boolean);
 }
 
+const TELEGRAM_WEBHOOK_ALLOWED_UPDATES = ["message", "callback_query"] as const;
+
+function isChatIdAllowed(chatId: string): boolean {
+  const cid = String(chatId || "").trim();
+  if (!cid) return false;
+  return getAllowedChatIds().some((a) => String(a).trim() === cid);
+}
+
+/** URL publique Railway (pas le frontend Vercel) pour le webhook Telegram. */
+export function resolveTelegramWebhookBaseUrl(): string {
+  const explicit = String(process.env.TELEGRAM_WEBHOOK_BASE_URL || "").trim().replace(/\/$/, "");
+  if (explicit) return explicit;
+
+  const publicApp = String(process.env.PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
+  if (publicApp && publicApp.includes("railway.app")) return publicApp;
+
+  const railway = String(process.env.RAILWAY_PUBLIC_DOMAIN || "").trim();
+  if (railway) {
+    return railway.startsWith("http") ? railway.replace(/\/$/, "") : `https://${railway}`;
+  }
+
+  const appUrl = String(process.env.APP_URL || "").trim().replace(/\/$/, "");
+  if (appUrl && !appUrl.includes("vercel.app")) return appUrl;
+
+  return "";
+}
+
+function webhookCallbacksEnabled(allowedUpdates: string[] | undefined): boolean {
+  if (!allowedUpdates || allowedUpdates.length === 0) return true;
+  return allowedUpdates.includes("callback_query");
+}
+
 export function getAllowedChatIdsForNotify(): string[] {
   return getAllowedChatIds();
 }
@@ -294,15 +326,30 @@ async function clearTelegramInlineKeyboard(chatId: string, messageId?: number) {
 }
 
 async function handleTelegramCallbackQuery(query: any) {
-  const chatId = String(query?.message?.chat?.id || "");
+  const chatId = String(query?.message?.chat?.id || query?.from?.id || "");
   const messageId = Number(query?.message?.message_id || 0);
   const data = String(query?.data || "");
-  if (!chatId || !data) return;
+  if (!chatId || !data) {
+    console.warn(
+      `[Telegram] callback ignoré (chatId=${chatId || "?"} data=${data || "?"} queryId=${query?.id || "?"})`,
+    );
+    if (query?.id) {
+      try {
+        await telegramApi("answerCallbackQuery", {
+          callback_query_id: query.id,
+          text: "Bouton expiré — renvoyez /start ou le LCIF",
+          show_alert: true,
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
 
   console.log(`[Telegram] callback chatId=${chatId} data=${data}`);
 
-  const allowed = getAllowedChatIds();
-  if (!allowed.includes(chatId)) {
+  if (!isChatIdAllowed(chatId)) {
     try {
       await telegramApi("answerCallbackQuery", {
         callback_query_id: query.id,
@@ -421,7 +468,26 @@ async function handleTelegramCallbackQuery(query: any) {
 
 export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
   if (update?.callback_query) {
-    await handleTelegramCallbackQuery(update.callback_query);
+    console.log(
+      `[Telegram] webhook callback_query id=${update.callback_query?.id || "?"} data=${String(update.callback_query?.data || "").slice(0, 80)}`,
+    );
+    try {
+      await handleTelegramCallbackQuery(update.callback_query);
+    } catch (e: any) {
+      console.error("[Telegram] callback handler:", e?.message || e);
+      const qid = update.callback_query?.id;
+      if (qid) {
+        try {
+          await telegramApi("answerCallbackQuery", {
+            callback_query_id: qid,
+            text: "Erreur serveur — réessayez",
+            show_alert: true,
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     return;
   }
 
@@ -469,8 +535,7 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
     return;
   }
 
-  const allowed = getAllowedChatIds();
-  if (!allowed.includes(chatId)) {
+  if (!isChatIdAllowed(chatId)) {
     await sendTelegramRaw(
       chatId,
       `⛔ Chat non autorisé.\n\n<b>chat_id :</b> <code>${chatId}</code>\n\nRailway → TELEGRAM_ALLOWED_CHAT_IDS`,
@@ -657,20 +722,35 @@ export async function handleTelegramWebhookUpdate(update: any): Promise<void> {
 
 export async function registerTelegramWebhook(publicBaseUrl: string) {
   if (!getBotToken()) throw new Error("TELEGRAM_BOT_TOKEN manquant");
-  const url = `${publicBaseUrl.replace(/\/$/, "")}/api/telegram/webhook`;
-  const body: Record<string, unknown> = { url, allowed_updates: ["message", "callback_query"] };
+  const base = publicBaseUrl.replace(/\/$/, "");
+  if (!base) throw new Error("URL publique webhook manquante (PUBLIC_APP_URL ou TELEGRAM_WEBHOOK_BASE_URL)");
+  const url = `${base}/api/telegram/webhook`;
+  const body: Record<string, unknown> = {
+    url,
+    allowed_updates: [...TELEGRAM_WEBHOOK_ALLOWED_UPDATES],
+    drop_pending_updates: false,
+  };
   const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
   if (secret) body.secret_token = secret;
   await telegramApi("setWebhook", body);
+  console.log(`[Telegram] webhook enregistré url=${url} allowed_updates=${TELEGRAM_WEBHOOK_ALLOWED_UPDATES.join(",")}`);
   return url;
 }
 
 export async function getTelegramWebhookInfo() {
   if (!getBotToken()) return { ok: false, error: "TELEGRAM_BOT_TOKEN manquant" };
   const info = await telegramApi("getWebhookInfo", {});
+  const allowedUpdates: string[] = Array.isArray(info?.allowed_updates) ? info.allowed_updates : [];
+  const expectedBase = resolveTelegramWebhookBaseUrl();
+  const expectedUrl = expectedBase ? `${expectedBase}/api/telegram/webhook` : "";
+  const callbacksEnabled = webhookCallbacksEnabled(allowedUpdates);
   return {
     ok: true,
     url: info?.url,
+    expectedUrl: expectedUrl || undefined,
+    urlMatchesExpected: expectedUrl ? info?.url === expectedUrl : undefined,
+    allowed_updates: allowedUpdates,
+    callbackButtonsEnabled: callbacksEnabled,
     has_custom_certificate: info?.has_custom_certificate,
     pending_update_count: info?.pending_update_count,
     last_error_message: info?.last_error_message,
@@ -679,4 +759,44 @@ export async function getTelegramWebhookInfo() {
     allowedChatIds: getAllowedChatIds(),
     webhookSecretConfigured: Boolean(String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim()),
   };
+}
+
+/** Ré-enregistre le webhook si les boutons inline (callback_query) ne sont pas abonnés. */
+export async function ensureTelegramWebhookOnBoot(): Promise<void> {
+  if (!isTelegramEnabled()) return;
+  const prodLike =
+    process.env.FIREBASE_REQUIRED === "true" || Boolean(process.env.RAILWAY_ENVIRONMENT);
+  if (!prodLike) return;
+
+  const base = resolveTelegramWebhookBaseUrl();
+  if (!base) {
+    console.warn(
+      "[boot] Telegram: PUBLIC_APP_URL / TELEGRAM_WEBHOOK_BASE_URL absent — webhook non vérifié automatiquement",
+    );
+    return;
+  }
+
+  try {
+    const info = await getTelegramWebhookInfo();
+    if (!info.ok) {
+      console.warn("[boot] Telegram webhook info:", (info as any).error);
+      return;
+    }
+    const allowedUpdates = info.allowed_updates || [];
+    const needsRepair =
+      !info.callbackButtonsEnabled ||
+      (info.expectedUrl && info.url !== info.expectedUrl) ||
+      !info.url;
+
+    console.log(
+      `[boot] Telegram webhook url=${info.url || "(aucune)"} callbacks=${info.callbackButtonsEnabled ? "ok" : "MANQUANT"} allowed_updates=${allowedUpdates.join(",") || "(défaut)"}`,
+    );
+
+    if (needsRepair) {
+      const url = await registerTelegramWebhook(base);
+      console.log(`[boot] Telegram webhook réparé → ${url} (callback_query activé)`);
+    }
+  } catch (e: any) {
+    console.warn("[boot] Telegram ensureWebhook:", e?.message || e);
+  }
 }

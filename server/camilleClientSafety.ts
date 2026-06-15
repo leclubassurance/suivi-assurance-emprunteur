@@ -18,7 +18,7 @@ export function isCamilleProductionSafeMode(): boolean {
 }
 
 export function getClientMinAutoSendConfidence(): number {
-  const n = Number(process.env.CAMILLE_CLIENT_MIN_SEND_CONFIDENCE ?? "8");
+  const n = Number(process.env.CAMILLE_CLIENT_MIN_SEND_CONFIDENCE ?? "7");
   return Number.isFinite(n) ? Math.min(10, Math.max(0, n)) : 8;
 }
 
@@ -52,7 +52,7 @@ export function isHighConfidenceAutoSendAllowed(confidence?: number): boolean {
   const enabled =
     String(process.env.CAMILLE_ALLOW_HIGH_CONFIDENCE_AUTO ?? "true").toLowerCase() !== "false";
   if (!enabled) return false;
-  const min = Number(process.env.CAMILLE_CLIENT_HIGH_CONFIDENCE_AUTO ?? "9");
+  const min = Number(process.env.CAMILLE_CLIENT_HIGH_CONFIDENCE_AUTO ?? "8");
   const threshold = Number.isFinite(min) ? min : 9;
   return confidence !== undefined && confidence >= threshold;
 }

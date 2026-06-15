@@ -1,6 +1,7 @@
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import type { buildCamilleContextBlock } from "./camilleMail";
+import { getCamilleMemoryBlock } from "./camilleDossierMemory";
 
 export type CamilleCtx = ReturnType<typeof buildCamilleContextBlock>;
 
@@ -22,6 +23,8 @@ export type CamilleOperationalInput = {
   studySent: boolean;
   clientAccepted: boolean;
   missingLoanLabels: string[];
+  /** Mémoire narrative dossier (cohérence fil). */
+  memoryBlock?: string;
 };
 
 export type CamilleAnalyzeResult = {
@@ -136,6 +139,10 @@ export function buildCamilleOperationalPromptBlock(input: CamilleOperationalInpu
     missingLoanLabels,
   } = input;
 
+  const memorySection = input.memoryBlock
+    ? `\n${input.memoryBlock}\n`
+    : "";
+
   const newAttachmentsLine =
     attachmentNames.length > 0 ? attachmentNames.join(", ") : "Aucune pièce jointe dans cet email";
 
@@ -145,7 +152,7 @@ Client : ${prenom} ${nom} <${clientEmail}>
 Sujet email : ${emailSubject || "—"}
 
 ${ctx.dossierSituationBlock}
-
+${memorySection}
 État des pièces (source de vérité — ne pas contredire) :
 ${ctx.documentSummary}
 
@@ -238,7 +245,9 @@ Règles décision :
 - REVIEW si doute réel, multi-contrat ambigu, sujet commercial sensible sans certitude — PAS de brouillon client.
 - ESCALATE seulement : médical complexe, juridique, menace, réclamation agressive, impasse après plusieurs échanges.
 - Si hésitation REPLY vs ESCALATE sur sujet métier : préférer REVIEW.
-- Si confidence < 8 ou riskFlags non vides (hors « aucun ») : préférer REVIEW.
+- Si confidence < 6 ou riskFlags graves (médical, juridique, menace) : préférer REVIEW.
+- Si confidence 6-7 sur sujet routinier (documents, relance étude, remerciement, Kereis) : REPLY (brouillon validation si besoin).
+- Si hésitation REPLY vs ESCALATE sur sujet métier routinier : REPLY avec prudence, pas REVIEW systématique.
 - CNI/RIB uniquement si clientAccepted=true.
 - studySent=true : ne jamais promettre une étude à venir.
 JSON uniquement :
@@ -430,6 +439,7 @@ export async function runCamilleReasoningPipeline(params: {
   if (plan.action === "REVIEW") {
     return {
       action: "REVIEW",
+      messageToClient: undefined,
       questionForStaff: String(plan.questionForStaff || plan.reasoning || "").trim() || undefined,
       reasonForEscalation: plan.reasonForEscalation || undefined,
       pipeline: basePipeline,
@@ -472,6 +482,7 @@ export async function runCamilleReasoningPipeline(params: {
     }
     return {
       action: "REVIEW",
+      messageToClient: revised || draft.messageToClient,
       questionForStaff:
         critique.issues.join("; ") ||
         plan.questionForStaff ||

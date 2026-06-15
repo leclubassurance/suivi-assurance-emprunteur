@@ -146,7 +146,7 @@ export interface Dossier {
     lastNewsAt?: string;
     messageRefs?: TelegramMessageRef[];
   };
-  /** Validation humaine Telegram : question → consigne → brouillon → envoi. */
+  /** Validation humaine : question → consigne → brouillon → envoi. */
   camillePendingReview?: {
     id: string;
     status: "awaiting_staff" | "awaiting_confirm" | "sent" | "cancelled";
@@ -167,6 +167,18 @@ export interface Dossier {
     telegramQuestionMessageId?: number;
     telegramConfirmMessageId?: number;
     attachmentNames?: string[];
+    reviewChannel?: "email" | "telegram";
+    staffEmailGmailId?: string;
+    staffEmailThreadSubject?: string;
+  };
+  /** Mémoire narrative Camille (résumé fil + sujets ouverts) — cohérence des réponses. */
+  camilleMemory?: {
+    summary: string;
+    phase: string;
+    openTopics: string[];
+    lastClientTone?: string;
+    lastOutboundAt?: string;
+    updatedAt: string;
   };
   remiQueue?: {
     snoozedUntil?: string;

@@ -15,6 +15,11 @@ import { borrowerDisplayName } from "./telegramUi";
 import { persistTelegramDossierRef } from "./telegramDossierRefs";
 import { findDossierWithReviewReply } from "./camilleReviewTelegram";
 import { isCamilleProductionSafeMode } from "./camilleClientSafety";
+import {
+  isCamilleEmailReviewEnabled,
+  sendCamilleReviewEmail,
+  shouldNotifyReviewByEmail,
+} from "./camilleReviewEmail";
 
 export type CamillePendingReviewStatus =
   | "awaiting_staff"
@@ -46,6 +51,11 @@ export type CamillePendingReview = {
   attachmentNames?: string[];
   /** Brouillon généré par Camille sans consigne équipe préalable. */
   autoDraft?: boolean;
+  /** Canal de validation : email (défaut) ou telegram. */
+  reviewChannel?: "email" | "telegram";
+  /** Gmail id du mail [Camille] envoyé à l'équipe. */
+  staffEmailGmailId?: string;
+  staffEmailThreadSubject?: string;
 };
 
 export function getPendingReview(dossier: Dossier): CamillePendingReview | null {
@@ -63,7 +73,14 @@ export function isReviewBlockingAutoReply(dossier: Dossier): boolean {
 export function isCamilleReviewEnabled(): boolean {
   const raw = String(process.env.CAMILLE_REVIEW_ENABLED ?? "true").toLowerCase();
   if (raw === "false" || raw === "0") return false;
+  if (isCamilleEmailReviewEnabled()) return true;
   return isTelegramEnabled();
+}
+
+/** En cas de doute : brouillon d'abord, pas question ouverte (défaut true). */
+export function isCamilleReviewDraftFirstEnabled(): boolean {
+  const raw = String(process.env.CAMILLE_REVIEW_DRAFT_FIRST ?? "true").toLowerCase();
+  return raw !== "false" && raw !== "0";
 }
 
 /** Brouillon Telegram avant envoi des réponses IA libres (actif par défaut en mode prod). */
@@ -72,6 +89,64 @@ export function isCamilleDraftBeforeSendEnabled(): boolean {
   if (isCamilleProductionSafeMode()) return true;
   const raw = String(process.env.CAMILLE_DRAFT_BEFORE_SEND ?? "false").toLowerCase();
   return raw === "true" || raw === "1";
+}
+
+async function notifyReviewDraftToStaff(params: {
+  dossier: Dossier;
+  review: CamillePendingReview;
+  confirmBody?: string;
+  extraLabel?: string;
+}): Promise<{ sentEmail: boolean; sentTelegram: boolean; error?: string }> {
+  let sentEmail = false;
+  let sentTelegram = false;
+  let lastError: string | undefined;
+
+  if (shouldNotifyReviewByEmail()) {
+    const mail = await sendCamilleReviewEmail({
+      dossier: params.dossier,
+      review: params.review,
+      kind: "draft",
+      extraLabel: params.extraLabel,
+    });
+    sentEmail = mail.ok;
+    if (!mail.ok) lastError = mail.error;
+  }
+
+  const { getCamilleReviewChannel } = await import("./camilleReviewEmail");
+  const ch = getCamilleReviewChannel();
+  if (ch !== "email" && isTelegramEnabled()) {
+    const { getAllowedChatIdsForNotify } = await import("./telegramCamille");
+    const chatIds = getAllowedChatIdsForNotify();
+    const body =
+      params.confirmBody ||
+      (await import("./camilleReviewEmail")).formatDraftValidationEmailHtml({
+        dossier: params.dossier,
+        review: params.review,
+        extraLabel: params.extraLabel,
+      }).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 3500);
+
+    for (const chatId of chatIds) {
+      const msg = await sendTelegramMessage(chatId, body.slice(0, 3800), {
+        dossierId: params.dossier.id,
+        reply_markup: reviewConfirmKeyboard(params.dossier.id),
+      });
+      if (msg?.message_id) {
+        sentTelegram = true;
+        params.review.reviewChannel = "telegram";
+        params.review.telegramChatId = chatId;
+        params.review.telegramConfirmMessageId = msg.message_id;
+        registerTelegramDossierContext(chatId, msg.message_id, params.dossier.id);
+        await persistTelegramDossierRef(params.dossier.id, chatId, msg.message_id);
+      }
+    }
+  }
+
+  if (!sentEmail && !sentTelegram) {
+    return { sentEmail, sentTelegram, error: lastError || "no_review_channel" };
+  }
+  if (sentEmail) params.review.reviewChannel = "email";
+  else if (sentTelegram) params.review.reviewChannel = "telegram";
+  return { sentEmail, sentTelegram };
 }
 
 /** Sujets où Camille doit demander avant de répondre seule. */
@@ -104,17 +179,26 @@ export async function createCamilleReviewRequest(params: {
   questionForStaff: string;
   reason?: string;
   attachmentNames?: string[];
+  /** Brouillon déjà rédigé par le pipeline (validation directe). */
+  proposedPlain?: string;
+  proposedHtml?: string;
 }): Promise<{ ok: boolean; reviewId?: string; error?: string }> {
   if (!isCamilleReviewEnabled()) {
     return { ok: false, error: "review_disabled" };
   }
 
-  const { getAllowedChatIdsForNotify } = await import("./telegramCamille");
-  const chatIds = getAllowedChatIdsForNotify();
-  if (!chatIds.length) return { ok: false, error: "no_telegram_chat" };
+  if (getPendingReview(params.dossier)) {
+    return { ok: false, error: "review_already_pending" };
+  }
 
   const now = new Date().toISOString();
-  const review: CamillePendingReview = {
+  const prenom = params.dossier.formData?.assures?.[0]?.prenom || "";
+  const nom = params.dossier.formData?.assures?.[0]?.nom || "";
+
+  let proposedPlain = String(params.proposedPlain || "").trim();
+  let proposedHtml = String(params.proposedHtml || "").trim();
+
+  const reviewBase: CamillePendingReview = {
     id: newId("cr"),
     status: "awaiting_staff",
     createdAt: now,
@@ -129,21 +213,104 @@ export async function createCamilleReviewRequest(params: {
     attachmentNames: params.attachmentNames || [],
   };
 
+  if (
+    isCamilleReviewDraftFirstEnabled() &&
+    proposedPlain.length < 20
+  ) {
+    const draftReview: CamillePendingReview = {
+      ...reviewBase,
+      status: "awaiting_staff",
+      staffAnswer: params.questionForStaff,
+      staffAnswerAt: now,
+    };
+    try {
+      proposedPlain = await draftClientReplyFromStaffGuidanceInner(
+        params.dossier,
+        draftReview,
+        `Consigne équipe / contexte doute :\n${params.questionForStaff}\n\nRédige la meilleure réponse client possible en restant prudent.`,
+        undefined,
+      );
+      proposedHtml = wrapCamilleHtmlReply(proposedPlain, prenom, nom, params.dossier);
+    } catch (e: any) {
+      console.warn(`[Camille] Draft-first échoué ${params.dossier.id}:`, e?.message || e);
+    }
+  }
+
+  if (proposedPlain.length >= 20 && proposedHtml.length >= 20) {
+    const review: CamillePendingReview = {
+      ...reviewBase,
+      status: "awaiting_confirm",
+      staffAnswer: params.questionForStaff,
+      staffAnswerAt: now,
+      proposedClientPlain: proposedPlain,
+      proposedClientHtml: proposedHtml,
+      autoDraft: true,
+    };
+    params.dossier.camillePendingReview = review;
+    params.dossier.camilleStaffHandledUntil = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+
+    const notify = await notifyReviewDraftToStaff({
+      dossier: params.dossier,
+      review,
+      extraLabel: params.reason || "Relecture requise — validez ou modifiez le brouillon.",
+    });
+
+    if (!notify.sentEmail && !notify.sentTelegram) {
+      delete params.dossier.camillePendingReview;
+      return { ok: false, error: notify.error || "review_notify_failed" };
+    }
+
+    review.updatedAt = new Date().toISOString();
+    params.dossier.updatedAt = review.updatedAt;
+    addEvent(params.dossier, {
+      type: "AI_DECISION",
+      actor: { kind: "AI", label: "Camille" },
+      message: notify.sentEmail
+        ? "Brouillon envoyé par email — en attente de votre validation."
+        : "Brouillon envoyé sur Telegram — en attente de validation.",
+      meta: { reviewId: review.id, gmailId: params.gmailId, draftFirst: true },
+    });
+    return { ok: true, reviewId: review.id };
+  }
+
+  const review: CamillePendingReview = {
+    ...reviewBase,
+    status: "awaiting_staff",
+  };
+
   params.dossier.camillePendingReview = review;
-  params.dossier.camilleStaffHandledUntil = new Date(
-    Date.now() + 4 * 60 * 60 * 1000,
-  ).toISOString();
+  params.dossier.camilleStaffHandledUntil = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
 
   addEvent(params.dossier, {
     type: "AI_DECISION",
     actor: { kind: "AI", label: "Camille" },
-    message: "Question équipe Telegram (réponse client en attente).",
+    message: "Consigne équipe attendue (brouillon auto impossible).",
     meta: {
       reviewId: review.id,
       gmailId: params.gmailId,
       question: params.questionForStaff.slice(0, 300),
     },
   });
+
+  if (shouldNotifyReviewByEmail()) {
+    const mail = await sendCamilleReviewEmail({
+      dossier: params.dossier,
+      review,
+      kind: "question",
+    });
+    if (mail.ok) {
+      review.updatedAt = new Date().toISOString();
+      params.dossier.updatedAt = review.updatedAt;
+      return { ok: true, reviewId: review.id };
+    }
+  }
+
+  const { getAllowedChatIdsForNotify } = await import("./telegramCamille");
+  const chatIds = getAllowedChatIdsForNotify();
+  if (!chatIds.length) {
+    delete params.dossier.camillePendingReview;
+    return { ok: false, error: "no_review_channel" };
+  }
 
   const { formatReviewQuestionTelegramHtml } = await import("./camilleTelegramActionNotify");
   const body = formatReviewQuestionTelegramHtml({
@@ -169,7 +336,7 @@ export async function createCamilleReviewRequest(params: {
 
   if (!sentToAny) {
     delete params.dossier.camillePendingReview;
-    return { ok: false, error: "telegram_send_failed" };
+    return { ok: false, error: "review_notify_failed" };
   }
 
   review.updatedAt = new Date().toISOString();
@@ -192,10 +359,6 @@ export async function createCamilleDraftForConfirm(params: {
   if (!isCamilleDraftBeforeSendEnabled()) {
     return { ok: false, error: "draft_before_send_disabled" };
   }
-
-  const { getAllowedChatIdsForNotify } = await import("./telegramCamille");
-  const chatIds = getAllowedChatIdsForNotify();
-  if (!chatIds.length) return { ok: false, error: "no_telegram_chat" };
 
   if (getPendingReview(params.dossier)) {
     return { ok: false, error: "review_already_pending" };
@@ -223,18 +386,14 @@ export async function createCamilleDraftForConfirm(params: {
   };
 
   params.dossier.camillePendingReview = review;
-  params.dossier.camilleStaffHandledUntil = new Date(
-    Date.now() + 4 * 60 * 60 * 1000,
-  ).toISOString();
+  params.dossier.camilleStaffHandledUntil = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
 
   const name = borrowerDisplayName(params.dossier);
   const clientPreview = escapeTelegramHtml(review.clientMessageExcerpt.slice(0, 600));
   const draftPreview = escapeTelegramHtml(params.proposedPlain.slice(0, 1800));
   const confirmBody = [
     `<b>📝 ${escapeTelegramHtml(params.dossier.id)} — ${escapeTelegramHtml(name)}</b>`,
-    params.extraTelegramLabel
-      ? `<i>${escapeTelegramHtml(params.extraTelegramLabel)}</i>`
-      : "",
+    params.extraTelegramLabel ? `<i>${escapeTelegramHtml(params.extraTelegramLabel)}</i>` : "",
     `<b>Message client :</b>`,
     `<i>« ${clientPreview} »</i>`,
     ``,
@@ -246,24 +405,16 @@ export async function createCamilleDraftForConfirm(params: {
     .filter(Boolean)
     .join("\n");
 
-  let sentToAny = false;
-  for (const chatId of chatIds) {
-    const msg = await sendTelegramMessage(chatId, confirmBody, {
-      dossierId: params.dossier.id,
-      reply_markup: reviewConfirmKeyboard(params.dossier.id),
-    });
-    if (msg?.message_id) {
-      sentToAny = true;
-      review.telegramChatId = chatId;
-      review.telegramConfirmMessageId = msg.message_id;
-      registerTelegramDossierContext(chatId, msg.message_id, params.dossier.id);
-      await persistTelegramDossierRef(params.dossier.id, chatId, msg.message_id);
-    }
-  }
+  const notify = await notifyReviewDraftToStaff({
+    dossier: params.dossier,
+    review,
+    confirmBody,
+    extraLabel: params.extraTelegramLabel || params.reason,
+  });
 
-  if (!sentToAny) {
+  if (!notify.sentEmail && !notify.sentTelegram) {
     delete params.dossier.camillePendingReview;
-    return { ok: false, error: "telegram_send_failed" };
+    return { ok: false, error: notify.error || "review_notify_failed" };
   }
 
   review.updatedAt = new Date().toISOString();
@@ -272,7 +423,9 @@ export async function createCamilleDraftForConfirm(params: {
   addEvent(params.dossier, {
     type: "AI_DECISION",
     actor: { kind: "AI", label: "Camille" },
-    message: "Brouillon client envoyé sur Telegram — en attente de validation.",
+    message: notify.sentEmail
+      ? "Brouillon client envoyé par email — en attente de validation."
+      : "Brouillon client sur Telegram — en attente de validation.",
     meta: { reviewId: review.id, gmailId: params.gmailId, autoDraft: true },
   });
 
@@ -435,7 +588,7 @@ export async function reviseDraftFromStaffFeedback(
   dossier: Dossier,
   review: CamillePendingReview,
   feedback: string,
-  chatId: string,
+  notifyChannel: string,
   allDossiers?: Dossier[],
 ): Promise<{ ok: boolean; summary: string }> {
   const note = String(feedback || "").trim();
@@ -448,7 +601,9 @@ export async function reviseDraftFromStaffFeedback(
   review.staffAnswerAt = new Date().toISOString();
   review.updatedAt = review.staffAnswerAt;
 
-  await sendTelegramMessage(chatId, "⏳ Je révise le brouillon…", { dossierId: dossier.id });
+  if (notifyChannel !== "email") {
+    await sendTelegramMessage(notifyChannel, "⏳ Je révise le brouillon…", { dossierId: dossier.id });
+  }
 
   let plain = await draftClientReplyFromStaffGuidanceInner(
     dossier,
@@ -479,16 +634,24 @@ export async function reviseDraftFromStaffFeedback(
     `<b>Envoyer ce mail au client ?</b>`,
   ].join("\n");
 
-  const msg = await sendTelegramMessage(chatId, confirmBody, {
-    dossierId: dossier.id,
-    reply_markup: reviewConfirmKeyboard(dossier.id),
-  });
-
-  if (msg?.message_id) {
-    review.telegramConfirmMessageId = msg.message_id;
-    review.telegramChatId = chatId;
-    registerTelegramDossierContext(chatId, msg.message_id, dossier.id);
-    await persistTelegramDossierRef(dossier.id, chatId, msg.message_id);
+  if (notifyChannel === "email" || shouldNotifyReviewByEmail()) {
+    await notifyReviewDraftToStaff({
+      dossier,
+      review,
+      confirmBody,
+      extraLabel: "Brouillon révisé selon votre modification.",
+    });
+  } else {
+    const msg = await sendTelegramMessage(notifyChannel, confirmBody, {
+      dossierId: dossier.id,
+      reply_markup: reviewConfirmKeyboard(dossier.id),
+    });
+    if (msg?.message_id) {
+      review.telegramConfirmMessageId = msg.message_id;
+      review.telegramChatId = notifyChannel;
+      registerTelegramDossierContext(notifyChannel, msg.message_id, dossier.id);
+      await persistTelegramDossierRef(dossier.id, notifyChannel, msg.message_id);
+    }
   }
 
   return { ok: true, summary: "Brouillon révisé — validez ou demandez une autre modification." };
@@ -497,7 +660,7 @@ export async function reviseDraftFromStaffFeedback(
 export async function applyStaffAnswerToReview(
   dossier: Dossier,
   staffAnswer: string,
-  chatId: string,
+  notifyChannel: string,
   allDossiers?: Dossier[],
 ): Promise<{ ok: boolean; summary: string }> {
   const review = getPendingReview(dossier);
@@ -515,7 +678,9 @@ export async function applyStaffAnswerToReview(
   review.status = "awaiting_confirm";
   review.updatedAt = review.staffAnswerAt;
 
-  await sendTelegramMessage(chatId, "⏳ Je rédige le brouillon…", { dossierId: dossier.id });
+  if (notifyChannel !== "email") {
+    await sendTelegramMessage(notifyChannel, "⏳ Je rédige le brouillon…", { dossierId: dossier.id });
+  }
 
   const plain = await draftClientReplyFromStaffGuidance(dossier, review, answer, allDossiers);
   const prenom = dossier.formData?.assures?.[0]?.prenom || "";
@@ -539,16 +704,19 @@ export async function applyStaffAnswerToReview(
     `<b>Envoyer ce mail au client ?</b>`,
   ].join("\n");
 
-  const msg = await sendTelegramMessage(chatId, confirmBody, {
-    dossierId: dossier.id,
-    reply_markup: reviewConfirmKeyboard(dossier.id),
-  });
-
-  if (msg?.message_id) {
-    review.telegramConfirmMessageId = msg.message_id;
-    review.telegramChatId = chatId;
-    registerTelegramDossierContext(chatId, msg.message_id, dossier.id);
-    await persistTelegramDossierRef(dossier.id, chatId, msg.message_id);
+  if (notifyChannel === "email" || shouldNotifyReviewByEmail()) {
+    await notifyReviewDraftToStaff({ dossier, review, confirmBody });
+  } else {
+    const msg = await sendTelegramMessage(notifyChannel, confirmBody, {
+      dossierId: dossier.id,
+      reply_markup: reviewConfirmKeyboard(dossier.id),
+    });
+    if (msg?.message_id) {
+      review.telegramConfirmMessageId = msg.message_id;
+      review.telegramChatId = notifyChannel;
+      registerTelegramDossierContext(notifyChannel, msg.message_id, dossier.id);
+      await persistTelegramDossierRef(dossier.id, notifyChannel, msg.message_id);
+    }
   }
 
   addEvent(dossier, {
@@ -648,6 +816,15 @@ export async function confirmAndSendReviewReply(
     await writeDB(db, stored);
   }
 
+  void import("./camilleDossierMemory")
+    .then(({ refreshCamilleDossierMemory }) =>
+      refreshCamilleDossierMemory(dossier, {
+        kind: "staff_validated",
+        excerpt: review.proposedClientPlain?.slice(0, 200),
+      }),
+    )
+    .catch(() => undefined);
+
   void import("./telegramNotify")
     .then(async ({ notifyTelegramCamilleReplied }) => {
       const { buildTelegramActionFromReply } = await import("./camilleTelegramActionNotify");
@@ -693,6 +870,50 @@ export async function cancelPendingReview(
     message: reason || "Validation client annulée.",
     meta: { reviewId: review.id },
   });
+}
+
+export async function tryHandleCamilleReviewStaffEmailReply(
+  dossier: Dossier,
+  text: string,
+  allDossiers?: Dossier[],
+): Promise<boolean> {
+  if (!text.trim()) return false;
+
+  const {
+    looksLikeReviewSendConfirmation,
+    looksLikeReviewCancel,
+    looksLikeReviewRedraft,
+  } = await import("./camilleReviewTelegram");
+
+  const review = getPendingReview(dossier);
+  if (!review) return false;
+
+  if (review.status === "awaiting_confirm") {
+    if (looksLikeReviewCancel(text)) {
+      await cancelPendingReview(dossier, "Envoi client annulé par email équipe.");
+      return true;
+    }
+    if (looksLikeReviewSendConfirmation(text)) {
+      await confirmAndSendReviewReply(dossier, "email");
+      return true;
+    }
+    if (looksLikeReviewRedraft(text) || text.trim().length >= 12) {
+      const result = await reviseDraftFromStaffFeedback(dossier, review, text, "email", allDossiers);
+      return result.ok;
+    }
+    return false;
+  }
+
+  if (review.status === "awaiting_staff") {
+    if (looksLikeReviewCancel(text)) {
+      await cancelPendingReview(dossier, "Review annulée par email équipe.");
+      return true;
+    }
+    const result = await applyStaffAnswerToReview(dossier, text, "email", allDossiers);
+    return result.ok;
+  }
+
+  return false;
 }
 
 export async function tryHandleCamilleReviewStaffReply(

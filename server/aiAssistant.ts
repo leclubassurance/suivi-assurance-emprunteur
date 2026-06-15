@@ -83,25 +83,29 @@ export async function processIncomingClientEmail(
     const clientMessageFresh = extractNewClientMessageText(emailText);
     const clientMessageForAi =
       clientMessageFresh.length >= 3 ? clientMessageFresh : emailText;
-    const playbookHit = await tryPlaybookAutoReply(dossier, clientMessageForAi);
-    if (playbookHit) {
-      const plain = playbookHit.plain;
-      console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
-      const telegramAction = buildTelegramActionFromReply({
-        dossier,
-        clientMessage: clientMessageForAi,
-        replyPlain: plain,
-        emailSubject: options?.emailSubject,
-        actionKind: "playbook",
-        attachmentNames,
-        playbookId: playbookHit.playbook.id,
-      });
-      return {
-        status: "replied",
-        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-        replyPlain: plain,
-        telegramAction,
-      };
+
+    const { tryPlaybookAutoReply, isPlaybookAutoSendEnabled } = await import("./camillePlaybooks");
+    if (isPlaybookAutoSendEnabled()) {
+      const playbookHit = await tryPlaybookAutoReply(dossier, clientMessageForAi);
+      if (playbookHit) {
+        const plain = playbookHit.plain;
+        console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
+        const telegramAction = buildTelegramActionFromReply({
+          dossier,
+          clientMessage: clientMessageForAi,
+          replyPlain: plain,
+          emailSubject: options?.emailSubject,
+          actionKind: "playbook",
+          attachmentNames,
+          playbookId: playbookHit.playbook.id,
+        });
+        return {
+          status: "replied",
+          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+          replyPlain: plain,
+          telegramAction,
+        };
+      }
     }
 
     if (
@@ -211,6 +215,7 @@ export async function processIncomingClientEmail(
       studySent,
       clientAccepted,
       missingLoanLabels,
+      memoryBlock: (await import("./camilleDossierMemory")).getCamilleMemoryBlock(dossier),
     };
 
     const useReasoningPipeline = isCamilleReasoningEnabled();
@@ -255,22 +260,73 @@ export async function processIncomingClientEmail(
 
     if (decision.action === "REVIEW") {
       const question = String(decision.questionForStaff || decision.reasonForEscalation || "").trim();
+      const draftPlain = String(decision.messageToClient || "").trim();
       if (isCamilleReviewEnabled() && question.length >= 10) {
-        console.log(`[AI] REVIEW Telegram pour ${dossier.id}`);
-        logAiAudit(dossier, {
-          action: "REVIEW",
-          channel: "gmail_auto_reply",
-          actor: "Camille",
-          outcome: "info",
-          model: pipelineModel,
-          summary: `Question équipe : ${question.slice(0, 200)}`,
-          meta: auditMeta,
-        });
-        return {
-          status: "review",
+        if (draftPlain.length >= 20) {
+          const html = wrapCamilleHtmlReply(draftPlain, prenom, nom, dossier);
+          const { tryQueueCamilleReplyForValidation } = await import("./camilleReviewQueue");
+          const queued = await tryQueueCamilleReplyForValidation({
+            dossier,
+            gmailId: options?.gmailId || "",
+            clientEmail,
+            emailSubject: options?.emailSubject || "",
+            clientMessage: clientMessageForAi,
+            replyHtml: html,
+            replyPlain: draftPlain,
+            reason: decision.reasonForEscalation || "Relecture requise",
+            attachmentNames,
+            extraTelegramLabel: question.slice(0, 200),
+          });
+          if (queued.queued) {
+            console.log(`[AI] REVIEW → brouillon validation pour ${dossier.id}`);
+            logAiAudit(dossier, {
+              action: "REVIEW",
+              channel: "gmail_auto_reply",
+              actor: "Camille",
+              outcome: "info",
+              model: pipelineModel,
+              summary: `Brouillon en validation : ${question.slice(0, 200)}`,
+              meta: auditMeta,
+            });
+            return {
+              status: "pending_validation",
+              text: html,
+              replyPlain: draftPlain,
+              reason: decision.reasonForEscalation || "Validation requise",
+            };
+          }
+        }
+        console.log(`[AI] REVIEW pour ${dossier.id}`);
+        const { createCamilleReviewRequest } = await import("./camilleReviewQueue");
+        const reviewResult = await createCamilleReviewRequest({
+          dossier,
+          gmailId: options?.gmailId || "",
+          clientEmail,
+          emailSubject: options?.emailSubject || "",
+          clientMessage: clientMessageForAi,
           questionForStaff: question,
-          reason: decision.reasonForEscalation || "Doute sur la réponse client",
-        };
+          reason: decision.reasonForEscalation,
+          attachmentNames,
+          proposedPlain: draftPlain.length >= 20 ? draftPlain : undefined,
+          proposedHtml:
+            draftPlain.length >= 20 ? wrapCamilleHtmlReply(draftPlain, prenom, nom, dossier) : undefined,
+        });
+        if (reviewResult.ok) {
+          logAiAudit(dossier, {
+            action: "REVIEW",
+            channel: "gmail_auto_reply",
+            actor: "Camille",
+            outcome: "info",
+            model: pipelineModel,
+            summary: `Question équipe : ${question.slice(0, 200)}`,
+            meta: auditMeta,
+          });
+          return {
+            status: "review",
+            questionForStaff: question,
+            reason: decision.reasonForEscalation || "Doute sur la réponse client",
+          };
+        }
       }
       console.log(`[AI] REVIEW non disponible — escalade ${dossier.id}`);
       return { status: "escalated", reason: question || "Doute — review indisponible" };
@@ -423,6 +479,11 @@ export async function processIncomingClientEmail(
         instructionPreview: text.slice(0, 300),
         meta: auditMeta,
       });
+      void import("./camilleDossierMemory")
+        .then(({ refreshCamilleDossierMemory }) =>
+          refreshCamilleDossierMemory(dossier, { kind: "outbound", excerpt: text.slice(0, 200) }),
+        )
+        .catch(() => undefined);
       return {
         status: "replied",
         text: html,

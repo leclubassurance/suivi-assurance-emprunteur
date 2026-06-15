@@ -865,7 +865,7 @@ export async function syncGmailInbox(
                 addEvent(dossier, {
                   type: "AI_DECISION",
                   actor: { kind: "AI", label: "Camille" },
-                  message: "Question envoyée sur Telegram — en attente de votre consigne.",
+                  message: "Question envoyée par email — en attente de votre consigne ou validation.",
                   meta: { gmailId: msgMeta.id, reviewId: reviewResult.reviewId },
                 });
               } else {
@@ -912,7 +912,7 @@ export async function syncGmailInbox(
                   type: "AI_DECISION",
                   actor: { kind: "AI", label: "Camille" },
                   message:
-                    "Brouillon client sur Telegram — aucun mail envoyé tant que vous n'avez pas validé.",
+                    "Brouillon client par email — aucun mail envoyé tant que vous n'avez pas validé (répondez OK ENVOIE).",
                   meta: { gmailId: msgMeta.id, reviewId: queued.reviewId },
                 });
                 continue;
@@ -1057,6 +1057,20 @@ export async function syncGmailInbox(
     });
   } catch (err: any) {
     console.warn(`[Gmail] Sync réponses escalade équipe: ${err?.message || err}`);
+  }
+
+  let staffReviewHandled = 0;
+  try {
+    const { syncCamilleReviewStaffEmailReplies } = await import("./camilleReviewEmail");
+    staffReviewHandled = await syncCamilleReviewStaffEmailReplies(gmail, db, processedIds, {
+      upsertCommunication,
+      markProcessed,
+    });
+    if (staffReviewHandled > 0) {
+      console.log(`[Gmail sync] ${staffReviewHandled} validation(s) brouillon Camille par email`);
+    }
+  } catch (err: any) {
+    console.warn(`[Gmail] Sync validations brouillon équipe: ${err?.message || err}`);
   }
 
   for (const dossierId of dirtyDossierIds) {

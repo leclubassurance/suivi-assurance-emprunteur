@@ -857,8 +857,14 @@ export async function findSimilarPlaybooks(
 }
 
 export function getPlaybookAutoReplyMinScore(): number {
-  const n = Number(process.env.CAMILLE_PLAYBOOK_AUTO_SCORE || "6");
-  return Number.isFinite(n) && n > 0 ? n : 6;
+  const n = Number(process.env.CAMILLE_PLAYBOOK_AUTO_SCORE || "9");
+  return Number.isFinite(n) && n > 0 ? n : 9;
+}
+
+/** Envoi direct d'un texte playbook sans repasser par l'IA (défaut: false — playbooks = inspiration seulement). */
+export function isPlaybookAutoSendEnabled(): boolean {
+  const raw = String(process.env.CAMILLE_PLAYBOOK_AUTO_SEND ?? "false").toLowerCase();
+  return raw === "true" || raw === "1";
 }
 
 export function getPlaybookSeedVersion(): string {
@@ -923,7 +929,7 @@ export async function buildPlaybooksPromptBlock(
   });
 
   return [
-    "PLAYBOOKS VALIDÉS PAR L'ÉQUIPE (réutiliser le fond si la situation est similaire — adapter au mail actuel, ne pas copier mot pour mot):",
+    "PLAYBOOKS VALIDÉS PAR L'ÉQUIPE (s'inspirer du fond et du ton — ADAPTER au mail actuel et au fil de conversation, ne jamais recopier mot pour mot):",
     ...lines,
   ].join("\n\n");
 }
