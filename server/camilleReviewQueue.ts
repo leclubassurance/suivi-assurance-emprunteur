@@ -14,6 +14,7 @@ import { escapeTelegramHtml, reviewConfirmKeyboard } from "./telegramUi";
 import { borrowerDisplayName } from "./telegramUi";
 import { persistTelegramDossierRef } from "./telegramDossierRefs";
 import { findDossierWithReviewReply } from "./camilleReviewTelegram";
+import { buildCamilleFormJourneyPromptBlock } from "./camilleClientFormJourney";
 import { isCamilleProductionSafeMode } from "./camilleClientSafety";
 import {
   isCamilleEmailReviewEnabled,
@@ -517,6 +518,8 @@ Dossier : ${dossier.id}
 Client : ${prenom} ${dossier.formData?.assures?.[0]?.nom || ""}
 
 ${ctx.dossierSituationBlock}
+
+${buildCamilleFormJourneyPromptBlock(dossier)}
 
 Consigne VALIDÉE par l'équipe (à respecter strictement) :
 """

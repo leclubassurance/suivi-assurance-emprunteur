@@ -3,6 +3,7 @@ import { getSharedIdentityDocsFromSiblings } from "./clientMultipleDossiers";
 import type { LoanDocProblemAssessment, CertainLoanDocProblem } from "./loanDocCertainty";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { resolveLoanDocPresence } from "./loanDocPresence";
+import { ensureClientLinksInCamilleReply } from "./camilleClientFormJourney";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 
@@ -449,6 +450,8 @@ export function sanitizeCamilleClientMessage(
     ].join("\n");
     text = stripRedundantSalutations(text, { prenom: a?.prenom, nom: a?.nom });
   }
+
+  text = ensureClientLinksInCamilleReply(text, dossier, context?.clientMessage);
 
   return { text, blockedDocRequest };
 }

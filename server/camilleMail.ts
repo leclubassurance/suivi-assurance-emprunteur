@@ -13,6 +13,7 @@ import {
   formatStudyKpiForAi,
   getSubscriptionPhaseLabel,
 } from "./camilleDossierTimeline";
+import { buildCamilleFormJourneyPromptBlock } from "./camilleClientFormJourney";
 import { getLastStudyOutbound } from "./dossierLifecycle";
 import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
 
@@ -172,5 +173,6 @@ export function buildCamilleContextBlock(
     studyKpiSummary,
     lastStudyOutbound: lastStudy,
     dossierSituationBlock,
+    formJourneyBlock: buildCamilleFormJourneyPromptBlock(dossier),
   };
 }

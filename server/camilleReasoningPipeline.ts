@@ -25,6 +25,7 @@ export type CamilleOperationalInput = {
   missingLoanLabels: string[];
   /** Mémoire narrative dossier (cohérence fil). */
   memoryBlock?: string;
+  formJourneyBlock?: string;
 };
 
 export type CamilleAnalyzeResult = {
@@ -153,6 +154,8 @@ Sujet email : ${emailSubject || "—"}
 
 ${ctx.dossierSituationBlock}
 ${memorySection}
+${input.formJourneyBlock || ""}
+
 État des pièces (source de vérité — ne pas contredire) :
 ${ctx.documentSummary}
 

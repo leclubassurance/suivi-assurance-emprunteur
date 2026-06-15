@@ -216,6 +216,7 @@ export async function processIncomingClientEmail(
       clientAccepted,
       missingLoanLabels,
       memoryBlock: (await import("./camilleDossierMemory")).getCamilleMemoryBlock(dossier),
+      formJourneyBlock: ctx.formJourneyBlock,
     };
 
     const useReasoningPipeline = isCamilleReasoningEnabled();
@@ -505,6 +506,17 @@ export async function generateCamillePreDossierHelpEmail(params: {
   const prenom = String(params.clientPrenom || "").trim();
   const safeName = prenom || "Bonjour";
   const subject = `Aide pour votre dossier — ${safeName}`;
+  const { resolveClientFormPublicUrl, buildCamilleFormJourneyPromptBlock } = await import(
+    "./camilleClientFormJourney"
+  );
+  const formUrl = resolveClientFormPublicUrl();
+  const leadStub = {
+    formData: { assures: [{ prenom, email: params.clientEmail }] },
+    status: "PROSPECT",
+    isLead: true,
+    leadSource: "public_help",
+  } as any;
+  const formJourney = buildCamilleFormJourneyPromptBlock(leadStub);
 
   // If Gemini is not configured, return a safe generic reply.
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
@@ -518,7 +530,8 @@ export async function generateCamillePreDossierHelpEmail(params: {
       `Souvent, vous les trouverez dans votre application bancaire : rubrique “Crédit”, “Prêt immobilier” puis “Documents” ou “Échéancier”.`,
       `Si vous ne les voyez pas, vous pouvez aussi demander directement à votre conseiller bancaire de vous envoyer l’offre de prêt et l’échéancier complet en PDF.`,
       ``,
-      `Dès que vous les avez, vous pouvez les déposer dans le formulaire et répondre à ce mail si besoin.`,
+      `Déposez-les via notre formulaire en ligne :`,
+      formUrl,
     ].join("\n");
     return { subject, html: wrapCamilleHtmlReply(generic, prenom, "") };
   }
@@ -535,9 +548,10 @@ Tu aides un client à compléter le formulaire en ligne et à retrouver les docu
 Contraintes:
 - Ton chaleureux, humain, concis (6 à 14 lignes).
 - Pas de téléphone.
-- Expliquer où trouver: offre de prêt + tableau d’amortissement (échéancier) dans app bancaire / espace client, ou demander au conseiller.
-- Mentionner que les PDFs issus de l’espace bancaire sont préférables à des photos pour la lisibilité.
-- Terminer par une seule action: "répondez à ce mail si besoin" OU "déposez vos documents dans le formulaire".
+- Si le client demande le lien : utiliser EXACTEMENT cette URL : ${formUrl}
+- Expliquer où trouver offre de prêt + tableau d'amortissement (PDF banque).
+- Terminer par le lien formulaire ci-dessus ou répondez à ce mail.
+
 
 Réponds en JSON:
 { "messageToClient": "..." }
@@ -548,6 +562,7 @@ Réponds en JSON:
     contents: [
       { role: "user", parts: [{ text: helpPrompt }] },
       { role: "user", parts: [{ text: knowledgeBlock }] },
+      { role: "user", parts: [{ text: formJourney }] },
       {
         role: "user",
         parts: [
@@ -572,12 +587,15 @@ Réponds en JSON:
 
   const plain = String(decision?.messageToClient || "").trim();
   if (!plain) {
-    const fallback = `Je peux vous aider à retrouver l’offre de prêt et le tableau d’amortissement (échéancier complet) dans votre espace bancaire.\nSouvent: “Crédit / Prêt immobilier” → “Documents” ou “Échéancier”.\nSi vous ne les voyez pas, demandez à votre conseiller bancaire de vous les envoyer en PDF.\n\nDéposez ensuite les PDFs dans le formulaire — je reste disponible si besoin.`;
+    const fallback = `Je peux vous aider à retrouver l'offre de prêt et le tableau d'amortissement en PDF depuis votre espace bancaire.
+
+Déposez-les via notre formulaire en ligne :
+${formUrl}`;
     return { subject, html: wrapCamilleHtmlReply(fallback, prenom, "") };
   }
 
-  const { text } = sanitizeCamilleClientMessage(plain, {
-    formData: { assures: [{ prenom, email: params.clientEmail }] },
+  const { text } = sanitizeCamilleClientMessage(plain, leadStub, {
+    clientMessage: params.message,
   });
   return { subject, html: wrapCamilleHtmlReply(text, prenom, "") };
 }
