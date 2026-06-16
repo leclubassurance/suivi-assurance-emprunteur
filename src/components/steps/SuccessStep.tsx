@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
-import { CheckCircle2, FilePlus } from 'lucide-react';
+import { CheckCircle2, FilePlus, ExternalLink } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { showToast } from '../../lib/toast';
 
@@ -75,15 +75,32 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
         <div className="mb-6 rounded-[20px] border border-blue-100 bg-blue-50/90 px-5 py-4 text-left">
           <p className="text-[14px] font-bold text-[#1E3A8A] mb-1.5">Suivi de votre dossier</p>
           <p className="text-[13px] text-slate-600 leading-relaxed font-medium">
-            Vous allez recevoir par email un lien personnel pour suivre l&apos;avancement de votre dossier
-            {data?.email ? (
-              <> à l&apos;adresse <strong className="text-slate-800">{data.email}</strong></>
-            ) : null}
-            . Aucun mot de passe n&apos;est nécessaire.
+            {data?.portalUrl ? (
+              <>
+                Votre lien personnel de suivi est prêt — conservez-le pour revenir à tout moment.
+                Aucun mot de passe n&apos;est nécessaire.
+              </>
+            ) : (
+              <>
+                Vous allez recevoir par email un lien personnel pour suivre l&apos;avancement de votre dossier
+                {data?.email ? (
+                  <> à l&apos;adresse <strong className="text-slate-800">{data.email}</strong></>
+                ) : null}
+                . Aucun mot de passe n&apos;est nécessaire.
+              </>
+            )}
           </p>
         </div>
 
         <div className="flex flex-col gap-3">
+          {data?.portalUrl && (
+            <a
+              href={data.portalUrl}
+              className="w-full py-4 bg-[#1E3A8A] hover:bg-[#172554] text-white rounded-[20px] font-bold text-[15px] transition-all flex items-center justify-center gap-2"
+            >
+              Accéder à mon suivi <ExternalLink className="w-[18px] h-[18px]" />
+            </a>
+          )}
           <button 
             onClick={onReset}
             className="w-full py-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-[20px] font-bold text-[15px] transition-all flex items-center justify-center gap-2"

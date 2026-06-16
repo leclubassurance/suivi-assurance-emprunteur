@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Step, InsuranceFormData, FormErrors, Dossier, UserInfo } from './types';
-import { INITIAL_FORM_DATA } from './constants';
+import { INITIAL_FORM_DATA, CLIENT_PORTAL_URL_KEY } from './constants';
 import LandingStep from './components/steps/LandingStep';
 import PreparationStep from './components/steps/PreparationStep';
 import ProjetStep from './components/steps/ProjetStep';
@@ -274,6 +274,14 @@ export default function App() {
         email: formData.assures[0].email,
         portalUrl: result.portalUrl,
       } as any);
+
+      if (result.portalUrl) {
+        try {
+          localStorage.setItem(CLIENT_PORTAL_URL_KEY, result.portalUrl);
+        } catch {
+          /* ignore quota */
+        }
+      }
       
       goToStep(Step.SUCCESS);
       localStorage.removeItem(STORAGE_KEY);

@@ -1,5 +1,7 @@
 import { Step, InsuranceFormData } from './types';
 
+export const CLIENT_PORTAL_URL_KEY = 'lcif-client-portal-url';
+
 export const INITIAL_ASSURE = {
   id: '',
   civilite: '',

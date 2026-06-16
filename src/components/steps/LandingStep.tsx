@@ -1,9 +1,89 @@
-import React from 'react';
-import { ArrowRight, Euro, Scale, Search, CircleDollarSign, ShieldCheck, Quote } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  ArrowRight,
+  Euro,
+  Scale,
+  Search,
+  CircleDollarSign,
+  ShieldCheck,
+  Quote,
+  ChevronDown,
+  Mail,
+  Clock,
+  FileText,
+  ExternalLink,
+} from 'lucide-react';
+import { CLIENT_PORTAL_URL_KEY } from '../../constants';
 
 /** Espace réservé au bandeau CTA fixe mobile + encoche iOS */
 const MOBILE_STICKY_FOOTER_CLASS =
   'pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] md:pb-8';
+
+const FAQ_ITEMS = [
+  {
+    q: 'Ma banque peut-elle refuser le changement ?',
+    a: "Non. La loi Lemoine vous permet de changer d'assurance emprunteur à tout moment, avec des garanties équivalentes ou supérieures. Votre banque ne peut pas vous empêcher de substituer votre assurance, sous réserve du respect des conditions légales.",
+  },
+  {
+    q: 'Est-ce gratuit et sans engagement ?',
+    a: "L'étude est gratuite et sans engagement. Nous sommes rémunérés uniquement si vous réalisez des économies et décidez de poursuivre — aucun frais caché à l'étape de l'analyse.",
+  },
+  {
+    q: 'Combien de temps pour recevoir mon étude ?',
+    a: "Charles Victor et notre équipe analysent votre dossier et vous répondent par email sous 48 heures ouvrées, dès réception de l'offre de prêt et du tableau d'amortissement complets.",
+  },
+  {
+    q: 'Quels documents dois-je préparer ?',
+    a: "Pour lancer l'étude : l'offre de prêt et le tableau d'amortissement (échéancier complet) en PDF depuis votre espace bancaire. La pièce d'identité et le RIB ne sont demandés qu'après votre accord pour activer le changement.",
+  },
+] as const;
+
+const HOW_IT_WORKS = [
+  {
+    step: '01',
+    title: 'Préparez 2 PDF depuis votre banque',
+    desc: "Offre de prêt et tableau d'amortissement — récupérables dans votre espace client (rubrique Crédit / Prêt immobilier).",
+  },
+  {
+    step: '02',
+    title: 'Décrivez votre projet (~5 min)',
+    desc: 'Objet du financement, coordonnées et informations personnelles — formulaire guidé, sans mot de passe.',
+  },
+  {
+    step: '03',
+    title: 'Déposez vos documents en ligne',
+    desc: 'Envoi sécurisé des PDF + consentement RGPD. Vous recevez immédiatement un numéro de dossier LCIF.',
+  },
+  {
+    step: '04',
+    title: 'Recevez votre étude par email',
+    desc: "Analyse personnalisée de Charles Victor + lien personnel pour suivre l'avancement de votre dossier à tout moment.",
+  },
+] as const;
+
+function FaqItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-slate-100 last:border-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-start justify-between gap-4 py-4 text-left group"
+        aria-expanded={open}
+      >
+        <span className="font-bold text-[#111318] text-[14px] sm:text-[15px] leading-snug group-hover:text-[#1E3A8A] transition-colors">
+          {q}
+        </span>
+        <ChevronDown
+          className={`w-5 h-5 text-slate-400 shrink-0 mt-0.5 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && (
+        <p className="text-slate-500 text-[14px] leading-relaxed pb-4 pr-8">{a}</p>
+      )}
+    </div>
+  );
+}
 
 export default function LandingStep({
   onStart,
@@ -16,33 +96,62 @@ export default function LandingStep({
   onLegalMentions?: () => void;
   onLegalPrivacy?: () => void;
 }) {
+  const [savedPortalUrl, setSavedPortalUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const url = localStorage.getItem(CLIENT_PORTAL_URL_KEY);
+      if (url && /^https?:\/\/.+\/suivi\//i.test(url)) {
+        setSavedPortalUrl(url);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   return (
     <div
       className={`flex flex-col w-full max-w-[100vw] overflow-x-hidden px-3 sm:px-4 py-6 sm:py-8 mx-auto max-w-6xl gap-5 sm:gap-6 font-sans ${MOBILE_STICKY_FOOTER_CLASS}`}
     >
-      
-      <header className="flex items-center gap-4 sm:gap-6 px-1 sm:px-4 py-4 sm:py-5 mb-1 border-b border-slate-200/70">
-        <img
-          src="https://res.cloudinary.com/dji8akleo/image/upload/v1777112444/6_oqr0zi.png"
-          alt="Le Club Immobilier Français"
-          className="h-12 sm:h-[4.5rem] w-auto object-contain shrink-0"
-          referrerPolicy="no-referrer"
-        />
-        <div className="min-w-0 border-l border-slate-200 pl-4 sm:pl-6">
-          <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] text-slate-500 font-bold mb-1">
-            Assurance emprunteur
-          </p>
-          <p className="text-[15px] sm:text-lg font-bold text-[#1E3A8A] leading-tight">
-            Le Club Immobilier Français
-          </p>
-          <p className="text-[11px] sm:text-[13px] text-slate-500 mt-1">
-            Courtier indépendant · ORIAS 24002253
-          </p>
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-1 sm:px-4 py-4 sm:py-5 mb-1 border-b border-slate-200/70">
+        <div className="flex items-center gap-4 sm:gap-6 min-w-0">
+          <img
+            src="https://res.cloudinary.com/dji8akleo/image/upload/v1777112444/6_oqr0zi.png"
+            alt="Le Club Immobilier Français"
+            className="h-12 sm:h-[4.5rem] w-auto object-contain shrink-0"
+            referrerPolicy="no-referrer"
+          />
+          <div className="min-w-0 border-l border-slate-200 pl-4 sm:pl-6">
+            <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] text-slate-500 font-bold mb-1">
+              Assurance emprunteur
+            </p>
+            <p className="text-[15px] sm:text-lg font-bold text-[#1E3A8A] leading-tight">
+              Le Club Immobilier Français
+            </p>
+            <p className="text-[11px] sm:text-[13px] text-slate-500 mt-1">
+              Courtier indépendant · ORIAS 24002253
+            </p>
+          </div>
         </div>
+        {savedPortalUrl ? (
+          <a
+            href={savedPortalUrl}
+            className="inline-flex items-center justify-center gap-2 text-[13px] font-bold text-[#1E3A8A] bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-full px-4 py-2.5 transition-colors shrink-0"
+          >
+            Mon dossier en cours <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        ) : (
+          <a
+            href="mailto:assurance@leclubimmobilier.fr?subject=Retrouver%20mon%20lien%20de%20suivi"
+            className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold text-slate-500 hover:text-[#1E3A8A] transition-colors shrink-0"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            Déjà déposé ? Retrouver mon suivi
+          </a>
+        )}
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
-        
         <div className="lg:col-span-7 bg-gradient-to-br from-[#1E3A8A] to-[#172554] text-white rounded-[24px] sm:rounded-[32px] p-6 sm:p-8 md:p-12 flex flex-col justify-between relative shadow-xl">
           <div>
             <ul className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-blue-200/80 font-bold mb-6 sm:mb-8 flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-x-2 sm:gap-y-1 list-none p-0 m-0">
@@ -63,23 +172,29 @@ export default function LandingStep({
               Réduisez le coût<br />de votre assurance<br />de prêt.
             </h1>
             <p className="text-blue-100 text-[14px] sm:text-[15px] md:text-[16px] max-w-md leading-relaxed mb-3 sm:mb-4">
-              Déposez vos documents en ligne. Nous analysons votre situation et vous présentons, par email, une solution à garanties équivalentes (ou supérieures), en toute transparence.
+              2 PDF depuis votre banque → étude gratuite par email. Charles Victor analyse votre dossier et vous propose une solution à garanties équivalentes, en toute transparence.
             </p>
             <p className="text-blue-200/90 text-[13px] max-w-md leading-relaxed">
               Après envoi, vous recevez un lien personnel pour suivre l&apos;avancement de votre dossier à tout moment.
             </p>
           </div>
-          
+
           <div className="flex flex-col gap-4 mt-6 sm:mt-8">
-            <button 
+            <button
               type="button"
               onClick={onStart}
-              className="hidden sm:flex bg-white text-[#1E3A8A] hover:bg-blue-50 items-center justify-center gap-3 px-8 py-4 rounded-full font-bold text-[15px] transition-all shadow-sm w-full sm:w-auto"
+              className="flex bg-white text-[#1E3A8A] hover:bg-blue-50 items-center justify-center gap-3 px-8 py-4 rounded-full font-bold text-[15px] transition-all shadow-sm w-full sm:w-auto"
             >
               Commencer mon étude <ArrowRight className="w-[18px] h-[18px]" strokeWidth={2.5} />
             </button>
-            <span className="text-blue-200/80 text-[13px] font-medium tracking-wide flex items-center justify-center sm:justify-start gap-2">
-              Loi Lemoine <span className="text-blue-300/40">·</span> 100% en ligne
+            <span className="text-blue-200/80 text-[13px] font-medium tracking-wide flex flex-wrap items-center justify-center sm:justify-start gap-x-2 gap-y-1">
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" aria-hidden /> ~5 min
+              </span>
+              <span className="text-blue-300/40" aria-hidden>·</span>
+              Loi Lemoine
+              <span className="text-blue-300/40" aria-hidden>·</span>
+              ORIAS 24002253
             </span>
           </div>
         </div>
@@ -89,9 +204,9 @@ export default function LandingStep({
             <div className="w-6 h-6 rounded-full bg-blue-400/20 flex items-center justify-center shrink-0">
               <Euro className="w-3.5 h-3.5" />
             </div>
-            <span className="leading-snug">Cas concret — un dossier réel</span>
+            <span className="leading-snug">Cas concret — dossier réel anonymisé</span>
           </div>
-          
+
           <div className="mb-6 sm:mb-8 leading-snug">
             <span className="font-bold text-lg sm:text-xl">Un couple,</span>{' '}
             <span className="text-blue-100 text-lg sm:text-xl">prêt en cours.</span>
@@ -159,8 +274,21 @@ export default function LandingStep({
         </div>
       </div>
 
+      <div className="bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 sm:p-8 shadow-sm">
+        <div className="text-[11px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-2">
+          Questions fréquentes
+        </div>
+        <p className="text-slate-500 text-[14px] mb-4 sm:mb-6">
+          Les réponses avant de commencer — pour avancer sereinement.
+        </p>
+        <div className="divide-y divide-slate-100">
+          {FAQ_ITEMS.map((item) => (
+            <FaqItem key={item.q} q={item.q} a={item.a} />
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-12 gap-5 sm:gap-6">
-        
         <div className="md:col-span-4 bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 sm:p-8 flex flex-col justify-center shadow-sm">
           <div className="text-[11px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-6 sm:mb-8">
             En chiffres
@@ -175,12 +303,12 @@ export default function LandingStep({
               <div className="text-slate-500 text-[13px] leading-snug">Garanties conservées</div>
             </div>
             <div>
-              <div className="text-[22px] sm:text-[26px] font-bold text-[#111318] mb-1.5 tracking-tight">3</div>
-              <div className="text-slate-500 text-[13px] leading-snug">Documents suffisants</div>
+              <div className="text-[22px] sm:text-[26px] font-bold text-[#111318] mb-1.5 tracking-tight">2</div>
+              <div className="text-slate-500 text-[13px] leading-snug">PDF banque pour l&apos;étude</div>
             </div>
             <div>
-              <div className="text-[22px] sm:text-[26px] font-bold text-[#111318] mb-1.5 tracking-tight">−50%</div>
-              <div className="text-slate-500 text-[13px] leading-snug">Économie moyenne</div>
+              <div className="text-[22px] sm:text-[26px] font-bold text-[#111318] mb-1.5 tracking-tight">48h</div>
+              <div className="text-slate-500 text-[13px] leading-snug">Réponse ouvrées max.</div>
             </div>
           </div>
         </div>
@@ -189,28 +317,18 @@ export default function LandingStep({
           <div className="text-[11px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-6 sm:mb-8">
             Comment ça marche
           </div>
-          <div className="space-y-6 sm:space-y-7">
-            <div className="flex gap-4 sm:gap-5">
-              <div className="w-9 h-9 rounded-full bg-[#eff6ff] flex items-center justify-center text-[13px] font-bold text-[#1E3A8A] shrink-0 mt-0.5">01</div>
-              <div className="min-w-0">
-                <div className="font-bold text-[#111318] text-[15px] mb-1">Transmettez vos documents</div>
-                <div className="text-slate-500 text-[14px]">Offre de prêt et tableau d&apos;amortissement en PDF.</div>
+          <div className="space-y-5 sm:space-y-6">
+            {HOW_IT_WORKS.map((item) => (
+              <div key={item.step} className="flex gap-4 sm:gap-5">
+                <div className="w-9 h-9 rounded-full bg-[#eff6ff] flex items-center justify-center text-[13px] font-bold text-[#1E3A8A] shrink-0 mt-0.5">
+                  {item.step}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-[#111318] text-[15px] mb-1">{item.title}</div>
+                  <div className="text-slate-500 text-[14px] leading-relaxed">{item.desc}</div>
+                </div>
               </div>
-            </div>
-            <div className="flex gap-4 sm:gap-5">
-              <div className="w-9 h-9 rounded-full bg-[#eff6ff] flex items-center justify-center text-[13px] font-bold text-[#1E3A8A] shrink-0 mt-0.5">02</div>
-              <div className="min-w-0">
-                <div className="font-bold text-[#111318] text-[15px] mb-1">Renseignez vos coordonnées</div>
-                <div className="text-slate-500 text-[14px]">Informations personnelles et professionnelles.</div>
-              </div>
-            </div>
-            <div className="flex gap-4 sm:gap-5">
-              <div className="w-9 h-9 rounded-full bg-[#eff6ff] flex items-center justify-center text-[13px] font-bold text-[#1E3A8A] shrink-0 mt-0.5">03</div>
-              <div className="min-w-0">
-                <div className="font-bold text-[#111318] text-[15px] mb-1">Charles Victor analyse votre dossier</div>
-                <div className="text-slate-500 text-[14px]">Étude personnalisée par email sous 48h ouvrées.</div>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -228,18 +346,20 @@ export default function LandingStep({
             </div>
           </div>
         </div>
-        
       </div>
 
       <div className="bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 sm:p-8 md:p-10 shadow-sm">
         <div className="text-[11px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-6 sm:mb-8">
           Pourquoi passer par le Club ?
         </div>
-        
+
         <div className="bg-[#F8FAFC] border border-[#e2e8f0]/60 p-5 sm:p-6 md:p-8 rounded-[24px] mb-8 sm:mb-10 flex gap-4 md:gap-6 items-start">
           <Quote className="w-8 h-8 sm:w-10 sm:h-10 text-blue-200 fill-blue-100 shrink-0" />
           <p className="text-[14px] sm:text-[15px] md:text-[16px] text-slate-600 font-medium leading-[1.7] min-w-0">
             &quot;Notre cœur de métier, c&apos;est la transaction immobilière. En accompagnant nos clients sur leurs achats, nous avons réalisé que l&apos;assurance emprunteur représentait souvent des milliers d&apos;euros d&apos;économies laissés sur la table. On a décidé d&apos;y remédier.&quot;
+            <span className="block mt-3 text-[13px] text-slate-500 font-semibold">
+              — Charles Victor, conseiller assurance emprunteur
+            </span>
           </p>
         </div>
 
@@ -274,16 +394,50 @@ export default function LandingStep({
         </div>
       </div>
 
+      <div className="bg-[#F8FAFC] border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 shadow-sm">
+        <div className="flex gap-4 min-w-0">
+          <div className="w-11 h-11 rounded-2xl bg-white border border-slate-200 flex items-center justify-center shrink-0">
+            <FileText className="w-5 h-5 text-[#1E3A8A]" />
+          </div>
+          <div>
+            <div className="font-bold text-[#111318] text-[15px] mb-1 leading-snug">
+              Vous avez déjà déposé votre dossier ?
+            </div>
+            <p className="text-slate-500 text-[14px] leading-relaxed max-w-lg">
+              Votre lien de suivi personnel vous a été envoyé par email après validation du formulaire.
+              {savedPortalUrl ? ' Vous pouvez aussi reprendre directement depuis ce navigateur.' : ' Perdu ? Écrivez-nous, nous vous le renvoyons.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
+          {savedPortalUrl && (
+            <a
+              href={savedPortalUrl}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#1E3A8A] text-white hover:bg-[#172554] transition-colors"
+            >
+              Accéder à mon suivi <ExternalLink className="w-4 h-4" />
+            </a>
+          )}
+          <a
+            href="mailto:assurance@leclubimmobilier.fr?subject=Retrouver%20mon%20lien%20de%20suivi"
+            className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            <Mail className="w-4 h-4" />
+            Renvoyer mon lien
+          </a>
+        </div>
+      </div>
+
       <div className="bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
         <div className="text-center md:text-left md:pl-2">
           <div className="font-bold text-[#111318] text-[15px] md:text-[16px] mb-1 leading-snug">
             Des centaines de dossiers d&apos;assurance emprunteur accompagnés
           </div>
           <div className="text-slate-500 text-[14px] leading-relaxed">
-            Rejoignez nos clients qui ont optimisé leur assurance de prêt.
+            2 PDF · ~5 min · étude gratuite sous 48h ouvrées.
           </div>
         </div>
-        <button 
+        <button
           type="button"
           onClick={onStart}
           className="bg-[#1E3A8A] text-white hover:bg-[#172554] flex items-center justify-center gap-3 px-8 py-4 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto"
@@ -338,7 +492,6 @@ export default function LandingStep({
           Commencer mon étude <ArrowRight className="w-5 h-5" />
         </button>
       </div>
-
     </div>
   );
 }
