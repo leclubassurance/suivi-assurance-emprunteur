@@ -34,7 +34,7 @@ export const RGPD_REGISTER_ENTRIES: RgpdRegisterRow[] = [
     recipients:
       "Collaborateurs LCIF habilités ; compagnies d'assurance partenaires si nécessaire au devis ; sous-traitants techniques (hébergement, stockage)",
     transfersOutsideEu:
-      "Évités lorsque possible ; garanties contractuelles (CCT) si prestataire hors UE (ex. cloud, IA)",
+      "Évités lorsque possible ; garanties contractuelles (CCT) si prestataire hors UE (ex. cloud)",
     retention:
       "Instruction : durée du dossier ; sans suite : 3 ans ; contrat : 10 ans (prescription / métier assurance)",
     securityMeasures: "HTTPS, contrôle d'accès admin, stockage Drive/Firestore, journalisation",
@@ -63,26 +63,19 @@ export const RGPD_REGISTER_ENTRIES: RgpdRegisterRow[] = [
     legalBasis: "Art. 6.1.b et 6.1.f RGPD",
   },
   {
-    treatmentName: "OCR et analyse automatisée de documents",
-    purpose: "Vérifier complétude et cohérence des pièces prêt ; assister l'équipe",
-    dataCategories: "Contenu extrait des PDF/images, signaux techniques (qualité, type de doc)",
+    treatmentName: "Assistance automatisée aux réponses par email (Camille)",
+    purpose:
+      "Faciliter la rédaction de réponses, relances et accusés de réception par email, sous contrôle humain de l'équipe",
+    dataCategories:
+      "Contexte dossier, historique des échanges email, statut des pièces, contenus des messages",
     dataSubjects: "Clients",
-    recipients: "Équipe LCIF ; sous-traitant IA (API) le cas échéant",
-    transfersOutsideEu: "Possible selon API IA — CCT et minimisation",
-    retention: "Résultats rattachés au dossier ; pas de réutilisation marketing",
-    securityMeasures: "Traitement serveur, pas de décision automatisée seule (validation humaine)",
-    legalBasis: "Art. 6.1.b RGPD ; intérêt légitime qualité de service (6.1.f)",
-  },
-  {
-    treatmentName: "Assistant Camille (réponses et relances)",
-    purpose: "Rédaction assistée de mails clients et relances sous contrôle humain",
-    dataCategories: "Contexte dossier, historique mails, statut pièces",
-    dataSubjects: "Clients",
-    recipients: "Équipe LCIF ; API IA si utilisée",
-    transfersOutsideEu: "Selon prestataire IA",
-    retention: "Traces d'audit limitées (journal admin) ; contenu dans dossier / Gmail",
-    securityMeasures: "Cooldown anti-spam, escalade humaine, logs d'audit IA",
-    legalBasis: "Art. 6.1.b RGPD ; 6.1.f pour amélioration du service",
+    recipients:
+      "Équipe LCIF habilitée ; sous-traitant technique d'assistance à la rédaction (contrat art. 28 RGPD)",
+    transfersOutsideEu: "Selon prestataire technique — CCT et minimisation",
+    retention: "Contenu dans dossier et messagerie professionnelle ; traces d'audit limitées",
+    securityMeasures:
+      "Validation humaine avant envoi, escalade, journalisation, pas de décision automatisée seule (art. 22)",
+    legalBasis: "Art. 6.1.b RGPD ; 6.1.f (qualité et continuité du service)",
   },
   {
     treatmentName: "Notifications internes Telegram",
