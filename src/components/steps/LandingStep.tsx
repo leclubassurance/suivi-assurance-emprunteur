@@ -8,15 +8,11 @@ import {
   ShieldCheck,
   Quote,
   ChevronDown,
-  Mail,
   Clock,
   FileText,
   ExternalLink,
 } from 'lucide-react';
 import { CLIENT_PORTAL_URL_KEY } from '../../constants';
-import { showToast } from '../../lib/toast';
-import { getApiUrl } from '../../lib/utils';
-import { Input } from '../ui/Input';
 
 /** Espace réservé au bandeau CTA fixe mobile + encoche iOS */
 const MOBILE_STICKY_FOOTER_CLASS =
@@ -100,12 +96,6 @@ export default function LandingStep({
   onLegalPrivacy?: () => void;
 }) {
   const [savedPortalUrl, setSavedPortalUrl] = useState<string | null>(null);
-  const [recoveryHint, setRecoveryHint] = useState(false);
-  const [recoverEmail, setRecoverEmail] = useState('');
-  const [recoverResult, setRecoverResult] = useState<{ found: boolean; portalUrl?: string; message?: string } | null>(
-    null,
-  );
-  const [recoverLoading, setRecoverLoading] = useState(false);
 
   useEffect(() => {
     try {
@@ -117,51 +107,6 @@ export default function LandingStep({
       /* ignore */
     }
   }, []);
-
-  const copySupportEmail = async () => {
-    const email = 'assurance@leclubimmobilier.fr';
-    try {
-      await navigator.clipboard.writeText(email);
-      showToast('Email copié. Collez-le dans votre messagerie pour demander votre lien de suivi.', 'success');
-    } catch {
-      showToast(`Copiez cet email : ${email}`, 'info');
-    }
-    setRecoveryHint(true);
-  };
-
-  const recoverPortalLink = async () => {
-    const email = recoverEmail.trim().toLowerCase();
-    if (!email || !email.includes('@')) {
-      showToast('Veuillez saisir une adresse email valide.', 'error');
-      return;
-    }
-    setRecoverLoading(true);
-    setRecoverResult(null);
-    try {
-      const res = await fetch(getApiUrl('/api/public/portal-recover'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || 'Impossible de retrouver votre lien.');
-      setRecoverResult(json);
-      if (json?.found && json?.portalUrl) {
-        try {
-          localStorage.setItem(CLIENT_PORTAL_URL_KEY, json.portalUrl);
-        } catch {}
-        setSavedPortalUrl(json.portalUrl);
-        showToast('Lien de suivi retrouvé.', 'success');
-      } else {
-        showToast(json?.message || 'Aucun dossier trouvé avec cet email.', 'info');
-      }
-    } catch (e: any) {
-      showToast(e?.message || 'Erreur lors de la recherche.', 'error');
-    } finally {
-      setRecoverLoading(false);
-      setRecoveryHint(true);
-    }
-  };
 
   return (
     <div
@@ -194,16 +139,7 @@ export default function LandingStep({
           >
             Mon dossier en cours <ExternalLink className="w-3.5 h-3.5" />
           </a>
-        ) : (
-          <button
-            type="button"
-            onClick={copySupportEmail}
-            className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold text-slate-500 hover:text-[#1E3A8A] transition-colors shrink-0"
-          >
-            <Mail className="w-3.5 h-3.5" />
-            Déjà déposé ? Retrouver mon suivi
-          </button>
-        )}
+        ) : null}
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
@@ -449,93 +385,27 @@ export default function LandingStep({
         </div>
       </div>
 
-      <div className="bg-[#F8FAFC] border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 shadow-sm">
-        <div className="flex gap-4 min-w-0">
-          <div className="w-11 h-11 rounded-2xl bg-white border border-slate-200 flex items-center justify-center shrink-0">
-            <FileText className="w-5 h-5 text-[#1E3A8A]" />
-          </div>
-          <div>
-            <div className="font-bold text-[#111318] text-[15px] mb-1 leading-snug">
-              Vous avez déjà déposé votre dossier ?
+      {savedPortalUrl ? (
+        <div className="bg-[#F8FAFC] border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 shadow-sm">
+          <div className="flex gap-4 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-white border border-slate-200 flex items-center justify-center shrink-0">
+              <FileText className="w-5 h-5 text-[#1E3A8A]" />
             </div>
-            <p className="text-slate-500 text-[14px] leading-relaxed max-w-lg">
-              Votre lien de suivi personnel vous a été envoyé par email après validation du formulaire.
-              {savedPortalUrl ? ' Vous pouvez aussi reprendre directement depuis ce navigateur.' : ' Perdu ? Écrivez-nous, nous vous le renvoyons.'}
-            </p>
+            <div>
+              <div className="font-bold text-[#111318] text-[15px] mb-1 leading-snug">
+                Reprendre mon dossier
+              </div>
+              <p className="text-slate-500 text-[14px] leading-relaxed max-w-lg">
+                Si vous avez déjà soumis un dossier sur cet appareil, vous pouvez rouvrir votre suivi personnel ici.
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
-          {savedPortalUrl && (
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
             <a
               href={savedPortalUrl}
               className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#1E3A8A] text-white hover:bg-[#172554] transition-colors"
             >
               Accéder à mon suivi <ExternalLink className="w-4 h-4" />
-            </a>
-          )}
-          <button
-            type="button"
-            onClick={copySupportEmail}
-            className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
-          >
-            <Mail className="w-4 h-4" />
-            Renvoyer mon lien
-          </button>
-        </div>
-      </div>
-
-      {recoveryHint && !savedPortalUrl && (
-        <div className="bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 md:p-8 shadow-sm -mt-2">
-          <div className="text-[11px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-2">
-            Retrouver mon suivi
-          </div>
-          <p className="text-slate-600 text-[14px] leading-relaxed font-medium">
-            Entrez l&apos;email utilisé lors du dépôt : si un dossier correspond, on vous génère le lien de suivi.
-          </p>
-          <div className="mt-4 flex flex-col sm:flex-row gap-3 items-end">
-            <Input
-              label="Votre email"
-              type="email"
-              placeholder="ex: prenom.nom@gmail.com"
-              value={recoverEmail}
-              onChange={(e: any) => setRecoverEmail(e.target.value)}
-              className="w-full sm:max-w-md"
-            />
-            <button
-              type="button"
-              onClick={recoverPortalLink}
-              disabled={recoverLoading}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#111318] text-white hover:bg-slate-800 transition-colors w-full sm:w-auto disabled:opacity-60"
-            >
-              {recoverLoading ? 'Recherche…' : 'Générer mon lien'}
-            </button>
-          </div>
-          {recoverResult?.found && recoverResult.portalUrl && (
-            <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4">
-              <p className="text-[13px] font-bold text-[#1E3A8A] mb-1">Votre lien de suivi</p>
-              <a
-                href={recoverResult.portalUrl}
-                className="text-[13px] font-bold text-[#1E3A8A] underline break-all"
-              >
-                {recoverResult.portalUrl}
-              </a>
-            </div>
-          )}
-          {recoverResult && !recoverResult.found && (
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-              <p className="text-[13px] font-bold text-amber-900 mb-1">Aucun dossier trouvé</p>
-              <p className="text-[13px] text-amber-900/80">
-                {recoverResult.message ||
-                  "Vérifiez l'email utilisé lors du dépôt, ou redéposez un dossier."}
-              </p>
-            </div>
-          )}
-          <div className="mt-4 flex flex-col sm:flex-row gap-3">
-            <a
-              href="mailto:assurance@leclubimmobilier.fr?subject=Retrouver%20mon%20lien%20de%20suivi&body=Bonjour%2C%0A%0AJe%20souhaite%20retrouver%20mon%20lien%20de%20suivi.%0A%0A-%20Email%20utilis%C3%A9%20dans%20le%20formulaire%20%3A%20%0A-%20N%C2%B0%20LCIF%20(si%20vous%20l%27avez)%20%3A%20%0A%0AMerci%2C"
-              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#111318] text-white hover:bg-slate-800 transition-colors w-full sm:w-auto"
-            >
-              Ouvrir un email pré-rempli <ExternalLink className="w-4 h-4" />
             </a>
             <button
               type="button"
@@ -544,19 +414,14 @@ export default function LandingStep({
                   localStorage.removeItem(CLIENT_PORTAL_URL_KEY);
                 } catch {}
                 setSavedPortalUrl(null);
-                setRecoveryHint(false);
-                showToast('Données locales de suivi effacées.', 'info');
               }}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors w-full sm:w-auto"
+              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
             >
-              Effacer le suivi mémorisé
+              Oublier ce suivi
             </button>
           </div>
-          <p className="mt-3 text-[12px] text-slate-500">
-            Si votre appareil n&apos;a pas de client mail configuré, le bouton ci-dessus peut ne rien ouvrir : dans ce cas, copiez/collez simplement l&apos;adresse email.
-          </p>
         </div>
-      )}
+      ) : null}
 
       <div className="bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
         <div className="text-center md:text-left md:pl-2">

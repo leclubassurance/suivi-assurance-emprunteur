@@ -608,64 +608,6 @@ export function createApp() {
     }
   });
 
-  const portalRecoverLimiter = rateLimit({
-    windowMs: 10 * 60 * 1000,
-    max: 12,
-    message: { error: "Trop de requêtes, veuillez réessayer plus tard." },
-    validate: false,
-  });
-  app.post(
-    "/api/public/portal-recover",
-    portalRecoverLimiter,
-    express.json(),
-    async (req, res) => {
-      await ensureBackgroundServicesStarted();
-      try {
-        const email = String(req.body?.email || "")
-          .trim()
-          .toLowerCase();
-        if (!email || !email.includes("@")) {
-          return res.status(400).json({ error: "Email invalide" });
-        }
-
-        const db = await readDBAsync();
-        const matches = (db.dossiers || [])
-          .filter((d: any) => !d?.isLead)
-          .filter((d: any) => String(d?.formData?.assures?.[0]?.email || "").trim().toLowerCase() === email)
-          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-        const dossier = matches[0] || null;
-        if (!dossier) {
-          return res.json({
-            found: false,
-            message:
-              "Aucun dossier en cours n'a été trouvé avec cette adresse. Vérifiez l'email utilisé lors du dépôt, ou redéposez un dossier.",
-          });
-        }
-
-        const { ensureClientPortalToken, getClientPortalAbsoluteUrl, resolvePublicAppBaseUrl } =
-          await import("./clientPortal");
-        const token = ensureClientPortalToken(dossier);
-        const portalUrl = getClientPortalAbsoluteUrl(token, resolvePublicAppBaseUrl());
-
-        if (!portalUrl || !portalUrl.startsWith("http")) {
-          return res.status(500).json({
-            error:
-              "Lien de suivi indisponible. Merci de réessayer plus tard ou d'écrire à assurance@leclubimmobilier.fr.",
-          });
-        }
-
-        return res.json({
-          found: true,
-          portalUrl,
-          message: "Lien de suivi généré.",
-        });
-      } catch (e: any) {
-        return res.status(500).json({ error: e?.message || String(e) });
-      }
-    },
-  );
-
   app.get("/api/dossiers", listDossiersLimiter, async (_req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();
