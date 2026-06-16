@@ -14,6 +14,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { CLIENT_PORTAL_URL_KEY } from '../../constants';
+import { showToast } from '../../lib/toast';
 
 /** Espace réservé au bandeau CTA fixe mobile + encoche iOS */
 const MOBILE_STICKY_FOOTER_CLASS =
@@ -97,6 +98,7 @@ export default function LandingStep({
   onLegalPrivacy?: () => void;
 }) {
   const [savedPortalUrl, setSavedPortalUrl] = useState<string | null>(null);
+  const [recoveryHint, setRecoveryHint] = useState(false);
 
   useEffect(() => {
     try {
@@ -108,6 +110,17 @@ export default function LandingStep({
       /* ignore */
     }
   }, []);
+
+  const copySupportEmail = async () => {
+    const email = 'assurance@leclubimmobilier.fr';
+    try {
+      await navigator.clipboard.writeText(email);
+      showToast('Email copié. Collez-le dans votre messagerie pour demander votre lien de suivi.', 'success');
+    } catch {
+      showToast(`Copiez cet email : ${email}`, 'info');
+    }
+    setRecoveryHint(true);
+  };
 
   return (
     <div
@@ -141,13 +154,14 @@ export default function LandingStep({
             Mon dossier en cours <ExternalLink className="w-3.5 h-3.5" />
           </a>
         ) : (
-          <a
-            href="mailto:assurance@leclubimmobilier.fr?subject=Retrouver%20mon%20lien%20de%20suivi"
+          <button
+            type="button"
+            onClick={copySupportEmail}
             className="inline-flex items-center justify-center gap-2 text-[13px] font-semibold text-slate-500 hover:text-[#1E3A8A] transition-colors shrink-0"
           >
             <Mail className="w-3.5 h-3.5" />
             Déjà déposé ? Retrouver mon suivi
-          </a>
+          </button>
         )}
       </header>
 
@@ -418,15 +432,53 @@ export default function LandingStep({
               Accéder à mon suivi <ExternalLink className="w-4 h-4" />
             </a>
           )}
-          <a
-            href="mailto:assurance@leclubimmobilier.fr?subject=Retrouver%20mon%20lien%20de%20suivi"
+          <button
+            type="button"
+            onClick={copySupportEmail}
             className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
           >
             <Mail className="w-4 h-4" />
             Renvoyer mon lien
-          </a>
+          </button>
         </div>
       </div>
+
+      {recoveryHint && !savedPortalUrl && (
+        <div className="bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 md:p-8 shadow-sm -mt-2">
+          <div className="text-[11px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-2">
+            Retrouver mon suivi
+          </div>
+          <p className="text-slate-600 text-[14px] leading-relaxed font-medium">
+            Collez l&apos;email <strong className="text-slate-800">assurance@leclubimmobilier.fr</strong> dans votre messagerie et écrivez-nous.
+            Pour aller plus vite, indiquez votre <strong className="text-slate-800">numéro LCIF</strong> (si vous l&apos;avez) et l&apos;email utilisé dans le formulaire.
+          </p>
+          <div className="mt-4 flex flex-col sm:flex-row gap-3">
+            <a
+              href="mailto:assurance@leclubimmobilier.fr?subject=Retrouver%20mon%20lien%20de%20suivi&body=Bonjour%2C%0A%0AJe%20souhaite%20retrouver%20mon%20lien%20de%20suivi.%0A%0A-%20Email%20utilis%C3%A9%20dans%20le%20formulaire%20%3A%20%0A-%20N%C2%B0%20LCIF%20(si%20vous%20l%27avez)%20%3A%20%0A%0AMerci%2C"
+              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#111318] text-white hover:bg-slate-800 transition-colors w-full sm:w-auto"
+            >
+              Ouvrir un email pré-rempli <ExternalLink className="w-4 h-4" />
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.removeItem(CLIENT_PORTAL_URL_KEY);
+                } catch {}
+                setSavedPortalUrl(null);
+                setRecoveryHint(false);
+                showToast('Données locales de suivi effacées.', 'info');
+              }}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors w-full sm:w-auto"
+            >
+              Effacer le suivi mémorisé
+            </button>
+          </div>
+          <p className="mt-3 text-[12px] text-slate-500">
+            Si votre appareil n&apos;a pas de client mail configuré, le bouton ci-dessus peut ne rien ouvrir : dans ce cas, copiez/collez simplement l&apos;adresse email.
+          </p>
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
         <div className="text-center md:text-left md:pl-2">
