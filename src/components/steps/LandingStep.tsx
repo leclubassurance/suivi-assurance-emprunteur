@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { CLIENT_PORTAL_URL_KEY } from '../../constants';
 import { showToast } from '../../lib/toast';
+import { getApiUrl } from '../../lib/utils';
+import { Input } from '../ui/Input';
 
 /** Espace réservé au bandeau CTA fixe mobile + encoche iOS */
 const MOBILE_STICKY_FOOTER_CLASS =
@@ -99,6 +101,11 @@ export default function LandingStep({
 }) {
   const [savedPortalUrl, setSavedPortalUrl] = useState<string | null>(null);
   const [recoveryHint, setRecoveryHint] = useState(false);
+  const [recoverEmail, setRecoverEmail] = useState('');
+  const [recoverResult, setRecoverResult] = useState<{ found: boolean; portalUrl?: string; message?: string } | null>(
+    null,
+  );
+  const [recoverLoading, setRecoverLoading] = useState(false);
 
   useEffect(() => {
     try {
@@ -120,6 +127,40 @@ export default function LandingStep({
       showToast(`Copiez cet email : ${email}`, 'info');
     }
     setRecoveryHint(true);
+  };
+
+  const recoverPortalLink = async () => {
+    const email = recoverEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      showToast('Veuillez saisir une adresse email valide.', 'error');
+      return;
+    }
+    setRecoverLoading(true);
+    setRecoverResult(null);
+    try {
+      const res = await fetch(getApiUrl('/api/public/portal-recover'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || 'Impossible de retrouver votre lien.');
+      setRecoverResult(json);
+      if (json?.found && json?.portalUrl) {
+        try {
+          localStorage.setItem(CLIENT_PORTAL_URL_KEY, json.portalUrl);
+        } catch {}
+        setSavedPortalUrl(json.portalUrl);
+        showToast('Lien de suivi retrouvé.', 'success');
+      } else {
+        showToast(json?.message || 'Aucun dossier trouvé avec cet email.', 'info');
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Erreur lors de la recherche.', 'error');
+    } finally {
+      setRecoverLoading(false);
+      setRecoveryHint(true);
+    }
   };
 
   return (
@@ -449,9 +490,46 @@ export default function LandingStep({
             Retrouver mon suivi
           </div>
           <p className="text-slate-600 text-[14px] leading-relaxed font-medium">
-            Collez l&apos;email <strong className="text-slate-800">assurance@leclubimmobilier.fr</strong> dans votre messagerie et écrivez-nous.
-            Pour aller plus vite, indiquez votre <strong className="text-slate-800">numéro LCIF</strong> (si vous l&apos;avez) et l&apos;email utilisé dans le formulaire.
+            Entrez l&apos;email utilisé lors du dépôt : si un dossier correspond, on vous génère le lien de suivi.
           </p>
+          <div className="mt-4 flex flex-col sm:flex-row gap-3 items-end">
+            <Input
+              label="Votre email"
+              type="email"
+              placeholder="ex: prenom.nom@gmail.com"
+              value={recoverEmail}
+              onChange={(e: any) => setRecoverEmail(e.target.value)}
+              className="w-full sm:max-w-md"
+            />
+            <button
+              type="button"
+              onClick={recoverPortalLink}
+              disabled={recoverLoading}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#111318] text-white hover:bg-slate-800 transition-colors w-full sm:w-auto disabled:opacity-60"
+            >
+              {recoverLoading ? 'Recherche…' : 'Générer mon lien'}
+            </button>
+          </div>
+          {recoverResult?.found && recoverResult.portalUrl && (
+            <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4">
+              <p className="text-[13px] font-bold text-[#1E3A8A] mb-1">Votre lien de suivi</p>
+              <a
+                href={recoverResult.portalUrl}
+                className="text-[13px] font-bold text-[#1E3A8A] underline break-all"
+              >
+                {recoverResult.portalUrl}
+              </a>
+            </div>
+          )}
+          {recoverResult && !recoverResult.found && (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+              <p className="text-[13px] font-bold text-amber-900 mb-1">Aucun dossier trouvé</p>
+              <p className="text-[13px] text-amber-900/80">
+                {recoverResult.message ||
+                  "Vérifiez l'email utilisé lors du dépôt, ou redéposez un dossier."}
+              </p>
+            </div>
+          )}
           <div className="mt-4 flex flex-col sm:flex-row gap-3">
             <a
               href="mailto:assurance@leclubimmobilier.fr?subject=Retrouver%20mon%20lien%20de%20suivi&body=Bonjour%2C%0A%0AJe%20souhaite%20retrouver%20mon%20lien%20de%20suivi.%0A%0A-%20Email%20utilis%C3%A9%20dans%20le%20formulaire%20%3A%20%0A-%20N%C2%B0%20LCIF%20(si%20vous%20l%27avez)%20%3A%20%0A%0AMerci%2C"
