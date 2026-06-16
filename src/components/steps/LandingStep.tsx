@@ -102,6 +102,8 @@ export default function LandingStep({
   const [savedPortalUrl, setSavedPortalUrl] = useState<string | null>(null);
   const [recoveryHint, setRecoveryHint] = useState(false);
   const [recoverEmail, setRecoverEmail] = useState('');
+  const [recoverCode, setRecoverCode] = useState('');
+  const [recoverStep, setRecoverStep] = useState<'idle' | 'code_sent'>('idle');
   const [recoverResult, setRecoverResult] = useState<{ found: boolean; portalUrl?: string; message?: string } | null>(
     null,
   );
@@ -129,7 +131,7 @@ export default function LandingStep({
     setRecoveryHint(true);
   };
 
-  const recoverPortalLink = async () => {
+  const requestRecoverCode = async () => {
     const email = recoverEmail.trim().toLowerCase();
     if (!email || !email.includes('@')) {
       showToast('Veuillez saisir une adresse email valide.', 'error');
@@ -138,13 +140,44 @@ export default function LandingStep({
     setRecoverLoading(true);
     setRecoverResult(null);
     try {
-      const res = await fetch(getApiUrl('/api/public/portal-recover'), {
+      const res = await fetch(getApiUrl('/api/public/portal-recover/request'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || 'Impossible de retrouver votre lien.');
+      setRecoverStep('code_sent');
+      showToast("Code envoyé (si un dossier correspond). Consultez vos emails.", 'success');
+    } catch (e: any) {
+      showToast(e?.message || 'Erreur lors de la recherche.', 'error');
+    } finally {
+      setRecoverLoading(false);
+      setRecoveryHint(true);
+    }
+  };
+
+  const verifyRecoverCode = async () => {
+    const email = recoverEmail.trim().toLowerCase();
+    const code = recoverCode.trim();
+    if (!email || !email.includes('@')) {
+      showToast('Veuillez saisir une adresse email valide.', 'error');
+      return;
+    }
+    if (!/^\d{6}$/.test(code)) {
+      showToast('Veuillez saisir le code à 6 chiffres.', 'error');
+      return;
+    }
+    setRecoverLoading(true);
+    setRecoverResult(null);
+    try {
+      const res = await fetch(getApiUrl('/api/public/portal-recover/verify'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || 'Code invalide.');
       setRecoverResult(json);
       if (json?.found && json?.portalUrl) {
         try {
@@ -156,7 +189,7 @@ export default function LandingStep({
         showToast(json?.message || 'Aucun dossier trouvé avec cet email.', 'info');
       }
     } catch (e: any) {
-      showToast(e?.message || 'Erreur lors de la recherche.', 'error');
+      showToast(e?.message || 'Erreur lors de la vérification.', 'error');
     } finally {
       setRecoverLoading(false);
       setRecoveryHint(true);
@@ -501,15 +534,46 @@ export default function LandingStep({
               onChange={(e: any) => setRecoverEmail(e.target.value)}
               className="w-full sm:max-w-md"
             />
-            <button
-              type="button"
-              onClick={recoverPortalLink}
-              disabled={recoverLoading}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#111318] text-white hover:bg-slate-800 transition-colors w-full sm:w-auto disabled:opacity-60"
-            >
-              {recoverLoading ? 'Recherche…' : 'Générer mon lien'}
-            </button>
+            {recoverStep === 'idle' ? (
+              <button
+                type="button"
+                onClick={requestRecoverCode}
+                disabled={recoverLoading}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#111318] text-white hover:bg-slate-800 transition-colors w-full sm:w-auto disabled:opacity-60"
+              >
+                {recoverLoading ? 'Envoi…' : 'Recevoir un code'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={verifyRecoverCode}
+                disabled={recoverLoading}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] bg-[#1E3A8A] text-white hover:bg-[#172554] transition-colors w-full sm:w-auto disabled:opacity-60"
+              >
+                {recoverLoading ? 'Vérification…' : 'Valider le code'}
+              </button>
+            )}
           </div>
+          {recoverStep === 'code_sent' && (
+            <div className="mt-3 flex flex-col sm:flex-row gap-3 items-end">
+              <Input
+                label="Code (6 chiffres)"
+                inputMode="numeric"
+                placeholder="ex: 123456"
+                value={recoverCode}
+                onChange={(e: any) => setRecoverCode(String(e.target.value || '').replace(/[^0-9]/g, '').slice(0, 6))}
+                className="w-full sm:max-w-[220px]"
+              />
+              <button
+                type="button"
+                onClick={requestRecoverCode}
+                disabled={recoverLoading}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full font-bold text-[14px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors w-full sm:w-auto disabled:opacity-60"
+              >
+                Renvoyer un code
+              </button>
+            </div>
+          )}
           {recoverResult?.found && recoverResult.portalUrl && (
             <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4">
               <p className="text-[13px] font-bold text-[#1E3A8A] mb-1">Votre lien de suivi</p>

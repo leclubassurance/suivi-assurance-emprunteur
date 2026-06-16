@@ -4,6 +4,7 @@ import multer from "multer";
 import fs from "fs";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import crypto from "crypto";
 
 import {
   exportDossierToGoogleWorkspace,
@@ -608,25 +609,133 @@ export function createApp() {
     }
   });
 
+  type PortalRecoverChallenge = {
+    email: string;
+    codeHash: string;
+    createdAtMs: number;
+    expiresAtMs: number;
+    attempts: number;
+  };
+  const portalRecoverChallenges = new Map<string, PortalRecoverChallenge>();
+  const PORTAL_RECOVER_TTL_MS = 10 * 60 * 1000;
+  const PORTAL_RECOVER_MAX_ATTEMPTS = 5;
+  const PORTAL_RECOVER_PEPPER = String(process.env.PORTAL_RECOVER_PEPPER || "").trim() || "lcif-portal-recover";
+
+  function normalizeEmail(raw: any) {
+    return String(raw || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function hashRecoverCode(email: string, code: string) {
+    return crypto
+      .createHash("sha256")
+      .update(`${PORTAL_RECOVER_PEPPER}|${email}|${code}`)
+      .digest("hex");
+  }
+
+  function generateSixDigitCode() {
+    const n = crypto.randomInt(0, 1000000);
+    return String(n).padStart(6, "0");
+  }
+
   const portalRecoverLimiter = rateLimit({
     windowMs: 10 * 60 * 1000,
     max: 12,
     message: { error: "Trop de requêtes, veuillez réessayer plus tard." },
     validate: false,
   });
+
+  const portalRecoverRequestLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 6,
+    message: { error: "Trop de requêtes, veuillez réessayer plus tard." },
+    validate: false,
+  });
   app.post(
-    "/api/public/portal-recover",
+    "/api/public/portal-recover/request",
+    portalRecoverRequestLimiter,
+    express.json(),
+    async (req, res) => {
+      await ensureBackgroundServicesStarted();
+      try {
+        const email = normalizeEmail(req.body?.email);
+        if (!email || !email.includes("@")) return res.status(400).json({ error: "Email invalide" });
+
+        // Do not reveal whether an email exists; always "sent".
+        const code = generateSixDigitCode();
+        const now = Date.now();
+        portalRecoverChallenges.set(email, {
+          email,
+          codeHash: hashRecoverCode(email, code),
+          createdAtMs: now,
+          expiresAtMs: now + PORTAL_RECOVER_TTL_MS,
+          attempts: 0,
+        });
+
+        const { sendEmail } = await import("./emailProvider");
+        await sendEmail({
+          to: email,
+          subject: "Votre code pour retrouver votre suivi — Le Club Immobilier Français",
+          html: [
+            `<div style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;line-height:1.5;color:#0f172a">`,
+            `<p style="margin:0 0 12px 0;font-weight:700;color:#1E3A8A">Retrouver votre lien de suivi</p>`,
+            `<p style="margin:0 0 12px 0">Voici votre code de vérification (valable 10 minutes) :</p>`,
+            `<div style="display:inline-block;padding:12px 16px;border-radius:12px;background:#0f172a;color:#fff;font-weight:800;letter-spacing:0.18em;font-size:20px">${code}</div>`,
+            `<p style="margin:16px 0 0 0;color:#64748b;font-size:13px">Si vous n'avez pas demandé ce code, vous pouvez ignorer cet email.</p>`,
+            `</div>`,
+          ].join(""),
+        });
+
+        return res.json({
+          success: true,
+          message: "Si un dossier correspond à cet email, un code vient d'être envoyé.",
+        });
+      } catch (e: any) {
+        return res.status(500).json({ error: e?.message || String(e) });
+      }
+    },
+  );
+
+  app.post(
+    "/api/public/portal-recover/verify",
     portalRecoverLimiter,
     express.json(),
     async (req, res) => {
       await ensureBackgroundServicesStarted();
       try {
-        const email = String(req.body?.email || "")
-          .trim()
-          .toLowerCase();
+        const email = normalizeEmail(req.body?.email);
         if (!email || !email.includes("@")) {
           return res.status(400).json({ error: "Email invalide" });
         }
+        const code = String(req.body?.code || "").trim();
+        if (!/^\d{6}$/.test(code)) {
+          return res.status(400).json({ error: "Code invalide" });
+        }
+
+        const challenge = portalRecoverChallenges.get(email);
+        const now = Date.now();
+        if (!challenge || challenge.expiresAtMs < now) {
+          if (challenge) portalRecoverChallenges.delete(email);
+          return res.status(400).json({
+            error: "Code expiré. Merci de demander un nouveau code.",
+          });
+        }
+        if (challenge.attempts >= PORTAL_RECOVER_MAX_ATTEMPTS) {
+          portalRecoverChallenges.delete(email);
+          return res.status(429).json({
+            error: "Trop de tentatives. Merci de demander un nouveau code.",
+          });
+        }
+
+        const submittedHash = hashRecoverCode(email, code);
+        challenge.attempts += 1;
+        portalRecoverChallenges.set(email, challenge);
+
+        if (submittedHash !== challenge.codeHash) {
+          return res.status(400).json({ error: "Code incorrect" });
+        }
+        portalRecoverChallenges.delete(email);
 
         const db = await readDBAsync();
         const matches = (db.dossiers || [])
