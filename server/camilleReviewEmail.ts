@@ -255,6 +255,14 @@ export async function syncCamilleReviewStaffEmailReplies(
       const review = dossier.camillePendingReview as CamillePendingReview | undefined;
       if (!review) continue;
 
+      // Important: ignore the review email Camille originally sent (it contains words like "OK ENVOIE").
+      // Otherwise the SENT copy of that message can be misinterpreted as a staff confirmation.
+      if (review.staffEmailGmailId && String(review.staffEmailGmailId) === String(msgMeta.id)) {
+        helpers.markProcessed(dossier, msgMeta.id);
+        processedIds.add(msgMeta.id);
+        continue;
+      }
+
       const processed = new Set<string>((dossier.processedGmailIds || []).map(String));
       if (processed.has(msgMeta.id)) {
         processedIds.add(msgMeta.id);
