@@ -134,6 +134,22 @@ export async function enrichOpsDailyReportWithAi(
     return report;
   }
 
+  const shouldSkip =
+    report.priorityQueue.every((p) => (p?.score || 0) < 5) &&
+    (report.incidents?.length || 0) === 0 &&
+    (report.dayActivity?.length || 0) === 0;
+  if (shouldSkip) {
+    return {
+      ...report,
+      ai: {
+        executiveSummary: "Synthèse IA non générée : journée calme (aucun incident / aucune priorité).",
+        dossierAudits: [],
+        generatedAt: new Date().toISOString(),
+        model: modelName(),
+      },
+    };
+  }
+
   const byId = new Map(dossiers.map((d) => [d.id, d]));
   const topN = Math.min(5, Math.max(0, Number(process.env.OPS_DAILY_REPORT_AI_TOP_DOSSIERS || 3) || 3));
 

@@ -51,6 +51,8 @@ export type CamilleKnowledgeCache = {
   files: Array<{ name: string; chars: number; kind?: "process" | "product" }>;
   driveExcerpt: string;
   ragChunkCount?: number;
+  /** Empreinte des fichiers Drive utilisés pour décider si on doit reconstruire l'index RAG (embeddings). */
+  driveFingerprint?: string;
   error?: string;
 };
 
@@ -271,7 +273,20 @@ export async function ensureCamilleKnowledgeFolder(
   };
 }
 
-type DriveFileRow = { id: string; name: string; mimeType?: string };
+type DriveFileRow = {
+  id: string;
+  name: string;
+  mimeType?: string;
+  size?: number;
+  modifiedTime?: string;
+};
+
+function computeDriveFingerprint(rows: DriveFileRow[]): string {
+  return rows
+    .map((r) => `${r.id}|${r.name}|${r.mimeType || ""}|${r.size || 0}|${r.modifiedTime || ""}`)
+    .sort()
+    .join("\n");
+}
 
 async function listFilesRecursive(
   drive: any,
@@ -285,7 +300,7 @@ async function listFilesRecursive(
   do {
     const list = await drive.files.list({
       q: `'${folderId}' in parents and trashed=false`,
-      fields: "nextPageToken, files(id,name,mimeType,size)",
+      fields: "nextPageToken, files(id,name,mimeType,size,modifiedTime)",
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
       pageSize: 50,
@@ -305,7 +320,13 @@ async function listFilesRecursive(
       ) {
         const size = Number((f as any).size || 0);
         if (size > MAX_FILE_BYTES) continue;
-        acc.push({ id: f.id, name: f.name, mimeType: mime });
+        acc.push({
+          id: f.id,
+          name: f.name,
+          mimeType: mime,
+          size,
+          modifiedTime: (f as any).modifiedTime ? String((f as any).modifiedTime) : undefined,
+        });
       }
       if (acc.length >= MAX_FILES) break;
     }
@@ -385,6 +406,7 @@ export async function syncCamilleKnowledgeFromDrive(
     const sortedRows = [...rows].sort(
       (a, b) => knowledgeFileSortKey(a.name) - knowledgeFileSortKey(b.name) || a.name.localeCompare(b.name),
     );
+    const driveFingerprint = computeDriveFingerprint(sortedRows);
 
     const processParts: string[] = [];
     const productParts: string[] = [];
@@ -440,9 +462,20 @@ export async function syncCamilleKnowledgeFromDrive(
     const dir = dataDir ? resolveDataDir(dataDir) : undefined;
     if (dir && parsedForRag.length > 0) {
       try {
-        const { buildKnowledgeIndexFromFiles } = await import("./camilleKnowledgeRag");
-        const index = await buildKnowledgeIndexFromFiles(parsedForRag, folderId, dir);
-        ragChunkCount = index.chunkCount;
+        const prev = getCamilleKnowledgeCache(dir) || loadCacheFromDisk(dir);
+        const canSkipRag =
+          prev?.driveFingerprint &&
+          prev.driveFingerprint === driveFingerprint &&
+          typeof prev.ragChunkCount === "number" &&
+          prev.ragChunkCount > 0;
+        if (canSkipRag) {
+          ragChunkCount = prev.ragChunkCount || 0;
+          console.log("[Camille knowledge RAG] Inchangé — embeddings conservés (pas d'appel Gemini).");
+        } else {
+          const { buildKnowledgeIndexFromFiles } = await import("./camilleKnowledgeRag");
+          const index = await buildKnowledgeIndexFromFiles(parsedForRag, folderId, dir);
+          ragChunkCount = index.chunkCount;
+        }
       } catch (e: any) {
         console.warn("[Camille knowledge RAG] Index non construit:", e?.message || e);
       }
@@ -455,6 +488,7 @@ export async function syncCamilleKnowledgeFromDrive(
       files: fileMeta,
       driveExcerpt,
       ragChunkCount,
+      driveFingerprint,
     };
     memoryCache = cache;
     if (dataDir) saveCacheToDisk(resolveDataDir(dataDir), cache);

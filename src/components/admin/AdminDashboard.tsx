@@ -17,6 +17,7 @@ import {
   AdminCamilleKnowledgePanel,
   AdminCamillePlaybooksPanel,
   AdminOpsDailyReportPanel,
+  AdminGeminiUsagePanel,
   useAdminOpsData,
 } from "./AdminOpsPanel";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
@@ -977,6 +978,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                       <ListTodo className="w-4 h-4 text-indigo-600" /> Checklist & notes
                     </h3>
                     <AdminOpsDailyReportPanel />
+                    <AdminGeminiUsagePanel />
                     <AdminCamillePlaybooksPanel />
                     <AdminCamilleKnowledgePanel />
                     <AdminCamillePanel

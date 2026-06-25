@@ -2,6 +2,11 @@ import fs from "fs";
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
 import { isProcessKnowledgeFile } from "./camilleKnowledgeDrive";
+import {
+  extractUsageFromEmbedResponse,
+  makeUsageEvent,
+  recordGeminiUsageEvent,
+} from "./geminiUsage";
 
 export type KnowledgeChunk = {
   id: string;
@@ -131,6 +136,21 @@ async function embedTexts(texts: string[]): Promise<number[][]> {
       contents: batch,
       config: { taskType: "RETRIEVAL_DOCUMENT" },
     });
+    try {
+      const usage = extractUsageFromEmbedResponse(res);
+      recordGeminiUsageEvent(
+        dataDirFallback(),
+        makeUsageEvent({
+          operation: "embed",
+          model,
+          responseUsage: usage,
+          estimatedTotalTokens: usage.totalTokens,
+          meta: { taskType: "RETRIEVAL_DOCUMENT", batchSize: batch.length },
+        }),
+      );
+    } catch {
+      /* best-effort */
+    }
     const embeddings = res.embeddings || [];
     for (const emb of embeddings) {
       out.push(emb.values || []);
@@ -146,7 +166,32 @@ async function embedQuery(text: string): Promise<number[]> {
     contents: [text.slice(0, 2_000)],
     config: { taskType: "RETRIEVAL_QUERY" },
   });
+  try {
+    const usage = extractUsageFromEmbedResponse(res);
+    recordGeminiUsageEvent(
+      dataDirFallback(),
+      makeUsageEvent({
+        operation: "embed",
+        model: getEmbedModel(),
+        responseUsage: usage,
+        estimatedTotalTokens: usage.totalTokens,
+        meta: { taskType: "RETRIEVAL_QUERY" },
+      }),
+    );
+  } catch {
+    /* best-effort */
+  }
   return res.embeddings?.[0]?.values || [];
+}
+
+function dataDirFallback(): string {
+  try {
+    // same base as DB file (Railway/Vercel: /tmp/data/db.json)
+    const { getDbFilePath } = require("./db") as typeof import("./db");
+    return path.dirname(getDbFilePath());
+  } catch {
+    return process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT ? "/tmp/data" : path.join(process.cwd(), "data");
+  }
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {

@@ -1977,6 +1977,18 @@ export function createApp() {
     });
   });
 
+  app.get("/api/admin/gemini-usage", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const rawDays = Number(req.query.days || 14);
+      const days = Number.isFinite(rawDays) ? Math.min(90, Math.max(1, Math.round(rawDays))) : 14;
+      const { buildGeminiUsageSummary } = await import("./geminiUsage");
+      res.json(buildGeminiUsageSummary(getRuntimeDataDir(), days));
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   app.get("/api/admin/ops-daily-report", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();

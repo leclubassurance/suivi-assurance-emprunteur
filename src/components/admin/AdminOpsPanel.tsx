@@ -26,6 +26,27 @@ import type { Dossier } from "../../types";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
 import AdminSubscriptionProgressPanel from "./AdminSubscriptionProgressPanel";
 
+type GeminiUsageSummary = {
+  sinceIso: string;
+  totals: {
+    totalTokens: number;
+    estimatedTotalTokens: number;
+    estimatedUsd: number;
+    byModel: Record<string, { calls: number; totalTokens: number; estimatedTotalTokens: number; estimatedUsd: number }>;
+    byOperation: Record<string, { calls: number; totalTokens: number; estimatedTotalTokens: number; estimatedUsd: number }>;
+  };
+  events: Array<{
+    at: string;
+    operation: string;
+    model: string;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    totalTokens: number | null;
+    estimatedTotalTokens: number | null;
+    estimatedUsd: number | null;
+  }>;
+};
+
 type WorkQueueItem = {
   dossierId: string;
   clientName: string;
@@ -470,6 +491,125 @@ export function AdminOpsDailyReportPanel() {
           <Send className="w-3 h-3" /> Envoyer
         </button>
       </div>
+    </div>
+  );
+}
+
+export function AdminGeminiUsagePanel() {
+  const [days, setDays] = useState(14);
+  const [busy, setBusy] = useState(false);
+  const [data, setData] = useState<GeminiUsageSummary | null>(null);
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    try {
+      const res = await adminFetch(`/api/admin/gemini-usage?days=${days}`);
+      const json = await res.json();
+      if (!res.ok) {
+        (window as any).showAppToast?.(json?.error || "Échec chargement usage Gemini", "error");
+        setData(null);
+        return;
+      }
+      setData(json);
+    } catch {
+      setData(null);
+    } finally {
+      setBusy(false);
+    }
+  }, [days]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const byModel: GeminiUsageSummary["totals"]["byModel"] = data?.totals?.byModel || {};
+  const models = Object.entries(byModel)
+    .sort((a, b) => (b[1]?.estimatedUsd || 0) - (a[1]?.estimatedUsd || 0))
+    .slice(0, 8);
+
+  return (
+    <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3 mb-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <BookOpen className="w-4 h-4 text-indigo-600" />
+        <p className="text-xs font-black text-slate-900">Usage Gemini (estimations)</p>
+        <select
+          value={String(days)}
+          onChange={(e) => setDays(Number(e.target.value))}
+          className="ml-auto text-[11px] bg-white border border-slate-200 rounded px-2 py-1 text-slate-700"
+          aria-label="Période"
+        >
+          <option value="7">7 jours</option>
+          <option value="14">14 jours</option>
+          <option value="30">30 jours</option>
+          <option value="60">60 jours</option>
+          <option value="90">90 jours</option>
+        </select>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={load}
+          className="text-[10px] font-bold uppercase px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-50 flex items-center gap-1"
+        >
+          <RefreshCw className="w-3 h-3" /> Actualiser
+        </button>
+      </div>
+
+      {data ? (
+        <>
+          <p className="text-[11px] text-slate-500">
+            Depuis {new Date(data.sinceIso).toLocaleDateString("fr-FR")} · tokens connus:{" "}
+            <strong>{data.totals.totalTokens.toLocaleString("fr-FR")}</strong> · tokens estimés:{" "}
+            <strong>{data.totals.estimatedTotalTokens.toLocaleString("fr-FR")}</strong> · coût estimé:{" "}
+            <strong>${(data.totals.estimatedUsd || 0).toFixed(2)}</strong>
+          </p>
+
+          {models.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {models.map(([model, v]) => (
+                <div key={model} className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-black text-slate-800 truncate" title={model}>
+                      {model}
+                    </p>
+                    <p className="text-[11px] font-black text-slate-700">
+                      ${(v.estimatedUsd || 0).toFixed(2)}
+                    </p>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    {v.calls} appel(s) · est. {v.estimatedTotalTokens.toLocaleString("fr-FR")} tok
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-slate-400">Aucune donnée d'usage enregistrée sur la période.</p>
+          )}
+
+          {data.events?.length ? (
+            <details className="group">
+              <summary className="text-[11px] font-bold text-slate-500 cursor-pointer list-none flex items-center gap-2">
+                <span className="group-open:rotate-90 transition-transform">▸</span>
+                Derniers appels
+              </summary>
+              <div className="mt-2 max-h-44 overflow-y-auto text-[10px] text-slate-600 space-y-1">
+                {data.events.slice(-30).reverse().map((e, idx) => (
+                  <div key={`${e.at}-${idx}`} className="flex items-center justify-between gap-2">
+                    <span className="truncate" title={`${e.operation} ${e.model}`}>
+                      {new Date(e.at).toLocaleString("fr-FR")} · {e.operation} · {e.model}
+                    </span>
+                    <span className="shrink-0 text-slate-500">
+                      {(e.totalTokens ?? e.estimatedTotalTokens ?? 0).toLocaleString("fr-FR")} tok · $
+                      {(e.estimatedUsd ?? 0).toFixed(3)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </>
+      ) : (
+        <p className="text-[11px] text-slate-400">Chargement…</p>
+      )}
     </div>
   );
 }
