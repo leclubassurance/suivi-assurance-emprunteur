@@ -5,19 +5,27 @@ import { getPendingReview, type CamillePendingReview } from "./camilleReviewQueu
 export function looksLikeReviewSendConfirmation(text: string): boolean {
   const t = text.trim().toLowerCase();
   if (t.length < 2) return false;
-  if (/^(non|annule|stop|pas envoyer|ne pas envoyer)\b/.test(t)) return false;
   if (
-    /^(oui|ok|valide|envoie|envoyer|go|c'est bon|c est bon|parfait|d'accord|d accord)\b/.test(t)
+    /\bcamille\s*[—-]\s*(brouillon|question)\b/.test(t) ||
+    /\bbrouillon proposé\b/.test(t) ||
+    /\bque faire\s*\?/.test(t)
+  ) {
+    return false;
+  }
+  if (/^(non|annule|stop|pas envoyer|ne pas envoyer)\b/.test(t)) return false;
+  const probe = t.length > 200 ? t.slice(0, 200) : t;
+  if (
+    /^(oui|ok|valide|envoie|envoyer|go|c'est bon|c est bon|parfait|d'accord|d accord)\b/.test(probe)
   ) {
     return true;
   }
-  if (/^(je valide|j'valide|je confirme|j'confirme|je suis d'accord|je suis d accord)\b/.test(t)) {
+  if (/^(je valide|j'valide|je confirme|j'confirme|je suis d'accord|je suis d accord)\b/.test(probe)) {
     return true;
   }
-  if (/\b(peux-tu|tu peux|pourrais-tu)\b.*\b(envoyer|lui envoyer|mail)\b/.test(t)) return true;
-  if (/\b(envoie(-| )?lui|envoie le mail|envoie ce mail|envoie le brouillon)\b/.test(t)) return true;
-  if (/\b(ok|oui|valide)\b.{0,12}\b(envoie|envoyer|envoyez)\b/.test(t)) return true;
-  if (/\b(envoie|envoyer|envoyez)\b/.test(t) && t.length < 48) return true;
+  if (/\b(peux-tu|tu peux|pourrais-tu)\b.*\b(envoyer|lui envoyer|mail)\b/.test(probe)) return true;
+  if (/\b(envoie(-| )?lui|envoie le mail|envoie ce mail|envoie le brouillon)\b/.test(probe)) return true;
+  if (/\b(ok|oui|valide)\b.{0,12}\b(envoie|envoyer|envoyez)\b/.test(probe)) return true;
+  if (/\b(envoie|envoyer|envoyez)\b/.test(probe) && probe.length < 48) return true;
   return false;
 }
 

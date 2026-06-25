@@ -56,6 +56,8 @@ export type CamillePendingReview = {
   reviewChannel?: "email" | "telegram";
   /** Gmail id du mail [Camille] envoyé à l'équipe. */
   staffEmailGmailId?: string;
+  /** Tous les Gmail id des mails [Camille] sortants (brouillons révisés inclus). */
+  staffReviewOutboundGmailIds?: string[];
   staffEmailThreadSubject?: string;
 };
 
@@ -881,6 +883,9 @@ export async function tryHandleCamilleReviewStaffEmailReply(
   allDossiers?: Dossier[],
 ): Promise<boolean> {
   if (!text.trim()) return false;
+
+  const { isCamilleReviewSystemEmailBody } = await import("./camilleReviewEmail");
+  if (isCamilleReviewSystemEmailBody(text)) return false;
 
   const {
     looksLikeReviewSendConfirmation,

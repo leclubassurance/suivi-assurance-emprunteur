@@ -169,6 +169,7 @@ export interface Dossier {
     attachmentNames?: string[];
     reviewChannel?: "email" | "telegram";
     staffEmailGmailId?: string;
+    staffReviewOutboundGmailIds?: string[];
     staffEmailThreadSubject?: string;
   };
   /** Mémoire narrative Camille (résumé fil + sujets ouverts) — cohérence des réponses. */

@@ -163,6 +163,13 @@ export async function sendCamilleReviewEmail(params: {
   params.review.reviewChannel = params.review.reviewChannel || "email";
   params.review.staffEmailGmailId = send.messageId;
   params.review.staffEmailThreadSubject = subject;
+  const outboundIds = Array.isArray(params.review.staffReviewOutboundGmailIds)
+    ? [...params.review.staffReviewOutboundGmailIds]
+    : [];
+  if (send.messageId && !outboundIds.includes(send.messageId)) {
+    outboundIds.push(send.messageId);
+  }
+  params.review.staffReviewOutboundGmailIds = outboundIds;
   params.review.updatedAt = new Date().toISOString();
 
   return { ok: true, gmailId: send.messageId };
@@ -173,10 +180,45 @@ export function extractLcifFromReviewEmailSubject(subject: string): string | nul
   return m ? m[0].toUpperCase() : null;
 }
 
-export function isCamilleReviewStaffInbound(subject: string, senderEmail: string): boolean {
+/** Corps d'un mail [Camille] sortant (brouillon / question) — pas une réponse équipe. */
+export function isCamilleReviewSystemEmailBody(text: string): boolean {
+  const t = String(text || "").toLowerCase();
+  if (!t.trim()) return false;
+  return (
+    /\bcamille\s*[—-]\s*(brouillon|question|votre consigne)\b/.test(t) ||
+    /\bbrouillon proposé pour le client\b/.test(t) ||
+    /\bque faire\s*\?/.test(t) ||
+    (/\bmessage client\s*:/.test(t) && /\b(ok envoie|je valide)\b/.test(t))
+  );
+}
+
+export function isStaffReviewEmailReply(labelIds: string[], senderEmail: string): boolean {
+  if ((labelIds || []).includes("SENT")) return false;
+  if (!isStaffMailbox(senderEmail)) return false;
+  const gmailUser = String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
+  if (senderEmail.toLowerCase() === gmailUser) return false;
+  return true;
+}
+
+export function isCamilleReviewStaffInbound(
+  subject: string,
+  senderEmail: string,
+  opts?: { labelIds?: string[] },
+): boolean {
   if (!String(subject || "").includes(REVIEW_SUBJECT_PREFIX)) return false;
   if (!isStaffMailbox(senderEmail)) return false;
+  if ((opts?.labelIds || []).includes("SENT")) return false;
+  const gmailUser = String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
+  if (senderEmail.toLowerCase() === gmailUser) return false;
   return Boolean(extractLcifFromReviewEmailSubject(subject));
+}
+
+function isIgnoredStaffReviewOutboundId(review: CamillePendingReview, gmailId: string): boolean {
+  const id = String(gmailId || "");
+  if (!id) return false;
+  if (review.staffEmailGmailId && String(review.staffEmailGmailId) === id) return true;
+  const outbound = review.staffReviewOutboundGmailIds || [];
+  return outbound.some((x) => String(x) === id);
 }
 
 export function findDossierWithPendingReviewByLcif(
@@ -213,9 +255,9 @@ export async function syncCamilleReviewStaffEmailReplies(
   },
 ): Promise<number> {
   const staffEmail = getStaffReviewEmail();
+  // Only staff INBOX replies — never scan SENT (outbound [Camille] drafts contain "OK ENVOIE").
   const queries = [
-    `subject:"${REVIEW_SUBJECT_PREFIX}" from:${staffEmail} newer_than:90d`,
-    `subject:"${REVIEW_SUBJECT_PREFIX}" from:assurance@leclubimmobilier.fr newer_than:90d`,
+    `subject:"${REVIEW_SUBJECT_PREFIX}" from:${staffEmail} -in:sent newer_than:90d`,
   ];
 
   let handled = 0;
@@ -243,8 +285,8 @@ export async function syncCamilleReviewStaffEmailReplies(
       const { extractEmail, decodeEmailBodies } = await import("./mailAutomation");
       const senderEmail = extractEmail(fromRaw);
       const labelIds = msgRes.data.labelIds || [];
-      if (!labelIds.includes("SENT") && !isStaffMailbox(senderEmail)) continue;
-      if (!isCamilleReviewStaffInbound(subject, senderEmail)) continue;
+      if (!isStaffReviewEmailReply(labelIds, senderEmail)) continue;
+      if (!isCamilleReviewStaffInbound(subject, senderEmail, { labelIds })) continue;
 
       const lcif = extractLcifFromReviewEmailSubject(subject);
       if (!lcif) continue;
@@ -255,9 +297,7 @@ export async function syncCamilleReviewStaffEmailReplies(
       const review = dossier.camillePendingReview as CamillePendingReview | undefined;
       if (!review) continue;
 
-      // Important: ignore the review email Camille originally sent (it contains words like "OK ENVOIE").
-      // Otherwise the SENT copy of that message can be misinterpreted as a staff confirmation.
-      if (review.staffEmailGmailId && String(review.staffEmailGmailId) === String(msgMeta.id)) {
+      if (isIgnoredStaffReviewOutboundId(review, String(msgMeta.id))) {
         helpers.markProcessed(dossier, msgMeta.id);
         processedIds.add(msgMeta.id);
         continue;
@@ -271,6 +311,11 @@ export async function syncCamilleReviewStaffEmailReplies(
 
       const { text } = decodeEmailBodies(payload);
       const instruction = extractStaffInstructionFromEmail(text);
+      if (isCamilleReviewSystemEmailBody(instruction || text)) {
+        helpers.markProcessed(dossier, msgMeta.id);
+        processedIds.add(msgMeta.id);
+        continue;
+      }
       const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
 
       helpers.upsertCommunication(dossier, {
