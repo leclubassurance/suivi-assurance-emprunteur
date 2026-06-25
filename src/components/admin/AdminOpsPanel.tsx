@@ -48,9 +48,13 @@ type Metrics = {
   loanDocsOkRate: number;
   certainDocProblemCount: number;
   studiesWithKpi: number;
+  studiesWithKpiInPeriod: number;
   totalEconomiesRealiseesLabel: string;
   totalMontantPretsAccompagnesLabel: string;
   totalGainsFraisCourtageLabel: string;
+  periodEconomiesRealiseesLabel: string;
+  periodMontantPretsAccompagnesLabel: string;
+  periodGainsFraisCourtageLabel: string;
   kpiHelp?: {
     economies: string;
     prets: string;
@@ -58,6 +62,28 @@ type Metrics = {
     periodLabel: string;
   };
 };
+
+const METRICS_PERIOD_OPTIONS = [
+  { days: 7, label: "7 j" },
+  { days: 30, label: "30 j" },
+  { days: 90, label: "90 j" },
+  { days: 3650, label: "Tout" },
+] as const;
+
+function periodSubline(
+  metrics: Metrics,
+  periodField: "periodEconomiesRealiseesLabel" | "periodMontantPretsAccompagnesLabel" | "periodGainsFraisCourtageLabel",
+  countInPeriod?: number,
+): string {
+  const periodLabel = metrics.kpiHelp?.periodLabel || `${metrics.periodDays} jours`;
+  if (metrics.periodDays >= 3650) {
+    return countInPeriod != null ? `${countInPeriod} étude(s) au total` : periodLabel;
+  }
+  const periodValue = metrics[periodField];
+  const count =
+    countInPeriod != null ? `${countInPeriod} étude(s)` : periodLabel;
+  return `${count} sur ${periodLabel} · ${periodValue}`;
+}
 
 const priorityStyle: Record<string, string> = {
   critical: "border-red-300 bg-red-50",
@@ -68,10 +94,14 @@ const priorityStyle: Record<string, string> = {
 
 export function AdminActivityBar({
   metrics,
+  metricsPeriodDays = 7,
+  onMetricsPeriodChange,
   onReanalyzeAll,
   onRefreshMetrics,
 }: {
   metrics: Metrics | null;
+  metricsPeriodDays?: number;
+  onMetricsPeriodChange?: (days: number) => void;
   onReanalyzeAll?: () => void;
   onRefreshMetrics?: () => void;
 }) {
@@ -80,27 +110,28 @@ export function AdminActivityBar({
   const businessCards = [
     {
       label: "Économies annoncées",
-      sub: `${metrics.studiesWithKpi} étude(s)`,
+      sub: periodSubline(metrics, "periodEconomiesRealiseesLabel", metrics.studiesWithKpiInPeriod),
       value: metrics.totalEconomiesRealiseesLabel,
       help: metrics.kpiHelp?.economies,
       icon: Euro,
     },
     {
       label: "Capitaux accompagnés",
-      sub: metrics.kpiHelp?.periodLabel,
+      sub: periodSubline(metrics, "periodMontantPretsAccompagnesLabel"),
       value: metrics.totalMontantPretsAccompagnesLabel,
       help: metrics.kpiHelp?.prets,
       icon: Landmark,
     },
     {
       label: "Courtage LCIF",
-      sub: "lu dans les mails d'étude",
+      sub: periodSubline(metrics, "periodGainsFraisCourtageLabel"),
       value: metrics.totalGainsFraisCourtageLabel,
       help: metrics.kpiHelp?.courtage,
       icon: Wallet,
     },
   ];
 
+  const opsPeriodLabel = metrics.kpiHelp?.periodLabel || `${metrics.periodDays} jours`;
   const opsCards = [
     { label: "Nouveaux", value: metrics.newDossiers, icon: TrendingUp },
     { label: "Escalades", value: metrics.openEscalations, icon: AlertTriangle },
@@ -113,8 +144,27 @@ export function AdminActivityBar({
       <div>
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <p className="text-[10px] uppercase font-bold text-white/50 tracking-wide">
-            Performance commerciale · {metrics.kpiHelp?.periodLabel || "7 jours"}
+            Performance commerciale · cumul dossiers actifs
           </p>
+          {onMetricsPeriodChange && (
+            <div className="flex items-center gap-1 rounded-lg border border-white/15 p-0.5">
+              {METRICS_PERIOD_OPTIONS.map((opt) => (
+                <button
+                  key={opt.days}
+                  type="button"
+                  onClick={() => onMetricsPeriodChange(opt.days)}
+                  className={`text-[10px] font-bold uppercase tracking-wide rounded-md px-2 py-1 transition ${
+                    metricsPeriodDays === opt.days
+                      ? "bg-white/20 text-white"
+                      : "text-white/55 hover:text-white hover:bg-white/10"
+                  }`}
+                  title={`Filtrer l'activité opérationnelle et les sous-totaux sur ${opt.label}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
           {onRefreshMetrics && (
             <button
               type="button"
@@ -156,7 +206,7 @@ export function AdminActivityBar({
       <details className="group">
         <summary className="text-[11px] font-bold text-white/50 cursor-pointer list-none flex items-center gap-2">
           <span className="group-open:rotate-90 transition-transform">▸</span>
-          Activité opérationnelle (file, mails, qualité docs)
+          Activité opérationnelle ({opsPeriodLabel})
         </summary>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
           {opsCards.map((c) => (
@@ -278,15 +328,16 @@ export function AdminWorkQueuePanel({
 
 export function useAdminOpsData() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [metricsPeriodDays, setMetricsPeriodDays] = useState(7);
   const loadMetrics = useCallback(async () => {
     try {
-      const res = await adminFetch("/api/admin/activity-metrics?days=7");
+      const res = await adminFetch(`/api/admin/activity-metrics?days=${metricsPeriodDays}`);
       const data = await res.json();
       setMetrics(data);
     } catch {
       setMetrics(null);
     }
-  }, []);
+  }, [metricsPeriodDays]);
 
   useEffect(() => {
     loadMetrics();
@@ -294,7 +345,12 @@ export function useAdminOpsData() {
     return () => clearInterval(t);
   }, [loadMetrics]);
 
-  return { metrics, reloadMetrics: loadMetrics };
+  return {
+    metrics,
+    reloadMetrics: loadMetrics,
+    metricsPeriodDays,
+    setMetricsPeriodDays,
+  };
 }
 
 export function AdminOpsDailyReportPanel() {

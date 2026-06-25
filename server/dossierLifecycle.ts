@@ -51,6 +51,32 @@ export function getLastStudyOutbound(dossier: Dossier): { subject: string; date:
   if (out[0]) {
     return { subject: String(out[0].subject || "Étude envoyée"), date: String(out[0].date || "") };
   }
+
+  for (const em of dossier.emails || []) {
+    if (em.status !== "SENT") continue;
+    const subject = String(em.subject || "");
+    if (!STUDY_SUBJECT_RE.test(subject)) continue;
+    return {
+      subject,
+      date: String(em.sentAt || em.createdAt || dossier.updatedAt || dossier.createdAt),
+    };
+  }
+
+  for (const e of [...(dossier.eventLog || [])].reverse()) {
+    if (e.type !== "EMAIL_SENT") continue;
+    const blob = `${e.message || ""} ${JSON.stringify(e.meta || {})}`;
+    if (!/étude|STUDY|personnalisée|personnalisee|économies/i.test(blob)) continue;
+    const date = String((e as any).at || (e as any).date || dossier.updatedAt || "");
+    if (date) return { subject: "Étude personnalisée envoyée", date };
+  }
+
+  if (dossier.studyKpi?.extractedAt) {
+    return {
+      subject: String(dossier.studyKpi.subject || "Étude personnalisée"),
+      date: dossier.studyKpi.extractedAt,
+    };
+  }
+
   if (hasStudyBeenSent(dossier)) {
     return { subject: "Étude personnalisée envoyée", date: dossier.updatedAt || dossier.createdAt };
   }

@@ -177,7 +177,9 @@ export function getLoanCapitalFromDossier(dossier: Dossier | any): number {
   const prets = dossier?.formData?.prets || [];
   let sum = 0;
   for (const p of prets) {
-    const n = Number(p?.capitalRestant);
+    const raw = p?.capitalRestant;
+    if (raw == null || raw === "") continue;
+    const n = Number(String(raw).replace(/\s/g, "").replace(",", "."));
     if (Number.isFinite(n) && n > 0) sum += n;
   }
   return Math.round(sum);
@@ -559,15 +561,20 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
   return applyStudyKpiFromStudyDraft(dossier);
 }
 
-/** Date de référence pour les totaux bandeau admin (date d'envoi étude > date extraction). */
+/** Date de référence pour les totaux bandeau admin (envoi étude > extraction KPI). */
 export function getStudyKpiActivityDate(dossier: Dossier): number {
   const kpi = dossier.studyKpi;
   if (!kpi) return 0;
+
   const study = getLastStudyOutbound(dossier);
   const studyTs = study?.date ? new Date(study.date).getTime() : 0;
   const extractedTs = new Date(kpi.extractedAt || 0).getTime();
-  if (studyTs > 0) return studyTs;
-  return extractedTs;
+
+  if (studyTs > 0 && Number.isFinite(studyTs)) return studyTs;
+  if (extractedTs > 0 && Number.isFinite(extractedTs)) return extractedTs;
+
+  const updatedTs = new Date(dossier.updatedAt || 0).getTime();
+  return Number.isFinite(updatedTs) ? updatedTs : 0;
 }
 
 /** Saisie manuelle admin — prioritaire sur l'extraction automatique. */

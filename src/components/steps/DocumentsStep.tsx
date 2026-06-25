@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { InsuranceFormData, AppFile } from '../../types';
-import { Upload, FileText, FileImage, Trash2, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Upload, FileText, CheckCircle2, ArrowRight, Trash2 } from 'lucide-react';
 import { generateId } from '../../lib/utils';
 import { showToast } from '../../lib/toast';
 import { PRIVACY_CONSENT_CHECKBOX_TEXT } from '../../../shared/privacyConsent';
+import DocumentExampleModal, { DocumentExampleLink } from '../ui/DocumentExampleModal';
+import type { DocumentExampleId } from '../../content/documentExamples';
 
 interface Props {
   formData: InsuranceFormData;
@@ -25,6 +27,7 @@ export default function DocumentsStep({
 }: Props) {
   const [dragActiveStates, setDragActiveStates] = useState<Record<string, boolean>>({});
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [exampleId, setExampleId] = useState<DocumentExampleId | null>(null);
 
   const handleDrag = (category: string, e: React.DragEvent) => {
     e.preventDefault();
@@ -98,7 +101,7 @@ export default function DocumentsStep({
     }));
   };
 
-  const categories = [
+  const categories: { id: DocumentExampleId; title: string; desc: string }[] = [
     { id: 'offre', title: "Offre de prêt", desc: "Le contrat de prêt incluant les conditions (signée ou non)." },
     { id: 'tableau', title: "Tableau d'amortissement", desc: "Le tableau détaillé mois par mois sur la durée totale du prêt." },
     { id: 'fiche', title: "Fiche standardisée d'information (optionnel)", desc: "La fiche de synthèse récapitulative (si vous l’avez)." },
@@ -110,6 +113,7 @@ export default function DocumentsStep({
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-8 space-y-10 pb-20">
+      <DocumentExampleModal exampleId={exampleId} onClose={() => setExampleId(null)} />
       
       <section>
         <div className="text-center mb-8">
@@ -146,6 +150,11 @@ export default function DocumentsStep({
                   <div className="md:w-1/2 shrink-0">
                     <h3 className="font-bold text-[16px] text-slate-800 mb-1">{category.title}</h3>
                     <p className="text-slate-500 text-[13px]">{category.desc}</p>
+                    <DocumentExampleLink
+                      exampleId={category.id}
+                      onOpen={setExampleId}
+                      className="mt-2"
+                    />
                   </div>
 
                   <div className="md:w-1/2 w-full">

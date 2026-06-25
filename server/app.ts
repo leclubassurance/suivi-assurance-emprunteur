@@ -1941,35 +1941,40 @@ export function createApp() {
   app.get("/api/admin/activity-metrics", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();
-    const periodDays = Number(req.query.days || 7);
-    const { computeActivityMetrics } = await import("./activityMetrics");
+    const rawDays = Number(req.query.days || 7);
+    const periodDays = rawDays >= 3650 ? 3650 : Math.min(365, Math.max(1, rawDays));
+    const { computeActivityMetrics, filterMetricsDossiers } = await import("./activityMetrics");
+    const scoped = filterMetricsDossiers(db.dossiers);
     let kpiBackfilled = 0;
     const dirtyKpiIds: string[] = [];
     const { refreshStudyKpiFromCommunications, getLoanCapitalFromDossier, isGrossSavingsPlausible } =
       await import("./studyEmailKpi");
-    for (const d of db.dossiers) {
+    const { hasStudyBeenSent } = await import("./dossierLifecycle");
+    for (const d of scoped) {
       const kpi = d.studyKpi;
       const loan = getLoanCapitalFromDossier(d);
       const gross = Number(kpi?.grossSavingsEur) || 0;
-      const { hasStudyBeenSent } = await import("./dossierLifecycle");
       const studySent = hasStudyBeenSent(d);
       const suspectKpi =
         kpi?.source !== "manual" &&
-        (kpi?.confidence === "low" ||
-        (gross > 0 && loan > 0 && !isGrossSavingsPlausible(gross, loan)) ||
-        (gross <= 0 && studySent && kpi?.grossSource !== "draft"));
-      if (!kpi?.extractedAt || suspectKpi) {
-        if (studySent && refreshStudyKpiFromCommunications(d)) {
-          kpiBackfilled += 1;
-          dirtyKpiIds.push(d.id);
-        }
+        studySent &&
+        (!kpi?.extractedAt ||
+          kpi?.confidence === "low" ||
+          (gross > 0 && loan > 0 && !isGrossSavingsPlausible(gross, loan)) ||
+          (gross <= 0 && kpi?.grossSource !== "draft" && kpi?.grossSource !== "manual"));
+      if (suspectKpi && refreshStudyKpiFromCommunications(d)) {
+        kpiBackfilled += 1;
+        dirtyKpiIds.push(d.id);
       }
     }
     if (dirtyKpiIds.length > 0) {
       const { writeDirtyDossiers } = await import("./db");
       await writeDirtyDossiers(db, dirtyKpiIds);
     }
-    res.json(computeActivityMetrics(db.dossiers, periodDays));
+    res.json({
+      ...computeActivityMetrics(db.dossiers, periodDays),
+      kpiBackfilled,
+    });
   });
 
   app.get("/api/admin/ops-daily-report", async (req, res) => {

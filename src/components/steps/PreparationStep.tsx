@@ -1,12 +1,17 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, FileText, CheckCircle2 } from 'lucide-react';
+import DocumentExampleModal, { DocumentExampleLink } from '../ui/DocumentExampleModal';
+import type { DocumentExampleId } from '../../content/documentExamples';
 
 export default function PreparationStep({ onNext }: { onNext: () => void }) {
   const [isChecked, setIsChecked] = React.useState(false);
+  const [exampleId, setExampleId] = React.useState<DocumentExampleId | null>(null);
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 gap-6 pb-20 flex-1 flex flex-col justify-center">
+      <DocumentExampleModal exampleId={exampleId} onClose={() => setExampleId(null)} />
+
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -31,6 +36,7 @@ export default function PreparationStep({ onNext }: { onNext: () => void }) {
             </div>
             <h3 className="font-bold text-[#111318] text-[17px] mb-2 leading-snug">L'offre de prêt</h3>
             <p className="text-slate-500 text-[14px]">Document détaillé remis par votre banque lors de l'octroi du crédit.</p>
+            <DocumentExampleLink exampleId="offre" onOpen={setExampleId} className="mt-3" />
           </div>
           
           <div className="flex-1 p-8 text-center flex flex-col items-center justify-center">
@@ -39,6 +45,7 @@ export default function PreparationStep({ onNext }: { onNext: () => void }) {
             </div>
             <h3 className="font-bold text-[#111318] text-[17px] mb-2 leading-snug">Tableau d'amortissement</h3>
             <p className="text-slate-500 text-[14px]">L'échéancier complet, détaillé jusqu'à la dernière échéance du prêt.</p>
+            <DocumentExampleLink exampleId="tableau" onOpen={setExampleId} className="mt-3" />
           </div>
 
           <div className="flex-1 p-8 text-center flex flex-col items-center justify-center bg-slate-50">

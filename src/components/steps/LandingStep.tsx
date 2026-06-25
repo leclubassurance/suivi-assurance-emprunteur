@@ -45,8 +45,8 @@ const HOW_IT_WORKS = [
   },
   {
     step: '02',
-    title: 'Décrivez votre projet (~5 min)',
-    desc: 'Objet du financement, coordonnées et informations personnelles — formulaire guidé, sans mot de passe.',
+    title: 'Remplissez vos informations (~5 min)',
+    desc: 'Coordonnées, situation personnelle et détails de votre prêt — formulaire guidé, sans mot de passe.',
   },
   {
     step: '03',
@@ -349,7 +349,7 @@ export default function LandingStep({
           <p className="text-[14px] sm:text-[15px] md:text-[16px] text-slate-600 font-medium leading-[1.7] min-w-0">
             &quot;Notre cœur de métier, c&apos;est la transaction immobilière. En accompagnant nos clients sur leurs achats, nous avons réalisé que l&apos;assurance emprunteur représentait souvent des milliers d&apos;euros d&apos;économies laissés sur la table. On a décidé d&apos;y remédier.&quot;
             <span className="block mt-3 text-[13px] text-slate-500 font-semibold">
-              — Charles Victor, conseiller assurance emprunteur
+              — Charles Victor, cofondateur du Club Immobilier Français
             </span>
           </p>
         </div>

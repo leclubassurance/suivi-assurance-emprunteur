@@ -43,7 +43,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
   const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers">("queue");
-  const { metrics, reloadMetrics } = useAdminOpsData();
+  const { metrics, reloadMetrics, metricsPeriodDays, setMetricsPeriodDays } = useAdminOpsData();
   const [driveDiagnostic, setDriveDiagnostic] = useState<{
     summary: string;
     parentOk: boolean;
@@ -84,6 +84,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
           if (!isVisibleAdminDossier(prev.id)) return null;
           return filteredData.find((d: Dossier) => d.id === prev.id) || prev;
         });
+        await reloadMetrics();
       }
     } catch (err) {
       showToast("Erreur de chargement", "error");
@@ -804,6 +805,8 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <AdminActivityBar
         metrics={metrics}
+        metricsPeriodDays={metricsPeriodDays}
+        onMetricsPeriodChange={setMetricsPeriodDays}
         onReanalyzeAll={handleReanalyzeAllDocuments}
         onRefreshMetrics={reloadMetrics}
       />

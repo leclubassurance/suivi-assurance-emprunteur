@@ -16,6 +16,14 @@ const TARGET_BYTES = 880_000;
 const FIRESTORE_DOC_MAX_BYTES = 1_048_576;
 const FIRESTORE_SAFE_TARGET = 960_000;
 
+const STUDY_COMM_SUBJECT_RE =
+  /\b(étude|etude)(\s+personnalisée|\s+personnalisee)?\b|économies|economies|économiser|economiser|assurance emprunteur/i;
+
+function isStudyOutboundComm(c: any): boolean {
+  if (c?.direction !== "outbound") return false;
+  return STUDY_COMM_SUBJECT_RE.test(String(c?.subject || ""));
+}
+
 const lastOversizeWarnAt = new Map<string, number>();
 const OVERSIZE_WARN_COOLDOWN_MS = 15 * 60_000;
 
@@ -98,15 +106,21 @@ function aggressivelyShrinkForFirestore(d: Record<string, unknown>, pass: number
     slice("importedGmailMessageIds", 40);
     slice("processedGmailIds", 30);
     if (Array.isArray(d.communications)) {
-      d.communications = (d.communications as any[]).slice(-4).map((c) => ({
-        id: c.id,
-        gmailId: c.gmailId,
-        direction: c.direction,
-        from: c.from,
-        subject: truncate(c.subject, 120),
-        text: truncate(c.text, 400),
-        date: c.date,
-      }));
+      d.communications = (d.communications as any[]).slice(-4).map((c) => {
+        const row: Record<string, unknown> = {
+          id: c.id,
+          gmailId: c.gmailId,
+          direction: c.direction,
+          from: c.from,
+          subject: truncate(c.subject, 120),
+          text: truncate(c.text, 400),
+          date: c.date,
+        };
+        if (isStudyOutboundComm(c) && c.html) {
+          row.html = truncate(c.html, MAX_COMM_HTML);
+        }
+        return row;
+      });
     }
     if (Array.isArray(d.eventLog)) d.eventLog = (d.eventLog as any[]).slice(-8);
     if (Array.isArray(d.emails)) d.emails = (d.emails as any[]).slice(-5);
@@ -211,16 +225,22 @@ export function compactDossierForPersistence(dossier: unknown): Record<string, u
   let json = JSON.stringify(d);
   if (json.length > TARGET_BYTES) {
     if (Array.isArray(d.communications)) {
-      d.communications = (d.communications as any[]).slice(-15).map((c) => ({
-        id: c.id,
-        gmailId: c.gmailId,
-        direction: c.direction,
-        from: c.from,
-        subject: truncate(c.subject, 200),
-        text: truncate(c.text, 800),
-        date: c.date,
-        ...(Array.isArray(c.attachments) ? { attachments: c.attachments.slice(0, 8) } : {}),
-      }));
+      d.communications = (d.communications as any[]).slice(-15).map((c) => {
+        const row: Record<string, unknown> = {
+          id: c.id,
+          gmailId: c.gmailId,
+          direction: c.direction,
+          from: c.from,
+          subject: truncate(c.subject, 200),
+          text: truncate(c.text, 800),
+          date: c.date,
+          ...(Array.isArray(c.attachments) ? { attachments: c.attachments.slice(0, 8) } : {}),
+        };
+        if (isStudyOutboundComm(c) && c.html) {
+          row.html = truncate(c.html, MAX_COMM_HTML);
+        }
+        return row;
+      });
     }
     if (Array.isArray(d.eventLog)) d.eventLog = (d.eventLog as any[]).slice(-25);
     json = JSON.stringify(d);

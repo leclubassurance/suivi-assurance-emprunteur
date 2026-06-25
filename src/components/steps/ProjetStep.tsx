@@ -47,7 +47,7 @@ export default function ProjetStep({ formData, setFormData, errors, onNext }: Pr
         animate={{ opacity: 1, y: 0 }}
       >
         <div className="text-center mb-8">
-           <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-[#111318] mb-3">Votre Projet</h2>
+           <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-[#111318] mb-3">Vos informations</h2>
            <p className="text-slate-500 font-medium mt-1 text-[15px]">
              Indiquez le <strong>capital restant dû à ce jour</strong> : en clair, combien il vous reste à rembourser actuellement (valeur affichée dans votre application bancaire).
            </p>
