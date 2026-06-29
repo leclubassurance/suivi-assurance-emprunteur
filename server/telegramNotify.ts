@@ -84,4 +84,86 @@ export async function notifyTelegramEscalation(params: {
   });
 }
 
+function apporteurAdminUrl(): string {
+  const base = String(
+    process.env.PUBLIC_APP_URL || process.env.VITE_PUBLIC_APP_URL || process.env.APP_URL || "",
+  ).replace(/\/$/, "");
+  return base ? `${base}/admin/apporteurs` : "/admin/apporteurs";
+}
+
+/** Nouvelle candidature partenaire recommandée par un apporteur. */
+export async function notifyTelegramPartnerRecruit(params: {
+  recruit: {
+    id: string;
+    contactName: string;
+    email: string;
+    phone?: string;
+    companyName?: string;
+    notes?: string;
+  };
+  sponsorName: string;
+  sponsorCompany?: string;
+}) {
+  const { isTelegramEnabled, getAllowedChatIdsForNotify, sendTelegramRaw } = await import("./telegramCamille");
+  const { escapeTelegramHtml } = await import("./telegramUi");
+  if (!isTelegramEnabled()) return;
+  const enabled = (process.env.TELEGRAM_NOTIFY_ENABLED || "true").toLowerCase();
+  if (enabled === "false" || enabled === "0") return;
+
+  const adminLink = apporteurAdminUrl();
+  const lines = [
+    `<b>🤝 Nouvelle candidature apporteur</b>`,
+    "",
+    `<b>${escapeTelegramHtml(params.recruit.contactName)}</b>`,
+    `📧 ${escapeTelegramHtml(params.recruit.email)}`,
+  ];
+  if (params.recruit.phone) lines.push(`📱 ${escapeTelegramHtml(params.recruit.phone)}`);
+  if (params.recruit.companyName) lines.push(`🏢 ${escapeTelegramHtml(params.recruit.companyName)}`);
+  lines.push(
+    "",
+    `Parrain : <b>${escapeTelegramHtml(params.sponsorName)}</b>${
+      params.sponsorCompany ? ` (${escapeTelegramHtml(params.sponsorCompany)})` : ""
+    }`,
+  );
+  if (params.recruit.notes) {
+    lines.push("", `<i>${escapeTelegramHtml(params.recruit.notes.slice(0, 500))}</i>`);
+  }
+  lines.push("", `➡️ Admin : ${escapeTelegramHtml(adminLink)}`);
+
+  const text = lines.join("\n");
+  for (const chatId of getAllowedChatIdsForNotify()) {
+    try {
+      await sendTelegramRaw(chatId, text, { parse_mode: "HTML" });
+    } catch (err: any) {
+      console.warn("[Telegram] candidature apporteur:", err?.message || err);
+    }
+  }
+}
+
+export async function notifyTelegramPartnerRecruitConverted(params: {
+  recruit: { contactName: string; email: string };
+  apporteur: { contactName: string; companyName: string; referralToken: string };
+  sponsorName: string;
+}) {
+  const { isTelegramEnabled, getAllowedChatIdsForNotify, sendTelegramRaw } = await import("./telegramCamille");
+  const { escapeTelegramHtml } = await import("./telegramUi");
+  if (!isTelegramEnabled()) return;
+
+  const text = [
+    `<b>✅ Apporteur créé (candidature signée)</b>`,
+    "",
+    `<b>${escapeTelegramHtml(params.apporteur.contactName)}</b> — ${escapeTelegramHtml(params.apporteur.companyName)}`,
+    `ref=${escapeTelegramHtml(params.apporteur.referralToken)}`,
+    `Parrain : ${escapeTelegramHtml(params.sponsorName)}`,
+  ].join("\n");
+
+  for (const chatId of getAllowedChatIdsForNotify()) {
+    try {
+      await sendTelegramRaw(chatId, text, { parse_mode: "HTML" });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export { notifyRemiDossierNews, type DossierNewsKind };

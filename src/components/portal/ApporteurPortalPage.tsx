@@ -10,7 +10,6 @@ import {
 import type { ApporteurTeamKpis } from "../../../shared/apporteurKpis";
 import type { RemunerationConfig } from "../../../shared/apporteurRemuneration";
 import { computeApporteurPayoutEur, estimatePartnerEarnings } from "../../../shared/apporteurRemuneration";
-import { APPORTEUR_CONTRACT_MLM_CLAUSE } from "../../../shared/apporteurContractMlm";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
 import KpiCard, { formatPercent } from "./PartnerKpiGrid";
 import PartnerGuideSection from "./PartnerGuideSection";
@@ -75,7 +74,6 @@ type PortalData = {
     payoutPerOverride?: number;
   };
   payoutPerSignature: number;
-  contractMlmClause?: typeof APPORTEUR_CONTRACT_MLM_CLAUSE;
   portalUnlocked: boolean;
 };
 
@@ -100,7 +98,6 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
   const [form, setForm] = useState({ prenom: "", nom: "", email: "", phone: "", notes: "" });
   const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [partnerForm, setPartnerForm] = useState({ contactName: "", email: "", phone: "", companyName: "", notes: "" });
-  const [showMlmClause, setShowMlmClause] = useState(false);
   const [simDossiers, setSimDossiers] = useState(5);
   const [simConversion, setSimConversion] = useState(28);
   const [simSavings, setSimSavings] = useState(3600);
@@ -364,28 +361,6 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
             </p>
           </section>
         ) : null}
-
-        <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setShowMlmClause((v) => !v)}
-            className="w-full flex justify-between items-center text-sm font-black uppercase tracking-wide text-slate-500"
-          >
-            Clause réseau (contrat)
-            <ChevronDown className={`w-4 h-4 transition-transform ${showMlmClause ? "rotate-180" : ""}`} />
-          </button>
-          {showMlmClause ? (
-            <div className="mt-3 text-xs text-slate-600 space-y-3 leading-relaxed">
-              <p className="font-medium">{data.contractMlmClause?.summary || APPORTEUR_CONTRACT_MLM_CLAUSE.summary}</p>
-              {(data.contractMlmClause?.articles || APPORTEUR_CONTRACT_MLM_CLAUSE.articles).map((a) => (
-                <div key={a.heading}>
-                  <p className="font-bold text-slate-800">{a.heading}</p>
-                  <p>{a.body}</p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </section>
 
         <section>
           <div className="flex items-center justify-between gap-3 mb-3">

@@ -62,9 +62,16 @@ export const PARTNER_RECRUIT_STATUS_LABELS: Record<PartnerRecruitStatus, string>
   NOUVEAU: "Nouvelle candidature",
   VALIDE_LCIF: "Validé LCIF",
   CONTRAT_ENVOYE: "Contrat envoyé",
-  CONTRAT_SIGNE: "Contrat signé — apporteur créé",
+  CONTRAT_SIGNE: "Apporteur créé",
   REFUSE: "Refusé",
 };
+
+export const PARTNER_RECRUIT_FLOW: PartnerRecruitStatus[] = [
+  "NOUVEAU",
+  "VALIDE_LCIF",
+  "CONTRAT_ENVOYE",
+  "CONTRAT_SIGNE",
+];
 
 export type ReferralContact = {
   prenom?: string;

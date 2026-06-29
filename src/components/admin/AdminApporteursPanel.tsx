@@ -6,6 +6,7 @@ import {
   Mail,
   Plus,
   RefreshCw,
+  Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -13,11 +14,11 @@ import { adminFetch } from "../../lib/adminApi";
 import type { Apporteur, ApporteurType, PartnerRecruitRequest, PartnerRecruitStatus, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
 import {
   APPORTEUR_TYPE_LABELS,
+  PARTNER_RECRUIT_FLOW,
   PARTNER_RECRUIT_STATUS_LABELS,
   REFERRAL_STATUS_LABELS,
   REFERRAL_STATUS_ORDER,
 } from "../../../shared/apporteurTypes";
-import { APPORTEUR_CONTRACT_MLM_CLAUSE } from "../../../shared/apporteurContractMlm";
 import { LCIF_LOGO_URL } from "../../../shared/apporteurBrand";
 import { computeReferralKpis } from "../../../shared/apporteurKpis";
 import KpiCard, { formatPercent } from "../portal/PartnerKpiGrid";
@@ -59,6 +60,8 @@ export default function AdminApporteursPanel({ onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -198,6 +201,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
   };
 
   const updatePartnerRecruitStatus = async (recruitId: string, status: PartnerRecruitStatus) => {
+    setError(null);
     const res = await adminFetch(`/api/admin/partner-recruits/${recruitId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -208,10 +212,31 @@ export default function AdminApporteursPanel({ onBack }: Props) {
       setError(data.error || "Mise à jour impossible");
       return;
     }
-    if (status === "CONTRAT_SIGNE") {
-      setSuccessMsg("Contrat signé — apporteur filleul créé et rattaché au parrain.");
+    if (status === "CONTRAT_SIGNE" && data.recruit?.createdApporteurId) {
+      setSuccessMsg(`Apporteur créé et rattaché au parrain (${data.recruit.createdApporteurId}).`);
+      setSelectedApporteurId(data.recruit.createdApporteurId);
+    } else if (status === "REFUSE") {
+      setSuccessMsg("Candidature refusée.");
     }
     await load();
+  };
+
+  const deleteApporteur = async (apporteurId: string) => {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Suppression impossible");
+      setDeleteConfirmId(null);
+      setSelectedApporteurId("all");
+      setSuccessMsg("Apporteur supprimé définitivement.");
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Erreur");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const pendingRecruits = useMemo(
@@ -302,53 +327,28 @@ export default function AdminApporteursPanel({ onBack }: Props) {
       ) : null}
 
       {pendingRecruits.length > 0 ? (
-        <div className="mx-6 mt-4 bg-white border border-amber-200 rounded-2xl p-5 shadow-sm">
-          <h2 className="text-sm font-black uppercase tracking-wide text-amber-800 mb-1">
-            Candidatures partenaires ({pendingRecruits.length})
+        <div className="mx-6 mt-4 bg-gradient-to-br from-amber-50 to-white border border-amber-200 rounded-2xl p-5 shadow-sm">
+          <h2 className="text-sm font-black uppercase tracking-wide text-amber-900 mb-1">
+            Candidatures à traiter ({pendingRecruits.length})
           </h2>
           <p className="text-xs text-slate-500 mb-4">
-            Recommandées par les apporteurs via leur portail. À « Contrat signé » : création auto du filleul rattaché au parrain.
+            Une action principale par candidature — à la dernière étape, l&apos;apporteur filleul est créé automatiquement.
           </p>
-          <div className="space-y-3">
+          <div className="space-y-4">
             {pendingRecruits.map((r) => (
-              <div key={r.id} className="border border-slate-100 rounded-xl p-4 flex flex-wrap gap-3 justify-between items-start">
-                <div>
-                  <p className="font-bold text-slate-900">{r.contactName}</p>
-                  <p className="text-xs text-slate-500">{r.email}{r.phone ? ` · ${r.phone}` : ""}</p>
-                  <p className="text-[11px] text-indigo-600 mt-1">
-                    Parrain : {apporteurById.get(r.sponsorApporteurId)?.contactName || r.sponsorApporteurId}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <span className="text-[10px] font-bold uppercase bg-slate-100 px-2 py-1 rounded">
-                    {PARTNER_RECRUIT_STATUS_LABELS[r.status]}
-                  </span>
-                  <button type="button" onClick={() => updatePartnerRecruitStatus(r.id, "VALIDE_LCIF")} className="text-xs font-bold px-2 py-1 rounded border">Valider</button>
-                  <button type="button" onClick={() => updatePartnerRecruitStatus(r.id, "CONTRAT_ENVOYE")} className="text-xs font-bold px-2 py-1 rounded border border-indigo-200 text-indigo-800">Envoyé</button>
-                  <button type="button" onClick={() => updatePartnerRecruitStatus(r.id, "CONTRAT_SIGNE")} className="text-xs font-bold px-2 py-1 rounded bg-emerald-600 text-white">Signé → créer</button>
-                  <button type="button" onClick={() => updatePartnerRecruitStatus(r.id, "REFUSE")} className="text-xs font-bold px-2 py-1 rounded text-red-700">Refuser</button>
-                </div>
-              </div>
+              <PartnerRecruitCard
+                key={r.id}
+                recruit={r}
+                sponsorLabel={apporteurById.get(r.sponsorApporteurId)?.contactName || r.sponsorApporteurId}
+                sponsorCompany={apporteurById.get(r.sponsorApporteurId)?.companyName}
+                onAdvance={(status) => updatePartnerRecruitStatus(r.id, status)}
+                onRefuse={() => updatePartnerRecruitStatus(r.id, "REFUSE")}
+                copyText={copyText}
+              />
             ))}
           </div>
         </div>
       ) : null}
-
-      <div className="mx-6 mt-4 bg-white border border-slate-200 rounded-2xl p-4 text-xs text-slate-600">
-        <p className="font-black uppercase text-slate-400 mb-2">Clause réseau (contrat apporteur)</p>
-        <p className="mb-2">{APPORTEUR_CONTRACT_MLM_CLAUSE.summary}</p>
-        <details>
-          <summary className="cursor-pointer font-bold text-indigo-700">Voir le texte complet</summary>
-          <div className="mt-2 space-y-2">
-            {APPORTEUR_CONTRACT_MLM_CLAUSE.articles.map((a) => (
-              <div key={a.heading}>
-                <p className="font-bold text-slate-800">{a.heading}</p>
-                <p>{a.body}</p>
-              </div>
-            ))}
-          </div>
-        </details>
-      </div>
 
       <div className="mx-6 mt-4 space-y-3">
         <p className="text-xs font-black uppercase tracking-wide text-slate-400">
@@ -435,7 +435,16 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                   : "";
                 return (
                   <>
-                    <h2 className="text-lg font-black text-slate-900 mb-1">{a.companyName}</h2>
+                    <h2 className="text-lg font-black text-slate-900 mb-1 flex flex-wrap items-center justify-between gap-2">
+                      <span>{a.companyName}</span>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirmId(a.id)}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800 border border-red-100 px-2 py-1 rounded-lg hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Supprimer
+                      </button>
+                    </h2>
                     <p className="text-sm text-slate-600 mb-3">
                       {a.contactName} — {a.email}
                       {a.phone ? ` · ${a.phone}` : ""}
@@ -663,6 +672,132 @@ export default function AdminApporteursPanel({ onBack }: Props) {
           </div>
         </Modal>
       ) : null}
+
+      {deleteConfirmId ? (
+        <Modal title="Supprimer définitivement ?" onClose={() => setDeleteConfirmId(null)}>
+          <p className="text-sm text-slate-600 mb-4">
+            L&apos;apporteur <strong>{apporteurById.get(deleteConfirmId)?.contactName}</strong> sera supprimé avec
+            ses recommandations. Les filleuls seront détachés (sans parrain). Cette action est irréversible.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmId(null)}
+              className="flex-1 py-2.5 rounded-lg border border-slate-200 font-bold text-sm"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => deleteApporteur(deleteConfirmId)}
+              className="flex-1 py-2.5 rounded-lg bg-red-600 text-white font-bold text-sm disabled:opacity-50"
+            >
+              {deleting ? "Suppression…" : "Supprimer"}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
+
+function recruitNextAction(status: PartnerRecruitStatus): { label: string; next: PartnerRecruitStatus } | null {
+  if (status === "NOUVEAU") return { label: "1. Valider la candidature", next: "VALIDE_LCIF" };
+  if (status === "VALIDE_LCIF") return { label: "2. Marquer contrat envoyé", next: "CONTRAT_ENVOYE" };
+  if (status === "CONTRAT_ENVOYE") return { label: "3. Contrat signé — créer l'apporteur", next: "CONTRAT_SIGNE" };
+  return null;
+}
+
+function PartnerRecruitCard({
+  recruit,
+  sponsorLabel,
+  sponsorCompany,
+  onAdvance,
+  onRefuse,
+  copyText,
+}: {
+  recruit: PartnerRecruitRequest;
+  sponsorLabel: string;
+  sponsorCompany?: string;
+  onAdvance: (status: PartnerRecruitStatus) => void;
+  onRefuse: () => void;
+  copyText: (text: string) => void;
+}) {
+  const stepIndex = PARTNER_RECRUIT_FLOW.indexOf(recruit.status);
+  const action = recruitNextAction(recruit.status);
+  const mailto = `mailto:${encodeURIComponent(recruit.email)}?subject=${encodeURIComponent("Contrat apporteur — Le Club Immobilier Français")}`;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div className="flex flex-wrap justify-between gap-3 mb-4">
+        <div>
+          <p className="text-lg font-black text-slate-900">{recruit.contactName}</p>
+          {recruit.companyName ? <p className="text-sm text-slate-600">{recruit.companyName}</p> : null}
+          <p className="text-xs text-slate-500 mt-1">
+            {recruit.email}
+            {recruit.phone ? ` · ${recruit.phone}` : ""}
+          </p>
+          <p className="text-[11px] text-indigo-700 mt-1 font-medium">
+            Parrain : {sponsorLabel}
+            {sponsorCompany ? ` (${sponsorCompany})` : ""}
+          </p>
+          {recruit.notes ? <p className="text-xs text-slate-400 mt-2 italic">{recruit.notes}</p> : null}
+        </div>
+        <div className="flex flex-wrap gap-2 items-start">
+          <button
+            type="button"
+            onClick={() => copyText(recruit.email)}
+            className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 border px-2 py-1 rounded-lg hover:bg-slate-50"
+          >
+            <Copy className="w-3 h-3" /> Email
+          </button>
+          <a
+            href={mailto}
+            className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 border border-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50"
+          >
+            <Mail className="w-3 h-3" /> Envoyer contrat
+          </a>
+        </div>
+      </div>
+
+      <ol className="flex flex-wrap gap-1 mb-4">
+        {PARTNER_RECRUIT_FLOW.map((step, i) => {
+          const done = stepIndex > i;
+          const active = recruit.status === step;
+          return (
+            <li
+              key={step}
+              className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full ${
+                done ? "bg-emerald-100 text-emerald-800" : active ? "bg-indigo-100 text-indigo-800 ring-2 ring-indigo-300" : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              {PARTNER_RECRUIT_STATUS_LABELS[step]}
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="flex flex-wrap items-center gap-3">
+        {action ? (
+          <button
+            type="button"
+            onClick={() => onAdvance(action.next)}
+            className={`text-sm font-bold px-4 py-2.5 rounded-xl ${
+              action.next === "CONTRAT_SIGNE"
+                ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md"
+                : "bg-indigo-600 text-white hover:bg-indigo-700"
+            }`}
+          >
+            {action.label}
+          </button>
+        ) : (
+          <span className="text-sm text-emerald-700 font-bold">Terminé</span>
+        )}
+        <button type="button" onClick={onRefuse} className="text-xs font-bold text-red-600 hover:underline ml-auto">
+          Refuser la candidature
+        </button>
+      </div>
     </div>
   );
 }

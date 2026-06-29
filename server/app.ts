@@ -1404,6 +1404,16 @@ export function createApp() {
     }
   });
 
+  app.delete("/api/admin/apporteurs/:id", async (req, res) => {
+    try {
+      const { deleteApporteurPermanently } = await import("./apporteurStore");
+      await deleteApporteurPermanently(req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/apporteurs/:id/send-portal-invite", async (req, res) => {
     try {
       const { findApporteurById } = await import("./apporteurStore");
@@ -1540,7 +1550,6 @@ export function createApp() {
       );
       const { computeEarnedAndPipelineEur, computeApporteurPayoutEur, computeSponsorOverridePayoutEur, computeApporteurEarningsWithTeam } = await import("../shared/apporteurRemuneration");
       const { computeApporteurTeamKpis } = await import("../shared/apporteurKpis");
-      const { APPORTEUR_CONTRACT_MLM_CLAUSE } = await import("../shared/apporteurContractMlm");
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
@@ -1621,7 +1630,6 @@ export function createApp() {
           payoutPerOverride,
         },
         payoutPerSignature: payoutPerDirect,
-        contractMlmClause: APPORTEUR_CONTRACT_MLM_CLAUSE,
         portalUnlocked: contractSigned,
       });
     } catch (err: any) {

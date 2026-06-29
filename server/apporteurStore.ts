@@ -765,6 +765,16 @@ export async function createPartnerRecruit(input: {
   pushRecruitEvent(recruit, "NOUVEAU", "Candidature partenaire via portail apporteur", input.actor || "apporteur_portal");
   store.partnerRecruits.push(recruit);
   await persistStore(store);
+  try {
+    const { notifyTelegramPartnerRecruit } = await import("./telegramNotify");
+    await notifyTelegramPartnerRecruit({
+      recruit,
+      sponsorName: sponsor.contactName,
+      sponsorCompany: sponsor.companyName,
+    });
+  } catch (err: any) {
+    console.warn("[Apporteurs] Telegram candidature:", err?.message || err);
+  }
   return recruit;
 }
 
@@ -815,9 +825,40 @@ export async function updatePartnerRecruit(
   await persistStore(store);
 
   if (patch.status === "CONTRAT_SIGNE" && previousStatus !== "CONTRAT_SIGNE") {
-    await createApporteurFromRecruit(recruit);
+    const apporteur = await createApporteurFromRecruit(recruit);
+    try {
+      const { notifyTelegramPartnerRecruitConverted } = await import("./telegramNotify");
+      const sponsor = store.apporteurs.find((a) => a.id === recruit.sponsorApporteurId);
+      await notifyTelegramPartnerRecruitConverted({
+        recruit,
+        apporteur,
+        sponsorName: sponsor?.contactName || recruit.sponsorApporteurId,
+      });
+    } catch (err: any) {
+      console.warn("[Apporteurs] Telegram conversion:", err?.message || err);
+    }
     const refreshed = await loadApporteurStore();
     return refreshed.partnerRecruits.find((r) => r.id === id)!;
   }
   return recruit;
+}
+
+/** Suppression définitive d'un apporteur (reco, candidatures liées ; filleuls détachés). */
+export async function deleteApporteurPermanently(id: string): Promise<void> {
+  const store = await loadApporteurStore();
+  const apporteur = store.apporteurs.find((a) => a.id === id);
+  if (!apporteur) throw new Error("Apporteur introuvable.");
+
+  for (const a of store.apporteurs) {
+    if (a.sponsorId === id) {
+      a.sponsorId = undefined;
+      a.updatedAt = new Date().toISOString();
+    }
+  }
+  store.apporteurs = store.apporteurs.filter((a) => a.id !== id);
+  store.referrals = store.referrals.filter((r) => r.apporteurId !== id);
+  store.partnerRecruits = store.partnerRecruits.filter(
+    (r) => r.sponsorApporteurId !== id && r.createdApporteurId !== id,
+  );
+  await persistStore(store);
 }
