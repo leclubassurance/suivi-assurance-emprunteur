@@ -1545,7 +1545,7 @@ export function createApp() {
   const apporteurPortalPostLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
   app.get("/api/apporteur-portal/:token", async (req, res) => {
     try {
-      const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl, getApporteurKpisForReferrals, getRemunerationForApporteur, loadApporteurStore, listDirectDownlineApporteurs, getTeamReferralsForApporteur, listPartnerRecruits } = await import(
+      const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl, getRemunerationForApporteur, loadApporteurStore, listDirectDownlineApporteurs, getTeamReferralsForApporteur, listPartnerRecruits, enrichDownlineForPortal } = await import(
         "./apporteurStore"
       );
       const { computeEarnedAndPipelineEur, computeApporteurPayoutEur, computeSponsorOverridePayoutEur, computeApporteurEarningsWithTeam } = await import("../shared/apporteurRemuneration");
@@ -1560,7 +1560,7 @@ export function createApp() {
       const downline = listDirectDownlineApporteurs(store, apporteur.id);
       const teamReferrals = getTeamReferralsForApporteur(store, apporteur.id);
       const partnerRecruits = (await listPartnerRecruits({ sponsorApporteurId: apporteur.id })).filter(
-        (r) => r.status !== "REFUSE",
+        (r) => r.status !== "REFUSE" && r.status !== "CONTRAT_SIGNE",
       );
       const sponsor = apporteur.sponsorId
         ? store.apporteurs.find((a) => a.id === apporteur.sponsorId) || null
@@ -1604,13 +1604,13 @@ export function createApp() {
           type: apporteur.type,
           sponsorName: sponsor?.contactName || null,
         },
-        downline: downline.map((a) => ({
-          id: a.id,
-          contactName: a.contactName,
-          companyName: a.companyName,
-          createdAt: a.createdAt,
-          active: a.active,
-        })),
+        downline: enrichDownlineForPortal(store, downline),
+        teamSummary: {
+          filleuls: downline.length,
+          clientReferrals: kpis.teamReferrals,
+          openReferrals: kpis.teamOpen,
+          signedReferrals: kpis.teamSigned,
+        },
         partnerRecruits: partnerRecruits.map((r) => ({
           id: r.id,
           contactName: r.contactName,

@@ -686,6 +686,37 @@ export function getTeamReferralsForApporteur(store: ApporteurStore, apporteurId:
   return store.referrals.filter((r) => downlineIds.has(r.apporteurId));
 }
 
+export function enrichDownlineForPortal(store: ApporteurStore, downline: Apporteur[]) {
+  return downline.map((a) => {
+    const refs = store.referrals.filter((r) => r.apporteurId === a.id);
+    const stats = computeReferralKpis(refs);
+    const lastActivityAt =
+      refs.length > 0
+        ? refs.reduce(
+            (max, r) => (new Date(r.updatedAt).getTime() > new Date(max).getTime() ? r.updatedAt : max),
+            refs[0].updatedAt,
+          )
+        : a.createdAt;
+    const contractStatus = a.contractStatus || "none";
+    let activityLabel: "active" | "pending_contract" | "inactive" = "pending_contract";
+    if (!a.active) activityLabel = "inactive";
+    else if (contractStatus === "signed") activityLabel = "active";
+    return {
+      id: a.id,
+      contactName: a.contactName,
+      companyName: a.companyName,
+      createdAt: a.createdAt,
+      active: a.active,
+      contractStatus,
+      activityLabel,
+      clientReferrals: stats.total,
+      openReferrals: stats.open,
+      signedReferrals: stats.signed,
+      lastActivityAt,
+    };
+  });
+}
+
 function pushRecruitEvent(
   recruit: PartnerRecruitRequest,
   status: PartnerRecruitStatus,
