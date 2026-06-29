@@ -2,7 +2,7 @@ import React from "react";
 import { CheckCircle2, Circle, FileSignature, Send, ShieldCheck } from "lucide-react";
 
 const STEPS = [
-  { id: "none", label: "Validation LCIF", icon: ShieldCheck },
+  { id: "none", label: "Validation Le Club Immobilier Français", icon: ShieldCheck },
   { id: "pending", label: "Contrat préparé", icon: FileSignature },
   { id: "sent", label: "Contrat envoyé", icon: Send },
   { id: "signed", label: "Accès débloqué", icon: CheckCircle2 },

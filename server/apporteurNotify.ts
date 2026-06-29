@@ -246,7 +246,7 @@ export function buildApporteurContractSignedEmail(params: {
   driveLink?: string | null;
 }): { subject: string; html: string } {
   const driveBlock = params.driveLink
-    ? `<p style="font-size:13px;margin:16px 0 0 0;">Archivé sur Drive LCIF : <a href="${params.driveLink}" style="color:#1E3A8A;">${params.driveLink}</a></p>`
+    ? `<p style="font-size:13px;margin:16px 0 0 0;">Archivé sur Google Drive Le Club Immobilier Français : <a href="${params.driveLink}" style="color:#1E3A8A;">${params.driveLink}</a></p>`
     : "";
   const html = `
 <div style="margin:0;padding:0;font-family:Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">

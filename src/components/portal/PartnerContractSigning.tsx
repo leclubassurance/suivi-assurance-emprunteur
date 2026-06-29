@@ -142,7 +142,7 @@ export default function PartnerContractSigning({
         </a>
         {signedSuccess.driveLink ? (
           <p className="text-[11px] text-slate-400 mt-3">
-            Archivé sur Drive LCIF ·{" "}
+            Archivé sur Drive Le Club Immobilier Français ·{" "}
             <a href={signedSuccess.driveLink} className="text-indigo-600 underline" target="_blank" rel="noopener noreferrer">
               ouvrir
             </a>
@@ -229,7 +229,7 @@ export default function PartnerContractSigning({
         </button>
 
         <p className="text-[10px] text-slate-400 text-center">
-          Horodatage et identité enregistrés par LCIF · version {doc.version}
+          Horodatage et identité enregistrés par Le Club Immobilier Français · version {doc.version}
         </p>
       </form>
     </section>

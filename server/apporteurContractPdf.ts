@@ -47,16 +47,14 @@ export function generateApporteurContractPdfBuffer(params: {
     doc.moveDown(1.2);
 
     for (const section of document.sections) {
+      if (doc.y > 680) doc.addPage();
       doc.fontSize(11).fillColor("#111827").text(section.heading, { continued: false });
       doc.moveDown(0.3);
-      doc.fontSize(10).fillColor("#374151").text(section.body, {
+      doc.fontSize(9.5).fillColor("#374151").text(section.body, {
         align: "left",
-        lineGap: 3,
+        lineGap: 2,
       });
-      doc.moveDown(0.8);
-      if (doc.y > 700) {
-        doc.addPage();
-      }
+      doc.moveDown(0.6);
     }
 
     doc.moveDown(0.5);
@@ -74,7 +72,7 @@ export function generateApporteurContractPdfBuffer(params: {
 
     doc.moveDown(1);
     doc.fontSize(8).fillColor("#9CA3AF").text(
-      "Document généré automatiquement par Le Club Immobilier Français — copie archivée pour le partenaire et LCIF.",
+      "Document généré automatiquement par Le Club Immobilier Français — copie archivée pour le partenaire et la Société.",
       { align: "center" },
     );
 

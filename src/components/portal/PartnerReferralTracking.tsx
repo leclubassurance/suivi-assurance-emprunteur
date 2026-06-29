@@ -20,7 +20,7 @@ type Tracking = {
 };
 
 const COMMISSION_SOURCE_LABEL: Record<Commission["source"], string> = {
-  manual: "montant confirmé LCIF",
+  manual: "montant confirmé Le Club Immobilier Français",
   auto: "extrait de l'étude",
   estimate: "estimation barème",
 };
@@ -49,7 +49,7 @@ export default function PartnerReferralTracking({ tracking }: { tracking: Tracki
       </div>
       {tracking.commission ? (
         <p className="text-[11px] text-slate-600 mb-2 bg-slate-50 rounded-lg px-2.5 py-2 border border-slate-100">
-          Courtage LCIF : <strong>{tracking.commission.feesCourtageEur} €</strong>
+          Frais de courtage : <strong>{tracking.commission.feesCourtageEur} €</strong>
           {" · "}
           Votre part (50 %) : <strong className="text-emerald-700">{tracking.commission.apporteurPayoutEur} €</strong>
           <span className="text-slate-400"> ({COMMISSION_SOURCE_LABEL[tracking.commission.source]})</span>
