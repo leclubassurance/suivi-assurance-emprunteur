@@ -17,6 +17,8 @@ import { compactDossierForPersistence, stripUndefinedForFirestore } from "./doss
 const DOSSIERS_COLLECTION = "dossiers";
 const APPORTEUR_STORE_COLLECTION = "apporteur_store";
 const APPORTEUR_STORE_DOC_ID = "main";
+const NETWORK_STORE_COLLECTION = "network_store";
+const NETWORK_STORE_DOC_ID = "main";
 
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
@@ -216,6 +218,34 @@ export async function writeApporteurStoreToFirestore(store: ApporteurStoreDoc): 
   }
   await setDoc(
     doc(firestoreDb, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID),
+    stripUndefinedForFirestore(store),
+  );
+}
+
+export type NetworkStoreDoc = {
+  version: 1;
+  members: unknown[];
+  referrals: unknown[];
+  updatedAt: string;
+};
+
+export async function readNetworkStoreFromFirestore(): Promise<NetworkStoreDoc | null> {
+  await initFirebaseSync();
+  if (!firestoreDb) return null;
+  const snap = await getDoc(doc(firestoreDb, NETWORK_STORE_COLLECTION, NETWORK_STORE_DOC_ID));
+  if (!snap.exists()) return null;
+  const data = snap.data() as NetworkStoreDoc;
+  if (!Array.isArray(data?.members)) return null;
+  return data;
+}
+
+export async function writeNetworkStoreToFirestore(store: NetworkStoreDoc): Promise<void> {
+  await initFirebaseSync();
+  if (!firestoreDb) {
+    throw new Error("Firestore non initialisé — impossible d'écrire network_store.");
+  }
+  await setDoc(
+    doc(firestoreDb, NETWORK_STORE_COLLECTION, NETWORK_STORE_DOC_ID),
     stripUndefinedForFirestore(store),
   );
 }

@@ -11,6 +11,9 @@ service cloud.firestore {
     match /apporteur_store/{docId} {
       allow read, write: if true;
     }
+    match /network_store/{docId} {
+      allow read, write: if true;
+    }
     match /_camilleLocks/{lockId} {
       allow read, write: if true;
     }

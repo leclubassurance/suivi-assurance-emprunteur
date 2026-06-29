@@ -450,8 +450,13 @@ export function createApp() {
       try {
         const refToken = String(mergedFormData.apporteurRefToken || "").trim();
         if (refToken) {
+          const { attachNetworkToNewDossier, syncNetworkReferralFromDossier } = await import("./networkStore");
           const { attachApporteurToNewDossier, syncReferralFromDossier } = await import("./apporteurStore");
-          await attachApporteurToNewDossier(newDossier, refToken);
+          const attachedNetwork = await attachNetworkToNewDossier(newDossier, refToken);
+          if (!attachedNetwork) {
+            await attachApporteurToNewDossier(newDossier, refToken);
+          }
+          await syncNetworkReferralFromDossier(newDossier, "formulaire");
           await syncReferralFromDossier(newDossier, "formulaire");
         }
       } catch (apErr: any) {
@@ -667,6 +672,8 @@ export function createApp() {
       await writeDB(db, dossier);
       try {
         const { syncReferralFromDossier } = await import("./apporteurStore");
+        const { syncNetworkReferralFromDossier } = await import("./networkStore");
+        await syncNetworkReferralFromDossier(dossier, String((req as any).adminEmail || "admin"));
         await syncReferralFromDossier(dossier, String((req as any).adminEmail || "admin"));
       } catch {
         /* non bloquant */
@@ -838,6 +845,8 @@ export function createApp() {
       await writeDB(db, dossier);
       try {
         const { syncReferralFromDossier } = await import("./apporteurStore");
+        const { syncNetworkReferralFromDossier } = await import("./networkStore");
+        await syncNetworkReferralFromDossier(dossier, "admin_send_email");
         await syncReferralFromDossier(dossier, "admin_send_email");
       } catch {
         /* non bloquant */
@@ -1120,9 +1129,11 @@ export function createApp() {
 
       try {
         const { syncReferralsAfterDossierDeleted } = await import("./apporteurStore");
+        const { syncNetworkReferralsAfterDossierDeleted } = await import("./networkStore");
+        await syncNetworkReferralsAfterDossierDeleted(id);
         await syncReferralsAfterDossierDeleted(id);
       } catch (apErr: any) {
-        appendLog(`[Delete] Sync apporteurs ${id}: ${apErr?.message || apErr}`);
+        appendLog(`[Delete] Sync partenaires ${id}: ${apErr?.message || apErr}`);
       }
 
       try {
@@ -1616,6 +1627,300 @@ export function createApp() {
     },
   );
 
+  app.get("/api/public/partner-ref/:token", async (req, res) => {
+    try {
+      const { resolvePartnerRef } = await import("./networkStore");
+      const resolved = await resolvePartnerRef(req.params.token);
+      if (!resolved) return res.status(404).json({ ok: false, error: "ref_invalid" });
+      res.json({ ok: true, ...resolved });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/reseau", async (req, res) => {
+    try {
+      const {
+        listNetworkMembers,
+        listNetworkReferrals,
+        getNetworkSummary,
+        pruneNetworkReferralsWithMissingDossiers,
+      } = await import("./networkStore");
+      const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const memberId = String(req.query.memberId || "").trim() || undefined;
+      await pruneNetworkReferralsWithMissingDossiers();
+      const [members, referrals, summary] = await Promise.all([
+        listNetworkMembers(),
+        listNetworkReferrals(memberId ? { memberId } : undefined),
+        getNetworkSummary(),
+      ]);
+      const publicBaseUrl = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      res.json({ success: true, members, referrals, summary, publicBaseUrl });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/reseau", async (req, res) => {
+    try {
+      const { createNetworkMember } = await import("./networkStore");
+      const body = (req.body || {}) as any;
+      const member = await createNetworkMember({
+        contactName: body.contactName,
+        email: body.email,
+        phone: body.phone,
+        sponsorId: body.sponsorId,
+        notes: body.notes,
+        referralToken: body.referralToken,
+        contractStatus: body.contractStatus,
+      });
+      res.json({ success: true, member });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.patch("/api/admin/reseau/:id", async (req, res) => {
+    try {
+      const { updateNetworkMember } = await import("./networkStore");
+      const member = await updateNetworkMember(req.params.id, (req.body || {}) as any);
+      res.json({ success: true, member });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/network-referrals", async (req, res) => {
+    try {
+      const { createNetworkReferral, syncNetworkReferralFromDossier } = await import("./networkStore");
+      const body = (req.body || {}) as any;
+      const referral = await createNetworkReferral({
+        memberId: String(body.memberId || ""),
+        contact: body.contact || {},
+        source: "admin",
+        dossierId: body.dossierId,
+        actor: String((req as any).adminEmail || "admin"),
+      });
+      if (body.dossierId) {
+        const db = await readDBAsync();
+        const dossier = db.dossiers.find((d: any) => d.id === String(body.dossierId));
+        if (dossier) {
+          const member = await (await import("./networkStore")).findNetworkMemberById(referral.memberId);
+          dossier.network = {
+            memberId: referral.memberId,
+            referralId: referral.id,
+            memberLabel: member?.contactName,
+            referralToken: member?.referralToken,
+            sponsorId: member?.sponsorId,
+          };
+          await syncNetworkReferralFromDossier(dossier);
+          await writeDB(db, dossier);
+        }
+      }
+      res.json({ success: true, referral });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.patch("/api/admin/network-referrals/:id", async (req, res) => {
+    try {
+      const { updateNetworkReferral } = await import("./networkStore");
+      const body = (req.body || {}) as any;
+      const referral = await updateNetworkReferral(req.params.id, {
+        status: body.status,
+        contact: body.contact,
+        dossierId: body.dossierId,
+        actor: String((req as any).adminEmail || "admin"),
+        note: body.note,
+      });
+      res.json({ success: true, referral });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  const networkPortalPostLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
+  app.get("/api/network-portal/:token", async (req, res) => {
+    try {
+      const {
+        findNetworkMemberByPortalToken,
+        listNetworkReferrals,
+        loadNetworkStore,
+        listDirectDownline,
+        buildNetworkReferralUrl,
+        buildNetworkJoinUrl,
+        getNetworkKpisForReferrals,
+        getRemunerationForNetworkMember,
+      } = await import("./networkStore");
+      const {
+        computeMemberDirectPayoutEur,
+        computeSponsorOverridePayoutEur,
+        computeNetworkMemberEarnings,
+      } = await import("../shared/networkRemuneration");
+      const { computeNetworkMemberKpis } = await import("../shared/networkKpis");
+      const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const { pruneNetworkReferralsWithMissingDossiers } = await import("./networkStore");
+      const member = await findNetworkMemberByPortalToken(req.params.token);
+      if (!member) return res.status(404).json({ ok: false, error: "portal_invalid" });
+      await pruneNetworkReferralsWithMissingDossiers();
+      const store = await loadNetworkStore();
+      const referrals = await listNetworkReferrals({ memberId: member.id });
+      const downline = listDirectDownline(store, member.id);
+      const downlineIds = new Set(downline.map((m) => m.id));
+      const teamReferrals = store.referrals.filter((r) => downlineIds.has(r.memberId));
+      const publicBaseUrl = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      const referralLink = buildNetworkReferralUrl(publicBaseUrl, member.referralToken);
+      const joinLink = buildNetworkJoinUrl(publicBaseUrl, member.joinToken);
+      const kpis = computeNetworkMemberKpis(referrals, teamReferrals, downline.length);
+      const remuneration = getRemunerationForNetworkMember();
+      const payoutPerDirect = computeMemberDirectPayoutEur({
+        annualSavingsEur: remuneration.defaultAnnualSavingsEur,
+        assuredCount: remuneration.defaultAssuredPerDossier,
+        config: remuneration,
+      });
+      const payoutPerOverride = computeSponsorOverridePayoutEur({
+        annualSavingsEur: remuneration.defaultAnnualSavingsEur,
+        assuredCount: remuneration.defaultAssuredPerDossier,
+        config: remuneration,
+      });
+      const conversionForEarn = kpis.conversionRate ?? remuneration.defaultConversionRate;
+      const earnings = computeNetworkMemberEarnings({
+        personalSigned: kpis.signed,
+        teamSigned: kpis.teamSigned,
+        payoutPerDirectEur: payoutPerDirect,
+        payoutPerOverrideEur: payoutPerOverride,
+        openPersonal: kpis.open,
+        openTeam: kpis.teamOpen,
+        conversionRate: conversionForEarn,
+      });
+      const contractSigned = (member.contractStatus || "none") === "signed";
+      const { enrichReferralsForNetworkPortal } = await import("./networkPortalEnrich");
+      const enrichedReferrals = await enrichReferralsForNetworkPortal(referrals, publicBaseUrl);
+      const sponsor = member.sponsorId
+        ? store.members.find((m) => m.id === member.sponsorId) || null
+        : null;
+      res.json({
+        ok: true,
+        member: {
+          contactName: member.contactName,
+          email: member.email,
+          sponsorName: sponsor?.contactName || null,
+        },
+        downline: downline.map((m) => ({
+          id: m.id,
+          contactName: m.contactName,
+          createdAt: m.createdAt,
+          active: m.active,
+        })),
+        referrals: enrichedReferrals,
+        referralLink,
+        joinLink,
+        stats: { total: kpis.total, open: kpis.open, signed: kpis.signed },
+        kpis,
+        remuneration,
+        earnings: {
+          personalEarnedEur: earnings.personalEarnedEur,
+          teamEarnedEur: earnings.teamEarnedEur,
+          earnedEur: earnings.totalEarnedEur,
+          pipelineEur: earnings.totalPipelineEur,
+          totalIndicatifEur: earnings.totalEarnedEur + earnings.totalPipelineEur,
+        },
+        payoutPerDirect,
+        payoutPerOverride,
+        portalUnlocked: contractSigned,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post(
+    "/api/network-portal/:token/referrals",
+    networkPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { findNetworkMemberByPortalToken, createNetworkReferral } = await import("./networkStore");
+        const member = await findNetworkMemberByPortalToken(req.params.token);
+        if (!member) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if ((member.contractStatus || "none") !== "signed") {
+          return res.status(403).json({
+            ok: false,
+            error: "contract_required",
+            message: "Le contrat réseau doit être signé avant d'enregistrer une recommandation.",
+          });
+        }
+        const body = (req.body || {}) as any;
+        const contact = body.contact || {};
+        const email = String(contact.email || "").trim().toLowerCase();
+        const phone = String(contact.phone || "").trim();
+        const prenom = String(contact.prenom || "").trim();
+        const nom = String(contact.nom || "").trim();
+        if (!email && !phone) {
+          return res.status(400).json({ ok: false, error: "Email ou téléphone requis" });
+        }
+        if (!prenom && !nom) {
+          return res.status(400).json({ ok: false, error: "Nom du contact requis" });
+        }
+        const referral = await createNetworkReferral({
+          memberId: member.id,
+          contact: {
+            prenom,
+            nom,
+            email: email || undefined,
+            phone: phone || undefined,
+            notes: String(contact.notes || "").trim() || undefined,
+          },
+          source: "network_portal",
+          actor: "network_portal",
+        });
+        res.json({
+          ok: true,
+          referral: {
+            id: referral.id,
+            status: referral.status,
+            contact: referral.contact,
+            createdAt: referral.createdAt,
+          },
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.get("/api/public/network-join/:token", async (req, res) => {
+    try {
+      const { findNetworkMemberByJoinToken } = await import("./networkStore");
+      const sponsor = await findNetworkMemberByJoinToken(req.params.token);
+      if (!sponsor) return res.status(404).json({ ok: false, error: "join_invalid" });
+      res.json({ ok: true, sponsorName: sponsor.contactName });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/public/network-join/:token", express.json(), async (req, res) => {
+    try {
+      const { enrollNetworkMemberViaJoin } = await import("./networkStore");
+      const body = (req.body || {}) as any;
+      const member = await enrollNetworkMemberViaJoin({
+        joinToken: req.params.token,
+        contactName: body.contactName,
+        email: body.email,
+        phone: body.phone,
+      });
+      res.json({ ok: true, memberId: member.id, contactName: member.contactName });
+    } catch (err: any) {
+      res.status(400).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/dossiers/:id/save-playbook-from-last-reply", async (req, res) => {
     try {
       const db = await readDBAsync();
@@ -1959,9 +2264,11 @@ export function createApp() {
         await deleteDossierFromStore(dossier.id);
         try {
           const { syncReferralsAfterDossierDeleted } = await import("./apporteurStore");
+          const { syncNetworkReferralsAfterDossierDeleted } = await import("./networkStore");
+          await syncNetworkReferralsAfterDossierDeleted(dossier.id);
           await syncReferralsAfterDossierDeleted(dossier.id);
         } catch (apErr: any) {
-          appendLog(`[Reset prospect] Sync apporteurs ${dossier.id}: ${apErr?.message || apErr}`);
+          appendLog(`[Reset prospect] Sync partenaires ${dossier.id}: ${apErr?.message || apErr}`);
         }
         try {
           fs.rmSync(path.join(UPLOADS_DIR, dossier.id), { recursive: true, force: true });
