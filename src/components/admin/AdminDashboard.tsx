@@ -890,6 +890,14 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
               Dossiers
             </button>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowApporteursPanel(true)}
+            className="mx-3 mt-3 mb-1 flex w-[calc(100%-1.5rem)] items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-xs font-black text-white shadow-sm hover:bg-indigo-700 transition-colors"
+          >
+            <Users className="w-4 h-4" />
+            Apporteurs d&apos;affaires
+          </button>
           {sidebarMode === "queue" ? (
             <AdminWorkQueuePanel
               authHeaders={authHeaders}
