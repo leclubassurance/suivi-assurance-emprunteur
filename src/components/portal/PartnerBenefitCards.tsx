@@ -11,9 +11,6 @@ export default function PartnerBenefitCards({ payoutPerSignatureEur }: { payoutP
           key={card.key}
           className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:border-indigo-100 transition-colors"
         >
-          <div className="text-2xl mb-2" aria-hidden>
-            {card.emoji}
-          </div>
           <h3 className="text-sm font-black text-slate-900 mb-2">{card.title}</h3>
           <ul className="space-y-1">
             {card.lines.map((line) => (

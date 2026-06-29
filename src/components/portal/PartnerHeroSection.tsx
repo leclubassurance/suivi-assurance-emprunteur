@@ -53,7 +53,7 @@ export default function PartnerHeroSection({
           </div>
         ) : (
           <p className="text-sm text-amber-200 bg-white/10 rounded-lg px-3 py-2 mb-5 inline-block">
-            Votre espace sera activé par l&apos;équipe LCIF.
+            Votre espace sera activé par l&apos;équipe du Club Immobilier Français.
           </p>
         )}
 

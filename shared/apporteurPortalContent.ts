@@ -1,7 +1,6 @@
 import type { ApporteurType } from "./apporteurTypes";
 
-export const CLIENT_SCRIPT =
-  "Je vous mets en relation avec Le Club Immobilier Français pour une analyse gratuite de votre assurance emprunteur. Si des économies sont possibles, vous recevez une étude claire — vous décidez ensuite, sans engagement.";
+export const BRAND_NAME = "Le Club Immobilier Français";
 
 export const TRANSPARENCY_SCRIPT =
   "En cas de changement effectué, je perçois une rémunération de la part du Club Immobilier Français, sans surcoût pour vous.";
@@ -16,56 +15,68 @@ export const TRUST_BADGES = [
 export const JOURNEY_STEPS = [
   { key: "reco", label: "Recommandation", desc: "Vous partagez votre lien" },
   { key: "depot", label: "Dépôt client", desc: "~10 min en ligne" },
-  { key: "etude", label: "Étude LCIF", desc: "Analyse personnalisée" },
+  { key: "etude", label: "Étude personnalisée", desc: "Analyse par nos équipes" },
   { key: "decision", label: "Décision", desc: "Le client choisit" },
   { key: "change", label: "Changement", desc: "Banque validée" },
 ] as const;
 
-export function getHeroCopy(type: ApporteurType): { title: string; subtitle: string } {
-  switch (type) {
-    case "agent_immo":
-      return {
-        title: "Offrez un vrai service après l'acte",
-        subtitle:
-          "Recommandez en 2 minutes : étude gratuite pour votre client, suivi assuré par LCIF, rémunération pour vous à la réussite.",
-      };
-    case "courtier":
-      return {
-        title: "Complétez vos dossiers de financement",
-        subtitle:
-          "Orientez vos emprunteurs vers une étude gratuite d'assurance emprunteur — LCIF gère l'analyse et la souscription.",
-      };
-    default:
-      return {
-        title: "Recommandez en 2 minutes, LCIF fait le reste",
-        subtitle:
-          "Étude gratuite pour votre client, zéro paperasse pour vous. Vous êtes rémunéré quand le changement est effectif.",
-      };
-  }
+/** Message WhatsApp prêt à envoyer — prénom client + lien de recommandation. */
+export function buildWhatsAppMessage(params: {
+  clientPrenom: string;
+  referralLink: string;
+  partnerContactName?: string;
+}): string {
+  const raw = params.clientPrenom.trim();
+  const greeting = raw ? `Bonjour ${raw}` : "Bonjour";
+  const partner = String(params.partnerContactName || "").trim();
+  const signature = partner ? `\n\n${partner}` : "";
+
+  return `${greeting},
+
+Je me permets de vous écrire : beaucoup d'emprunteurs paient encore trop cher leur assurance de prêt, souvent sans le savoir. Depuis la loi Lemoine, un changement est possible à tout moment.
+
+Le Club Immobilier Français (courtier ORIAS) propose une analyse gratuite et sans engagement de votre assurance emprunteur. En une dizaine de minutes en ligne, vous déposez vos documents ; leur équipe vous envoie une étude claire avec les économies possibles. Vous décidez ensuite librement.
+
+Lien pour démarrer : ${params.referralLink}
+
+N'hésitez pas si vous avez la moindre question.${signature}`;
+}
+
+export function getHeroCopy(_type: ApporteurType): { title: string; subtitle: string } {
+  return {
+    title: "Recommandez en 2 minutes",
+    subtitle:
+      "Proposez à vos contacts une étude gratuite de leur assurance emprunteur. Le Club Immobilier Français assure le suivi complet ; vous êtes rémunéré à la réussite du dossier.",
+  };
 }
 
 export function getBenefitCards(payoutPerSignatureEur: number) {
   return [
     {
       key: "client",
-      emoji: "🏠",
-      title: "Pour votre client",
-      lines: ["Étude gratuite et personnalisée", "Économies possibles sur sa cotisation", "Zéro engagement"],
+      title: "Pour votre contact",
+      lines: [
+        "Étude gratuite et personnalisée",
+        "Économies possibles sur la cotisation",
+        "Aucun engagement de sa part",
+      ],
     },
     {
       key: "you",
-      emoji: "🤝",
       title: "Pour vous",
-      lines: ["Service concret en 2 minutes", "LCIF gère banque et souscription", "Vous gardez la relation client"],
+      lines: [
+        "Recommandation en 2 minutes",
+        "Le Club Immobilier Français gère le dossier",
+        "Vous conservez la relation de confiance",
+      ],
     },
     {
       key: "revenue",
-      emoji: "💶",
       title: "Pour vos revenus",
       lines: [
         `Jusqu'à ${payoutPerSignatureEur} € par dossier signé`,
-        "Paiement à réception commission assureur",
-        "50 % des frais de courtage LCIF",
+        "Paiement à réception de la commission assureur",
+        "50 % des frais de courtage du Club",
       ],
     },
   ] as const;

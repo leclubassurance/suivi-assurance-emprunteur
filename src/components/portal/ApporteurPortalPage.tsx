@@ -219,7 +219,11 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
 
         <PartnerBenefitCards payoutPerSignatureEur={payoutPerSignature} />
 
-        <PartnerClientScript onCopy={copyText} />
+        <PartnerClientScript
+          referralLink={data.referralLink}
+          partnerContactName={data.apporteur.contactName}
+          onCopy={copyText}
+        />
 
         <PartnerJourneyTimeline />
 
