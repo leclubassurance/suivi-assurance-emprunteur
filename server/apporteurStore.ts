@@ -580,3 +580,30 @@ export function getApporteurKpisForReferrals(referrals: Referral[]) {
 export function getRemunerationForApporteur(apporteur: Apporteur) {
   return getRemunerationConfig(apporteur.type);
 }
+
+/** Retire les recommandations liées à un dossier supprimé. */
+export async function syncReferralsAfterDossierDeleted(dossierId: string): Promise<number> {
+  const store = await loadApporteurStore();
+  const before = store.referrals.length;
+  store.referrals = store.referrals.filter((r) => r.dossierId !== dossierId);
+  if (store.referrals.length < before) {
+    await persistStore(store);
+    return before - store.referrals.length;
+  }
+  return 0;
+}
+
+/** Nettoie les recommandations dont le dossier LCIF n'existe plus. */
+export async function pruneReferralsWithMissingDossiers(): Promise<number> {
+  const store = await loadApporteurStore();
+  const { readDB } = await import("./db");
+  const db = await readDB();
+  const ids = new Set(db.dossiers.map((d) => d.id));
+  const before = store.referrals.length;
+  store.referrals = store.referrals.filter((r) => !r.dossierId || ids.has(r.dossierId));
+  if (store.referrals.length < before) {
+    await persistStore(store);
+    return before - store.referrals.length;
+  }
+  return 0;
+}

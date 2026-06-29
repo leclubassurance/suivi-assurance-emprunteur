@@ -6,15 +6,6 @@ type Props = {
   partnerName: string;
   partnerContact: string;
   partnerTypeLabel: string;
-  contractStatus?: string;
-};
-
-const CONTRACT_LABELS: Record<string, { label: string; className: string }> = {
-  none: { label: "Contrat non initié", className: "bg-amber-500/20 text-amber-100 border-amber-400/40" },
-  pending: { label: "Contrat en préparation", className: "bg-amber-500/20 text-amber-100 border-amber-400/40" },
-  sent: { label: "Contrat envoyé — en attente de signature", className: "bg-sky-500/20 text-sky-100 border-sky-400/40" },
-  signed: { label: "Contrat partenaire signé", className: "bg-emerald-500/20 text-emerald-100 border-emerald-400/40" },
-  expired: { label: "Contrat à renouveler", className: "bg-red-500/20 text-red-100 border-red-400/40" },
 };
 
 export default function LcifPartnerHeader({
@@ -22,16 +13,14 @@ export default function LcifPartnerHeader({
   partnerName,
   partnerContact,
   partnerTypeLabel,
-  contractStatus = "none",
 }: Props) {
-  const contract = CONTRACT_LABELS[contractStatus] || CONTRACT_LABELS.none;
-
   return (
     <header className="bg-[#1E3A8A] text-white relative overflow-hidden">
       <div
         className="absolute inset-0 opacity-[0.07]"
         style={{
-          backgroundImage: "radial-gradient(circle at 20% 50%, #fff 0%, transparent 50%), radial-gradient(circle at 80% 20%, #C9A227 0%, transparent 40%)",
+          backgroundImage:
+            "radial-gradient(circle at 20% 50%, #fff 0%, transparent 50%), radial-gradient(circle at 80% 20%, #C9A227 0%, transparent 40%)",
         }}
       />
       <div className="max-w-3xl mx-auto px-5 py-8 relative">
@@ -53,15 +42,6 @@ export default function LcifPartnerHeader({
           <span className="text-indigo-300 mx-2">·</span>
           {partnerTypeLabel}
         </p>
-        {contractStatus !== "signed" ? (
-          <p className={`mt-4 inline-flex text-xs font-bold px-3 py-1.5 rounded-full border ${contract.className}`}>
-            {contract.label}
-          </p>
-        ) : (
-          <p className={`mt-4 inline-flex text-xs font-bold px-3 py-1.5 rounded-full border ${contract.className}`}>
-            ✓ {contract.label}
-          </p>
-        )}
       </div>
     </header>
   );

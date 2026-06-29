@@ -1119,6 +1119,13 @@ export function createApp() {
       await deleteDossierFromStore(id);
 
       try {
+        const { syncReferralsAfterDossierDeleted } = await import("./apporteurStore");
+        await syncReferralsAfterDossierDeleted(id);
+      } catch (apErr: any) {
+        appendLog(`[Delete] Sync apporteurs ${id}: ${apErr?.message || apErr}`);
+      }
+
+      try {
         fs.rmSync(path.join(UPLOADS_DIR, id), { recursive: true, force: true });
       } catch (err) {
         console.error("Failed to remove uploads dir", err);
@@ -1338,6 +1345,8 @@ export function createApp() {
       } = await import("./apporteurStore");
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
       const apporteurId = String(req.query.apporteurId || "").trim() || undefined;
+      const { pruneReferralsWithMissingDossiers } = await import("./apporteurStore");
+      await pruneReferralsWithMissingDossiers();
       const [apporteurs, referrals, summary] = await Promise.all([
         listApporteurs(),
         listReferrals(apporteurId ? { apporteurId } : undefined),
@@ -1504,6 +1513,8 @@ export function createApp() {
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+      const { pruneReferralsWithMissingDossiers } = await import("./apporteurStore");
+      await pruneReferralsWithMissingDossiers();
       const referrals = await listReferrals({ apporteurId: apporteur.id });
       const publicBaseUrl = resolvePublicAppBaseUrl(
         String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
@@ -1527,27 +1538,16 @@ export function createApp() {
       );
       const contractStatus = apporteur.contractStatus || "none";
       const contractSigned = contractStatus === "signed";
+      const { enrichReferralsForApporteurPortal } = await import("./apporteurPortalEnrich");
+      const enrichedReferrals = await enrichReferralsForApporteurPortal(referrals, publicBaseUrl);
       res.json({
         ok: true,
         apporteur: {
           companyName: apporteur.companyName,
           contactName: apporteur.contactName,
           type: apporteur.type,
-          contractStatus,
-          contractSigned,
         },
-        referrals: referrals.map((r) => ({
-          id: r.id,
-          status: r.status,
-          contact: r.contact,
-          createdAt: r.createdAt,
-          updatedAt: r.updatedAt,
-          events: (r.events || []).slice(-5).map((e) => ({
-            at: e.at,
-            status: e.status,
-            message: e.message,
-          })),
-        })),
+        referrals: enrichedReferrals,
         referralLink,
         stats: { total: kpis.total, open: kpis.open, signed: kpis.signed },
         kpis,
@@ -1957,6 +1957,12 @@ export function createApp() {
       let dossierDeleted = false;
       if (dossier?.id) {
         await deleteDossierFromStore(dossier.id);
+        try {
+          const { syncReferralsAfterDossierDeleted } = await import("./apporteurStore");
+          await syncReferralsAfterDossierDeleted(dossier.id);
+        } catch (apErr: any) {
+          appendLog(`[Reset prospect] Sync apporteurs ${dossier.id}: ${apErr?.message || apErr}`);
+        }
         try {
           fs.rmSync(path.join(UPLOADS_DIR, dossier.id), { recursive: true, force: true });
         } catch {

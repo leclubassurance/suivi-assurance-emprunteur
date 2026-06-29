@@ -11,7 +11,16 @@ import type { RemunerationConfig } from "../../../shared/apporteurRemuneration";
 import { computeApporteurPayoutEur, estimatePartnerEarnings } from "../../../shared/apporteurRemuneration";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
 import KpiCard, { formatPercent } from "./PartnerKpiGrid";
-import PartnerContractWorkflow from "./PartnerContractWorkflow";
+import PartnerFaqSection from "./PartnerFaqSection";
+import PartnerReferralTracking from "./PartnerReferralTracking";
+
+type PortalReferralTracking = {
+  dossierId: string;
+  clientPortalUrl: string;
+  statusLabel: string;
+  statusDetail?: string;
+  steps: { key: string; label: string; done: boolean; active: boolean }[];
+};
 
 type PortalReferral = {
   id: string;
@@ -25,6 +34,7 @@ type PortalReferral = {
   };
   createdAt: string;
   updatedAt: string;
+  tracking: PortalReferralTracking | null;
 };
 
 type PortalData = {
@@ -32,8 +42,6 @@ type PortalData = {
     companyName: string;
     contactName: string;
     type: string;
-    contractStatus?: string;
-    contractSigned?: boolean;
   };
   referrals: PortalReferral[];
   referralLink: string;
@@ -166,7 +174,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
 
   const typeLabel =
     APPORTEUR_TYPE_LABELS[data.apporteur.type as keyof typeof APPORTEUR_TYPE_LABELS] || data.apporteur.type;
-  const unlocked = data.portalUnlocked ?? data.apporteur.contractSigned ?? false;
+  const unlocked = data.portalUnlocked !== false;
 
   return (
     <div className="min-h-[100dvh] bg-[#f4f6fb]">
@@ -174,12 +182,9 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
         partnerName={data.apporteur.companyName}
         partnerContact={data.apporteur.contactName}
         partnerTypeLabel={typeLabel}
-        contractStatus={data.apporteur.contractStatus}
       />
 
       <main className="max-w-3xl mx-auto px-5 py-8 space-y-6">
-        <PartnerContractWorkflow contractStatus={data.apporteur.contractStatus || "none"} />
-
         <section>
           <h2 className="text-xs font-black uppercase tracking-wide text-slate-400 mb-3">Votre activité</h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -394,12 +399,15 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
                     <p className="text-[11px] text-slate-400 mt-2">
                       Mis à jour le {new Date(r.updatedAt).toLocaleDateString("fr-FR")}
                     </p>
+                    {r.tracking ? <PartnerReferralTracking tracking={r.tracking} /> : null}
                   </div>
                 );
               })
             )}
           </div>
         </section>
+
+        <PartnerFaqSection />
 
         <LcifPartnerFooter />
       </main>
