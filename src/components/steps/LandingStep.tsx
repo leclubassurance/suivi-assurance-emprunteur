@@ -11,8 +11,10 @@ import {
   Clock,
   FileText,
   ExternalLink,
+  Phone,
 } from 'lucide-react';
 import { CLIENT_PORTAL_URL_KEY } from '../../constants';
+import CalBookingButton from '../ui/CalBookingButton';
 
 /** Espace réservé au bandeau CTA fixe mobile + encoche iOS */
 const MOBILE_STICKY_FOOTER_CLASS =
@@ -178,6 +180,10 @@ export default function LandingStep({
             >
               Commencer mon étude <ArrowRight className="w-[18px] h-[18px]" strokeWidth={2.5} />
             </button>
+            <CalBookingButton className="flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-full font-bold text-[14px] border-2 border-white/35 text-white hover:bg-white/10 transition-all w-full sm:w-auto">
+              <Phone className="w-4 h-4" aria-hidden />
+              Échanger par téléphone
+            </CalBookingButton>
             <span className="text-blue-200/80 text-[13px] font-medium tracking-wide flex flex-wrap items-center justify-center sm:justify-start gap-x-2 gap-y-1">
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5" aria-hidden /> ~5 min
@@ -432,13 +438,19 @@ export default function LandingStep({
             2 PDF · ~5 min · étude gratuite sous 48h ouvrées.
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onStart}
-          className="bg-[#1E3A8A] text-white hover:bg-[#172554] flex items-center justify-center gap-3 px-8 py-4 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto"
-        >
-          Déposer mon dossier <ArrowRight className="w-[18px] h-[18px]" strokeWidth={2.5} />
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
+          <button
+            type="button"
+            onClick={onStart}
+            className="bg-[#1E3A8A] text-white hover:bg-[#172554] flex items-center justify-center gap-3 px-8 py-4 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto"
+          >
+            Déposer mon dossier <ArrowRight className="w-[18px] h-[18px]" strokeWidth={2.5} />
+          </button>
+          <CalBookingButton className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full font-bold text-[15px] border-2 border-[#1E3A8A] text-[#1E3A8A] bg-white hover:bg-blue-50 transition-all w-full md:w-auto">
+            <Phone className="w-4 h-4" aria-hidden />
+            Rendez-vous téléphonique
+          </CalBookingButton>
+        </div>
       </div>
 
       <footer className="text-center pb-2 pt-2 flex flex-col items-center gap-3">

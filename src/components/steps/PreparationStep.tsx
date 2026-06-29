@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, FileText, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, FileText, CheckCircle2, Phone } from 'lucide-react';
 import DocumentExampleModal, { DocumentExampleLink } from '../ui/DocumentExampleModal';
+import CalBookingButton from '../ui/CalBookingButton';
 import type { DocumentExampleId } from '../../content/documentExamples';
 
 export default function PreparationStep({ onNext }: { onNext: () => void }) {
@@ -62,20 +63,28 @@ export default function PreparationStep({ onNext }: { onNext: () => void }) {
 
         <div className="bg-white border border-slate-200/60 rounded-[24px] shadow-sm p-6 md:p-8 mb-8">
           <div className="text-[11px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-3">
-            Besoin d’aide pour récupérer vos documents ?
+            Besoin d’aide pour avancer ?
           </div>
-          <h3 className="text-xl font-black text-[#111318] mb-2">Écrivez-nous par email</h3>
-          <p className="text-slate-500 text-[14px] leading-relaxed font-medium mb-4">
-            Si vous ne trouvez pas l’offre de prêt ou le tableau d’amortissement dans votre application bancaire, envoyez un email à :
+          <h3 className="text-xl font-black text-[#111318] mb-2">Écrivez-nous ou prenez rendez-vous</h3>
+          <p className="text-slate-500 text-[14px] leading-relaxed font-medium mb-5">
+            Si vous ne trouvez pas vos documents dans votre application bancaire, ou si vous préférez
+            échanger sur votre projet de changement d&apos;assurance emprunteur, nous sommes disponibles.
           </p>
-          <a
-            href="mailto:assurance@leclubimmobilier.fr"
-            className="inline-flex items-center justify-center px-5 py-3 rounded-xl bg-[#111318] text-white font-bold text-sm hover:bg-slate-800 transition-colors w-full sm:w-auto"
-          >
-            assurance@leclubimmobilier.fr
-          </a>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <a
+              href="mailto:assurance@leclubimmobilier.fr"
+              className="inline-flex items-center justify-center px-5 py-3 rounded-xl bg-[#111318] text-white font-bold text-sm hover:bg-slate-800 transition-colors w-full sm:flex-1"
+            >
+              assurance@leclubimmobilier.fr
+            </a>
+            <CalBookingButton className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl border-2 border-[#1E3A8A] text-[#1E3A8A] font-bold text-sm hover:bg-blue-50 transition-colors w-full sm:flex-1">
+              <Phone className="w-4 h-4" aria-hidden />
+              Prendre rendez-vous téléphonique
+            </CalBookingButton>
+          </div>
           <p className="mt-4 text-xs text-slate-500 font-medium">
-            Camille vous répondra et vous guidera (espace bancaire / documents / échéancier, ou demande à votre conseiller).
+            Par email, Camille vous guidera (espace bancaire, documents, échéancier). Par téléphone,
+            un conseiller vous rappelle sur le créneau choisi.
           </p>
         </div>
 
