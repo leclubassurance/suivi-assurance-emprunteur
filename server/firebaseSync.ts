@@ -12,7 +12,7 @@ import {
 import fs from "fs";
 import path from "path";
 import { ensureDossierShape } from "./dossierModel";
-import { compactDossierForPersistence } from "./dossierFirestoreCompact";
+import { compactDossierForPersistence, stripUndefinedForFirestore } from "./dossierFirestoreCompact";
 
 const DOSSIERS_COLLECTION = "dossiers";
 const APPORTEUR_STORE_COLLECTION = "apporteur_store";
@@ -214,7 +214,10 @@ export async function writeApporteurStoreToFirestore(store: ApporteurStoreDoc): 
   if (!firestoreDb) {
     throw new Error("Firestore non initialisé — impossible d'écrire apporteur_store.");
   }
-  await setDoc(doc(firestoreDb, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID), store);
+  await setDoc(
+    doc(firestoreDb, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID),
+    stripUndefinedForFirestore(store),
+  );
 }
 
 /** Import unique : data/db.json ou /tmp/data/db.json → Firestore (FIREBASE_IMPORT_LOCAL=true). */
