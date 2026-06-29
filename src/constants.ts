@@ -73,7 +73,8 @@ export const STATUT_PRO_OPTIONS = [
   { value: 'artisan_btp', label: 'Artisan du BTP/Ouvrier/Professions du Transport' },
   { value: 'profession_agricole', label: 'Profession agricole' },
   { value: 'saisonnier', label: 'Saisonnier/Étudiant' },
-  { value: 'sans_profession', label: 'Sans profession' }
+  { value: 'sans_profession', label: 'Sans profession' },
+  { value: 'autre', label: 'Autre (saisie manuelle)' }
 ];
 
 export const PROFESSION_RISQUE_OPTIONS = [

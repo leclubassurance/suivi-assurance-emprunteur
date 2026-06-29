@@ -60,6 +60,7 @@ export type Referral = {
   events: ReferralEvent[];
   lastNotifiedStatus?: ReferralStatus;
   lastNotifiedAt?: string;
+  clientInviteSentAt?: string;
 };
 
 export const REFERRAL_STATUS_LABELS: Record<ReferralStatus, string> = {

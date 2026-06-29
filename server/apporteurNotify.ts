@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import type { Apporteur, Referral, ReferralStatus } from "../shared/apporteurTypes";
-import { REFERRAL_STATUS_LABELS } from "../shared/apporteurTypes";
+import { APPORTEUR_TYPE_LABELS, REFERRAL_STATUS_LABELS } from "../shared/apporteurTypes";
 import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
 import { sendEmail } from "./emailProvider";
@@ -175,4 +175,87 @@ export async function sendApporteurPortalInvite(
   const referralLink = `${base.replace(/\/$/, "")}/?ref=${encodeURIComponent(apporteur.referralToken)}`;
   const { subject, html } = buildApporteurPortalInviteEmail({ apporteur, portalUrl, referralLink });
   return sendApporteurHtmlEmail(apporteur.email, subject, html);
+}
+
+function apporteurRecommendationLabel(apporteur: Apporteur): string {
+  const name = [apporteur.contactName, apporteur.companyName].filter(Boolean).join(" — ");
+  const typeLabel = APPORTEUR_TYPE_LABELS[apporteur.type] || "partenaire";
+  return `${name} (${typeLabel})`;
+}
+
+export function buildReferredClientInviteEmail(params: {
+  apporteur: Apporteur;
+  referral: Referral;
+  formUrl: string;
+}): { subject: string; html: string } {
+  const prenom = String(params.referral.contact.prenom || "").trim() || "Bonjour";
+  const greeting = params.referral.contact.prenom ? `Bonjour ${params.referral.contact.prenom},` : "Bonjour,";
+  const recommender = apporteurRecommendationLabel(params.apporteur);
+
+  const html = `
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
+  <div style="max-width:640px;margin:0 auto;background:#FFFFFF;border:1px solid #E5E7EB;">
+    <div style="background-color:#1E3A8A;padding:24px 20px;text-align:center;">
+      ${LCIF_EMAIL_LOGO_HEADER_IMG}
+    </div>
+    <div style="padding:24px 22px;">
+      <p style="font-size:16px;margin:0 0 14px 0;color:#111827;"><strong>${greeting}</strong></p>
+      <p style="font-size:14px;margin:0 0 12px 0;color:#374151;">
+        <strong>${recommender}</strong> vous a recommandé auprès du <strong>Club Immobilier Français</strong>
+        pour une <strong>étude gratuite des économies</strong> sur votre assurance emprunteur.
+      </p>
+      <p style="font-size:14px;margin:0 0 16px 0;color:#374151;">
+        En quelques minutes, déposez votre dossier en ligne : nous analysons votre contrat actuel
+        et vous proposons une étude personnalisée si des économies sont possibles.
+      </p>
+      <p style="margin:0 0 20px 0;text-align:center;">
+        <a href="${params.formUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;text-decoration:none;padding:14px 24px;border-radius:10px;font-weight:bold;font-size:15px;">
+          Démarrer mon étude d'économies
+        </a>
+      </p>
+      <p style="font-size:12px;margin:0 0 8px 0;color:#6B7280;word-break:break-all;">
+        Ou copiez ce lien : <a href="${params.formUrl}" style="color:#1E3A8A;">${params.formUrl}</a>
+      </p>
+      <p style="font-size:13px;margin:18px 0 0 0;color:#6B7280;">
+        Une question ? Répondez à ce mail ou écrivez-nous à
+        <a href="mailto:assurance@leclubimmobilier.fr" style="color:#1E3A8A;">assurance@leclubimmobilier.fr</a>.
+      </p>
+      <p style="font-size:14px;margin:18px 0 0 0;color:#111827;">Bien cordialement,<br/>
+        <strong>L'équipe Le Club Immobilier Français</strong>
+      </p>
+    </div>
+    <div style="background:#F8FAFC;padding:16px 22px;border-top:1px solid #E5E7EB;">
+      <p style="font-size:11px;margin:0;color:#9CA3AF;">Le Club Immobilier Français — ORIAS 24002253</p>
+    </div>
+  </div>
+</div>`;
+
+  return {
+    subject: `${prenom !== "Bonjour" ? prenom + ", votre" : "Votre"} étude assurance emprunteur — recommandation LCIF`,
+    html,
+  };
+}
+
+export async function notifyReferredClientNewReferral(params: {
+  apporteur: Apporteur;
+  referral: Referral;
+  portalBaseUrl?: string;
+}): Promise<boolean> {
+  const email = String(params.referral.contact.email || "").trim().toLowerCase();
+  if (!email.includes("@")) return false;
+  if (params.referral.clientInviteSentAt) return false;
+
+  const base = resolvePublicAppBaseUrl(params.portalBaseUrl);
+  const formUrl = `${base.replace(/\/$/, "")}/?ref=${encodeURIComponent(params.apporteur.referralToken)}`;
+  const { subject, html } = buildReferredClientInviteEmail({
+    apporteur: params.apporteur,
+    referral: params.referral,
+    formUrl,
+  });
+
+  const sent = await sendApporteurHtmlEmail(email, subject, html);
+  if (sent) {
+    params.referral.clientInviteSentAt = new Date().toISOString();
+  }
+  return sent;
 }

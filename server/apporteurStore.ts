@@ -364,6 +364,18 @@ export async function createReferral(input: {
   store.referrals.push(referral);
   await persistStore(store);
   await notifyAfterReferralChange(store, referral);
+
+  const clientEmail = referral.contact.email;
+  if (clientEmail && input.source === "apporteur_portal") {
+    try {
+      const { notifyReferredClientNewReferral } = await import("./apporteurNotify");
+      const sent = await notifyReferredClientNewReferral({ apporteur, referral });
+      if (sent) await persistStore(store);
+    } catch (err: any) {
+      console.warn("[Apporteurs] Email client recommandé:", err?.message || err);
+    }
+  }
+
   return referral;
 }
 

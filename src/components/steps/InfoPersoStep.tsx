@@ -26,6 +26,21 @@ export default function InfoPersoStep({ formData, setFormData, errors, onNext }:
     });
   };
 
+  const updateStatutPro = (index: number, statutPro: string) => {
+    setFormData(prev => {
+      const newAssures = [...prev.assures];
+      const assure = { ...newAssures[index], statutPro };
+      if (statutPro === "autre") {
+        assure.profession = "";
+      } else {
+        const label = STATUT_PRO_OPTIONS.find((o) => o.value === statutPro)?.label || "";
+        assure.profession = label;
+      }
+      newAssures[index] = assure;
+      return { ...prev, assures: newAssures };
+    });
+  };
+
   const toggleSport = (assureIndex: number, sportName: string) => {
     setFormData(prev => {
       const newAssures = [...prev.assures];
@@ -112,17 +127,26 @@ export default function InfoPersoStep({ formData, setFormData, errors, onNext }:
               <Select 
                 label="Statut professionnel *"
                 value={assure.statutPro}
-                onChange={(e) => updateAssure(index, 'statutPro', e.target.value)}
+                onChange={(e) => updateStatutPro(index, e.target.value)}
                 options={STATUT_PRO_OPTIONS}
                 error={errors[`assure_${index}_statutPro`]}
               />
-              <Input 
-                label="Profession *"
-                placeholder="Ex: Ingénieur, Infirmière..."
-                value={assure.profession}
-                onChange={(e) => updateAssure(index, 'profession', e.target.value)}
-                error={errors[`assure_${index}_profession`]}
-              />
+              {assure.statutPro === "autre" ? (
+                <Input 
+                  label="Profession (saisie manuelle) *"
+                  placeholder="Ex: Ingénieur, Infirmière..."
+                  value={assure.profession}
+                  onChange={(e) => updateAssure(index, 'profession', e.target.value)}
+                  error={errors[`assure_${index}_profession`]}
+                />
+              ) : assure.statutPro ? (
+                <div>
+                  <span className="text-[13px] font-semibold text-slate-700">Profession</span>
+                  <p className="mt-1 text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                    {STATUT_PRO_OPTIONS.find((o) => o.value === assure.statutPro)?.label || assure.profession}
+                  </p>
+                </div>
+              ) : null}
               <div className="md:col-span-2">
                 <Select 
                   label="Profession à risque"
