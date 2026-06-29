@@ -10,12 +10,14 @@ import {
   Users,
 } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
-import type { Apporteur, ApporteurType, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
+import type { Apporteur, ApporteurType, PartnerRecruitRequest, PartnerRecruitStatus, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
 import {
   APPORTEUR_TYPE_LABELS,
+  PARTNER_RECRUIT_STATUS_LABELS,
   REFERRAL_STATUS_LABELS,
   REFERRAL_STATUS_ORDER,
 } from "../../../shared/apporteurTypes";
+import { APPORTEUR_CONTRACT_MLM_CLAUSE } from "../../../shared/apporteurContractMlm";
 import { LCIF_LOGO_URL } from "../../../shared/apporteurBrand";
 import { computeReferralKpis } from "../../../shared/apporteurKpis";
 import KpiCard, { formatPercent } from "../portal/PartnerKpiGrid";
@@ -47,6 +49,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
   const [loading, setLoading] = useState(true);
   const [apporteurs, setApporteurs] = useState<Apporteur[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
+  const [partnerRecruits, setPartnerRecruits] = useState<PartnerRecruitRequest[]>([]);
   const [summary, setSummary] = useState<Record<string, number | string> | null>(null);
   const [selectedApporteurId, setSelectedApporteurId] = useState<string | "all">("all");
   const [showNewApporteur, setShowNewApporteur] = useState(false);
@@ -66,6 +69,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
       if (!res.ok) throw new Error(data.error || "Chargement impossible");
       setApporteurs(data.apporteurs || []);
       setReferrals(data.referrals || []);
+      setPartnerRecruits(data.partnerRecruits || []);
       setSummary(data.summary || null);
       setPublicBaseUrl(String(data.publicBaseUrl || ""));
     } catch (e: any) {
@@ -193,6 +197,28 @@ export default function AdminApporteursPanel({ onBack }: Props) {
     setSuccessMsg("Invitation espace apporteur envoyée par email.");
   };
 
+  const updatePartnerRecruitStatus = async (recruitId: string, status: PartnerRecruitStatus) => {
+    const res = await adminFetch(`/api/admin/partner-recruits/${recruitId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Mise à jour impossible");
+      return;
+    }
+    if (status === "CONTRAT_SIGNE") {
+      setSuccessMsg("Contrat signé — apporteur filleul créé et rattaché au parrain.");
+    }
+    await load();
+  };
+
+  const pendingRecruits = useMemo(
+    () => partnerRecruits.filter((r) => !["CONTRAT_SIGNE", "REFUSE"].includes(r.status)),
+    [partnerRecruits],
+  );
+
   const updateContractStatus = async (apporteurId: string, contractStatus: Apporteur["contractStatus"]) => {
     setError(null);
     const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}`, {
@@ -274,6 +300,55 @@ export default function AdminApporteursPanel({ onBack }: Props) {
           {successMsg}
         </div>
       ) : null}
+
+      {pendingRecruits.length > 0 ? (
+        <div className="mx-6 mt-4 bg-white border border-amber-200 rounded-2xl p-5 shadow-sm">
+          <h2 className="text-sm font-black uppercase tracking-wide text-amber-800 mb-1">
+            Candidatures partenaires ({pendingRecruits.length})
+          </h2>
+          <p className="text-xs text-slate-500 mb-4">
+            Recommandées par les apporteurs via leur portail. À « Contrat signé » : création auto du filleul rattaché au parrain.
+          </p>
+          <div className="space-y-3">
+            {pendingRecruits.map((r) => (
+              <div key={r.id} className="border border-slate-100 rounded-xl p-4 flex flex-wrap gap-3 justify-between items-start">
+                <div>
+                  <p className="font-bold text-slate-900">{r.contactName}</p>
+                  <p className="text-xs text-slate-500">{r.email}{r.phone ? ` · ${r.phone}` : ""}</p>
+                  <p className="text-[11px] text-indigo-600 mt-1">
+                    Parrain : {apporteurById.get(r.sponsorApporteurId)?.contactName || r.sponsorApporteurId}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="text-[10px] font-bold uppercase bg-slate-100 px-2 py-1 rounded">
+                    {PARTNER_RECRUIT_STATUS_LABELS[r.status]}
+                  </span>
+                  <button type="button" onClick={() => updatePartnerRecruitStatus(r.id, "VALIDE_LCIF")} className="text-xs font-bold px-2 py-1 rounded border">Valider</button>
+                  <button type="button" onClick={() => updatePartnerRecruitStatus(r.id, "CONTRAT_ENVOYE")} className="text-xs font-bold px-2 py-1 rounded border border-indigo-200 text-indigo-800">Envoyé</button>
+                  <button type="button" onClick={() => updatePartnerRecruitStatus(r.id, "CONTRAT_SIGNE")} className="text-xs font-bold px-2 py-1 rounded bg-emerald-600 text-white">Signé → créer</button>
+                  <button type="button" onClick={() => updatePartnerRecruitStatus(r.id, "REFUSE")} className="text-xs font-bold px-2 py-1 rounded text-red-700">Refuser</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mx-6 mt-4 bg-white border border-slate-200 rounded-2xl p-4 text-xs text-slate-600">
+        <p className="font-black uppercase text-slate-400 mb-2">Clause réseau (contrat apporteur)</p>
+        <p className="mb-2">{APPORTEUR_CONTRACT_MLM_CLAUSE.summary}</p>
+        <details>
+          <summary className="cursor-pointer font-bold text-indigo-700">Voir le texte complet</summary>
+          <div className="mt-2 space-y-2">
+            {APPORTEUR_CONTRACT_MLM_CLAUSE.articles.map((a) => (
+              <div key={a.heading}>
+                <p className="font-bold text-slate-800">{a.heading}</p>
+                <p>{a.body}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      </div>
 
       <div className="mx-6 mt-4 space-y-3">
         <p className="text-xs font-black uppercase tracking-wide text-slate-400">
@@ -365,6 +440,11 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                       {a.contactName} — {a.email}
                       {a.phone ? ` · ${a.phone}` : ""}
                     </p>
+                    {a.sponsorId ? (
+                      <p className="text-xs text-indigo-700 mb-2">
+                        Parrain : {apporteurById.get(a.sponsorId)?.contactName || a.sponsorId}
+                      </p>
+                    ) : null}
                     <div className="space-y-4">
                       <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/80">
                         <p className="text-[11px] font-black uppercase text-slate-400 mb-2">Contrat (manuel → DocuSign)</p>

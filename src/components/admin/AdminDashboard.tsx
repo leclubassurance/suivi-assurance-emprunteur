@@ -28,12 +28,10 @@ export default function AdminDashboard({
   user,
   onLogout,
   onOpenApporteurs,
-  onOpenNetwork,
 }: {
   user: UserInfo;
   onLogout: () => void;
   onOpenApporteurs?: () => void;
-  onOpenNetwork?: () => void;
 }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [search, setSearch] = useState("");
@@ -844,15 +842,6 @@ export default function AdminDashboard({
           </button>
         </h1>
         <div className="flex items-center gap-4">
-          {user.role === "ADMIN" && onOpenNetwork ? (
-            <button
-              type="button"
-              onClick={onOpenNetwork}
-              className="flex gap-2 text-slate-500 hover:text-slate-800 transition-colors text-sm"
-            >
-              <Users className="w-4 h-4" /> Réseau MLM
-            </button>
-          ) : null}
           {user.role === "ADMIN" && onOpenApporteurs ? (
             <button
               type="button"
@@ -894,18 +883,11 @@ export default function AdminDashboard({
               Dossiers
             </button>
           </div>
-          {user.role === "ADMIN" && (onOpenApporteurs || onOpenNetwork) ? (
-            <p className="mx-3 mt-2 mb-1 text-[10px] text-slate-400 text-center space-x-2">
-              {onOpenNetwork ? (
-                <button type="button" onClick={onOpenNetwork} className="hover:text-slate-700 underline">
-                  Réseau MLM →
-                </button>
-              ) : null}
-              {onOpenApporteurs ? (
-                <button type="button" onClick={onOpenApporteurs} className="hover:text-indigo-600 underline">
-                  Apporteurs →
-                </button>
-              ) : null}
+          {user.role === "ADMIN" && onOpenApporteurs ? (
+            <p className="mx-3 mt-2 mb-1 text-[10px] text-slate-400 text-center">
+              <button type="button" onClick={onOpenApporteurs} className="hover:text-indigo-600 underline">
+                Apporteurs & réseau →
+              </button>
             </p>
           ) : null}
           {sidebarMode === "queue" ? (

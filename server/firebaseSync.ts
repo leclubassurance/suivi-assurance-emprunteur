@@ -197,6 +197,7 @@ export type ApporteurStoreDoc = {
   version: 1;
   apporteurs: unknown[];
   referrals: unknown[];
+  partnerRecruits?: unknown[];
   updatedAt: string;
 };
 

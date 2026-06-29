@@ -17,12 +17,9 @@ import SuccessStep from './components/steps/SuccessStep';
 import AdminLogin from './components/admin/AdminLogin';
 import AdminDashboard from './components/admin/AdminDashboard';
 import AdminApporteursPanel from './components/admin/AdminApporteursPanel';
-import AdminNetworkPanel from './components/admin/AdminNetworkPanel';
 import ClientPortalPage from './components/portal/ClientPortalPage';
 import ClientPortalDemoPage from './components/portal/ClientPortalDemoPage';
 import ApporteurPortalPage from './components/portal/ApporteurPortalPage';
-import NetworkPortalPage from './components/portal/NetworkPortalPage';
-import NetworkJoinPage from './pages/NetworkJoinPage';
 import MentionsLegalesPage from './pages/MentionsLegalesPage';
 import PolitiqueConfidentialitePage from './pages/PolitiqueConfidentialitePage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
@@ -55,20 +52,14 @@ export default function App() {
   const [portalToken, setPortalToken] = useState<string | null>(null);
   const [portalDemo, setPortalDemo] = useState(false);
   const [apporteurPortalToken, setApporteurPortalToken] = useState<string | null>(null);
-  const [networkPortalToken, setNetworkPortalToken] = useState<string | null>(null);
-  const [networkJoinToken, setNetworkJoinToken] = useState<string | null>(null);
   const [adminApporteursView, setAdminApporteursView] = useState(false);
-  const [adminNetworkView, setAdminNetworkView] = useState(false);
 
   const goHome = () => {
     setLegalView(null);
     setPortalDemo(false);
     setPortalToken(null);
     setApporteurPortalToken(null);
-    setNetworkPortalToken(null);
-    setNetworkJoinToken(null);
     setAdminApporteursView(false);
-    setAdminNetworkView(false);
     setCurrentStep(Step.LANDING);
     window.history.pushState({}, '', '/');
   };
@@ -89,51 +80,20 @@ export default function App() {
         return;
       }
       setLegalView(null);
-      if (path === "/admin/apporteurs") {
+      if (path === "/admin/apporteurs" || path === "/admin/reseau") {
         setAdminApporteursView(true);
-        setAdminNetworkView(false);
         setPortalDemo(false);
         setApporteurPortalToken(null);
-        setNetworkPortalToken(null);
-        setNetworkJoinToken(null);
-        setPortalToken(null);
-        return;
-      }
-      if (path === "/admin/reseau") {
-        setAdminNetworkView(true);
-        setAdminApporteursView(false);
-        setPortalDemo(false);
-        setApporteurPortalToken(null);
-        setNetworkPortalToken(null);
-        setNetworkJoinToken(null);
         setPortalToken(null);
         return;
       }
       setAdminApporteursView(false);
-      setAdminNetworkView(false);
       if (path === "/demo/suivi" || path === "/apercu-suivi-client") {
         setPortalDemo(true);
         return;
       }
       setPortalDemo(false);
-      const joinMatch = path.match(/^\/rejoindre\/([a-z0-9-]+)$/i);
-      if (joinMatch) {
-        setNetworkJoinToken(joinMatch[1]);
-        setNetworkPortalToken(null);
-        setApporteurPortalToken(null);
-        setPortalToken(null);
-        return;
-      }
-      setNetworkJoinToken(null);
-      const networkMatch = path.match(/^\/reseau\/([a-f0-9]{32,64})$/i);
-      if (networkMatch) {
-        setNetworkPortalToken(networkMatch[1]);
-        setApporteurPortalToken(null);
-        setPortalToken(null);
-        return;
-      }
-      setNetworkPortalToken(null);
-      const apporteurMatch = path.match(/^\/apporteur\/([a-f0-9]{32,64})$/i);
+      const apporteurMatch = path.match(/^\/(?:apporteur|reseau)\/([a-f0-9]{32,64})$/i);
       if (apporteurMatch) {
         setApporteurPortalToken(apporteurMatch[1]);
         setPortalToken(null);
@@ -386,7 +346,7 @@ export default function App() {
 
   const handleLogin = (user: UserInfo) => {
     setCurrentUser(user);
-    if ((adminApporteursView || adminNetworkView) && user.role === 'ADMIN') {
+    if ((adminApporteursView) && user.role === 'ADMIN') {
       goToStep(Step.ADMIN_DASHBOARD);
       return;
     }
@@ -399,19 +359,7 @@ export default function App() {
 
   const openAdminApporteurs = () => {
     setAdminApporteursView(true);
-    setAdminNetworkView(false);
     window.history.pushState({}, '', '/admin/apporteurs');
-    if (currentUser?.role === 'ADMIN') {
-      goToStep(Step.ADMIN_DASHBOARD);
-    } else {
-      goToStep(Step.ADMIN_LOGIN);
-    }
-  };
-
-  const openAdminNetwork = () => {
-    setAdminNetworkView(true);
-    setAdminApporteursView(false);
-    window.history.pushState({}, '', '/admin/reseau');
     if (currentUser?.role === 'ADMIN') {
       goToStep(Step.ADMIN_DASHBOARD);
     } else {
@@ -427,36 +375,13 @@ export default function App() {
     }
   };
 
-  const closeAdminNetwork = () => {
-    setAdminNetworkView(false);
-    window.history.pushState({}, '', '/');
-    if (currentUser) {
-      goToStep(currentUser.role === 'ADMIN' ? Step.ADMIN_DASHBOARD : Step.CONSEILLER_DASHBOARD);
-    }
-  };
-
   const handleLogout = () => {
     setCurrentUser(null);
     goToStep(Step.LANDING);
   };
 
-  if (networkJoinToken) {
-    return <NetworkJoinPage joinToken={networkJoinToken} />;
-  }
-
-  if (networkPortalToken) {
-    return <NetworkPortalPage token={networkPortalToken} />;
-  }
-
   if (apporteurPortalToken) {
     return <ApporteurPortalPage token={apporteurPortalToken} />;
-  }
-
-  if (adminNetworkView) {
-    if (!currentUser || currentUser.role !== 'ADMIN') {
-      return <AdminLogin onLogin={handleLogin} onBack={closeAdminNetwork} />;
-    }
-    return <AdminNetworkPanel onBack={closeAdminNetwork} />;
   }
 
   if (adminApporteursView) {
@@ -595,7 +520,7 @@ export default function App() {
         )}
 
         {(currentStep === Step.ADMIN_DASHBOARD || currentStep === Step.CONSEILLER_DASHBOARD) && currentUser && (
-          <AdminDashboard user={currentUser} onLogout={handleLogout} onOpenApporteurs={openAdminApporteurs} onOpenNetwork={openAdminNetwork} />
+          <AdminDashboard user={currentUser} onLogout={handleLogout} onOpenApporteurs={openAdminApporteurs} />
         )}
       </main>
 

@@ -1353,20 +1353,22 @@ export function createApp() {
         listApporteurs,
         listReferrals,
         getApporteurSummary,
+        listPartnerRecruits,
       } = await import("./apporteurStore");
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
       const apporteurId = String(req.query.apporteurId || "").trim() || undefined;
       const { pruneReferralsWithMissingDossiers } = await import("./apporteurStore");
       await pruneReferralsWithMissingDossiers();
-      const [apporteurs, referrals, summary] = await Promise.all([
+      const [apporteurs, referrals, summary, partnerRecruits] = await Promise.all([
         listApporteurs(),
         listReferrals(apporteurId ? { apporteurId } : undefined),
         getApporteurSummary(),
+        listPartnerRecruits(),
       ]);
       const publicBaseUrl = resolvePublicAppBaseUrl(
         String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
       );
-      res.json({ success: true, apporteurs, referrals, summary, publicBaseUrl });
+      res.json({ success: true, apporteurs, referrals, partnerRecruits, summary, publicBaseUrl });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }
@@ -1384,6 +1386,7 @@ export function createApp() {
         type: body.type,
         notes: body.notes,
         referralToken: body.referralToken,
+        sponsorId: body.sponsorId,
       });
       res.json({ success: true, apporteur });
     } catch (err: any) {
@@ -1501,6 +1504,21 @@ export function createApp() {
     }
   });
 
+  app.patch("/api/admin/partner-recruits/:id", async (req, res) => {
+    try {
+      const { updatePartnerRecruit } = await import("./apporteurStore");
+      const body = (req.body || {}) as any;
+      const recruit = await updatePartnerRecruit(req.params.id, {
+        status: body.status,
+        note: body.note,
+        actor: String((req as any).adminEmail || "admin"),
+      });
+      res.json({ success: true, recruit });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   app.get("/api/public/apporteur-ref/:token", async (req, res) => {
     try {
       const { findApporteurByToken } = await import("./apporteurStore");
@@ -1517,36 +1535,54 @@ export function createApp() {
   const apporteurPortalPostLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
   app.get("/api/apporteur-portal/:token", async (req, res) => {
     try {
-      const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl, getApporteurKpisForReferrals, getRemunerationForApporteur } = await import(
+      const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl, getApporteurKpisForReferrals, getRemunerationForApporteur, loadApporteurStore, listDirectDownlineApporteurs, getTeamReferralsForApporteur, listPartnerRecruits } = await import(
         "./apporteurStore"
       );
-      const { computeEarnedAndPipelineEur } = await import("../shared/apporteurRemuneration");
+      const { computeEarnedAndPipelineEur, computeApporteurPayoutEur, computeSponsorOverridePayoutEur, computeApporteurEarningsWithTeam } = await import("../shared/apporteurRemuneration");
+      const { computeApporteurTeamKpis } = await import("../shared/apporteurKpis");
+      const { APPORTEUR_CONTRACT_MLM_CLAUSE } = await import("../shared/apporteurContractMlm");
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
       const { pruneReferralsWithMissingDossiers } = await import("./apporteurStore");
       await pruneReferralsWithMissingDossiers();
+      const store = await loadApporteurStore();
       const referrals = await listReferrals({ apporteurId: apporteur.id });
+      const downline = listDirectDownlineApporteurs(store, apporteur.id);
+      const teamReferrals = getTeamReferralsForApporteur(store, apporteur.id);
+      const partnerRecruits = (await listPartnerRecruits({ sponsorApporteurId: apporteur.id })).filter(
+        (r) => r.status !== "REFUSE",
+      );
+      const sponsor = apporteur.sponsorId
+        ? store.apporteurs.find((a) => a.id === apporteur.sponsorId) || null
+        : null;
       const publicBaseUrl = resolvePublicAppBaseUrl(
         String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
       );
       const referralLink = buildApporteurReferralUrl(publicBaseUrl, apporteur.referralToken);
-      const kpis = getApporteurKpisForReferrals(referrals);
+      const kpis = computeApporteurTeamKpis(referrals, teamReferrals, downline.length);
       const remuneration = getRemunerationForApporteur(apporteur);
-      const { computeApporteurPayoutEur } = await import("../shared/apporteurRemuneration");
-      const payoutPerSignature = computeApporteurPayoutEur({
+      const payoutPerDirect = computeApporteurPayoutEur({
+        annualSavingsEur: remuneration.defaultAnnualSavingsEur,
+        assuredCount: remuneration.defaultAssuredPerDossier,
+        config: remuneration,
+      });
+      const payoutPerOverride = computeSponsorOverridePayoutEur({
         annualSavingsEur: remuneration.defaultAnnualSavingsEur,
         assuredCount: remuneration.defaultAssuredPerDossier,
         config: remuneration,
       });
       const conversionForEarn =
         kpis.conversionRate ?? remuneration.defaultConversionRate;
-      const earnings = computeEarnedAndPipelineEur(
-        kpis.signed,
-        kpis.open,
-        payoutPerSignature,
-        conversionForEarn,
-      );
+      const earnings = computeApporteurEarningsWithTeam({
+        personalSigned: kpis.signed,
+        teamSigned: kpis.teamSigned,
+        payoutPerDirectEur: payoutPerDirect,
+        payoutPerOverrideEur: payoutPerOverride,
+        openPersonal: kpis.open,
+        openTeam: kpis.teamOpen,
+        conversionRate: conversionForEarn,
+      });
       const contractStatus = apporteur.contractStatus || "none";
       const contractSigned = contractStatus === "signed";
       const { enrichReferralsForApporteurPortal } = await import("./apporteurPortalEnrich");
@@ -1557,14 +1593,35 @@ export function createApp() {
           companyName: apporteur.companyName,
           contactName: apporteur.contactName,
           type: apporteur.type,
+          sponsorName: sponsor?.contactName || null,
         },
+        downline: downline.map((a) => ({
+          id: a.id,
+          contactName: a.contactName,
+          companyName: a.companyName,
+          createdAt: a.createdAt,
+          active: a.active,
+        })),
+        partnerRecruits: partnerRecruits.map((r) => ({
+          id: r.id,
+          contactName: r.contactName,
+          email: r.email,
+          status: r.status,
+          createdAt: r.createdAt,
+          createdApporteurId: r.createdApporteurId,
+        })),
         referrals: enrichedReferrals,
         referralLink,
         stats: { total: kpis.total, open: kpis.open, signed: kpis.signed },
         kpis,
         remuneration,
-        earnings,
-        payoutPerSignature,
+        earnings: {
+          ...earnings,
+          payoutPerDirect,
+          payoutPerOverride,
+        },
+        payoutPerSignature: payoutPerDirect,
+        contractMlmClause: APPORTEUR_CONTRACT_MLM_CLAUSE,
         portalUnlocked: contractSigned,
       });
     } catch (err: any) {
@@ -1619,6 +1676,47 @@ export function createApp() {
             status: referral.status,
             contact: referral.contact,
             createdAt: referral.createdAt,
+          },
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.post(
+    "/api/apporteur-portal/:token/partner-recruits",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken, createPartnerRecruit } = await import("./apporteurStore");
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if ((apporteur.contractStatus || "none") !== "signed") {
+          return res.status(403).json({
+            ok: false,
+            error: "contract_required",
+            message: "Le contrat partenaire doit être signé avant de recommander un futur partenaire.",
+          });
+        }
+        const body = (req.body || {}) as any;
+        const recruit = await createPartnerRecruit({
+          sponsorApporteurId: apporteur.id,
+          contactName: body.contactName,
+          email: body.email,
+          phone: body.phone,
+          companyName: body.companyName,
+          notes: body.notes,
+          actor: "apporteur_portal",
+        });
+        res.json({
+          ok: true,
+          recruit: {
+            id: recruit.id,
+            status: recruit.status,
+            contactName: recruit.contactName,
+            createdAt: recruit.createdAt,
           },
         });
       } catch (err: any) {

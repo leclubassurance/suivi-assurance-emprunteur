@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Loader2, Plus, Send, Users } from "lucide-react";
+import { ChevronDown, Loader2, Plus, Send, UserPlus, Users } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
-import type { ReferralStatus } from "../../../shared/apporteurTypes";
+import type { ReferralStatus, PartnerRecruitStatus } from "../../../shared/apporteurTypes";
 import {
   APPORTEUR_TYPE_LABELS,
+  PARTNER_RECRUIT_STATUS_LABELS,
   REFERRAL_STATUS_LABELS,
 } from "../../../shared/apporteurTypes";
-import type { ReferralKpis } from "../../../shared/apporteurKpis";
+import type { ApporteurTeamKpis } from "../../../shared/apporteurKpis";
 import type { RemunerationConfig } from "../../../shared/apporteurRemuneration";
 import { computeApporteurPayoutEur, estimatePartnerEarnings } from "../../../shared/apporteurRemuneration";
+import { APPORTEUR_CONTRACT_MLM_CLAUSE } from "../../../shared/apporteurContractMlm";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
 import KpiCard, { formatPercent } from "./PartnerKpiGrid";
 import PartnerGuideSection from "./PartnerGuideSection";
@@ -47,14 +49,33 @@ type PortalData = {
     companyName: string;
     contactName: string;
     type: string;
+    sponsorName?: string | null;
   };
+  downline?: { id: string; contactName: string; companyName: string; createdAt: string; active: boolean }[];
+  partnerRecruits?: {
+    id: string;
+    contactName: string;
+    email: string;
+    status: PartnerRecruitStatus;
+    createdAt: string;
+    createdApporteurId?: string;
+  }[];
   referrals: PortalReferral[];
   referralLink: string;
   stats: { total: number; open: number; signed: number };
-  kpis: ReferralKpis;
+  kpis: ApporteurTeamKpis;
   remuneration: RemunerationConfig;
-  earnings: { earnedEur: number; pipelineEur: number; totalIndicatifEur: number };
+  earnings: {
+    earnedEur: number;
+    pipelineEur: number;
+    totalIndicatifEur: number;
+    personalEarnedEur?: number;
+    teamEarnedEur?: number;
+    payoutPerDirect?: number;
+    payoutPerOverride?: number;
+  };
   payoutPerSignature: number;
+  contractMlmClause?: typeof APPORTEUR_CONTRACT_MLM_CLAUSE;
   portalUnlocked: boolean;
 };
 
@@ -77,6 +98,9 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
   const [form, setForm] = useState({ prenom: "", nom: "", email: "", phone: "", notes: "" });
+  const [showPartnerForm, setShowPartnerForm] = useState(false);
+  const [partnerForm, setPartnerForm] = useState({ contactName: "", email: "", phone: "", companyName: "", notes: "" });
+  const [showMlmClause, setShowMlmClause] = useState(false);
   const [simDossiers, setSimDossiers] = useState(5);
   const [simConversion, setSimConversion] = useState(28);
   const [simSavings, setSimSavings] = useState(3600);
@@ -146,6 +170,29 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
     setTimeout(() => {
       referralsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
+  };
+
+  const submitPartnerRecruit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setSubmitMsg(null);
+    try {
+      const res = await fetch(getApiUrl(`/api/apporteur-portal/${encodeURIComponent(token)}/partner-recruits`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(partnerForm),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || json.error || "Envoi impossible");
+      setPartnerForm({ contactName: "", email: "", phone: "", companyName: "", notes: "" });
+      setShowPartnerForm(false);
+      setSubmitMsg("Candidature partenaire transmise — LCIF va contacter votre filleul.");
+      await load();
+    } catch (err: any) {
+      setSubmitMsg(err?.message || "Erreur");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const submitReferral = async (e: React.FormEvent) => {
@@ -242,6 +289,104 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           onSimAssured={setSimAssured}
         />
 
+        {(data.earnings.personalEarnedEur != null || data.earnings.teamEarnedEur != null) ? (
+          <div className="grid sm:grid-cols-2 gap-3 -mt-2">
+            <div className="bg-white rounded-xl border border-slate-200 p-4 text-sm">
+              <p className="text-emerald-700 font-black text-lg">{data.earnings.personalEarnedEur ?? 0} €</p>
+              <p className="text-slate-500 text-xs">Vos dossiers signés ({data.earnings.payoutPerDirect ?? payoutPerSignature} € / signature)</p>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-4 text-sm">
+              <p className="text-violet-700 font-black text-lg">{data.earnings.teamEarnedEur ?? 0} €</p>
+              <p className="text-slate-500 text-xs">Override filleuls ({data.earnings.payoutPerOverride ?? 0} € / signature)</p>
+            </div>
+          </div>
+        ) : null}
+
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 flex items-center gap-2">
+              <UserPlus className="w-4 h-4" /> Recommander un futur partenaire
+            </h2>
+            {unlocked ? (
+              <button
+                type="button"
+                onClick={() => setShowPartnerForm((v) => !v)}
+                className="text-xs font-bold text-indigo-700 hover:underline"
+              >
+                {showPartnerForm ? "Annuler" : "Ouvrir le formulaire"}
+              </button>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-500 mb-3">
+            Recommandez une personne de confiance. LCIF valide la candidature, envoie le contrat et la rattache
+            automatiquement à vous une fois signé.
+          </p>
+          {showPartnerForm && unlocked ? (
+            <form onSubmit={submitPartnerRecruit} className="space-y-3 border border-slate-100 rounded-xl p-4 bg-slate-50/50">
+              <Field label="Nom complet" value={partnerForm.contactName} onChange={(v) => setPartnerForm((s) => ({ ...s, contactName: v }))} />
+              <Field label="Email" value={partnerForm.email} onChange={(v) => setPartnerForm((s) => ({ ...s, email: v }))} type="email" />
+              <Field label="Téléphone" value={partnerForm.phone} onChange={(v) => setPartnerForm((s) => ({ ...s, phone: v }))} />
+              <Field label="Société (optionnel)" value={partnerForm.companyName} onChange={(v) => setPartnerForm((s) => ({ ...s, companyName: v }))} />
+              <button type="submit" disabled={submitting} className="w-full py-2.5 rounded-lg bg-slate-900 text-white font-bold text-sm disabled:opacity-60">
+                Envoyer la candidature à LCIF
+              </button>
+            </form>
+          ) : null}
+          {(data.partnerRecruits?.length ?? 0) > 0 ? (
+            <ul className="mt-4 space-y-2">
+              {data.partnerRecruits!.map((r) => (
+                <li key={r.id} className="flex flex-wrap justify-between gap-2 text-sm border-t border-slate-100 pt-2">
+                  <span className="font-medium text-slate-800">{r.contactName}</span>
+                  <span className="text-[10px] font-bold uppercase text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
+                    {PARTNER_RECRUIT_STATUS_LABELS[r.status]}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+
+        {(data.downline?.length ?? 0) > 0 ? (
+          <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4" /> Vos filleuls (niveau 1)
+            </h2>
+            <ul className="space-y-2">
+              {data.downline!.map((d) => (
+                <li key={d.id} className="flex justify-between text-sm border-b border-slate-50 pb-2">
+                  <span className="font-medium text-slate-800">{d.contactName}</span>
+                  <span className="text-slate-400 text-xs">{new Date(d.createdAt).toLocaleDateString("fr-FR")}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] text-slate-400 mt-3">
+              Recos équipe : {data.kpis.teamReferrals} · Signées : {data.kpis.teamSigned}
+            </p>
+          </section>
+        ) : null}
+
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setShowMlmClause((v) => !v)}
+            className="w-full flex justify-between items-center text-sm font-black uppercase tracking-wide text-slate-500"
+          >
+            Clause réseau (contrat)
+            <ChevronDown className={`w-4 h-4 transition-transform ${showMlmClause ? "rotate-180" : ""}`} />
+          </button>
+          {showMlmClause ? (
+            <div className="mt-3 text-xs text-slate-600 space-y-3 leading-relaxed">
+              <p className="font-medium">{data.contractMlmClause?.summary || APPORTEUR_CONTRACT_MLM_CLAUSE.summary}</p>
+              {(data.contractMlmClause?.articles || APPORTEUR_CONTRACT_MLM_CLAUSE.articles).map((a) => (
+                <div key={a.heading}>
+                  <p className="font-bold text-slate-800">{a.heading}</p>
+                  <p>{a.body}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
         <section>
           <div className="flex items-center justify-between gap-3 mb-3">
             <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">Votre activité</h2>
@@ -265,6 +410,13 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
               sub="sur dossiers clos"
             />
           </div>
+          {(data.kpis.downlineCount ?? 0) > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
+              <KpiCard label="Filleuls" value={data.kpis.downlineCount} accent="indigo" />
+              <KpiCard label="Reco équipe" value={data.kpis.teamReferrals} />
+              <KpiCard label="Signées équipe" value={data.kpis.teamSigned} accent="emerald" />
+            </div>
+          ) : null}
           {showKpiDetail ? (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
               <KpiCard label="Nouveaux" value={data.kpis.nouveau} />

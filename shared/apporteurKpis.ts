@@ -62,6 +62,29 @@ export type AdminApporteurKpis = ReferralKpis & {
   apporteursWithOpenReferrals: number;
 };
 
+export type ApporteurTeamKpis = ReferralKpis & {
+  downlineCount: number;
+  teamReferrals: number;
+  teamSigned: number;
+  teamOpen: number;
+};
+
+export function computeApporteurTeamKpis(
+  personalReferrals: Pick<Referral, "status" | "createdAt">[],
+  teamReferrals: Pick<Referral, "status" | "createdAt">[],
+  downlineCount: number,
+): ApporteurTeamKpis {
+  const personal = computeReferralKpis(personalReferrals);
+  const team = computeReferralKpis(teamReferrals);
+  return {
+    ...personal,
+    downlineCount,
+    teamReferrals: team.total,
+    teamSigned: team.signed,
+    teamOpen: team.open,
+  };
+}
+
 export function computeAdminApporteurKpis(
   apporteurs: { id: string; active: boolean }[],
   referrals: Referral[],

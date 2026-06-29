@@ -11,6 +11,8 @@ export type RemunerationConfig = {
   minPerAssuredEur: number;
   maxPerAssuredEur: number;
   apporteurShareOfBrokerage: number;
+  /** Override parrain N1 : part des frais de courtage sur dossiers signés des filleuls. */
+  sponsorOverrideShareOfBrokerage: number;
   /** Hypothèse simulateur — économies annuelles moyennes par assuré. */
   defaultAnnualSavingsEur: number;
   defaultAssuredPerDossier: number;
@@ -24,11 +26,12 @@ export function getRemunerationConfig(_tier: ApporteurRemunerationTier = "autre"
     minPerAssuredEur: 200,
     maxPerAssuredEur: 500,
     apporteurShareOfBrokerage: 0.5,
+    sponsorOverrideShareOfBrokerage: 0.1,
     defaultAnnualSavingsEur: 3600,
     defaultAssuredPerDossier: 1.5,
     defaultConversionRate: 0.28,
     disclaimer:
-      "Montants indicatifs TTC : 10 % des économies (min. 200 € / max. 500 € par assuré), dont 50 % reversés à l'apporteur. Montant définitif selon contrat signé et dossier validé.",
+      "Montants indicatifs TTC : 50 % des frais de courtage sur vos dossiers signés ; 10 % des frais de courtage sur les dossiers signés de vos filleuls directs (niveau 1). Paiement à réception de la commission assureur.",
   };
 }
 
@@ -105,4 +108,41 @@ export function computeEarnedAndPipelineEur(
   const earnedEur = signedCount * payoutPerSignatureEur;
   const pipelineEur = Math.round(openCount * conversionRate * payoutPerSignatureEur);
   return { earnedEur, pipelineEur, totalIndicatifEur: earnedEur + pipelineEur };
+}
+
+export function computeSponsorOverridePayoutEur(params: {
+  annualSavingsEur: number;
+  assuredCount: number;
+  config: RemunerationConfig;
+}): number {
+  const brokerage = computeBrokerageFeeEur({
+    annualSavingsEur: params.annualSavingsEur,
+    assuredCount: params.assuredCount,
+    config: params.config,
+  });
+  return Math.round(brokerage * params.config.sponsorOverrideShareOfBrokerage);
+}
+
+export function computeApporteurEarningsWithTeam(params: {
+  personalSigned: number;
+  teamSigned: number;
+  payoutPerDirectEur: number;
+  payoutPerOverrideEur: number;
+  openPersonal: number;
+  openTeam: number;
+  conversionRate: number;
+}): {
+  personalEarnedEur: number;
+  teamEarnedEur: number;
+  earnedEur: number;
+  pipelineEur: number;
+  totalIndicatifEur: number;
+} {
+  const personalEarnedEur = params.personalSigned * params.payoutPerDirectEur;
+  const teamEarnedEur = params.teamSigned * params.payoutPerOverrideEur;
+  const pipelinePersonalEur = Math.round(params.openPersonal * params.conversionRate * params.payoutPerDirectEur);
+  const pipelineTeamEur = Math.round(params.openTeam * params.conversionRate * params.payoutPerOverrideEur);
+  const earnedEur = personalEarnedEur + teamEarnedEur;
+  const pipelineEur = pipelinePersonalEur + pipelineTeamEur;
+  return { personalEarnedEur, teamEarnedEur, earnedEur, pipelineEur, totalIndicatifEur: earnedEur + pipelineEur };
 }

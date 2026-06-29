@@ -4,6 +4,8 @@ import { APPORTEUR_META_DOSSIER_ID } from "../shared/apporteurMeta";
 import type {
   Apporteur,
   ApporteurType,
+  PartnerRecruitRequest,
+  PartnerRecruitStatus,
   Referral,
   ReferralContact,
   ReferralSource,
@@ -21,6 +23,7 @@ export type ApporteurStore = {
   version: 1;
   apporteurs: Apporteur[];
   referrals: Referral[];
+  partnerRecruits: PartnerRecruitRequest[];
   updatedAt: string;
 };
 
@@ -57,7 +60,7 @@ function getStoreFilePath(): string {
 }
 
 function emptyStore(): ApporteurStore {
-  return { version: 1, apporteurs: [], referrals: [], updatedAt: new Date().toISOString() };
+  return { version: 1, apporteurs: [], referrals: [], partnerRecruits: [], updatedAt: new Date().toISOString() };
 }
 
 function normalizeStore(raw: unknown): ApporteurStore {
@@ -66,6 +69,7 @@ function normalizeStore(raw: unknown): ApporteurStore {
     version: 1,
     apporteurs: Array.isArray(data?.apporteurs) ? data.apporteurs : [],
     referrals: Array.isArray(data?.referrals) ? data.referrals : [],
+    partnerRecruits: Array.isArray(data?.partnerRecruits) ? data.partnerRecruits : [],
     updatedAt: data?.updatedAt || new Date().toISOString(),
   };
 }
@@ -281,6 +285,9 @@ export async function createApporteur(input: {
   type?: ApporteurType;
   notes?: string;
   referralToken?: string;
+  sponsorId?: string;
+  contractStatus?: Apporteur["contractStatus"];
+  contractSignedAt?: string;
 }): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const now = new Date().toISOString();
@@ -290,9 +297,17 @@ export async function createApporteur(input: {
   if (!companyName || !contactName || !email.includes("@")) {
     throw new Error("Nom société, contact et email valides requis.");
   }
+  if (input.sponsorId) {
+    const sponsor = store.apporteurs.find((a) => a.id === input.sponsorId);
+    if (!sponsor) throw new Error("Parrain introuvable.");
+  }
+  if (store.apporteurs.some((a) => a.email === email)) {
+    throw new Error("Un apporteur avec cet email existe déjà.");
+  }
   const tokenCandidates = input.referralToken?.trim()
     ? [slugifyToken(input.referralToken)]
     : buildReferralTokenCandidates(contactName, companyName);
+  const contractStatus = input.contractStatus || "none";
   const apporteur: Apporteur = {
     id: newId("AP"),
     createdAt: now,
@@ -307,6 +322,11 @@ export async function createApporteur(input: {
     portalToken: generatePortalToken(),
     notifyEmailEnabled: true,
     notes: String(input.notes || "").trim() || undefined,
+    sponsorId: input.sponsorId || undefined,
+    contractStatus,
+    contractSignedAt:
+      input.contractSignedAt ||
+      (contractStatus === "signed" ? now : undefined),
   };
   store.apporteurs.push(apporteur);
   await persistStore(store);
@@ -329,12 +349,21 @@ export async function updateApporteur(
       | "contractStatus"
       | "contractSignedAt"
       | "referralToken"
+      | "sponsorId"
     >
   >,
 ): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const apporteur = store.apporteurs.find((a) => a.id === id);
   if (!apporteur) throw new Error("Apporteur introuvable.");
+  if (patch.sponsorId !== undefined) {
+    if (patch.sponsorId === id) throw new Error("Un apporteur ne peut pas être son propre parrain.");
+    if (patch.sponsorId) {
+      const sponsor = store.apporteurs.find((a) => a.id === patch.sponsorId);
+      if (!sponsor) throw new Error("Parrain introuvable.");
+    }
+    apporteur.sponsorId = patch.sponsorId || undefined;
+  }
   if (patch.referralToken != null) {
     const next = slugifyToken(String(patch.referralToken));
     if (!next) throw new Error("Lien ?ref= invalide.");
@@ -646,4 +675,149 @@ export async function pruneReferralsWithMissingDossiers(): Promise<number> {
     return before - store.referrals.length;
   }
   return 0;
+}
+
+export function listDirectDownlineApporteurs(store: ApporteurStore, sponsorId: string): Apporteur[] {
+  return store.apporteurs.filter((a) => a.sponsorId === sponsorId && a.active);
+}
+
+export function getTeamReferralsForApporteur(store: ApporteurStore, apporteurId: string): Referral[] {
+  const downlineIds = new Set(listDirectDownlineApporteurs(store, apporteurId).map((a) => a.id));
+  return store.referrals.filter((r) => downlineIds.has(r.apporteurId));
+}
+
+function pushRecruitEvent(
+  recruit: PartnerRecruitRequest,
+  status: PartnerRecruitStatus,
+  message?: string,
+  actor?: string,
+) {
+  recruit.events = recruit.events || [];
+  recruit.events.push({
+    at: new Date().toISOString(),
+    status: status as ReferralStatus,
+    message,
+    actor,
+  });
+  recruit.events = recruit.events.slice(-30);
+}
+
+export async function listPartnerRecruits(filters?: {
+  sponsorApporteurId?: string;
+  status?: PartnerRecruitStatus;
+}): Promise<PartnerRecruitRequest[]> {
+  const store = await loadApporteurStore();
+  let items = [...store.partnerRecruits];
+  if (filters?.sponsorApporteurId) {
+    items = items.filter((r) => r.sponsorApporteurId === filters.sponsorApporteurId);
+  }
+  if (filters?.status) {
+    items = items.filter((r) => r.status === filters.status);
+  }
+  return items.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+export async function createPartnerRecruit(input: {
+  sponsorApporteurId: string;
+  contactName: string;
+  email: string;
+  phone?: string;
+  companyName?: string;
+  notes?: string;
+  actor?: string;
+}): Promise<PartnerRecruitRequest> {
+  const store = await loadApporteurStore();
+  const sponsor = store.apporteurs.find((a) => a.id === input.sponsorApporteurId);
+  if (!sponsor) throw new Error("Apporteur parrain introuvable.");
+  if ((sponsor.contractStatus || "none") !== "signed") {
+    throw new Error("Contrat apporteur signé requis pour recommander un partenaire.");
+  }
+  const email = String(input.email || "").trim().toLowerCase();
+  const contactName = String(input.contactName || "").trim();
+  if (!contactName || !email.includes("@")) {
+    throw new Error("Nom et email valides requis.");
+  }
+  if (store.apporteurs.some((a) => a.email === email)) {
+    throw new Error("Cette personne est déjà apporteur LCIF.");
+  }
+  const pending = store.partnerRecruits.find(
+    (r) =>
+      r.email === email &&
+      !["CONTRAT_SIGNE", "REFUSE"].includes(r.status),
+  );
+  if (pending) {
+    throw new Error("Une candidature est déjà en cours pour cet email.");
+  }
+  const now = new Date().toISOString();
+  const recruit: PartnerRecruitRequest = {
+    id: newId("PRE"),
+    sponsorApporteurId: sponsor.id,
+    createdAt: now,
+    updatedAt: now,
+    status: "NOUVEAU",
+    contactName,
+    email,
+    phone: String(input.phone || "").trim() || undefined,
+    companyName: String(input.companyName || "").trim() || undefined,
+    notes: String(input.notes || "").trim() || undefined,
+    events: [],
+  };
+  pushRecruitEvent(recruit, "NOUVEAU", "Candidature partenaire via portail apporteur", input.actor || "apporteur_portal");
+  store.partnerRecruits.push(recruit);
+  await persistStore(store);
+  return recruit;
+}
+
+async function createApporteurFromRecruit(recruit: PartnerRecruitRequest): Promise<Apporteur> {
+  if (recruit.createdApporteurId) {
+    const existing = await findApporteurById(recruit.createdApporteurId);
+    if (existing) return existing;
+  }
+  const apporteur = await createApporteur({
+    companyName: recruit.companyName || recruit.contactName,
+    contactName: recruit.contactName,
+    email: recruit.email,
+    phone: recruit.phone,
+    type: "autre",
+    notes: recruit.notes ? `Reco parrain : ${recruit.sponsorApporteurId}. ${recruit.notes}` : undefined,
+    sponsorId: recruit.sponsorApporteurId,
+    contractStatus: "signed",
+  });
+  const store = await loadApporteurStore();
+  const r = store.partnerRecruits.find((x) => x.id === recruit.id);
+  if (r) {
+    r.createdApporteurId = apporteur.id;
+    r.updatedAt = new Date().toISOString();
+    await persistStore(store);
+  }
+  return apporteur;
+}
+
+export async function updatePartnerRecruit(
+  id: string,
+  patch: {
+    status?: PartnerRecruitStatus;
+    note?: string;
+    actor?: string;
+  },
+): Promise<PartnerRecruitRequest> {
+  const store = await loadApporteurStore();
+  const recruit = store.partnerRecruits.find((r) => r.id === id);
+  if (!recruit) throw new Error("Candidature introuvable.");
+  const previousStatus = recruit.status;
+  if (patch.status && patch.status !== recruit.status) {
+    recruit.status = patch.status;
+    pushRecruitEvent(recruit, patch.status, patch.note, patch.actor || "admin");
+  } else if (patch.note) {
+    pushRecruitEvent(recruit, recruit.status, patch.note, patch.actor || "admin");
+  }
+  recruit.updatedAt = new Date().toISOString();
+  await persistStore(store);
+
+  if (patch.status === "CONTRAT_SIGNE" && previousStatus !== "CONTRAT_SIGNE") {
+    await createApporteurFromRecruit(recruit);
+    const refreshed = await loadApporteurStore();
+    return refreshed.partnerRecruits.find((r) => r.id === id)!;
+  }
+  return recruit;
 }
