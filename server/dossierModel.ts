@@ -206,6 +206,20 @@ export interface Dossier {
     playbooks: Array<Record<string, unknown>>;
     updatedAt: string;
   };
+  /** Dossier meta LCIF-999998 — stockage apporteurs / recommandations. */
+  apporteurStore?: {
+    version: 1;
+    apporteurs: Array<Record<string, unknown>>;
+    referrals: Array<Record<string, unknown>>;
+    updatedAt: string;
+  };
+  /** Attribution apporteur d'affaires. */
+  apporteur?: {
+    apporteurId: string;
+    referralId?: string;
+    apporteurLabel?: string;
+    referralToken?: string;
+  };
   /** Pré-formulaire : contact entrant assurance@ sans dossier client complet. */
   isLead?: boolean;
   leadSource?: string;
@@ -265,6 +279,8 @@ export function ensureDossierShape(d: any): Dossier {
     privacyConsent: d.privacyConsent,
     adminChecklistOverrides: d.adminChecklistOverrides,
     camillePlaybooksStore: d.camillePlaybooksStore,
+    apporteurStore: d.apporteurStore,
+    apporteur: d.apporteur,
     isLead: isLead,
     leadSource: d.leadSource,
     leadPromotedAt: d.leadPromotedAt,

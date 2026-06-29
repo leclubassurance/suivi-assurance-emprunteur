@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Dossier, UserInfo } from "../../types";
-import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload } from "lucide-react";
+import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload, Users } from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
@@ -21,6 +21,7 @@ import {
   useAdminOpsData,
 } from "./AdminOpsPanel";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
+import AdminApporteursPanel from "./AdminApporteursPanel";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
 
@@ -31,7 +32,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const [activeTab, setActiveTab] = useState<"SUIVI" | "MESSAGES" | "INFORMATIONS" | "DOCUMENTS" | "ENVOI_MAIL">("SUIVI");
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
   const [autoSyncGmail, setAutoSyncGmail] = useState(true);
-  
+  const [showApporteursPanel, setShowApporteursPanel] = useState(false);
   const [replySubject, setReplySubject] = useState("");
   const [replyBody, setReplyBody] = useState("");
   const [showDeleteConfirmId, setShowDeleteConfirmId] = useState<string | null>(null);
@@ -804,6 +805,22 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {showApporteursPanel ? (
+        <AdminApporteursPanel
+          onBack={() => setShowApporteursPanel(false)}
+          onOpenDossier={(dossierId) => {
+            setShowApporteursPanel(false);
+            const d = dossiers.find((x) => x.id === dossierId);
+            if (d) {
+              setSelectedDossier(d);
+              setSidebarMode(isProspectDossier(d) ? "prospects" : "dossiers");
+            } else {
+              showToast(`Dossier ${dossierId} non chargé — rafraîchissez la liste.`, "info");
+            }
+          }}
+        />
+      ) : (
+        <>
       <AdminActivityBar
         metrics={metrics}
         metricsPeriodDays={metricsPeriodDays}
@@ -833,9 +850,18 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
             Lancer les relances
           </button>
         </h1>
-        <button onClick={onLogout} className="flex gap-2 text-slate-500 hover:text-slate-900 transition-colors">
-          <LogOut className="w-5 h-5"/> Déconnexion
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => setShowApporteursPanel(true)}
+            className="flex gap-2 text-indigo-700 hover:text-indigo-900 transition-colors font-bold text-sm"
+          >
+            <Users className="w-5 h-5" /> Apporteurs
+          </button>
+          <button onClick={onLogout} className="flex gap-2 text-slate-500 hover:text-slate-900 transition-colors">
+            <LogOut className="w-5 h-5"/> Déconnexion
+          </button>
+        </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
@@ -912,6 +938,12 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
                     {selectedDossier.formData?.assures?.[0]?.prenom} {selectedDossier.formData?.assures?.[0]?.nom}
                   </h2>
                   <p className="text-slate-500 font-mono text-sm">{selectedDossier.id}</p>
+                  {(selectedDossier as any).apporteur?.apporteurLabel ? (
+                    <p className="text-xs font-bold text-indigo-700 mt-2 inline-flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-full">
+                      <Users className="w-3.5 h-3.5" />
+                      Apporté par {(selectedDossier as any).apporteur.apporteurLabel}
+                    </p>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {getAlerts(selectedDossier).slice(0, 3).map((a, idx) => (
                       <span key={idx} className="inline-flex items-center gap-2 bg-amber-50 text-amber-800 border border-amber-200 px-3 py-1.5 rounded-full text-xs font-bold">
@@ -1922,6 +1954,8 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

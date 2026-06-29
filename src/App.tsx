@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Step, InsuranceFormData, FormErrors, Dossier, UserInfo } from './types';
-import { INITIAL_FORM_DATA, CLIENT_PORTAL_URL_KEY } from './constants';
+import { INITIAL_FORM_DATA, CLIENT_PORTAL_URL_KEY, APPORTEUR_REF_SESSION_KEY } from './constants';
 import LandingStep from './components/steps/LandingStep';
 import PreparationStep from './components/steps/PreparationStep';
 import ProjetStep from './components/steps/ProjetStep';
@@ -86,6 +86,14 @@ export default function App() {
       }
     };
     syncRoute();
+    try {
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      if (ref && ref.trim()) {
+        sessionStorage.setItem(APPORTEUR_REF_SESSION_KEY, ref.trim().toLowerCase());
+      }
+    } catch {
+      /* ignore */
+    }
     window.addEventListener('popstate', syncRoute);
     return () => window.removeEventListener('popstate', syncRoute);
   }, []);
@@ -231,10 +239,17 @@ export default function App() {
         const { base64Content, rawFile, ...rest } = doc as any;
         return rest;
       });
+      let apporteurRefToken: string | undefined;
+      try {
+        apporteurRefToken = sessionStorage.getItem(APPORTEUR_REF_SESSION_KEY) || undefined;
+      } catch {
+        apporteurRefToken = undefined;
+      }
       const cleanedFormData = {
         ...formData,
         documents: strippedDocuments,
         privacyConsent: buildClientPrivacyConsentPayload(),
+        ...(apporteurRefToken ? { apporteurRefToken } : {}),
       };
 
       const formPayload = new FormData();

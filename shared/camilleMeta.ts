@@ -5,6 +5,4 @@ export function isCamilleMetaDossier(id: string | null | undefined): boolean {
   return String(id || "").trim() === CAMILLE_META_DOSSIER_ID;
 }
 
-export function isVisibleAdminDossier(id: string | null | undefined): boolean {
-  return !isCamilleMetaDossier(id);
-}
+export { isVisibleAdminDossier } from "./apporteurMeta";

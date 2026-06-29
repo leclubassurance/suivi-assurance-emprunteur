@@ -447,6 +447,17 @@ export function createApp() {
         appendLog(`[RGPD] Journal Sheets erreur (${newDossier.id}): ${sheetErr?.message || sheetErr}`);
       }
 
+      try {
+        const refToken = String(mergedFormData.apporteurRefToken || "").trim();
+        if (refToken) {
+          const { attachApporteurToNewDossier, syncReferralFromDossier } = await import("./apporteurStore");
+          await attachApporteurToNewDossier(newDossier, refToken);
+          await syncReferralFromDossier(newDossier, "formulaire");
+        }
+      } catch (apErr: any) {
+        appendLog(`[Apporteur] Attribution (${newDossier.id}): ${apErr?.message || apErr}`);
+      }
+
       await writeDB(db, newDossier);
       appendLog(`Succès d'écriture du dossier ${newDossier.id} dans la base de données.`);
 
@@ -654,6 +665,12 @@ export function createApp() {
         }
       }
       await writeDB(db, dossier);
+      try {
+        const { syncReferralFromDossier } = await import("./apporteurStore");
+        await syncReferralFromDossier(dossier, String((req as any).adminEmail || "admin"));
+      } catch {
+        /* non bloquant */
+      }
       res.json({ success: true, dossier });
     } else {
       res.status(404).json({ error: "Dossier introuvable" });
@@ -819,6 +836,12 @@ export function createApp() {
     }
     try {
       await writeDB(db, dossier);
+      try {
+        const { syncReferralFromDossier } = await import("./apporteurStore");
+        await syncReferralFromDossier(dossier, "admin_send_email");
+      } catch {
+        /* non bloquant */
+      }
     } catch (err: any) {
       console.error("[send-email] Persistance Firestore:", err?.message || err);
       return res.json({
@@ -1303,6 +1326,151 @@ export function createApp() {
       res.json({ success: true, ...result, seedVersion: audit.seedVersion, audit });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/apporteurs", async (req, res) => {
+    try {
+      const {
+        listApporteurs,
+        listReferrals,
+        getApporteurSummary,
+      } = await import("./apporteurStore");
+      const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const apporteurId = String(req.query.apporteurId || "").trim() || undefined;
+      const [apporteurs, referrals, summary] = await Promise.all([
+        listApporteurs(),
+        listReferrals(apporteurId ? { apporteurId } : undefined),
+        getApporteurSummary(),
+      ]);
+      const publicBaseUrl = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      res.json({ success: true, apporteurs, referrals, summary, publicBaseUrl });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/apporteurs", async (req, res) => {
+    try {
+      const { createApporteur } = await import("./apporteurStore");
+      const body = (req.body || {}) as any;
+      const apporteur = await createApporteur({
+        companyName: body.companyName,
+        contactName: body.contactName,
+        email: body.email,
+        phone: body.phone,
+        type: body.type,
+        notes: body.notes,
+        referralToken: body.referralToken,
+      });
+      res.json({ success: true, apporteur });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.patch("/api/admin/apporteurs/:id", async (req, res) => {
+    try {
+      const { updateApporteur } = await import("./apporteurStore");
+      const apporteur = await updateApporteur(req.params.id, (req.body || {}) as any);
+      res.json({ success: true, apporteur });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/referrals", async (req, res) => {
+    try {
+      const { createReferral, syncReferralFromDossier } = await import("./apporteurStore");
+      const body = (req.body || {}) as any;
+      const referral = await createReferral({
+        apporteurId: String(body.apporteurId || ""),
+        contact: body.contact || {},
+        source: "admin",
+        dossierId: body.dossierId,
+        actor: String((req as any).adminEmail || "admin"),
+      });
+      if (body.dossierId) {
+        const db = await readDBAsync();
+        const dossier = db.dossiers.find((d: any) => d.id === String(body.dossierId));
+        if (dossier) {
+          const apporteur = await (await import("./apporteurStore")).findApporteurById(referral.apporteurId);
+          dossier.apporteur = {
+            apporteurId: referral.apporteurId,
+            referralId: referral.id,
+            apporteurLabel: apporteur?.companyName,
+            referralToken: apporteur?.referralToken,
+          };
+          await syncReferralFromDossier(dossier);
+          await writeDB(db, dossier);
+        }
+      }
+      res.json({ success: true, referral });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.patch("/api/admin/referrals/:id", async (req, res) => {
+    try {
+      const { updateReferral } = await import("./apporteurStore");
+      const body = (req.body || {}) as any;
+      const referral = await updateReferral(req.params.id, {
+        status: body.status,
+        contact: body.contact,
+        dossierId: body.dossierId,
+        actor: String((req as any).adminEmail || "admin"),
+        note: body.note,
+      });
+      res.json({ success: true, referral });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/referrals/:id/link-dossier", async (req, res) => {
+    try {
+      const { linkReferralToDossier, findApporteurById, syncReferralFromDossier } = await import(
+        "./apporteurStore"
+      );
+      const dossierId = String((req.body as any)?.dossierId || "").trim().toUpperCase();
+      if (!dossierId) return res.status(400).json({ error: "dossierId requis" });
+      const referral = await linkReferralToDossier(
+        req.params.id,
+        dossierId,
+        String((req as any).adminEmail || "admin"),
+      );
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === dossierId);
+      if (dossier) {
+        const apporteur = await findApporteurById(referral.apporteurId);
+        dossier.apporteur = {
+          apporteurId: referral.apporteurId,
+          referralId: referral.id,
+          apporteurLabel: apporteur?.companyName,
+          referralToken: apporteur?.referralToken,
+        };
+        await syncReferralFromDossier(dossier);
+        await writeDB(db, dossier);
+      }
+      res.json({ success: true, referral });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/public/apporteur-ref/:token", async (req, res) => {
+    try {
+      const { findApporteurByToken } = await import("./apporteurStore");
+      const apporteur = await findApporteurByToken(req.params.token);
+      if (!apporteur || !apporteur.active) {
+        return res.status(404).json({ ok: false, error: "ref_invalid" });
+      }
+      res.json({ ok: true, companyName: apporteur.companyName });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
 
