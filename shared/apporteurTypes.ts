@@ -40,7 +40,12 @@ export type Apporteur = {
     companyName: string;
     ipAddress?: string;
     userAgent?: string;
+    pdfFileName?: string;
+    driveFileId?: string;
+    driveLink?: string;
   };
+  /** Dossier Google Drive « Apporteurs d'affaires » (contrats archivés). */
+  driveFolderId?: string;
   /** Apporteur parrain (niveau 1 — marketing de réseau). */
   sponsorId?: string;
 };

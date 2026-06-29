@@ -345,6 +345,25 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           onNewReferral={openNewReferral}
         />
 
+        {data.contract?.signed ? (
+          <section className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-slate-600">
+              Contrat signé
+              {data.contract.signedAt
+                ? ` le ${new Date(data.contract.signedAt).toLocaleDateString("fr-FR")}`
+                : ""}
+            </span>
+            <a
+              href={getApiUrl(`/api/apporteur-portal/${encodeURIComponent(token)}/contract/pdf`)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-bold text-indigo-700 hover:underline"
+            >
+              Télécharger le PDF
+            </a>
+          </section>
+        ) : null}
+
         <PartnerBenefitCards payoutPerSignatureEur={payoutPerSignature} />
 
         <PartnerClientScript

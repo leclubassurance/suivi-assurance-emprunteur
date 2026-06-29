@@ -28,6 +28,7 @@ export default function PartnerContractSigning({
 }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [signedSuccess, setSignedSuccess] = useState<{ pdfUrl: string; driveLink?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ContractPayload | null>(null);
   const [signerName, setSignerName] = useState("");
@@ -93,7 +94,13 @@ export default function PartnerContractSigning({
       if (!res.ok || !json.ok) {
         throw new Error(json.error || "Signature impossible.");
       }
-      onSigned();
+      if (json.alreadySigned) {
+        onSigned();
+        return;
+      }
+      const pdfPath = json.pdfUrl || `/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract/pdf`;
+      setSignedSuccess({ pdfUrl: getApiUrl(pdfPath), driveLink: json.driveLink });
+      setTimeout(() => onSigned(), 2500);
     } catch (err: any) {
       setError(err?.message || "Erreur");
     } finally {
@@ -114,6 +121,34 @@ export default function PartnerContractSigning({
       <div className="bg-white rounded-2xl border border-red-100 p-6 text-center text-red-700 text-sm">
         {error || "Contrat indisponible."}
       </div>
+    );
+  }
+
+  if (signedSuccess) {
+    return (
+      <section className="bg-white rounded-2xl border border-emerald-200 p-6 text-center shadow-sm">
+        <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-3" />
+        <h2 className="text-lg font-black text-emerald-800 mb-2">Contrat signé</h2>
+        <p className="text-sm text-slate-600 mb-4">
+          Une copie PDF vous a été envoyée par email. Votre espace partenaire se débloque…
+        </p>
+        <a
+          href={signedSuccess.pdfUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700"
+        >
+          Télécharger le PDF
+        </a>
+        {signedSuccess.driveLink ? (
+          <p className="text-[11px] text-slate-400 mt-3">
+            Archivé sur Drive LCIF ·{" "}
+            <a href={signedSuccess.driveLink} className="text-indigo-600 underline" target="_blank" rel="noopener noreferrer">
+              ouvrir
+            </a>
+          </p>
+        ) : null}
+      </section>
     );
   }
 

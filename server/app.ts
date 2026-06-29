@@ -1694,6 +1694,8 @@ export function createApp() {
         signature: apporteur.contractSignature || null,
         document: getApporteurContractPayload(apporteur, sponsor?.contactName || null),
         signerHint: apporteur.contactName,
+        pdfAvailable: isApporteurContractSigned(apporteur),
+        driveLink: apporteur.contractSignature?.driveLink || null,
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
@@ -1706,10 +1708,11 @@ export function createApp() {
     express.json(),
     async (req, res) => {
       try {
-        const { findApporteurByPortalToken } = await import("./apporteurStore");
+        const { findApporteurByPortalToken, loadApporteurStore } = await import("./apporteurStore");
         const { signApporteurContractOnline, isApporteurContractSigned } = await import(
           "./apporteurContractSign"
         );
+        const { resolvePublicAppBaseUrl } = await import("./clientPortal");
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
         if (isApporteurContractSigned(apporteur)) {
@@ -1717,8 +1720,16 @@ export function createApp() {
             ok: true,
             alreadySigned: true,
             contractSignedAt: apporteur.contractSignedAt || null,
+            driveLink: apporteur.contractSignature?.driveLink || null,
           });
         }
+        const store = await loadApporteurStore();
+        const sponsor = apporteur.sponsorId
+          ? store.apporteurs.find((a) => a.id === apporteur.sponsorId) || null
+          : null;
+        const publicBaseUrl = resolvePublicAppBaseUrl(
+          String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+        );
         const body = (req.body || {}) as { signerName?: string; acceptTerms?: boolean };
         const updated = await signApporteurContractOnline({
           apporteur,
@@ -1726,17 +1737,46 @@ export function createApp() {
           acceptTerms: Boolean(body.acceptTerms),
           ipAddress: String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim() || undefined,
           userAgent: String(req.headers["user-agent"] || "").slice(0, 500) || undefined,
+          portalBaseUrl: publicBaseUrl,
+          sponsorName: sponsor?.contactName || null,
         });
         res.json({
           ok: true,
           contractSignedAt: updated.contractSignedAt || null,
           signature: updated.contractSignature || null,
+          driveLink: updated.contractSignature?.driveLink || null,
+          pdfUrl: `/api/apporteur-portal/${encodeURIComponent(req.params.token)}/contract/pdf`,
         });
       } catch (err: any) {
         res.status(400).json({ ok: false, error: err?.message || String(err) });
       }
     },
   );
+
+  app.get("/api/apporteur-portal/:token/contract/pdf", async (req, res) => {
+    try {
+      const { findApporteurByPortalToken, loadApporteurStore } = await import("./apporteurStore");
+      const { buildSignedApporteurContractPdf, isApporteurContractSigned } = await import(
+        "./apporteurContractSign"
+      );
+      const apporteur = await findApporteurByPortalToken(req.params.token);
+      if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+      if (!isApporteurContractSigned(apporteur)) {
+        return res.status(403).json({ ok: false, error: "contract_not_signed" });
+      }
+      const store = await loadApporteurStore();
+      const sponsor = apporteur.sponsorId
+        ? store.apporteurs.find((a) => a.id === apporteur.sponsorId) || null
+        : null;
+      const pdf = await buildSignedApporteurContractPdf(apporteur, sponsor?.contactName || null);
+      if (!pdf) return res.status(404).json({ ok: false, error: "pdf_unavailable" });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
+      res.send(pdf.buffer);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
 
   app.post(
     "/api/apporteur-portal/:token/referrals",

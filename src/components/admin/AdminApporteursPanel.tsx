@@ -503,10 +503,25 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                               </button>
                             </>
                           ) : (
-                            <p className="text-xs text-emerald-700 font-bold">
-                              Signé{a.contractSignedAt ? ` le ${new Date(a.contractSignedAt).toLocaleDateString("fr-FR")}` : ""}
-                              {a.contractSignature?.signerName ? ` · ${a.contractSignature.signerName}` : ""}
-                            </p>
+                            <div className="space-y-1">
+                              <p className="text-xs text-emerald-700 font-bold">
+                                Signé{a.contractSignedAt ? ` le ${new Date(a.contractSignedAt).toLocaleDateString("fr-FR")}` : ""}
+                                {a.contractSignature?.signerName ? ` · ${a.contractSignature.signerName}` : ""}
+                              </p>
+                              {a.contractSignature?.pdfFileName ? (
+                                <p className="text-[10px] text-slate-500">PDF : {a.contractSignature.pdfFileName}</p>
+                              ) : null}
+                              {a.contractSignature?.driveLink ? (
+                                <a
+                                  href={a.contractSignature.driveLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] font-bold text-indigo-700 hover:underline"
+                                >
+                                  Voir sur Google Drive
+                                </a>
+                              ) : null}
+                            </div>
                           )}
                         </div>
                         <p className="text-[10px] text-slate-400 mt-2">

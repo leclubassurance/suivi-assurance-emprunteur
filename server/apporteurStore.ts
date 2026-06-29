@@ -349,6 +349,7 @@ export async function updateApporteur(
       | "contractStatus"
       | "contractSignedAt"
       | "contractSignature"
+      | "driveFolderId"
       | "referralToken"
       | "sponsorId"
     >
@@ -392,6 +393,9 @@ export async function updateApporteur(
   }
   if (patch.contractSignature !== undefined) {
     apporteur.contractSignature = patch.contractSignature || undefined;
+  }
+  if (patch.driveFolderId !== undefined) {
+    apporteur.driveFolderId = patch.driveFolderId || undefined;
   }
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);

@@ -1117,31 +1117,69 @@ export async function syncGmailInbox(
   }
 }
 
+export type GmailEmailAttachment = {
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+};
+
 export async function sendEmailReplyWithGmailAPI(
   accessToken: string | null,
   toEmail: string,
   subject: string,
   bodyText: string,
-  options?: { cc?: string[] },
+  options?: { cc?: string[]; attachments?: GmailEmailAttachment[] },
 ) {
   const { auth } = await createGmailAuth(accessToken);
   const gmail = google.gmail({ version: 'v1', auth: auth as any });
 
   const isHtml = /<[a-z][\s\S]*>/i.test(bodyText);
-  const mailLines = [];
-
-  mailLines.push(`To: ${toEmail}`);
   const cc = (options?.cc || []).filter(Boolean);
-  if (cc.length) {
-    mailLines.push(`Cc: ${cc.join(", ")}`);
-  }
-  mailLines.push(`Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=`);
-  mailLines.push('MIME-Version: 1.0');
-  mailLines.push(`Content-Type: text/${isHtml ? 'html' : 'plain'}; charset="UTF-8"`);
-  mailLines.push('');
-  mailLines.push(bodyText);
+  const attachments = (options?.attachments || []).filter((a) => a.content?.length);
 
-  const raw = Buffer.from(mailLines.join('\r\n'))
+  let rawMessage: string;
+  if (attachments.length === 0) {
+    const mailLines = [];
+    mailLines.push(`To: ${toEmail}`);
+    if (cc.length) mailLines.push(`Cc: ${cc.join(", ")}`);
+    mailLines.push(`Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=`);
+    mailLines.push('MIME-Version: 1.0');
+    mailLines.push(`Content-Type: text/${isHtml ? 'html' : 'plain'}; charset="UTF-8"`);
+    mailLines.push('');
+    mailLines.push(bodyText);
+    rawMessage = mailLines.join('\r\n');
+  } else {
+    const mixedBoundary = `mixed_${Date.now()}`;
+    const altBoundary = `alt_${Date.now()}_2`;
+    const lines: string[] = [];
+    lines.push(`To: ${toEmail}`);
+    if (cc.length) lines.push(`Cc: ${cc.join(", ")}`);
+    lines.push(`Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=`);
+    lines.push('MIME-Version: 1.0');
+    lines.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);
+    lines.push('');
+    lines.push(`--${mixedBoundary}`);
+    lines.push(`Content-Type: multipart/alternative; boundary="${altBoundary}"`);
+    lines.push('');
+    lines.push(`--${altBoundary}`);
+    lines.push(`Content-Type: text/${isHtml ? 'html' : 'plain'}; charset="UTF-8"`);
+    lines.push('Content-Transfer-Encoding: base64');
+    lines.push('');
+    lines.push(Buffer.from(bodyText, 'utf8').toString('base64'));
+    lines.push(`--${altBoundary}--`);
+    for (const att of attachments) {
+      lines.push(`--${mixedBoundary}`);
+      lines.push(`Content-Type: ${att.mimeType || 'application/octet-stream'}; name="${att.filename}"`);
+      lines.push('Content-Transfer-Encoding: base64');
+      lines.push(`Content-Disposition: attachment; filename="${att.filename}"`);
+      lines.push('');
+      lines.push(att.content.toString('base64'));
+    }
+    lines.push(`--${mixedBoundary}--`);
+    rawMessage = lines.join('\r\n');
+  }
+
+  const raw = Buffer.from(rawMessage)
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')

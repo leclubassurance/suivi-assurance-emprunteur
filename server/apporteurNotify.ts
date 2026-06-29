@@ -148,15 +148,35 @@ export function buildApporteurContractSigningInviteEmail(params: {
   return { subject: "Signez votre contrat partenaire — Le Club Immobilier Français", html };
 }
 
-async function sendApporteurHtmlEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendApporteurHtmlEmail(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: Array<{ filename: string; content: Buffer; mimeType?: string }>,
+): Promise<boolean> {
   if (!to.includes("@")) return false;
   try {
     if (hasServerOAuthRefreshToken()) {
       const token = await getServerAccessToken();
-      const res = await sendEmailReplyWithGmailAPI(token, to, subject, html);
+      const res = await sendEmailReplyWithGmailAPI(token, to, subject, html, {
+        attachments: (attachments || []).map((a) => ({
+          filename: a.filename,
+          mimeType: a.mimeType || "application/octet-stream",
+          content: a.content,
+        })),
+      });
       return res.ok;
     }
-    const smtp = await sendEmail({ to, subject, html });
+    const smtp = await sendEmail({
+      to,
+      subject,
+      html,
+      attachments: (attachments || []).map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.mimeType || "application/octet-stream",
+      })),
+    });
     return smtp.ok && smtp.providerId !== "SIMULATED";
   } catch (err: any) {
     console.warn(`[Apporteur] Email ${to}:`, err?.message || err);
@@ -218,6 +238,61 @@ export async function sendApporteurContractSigningInvite(
   const portalUrl = buildApporteurPortalUrl(base, apporteur.portalToken);
   const { subject, html } = buildApporteurContractSigningInviteEmail({ apporteur, portalUrl });
   return sendApporteurHtmlEmail(apporteur.email, subject, html);
+}
+
+export function buildApporteurContractSignedEmail(params: {
+  apporteur: Apporteur;
+  portalUrl: string;
+  driveLink?: string | null;
+}): { subject: string; html: string } {
+  const driveBlock = params.driveLink
+    ? `<p style="font-size:13px;margin:16px 0 0 0;">Archivé sur Drive LCIF : <a href="${params.driveLink}" style="color:#1E3A8A;">${params.driveLink}</a></p>`
+    : "";
+  const html = `
+<div style="margin:0;padding:0;font-family:Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
+  <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #E5E7EB;">
+    <div style="background:#1E3A8A;padding:24px;text-align:center;">${LCIF_EMAIL_LOGO_HEADER_IMG}</div>
+    <div style="padding:24px 22px;">
+      <p style="font-size:16px;margin:0 0 12px 0;"><strong>Bonjour ${params.apporteur.contactName},</strong></p>
+      <p style="font-size:14px;margin:0 0 16px 0;">
+        Votre contrat d'apporteur d'affaires Le Club Immobilier Français est signé.
+        Vous trouverez en <strong>pièce jointe</strong> une copie PDF pour vos archives.
+      </p>
+      <p style="margin:0 0 16px 0;text-align:center;">
+        <a href="${params.portalUrl}" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:bold;font-size:15px;">
+          Accéder à mon espace partenaire
+        </a>
+      </p>
+      ${driveBlock}
+      <p style="font-size:13px;color:#6B7280;margin:16px 0 0 0;">
+        Vous pouvez aussi retélécharger le PDF depuis votre espace à tout moment.
+      </p>
+    </div>
+  </div>
+</div>`;
+  return { subject: "Votre contrat partenaire signé — copie PDF", html };
+}
+
+export async function sendApporteurContractSignedEmail(
+  apporteur: Apporteur,
+  pdfBuffer: Buffer,
+  pdfFilename: string,
+  portalBaseUrl?: string,
+  driveLink?: string | null,
+): Promise<boolean> {
+  if (!apporteur.email || !pdfBuffer.length) return false;
+  const base = resolvePublicAppBaseUrl(portalBaseUrl);
+  const portalUrl = apporteur.portalToken
+    ? buildApporteurPortalUrl(base, apporteur.portalToken)
+    : base;
+  const { subject, html } = buildApporteurContractSignedEmail({
+    apporteur,
+    portalUrl,
+    driveLink,
+  });
+  return sendApporteurHtmlEmail(apporteur.email, subject, html, [
+    { filename: pdfFilename, content: pdfBuffer, mimeType: "application/pdf" },
+  ]);
 }
 
 function apporteurRecommendationLabel(apporteur: Apporteur): string {

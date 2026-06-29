@@ -5,6 +5,7 @@ export type SendEmailInput = {
   subject: string;
   html: string;
   from?: string;
+  attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
 };
 
 export type SendEmailResult =
@@ -45,6 +46,11 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       to: input.to,
       subject: input.subject,
       html: input.html,
+      attachments: (input.attachments || []).map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType || "application/octet-stream",
+      })),
     });
     return { ok: true, providerId: info.messageId };
   } catch (err: any) {
