@@ -1548,7 +1548,9 @@ export function createApp() {
       const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl, getRemunerationForApporteur, loadApporteurStore, listDirectDownlineApporteurs, getTeamReferralsForApporteur, listPartnerRecruits, enrichDownlineForPortal } = await import(
         "./apporteurStore"
       );
-      const { computeEarnedAndPipelineEur, computeApporteurPayoutEur, computeSponsorOverridePayoutEur, computeApporteurEarningsWithTeam } = await import("../shared/apporteurRemuneration");
+      const { computeApporteurPayoutEur, computeSponsorOverridePayoutEur } = await import("../shared/apporteurRemuneration");
+      const { computePortalEarningsFromReferrals } = await import("../shared/apporteurCommissionFromDossier");
+      const { readDB } = await import("./db");
       const { computeApporteurTeamKpis } = await import("../shared/apporteurKpis");
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
       const apporteur = await findApporteurByPortalToken(req.params.token);
@@ -1571,31 +1573,37 @@ export function createApp() {
       const referralLink = buildApporteurReferralUrl(publicBaseUrl, apporteur.referralToken);
       const kpis = computeApporteurTeamKpis(referrals, teamReferrals, downline.length);
       const remuneration = getRemunerationForApporteur(apporteur);
-      const payoutPerDirect = computeApporteurPayoutEur({
-        annualSavingsEur: remuneration.defaultAnnualSavingsEur,
-        assuredCount: remuneration.defaultAssuredPerDossier,
-        config: remuneration,
-      });
-      const payoutPerOverride = computeSponsorOverridePayoutEur({
-        annualSavingsEur: remuneration.defaultAnnualSavingsEur,
-        assuredCount: remuneration.defaultAssuredPerDossier,
-        config: remuneration,
-      });
       const conversionForEarn =
         kpis.conversionRate ?? remuneration.defaultConversionRate;
-      const earnings = computeApporteurEarningsWithTeam({
-        personalSigned: kpis.signed,
-        teamSigned: kpis.teamSigned,
-        payoutPerDirectEur: payoutPerDirect,
-        payoutPerOverrideEur: payoutPerOverride,
-        openPersonal: kpis.open,
-        openTeam: kpis.teamOpen,
+      const mainDb = await readDB();
+      const dossierById = new Map(mainDb.dossiers.map((d: any) => [d.id, d]));
+      const defaultPayoutDirect = computeApporteurPayoutEur({
+        annualSavingsEur: remuneration.defaultAnnualSavingsEur,
+        assuredCount: remuneration.defaultAssuredPerDossier,
+        config: remuneration,
+      });
+      const defaultPayoutOverride = computeSponsorOverridePayoutEur({
+        annualSavingsEur: remuneration.defaultAnnualSavingsEur,
+        assuredCount: remuneration.defaultAssuredPerDossier,
+        config: remuneration,
+      });
+      const earnings = computePortalEarningsFromReferrals({
+        personalReferrals: referrals,
+        teamReferrals,
+        dossierById,
+        config: remuneration,
         conversionRate: conversionForEarn,
+        defaultPayoutDirect,
+        defaultPayoutOverride,
       });
       const contractStatus = apporteur.contractStatus || "none";
       const contractSigned = contractStatus === "signed";
       const { enrichReferralsForApporteurPortal } = await import("./apporteurPortalEnrich");
-      const enrichedReferrals = await enrichReferralsForApporteurPortal(referrals, publicBaseUrl);
+      const enrichedReferrals = await enrichReferralsForApporteurPortal(
+        referrals,
+        publicBaseUrl,
+        remuneration,
+      );
       res.json({
         ok: true,
         apporteur: {
@@ -1626,10 +1634,10 @@ export function createApp() {
         remuneration,
         earnings: {
           ...earnings,
-          payoutPerDirect,
-          payoutPerOverride,
+          payoutPerDirect: earnings.payoutPerDirect,
+          payoutPerOverride: earnings.payoutPerOverride,
         },
-        payoutPerSignature: payoutPerDirect,
+        payoutPerSignature: defaultPayoutDirect,
         portalUnlocked: contractSigned,
       });
     } catch (err: any) {
@@ -2856,15 +2864,21 @@ export function createApp() {
       feesCourtageEur?: number;
       loanCapitalEur?: number;
     };
-    if (body.grossSavingsEur == null || body.feesCourtageEur == null) {
+    if (
+      body.grossSavingsEur == null &&
+      body.feesCourtageEur == null &&
+      body.loanCapitalEur == null
+    ) {
       return res.status(400).json({
-        error: "grossSavingsEur et feesCourtageEur sont requis.",
+        error: "Au moins un champ requis : grossSavingsEur, feesCourtageEur ou loanCapitalEur.",
       });
     }
-    const { applyManualStudyKpi } = await import("./studyEmailKpi");
-    const studyKpi = applyManualStudyKpi(dossier, {
-      grossSavingsEur: Number(body.grossSavingsEur),
-      feesCourtageEur: Number(body.feesCourtageEur),
+    const { patchStudyKpi } = await import("./studyEmailKpi");
+    const studyKpi = patchStudyKpi(dossier, {
+      grossSavingsEur:
+        body.grossSavingsEur != null ? Number(body.grossSavingsEur) : undefined,
+      feesCourtageEur:
+        body.feesCourtageEur != null ? Number(body.feesCourtageEur) : undefined,
       loanCapitalEur:
         body.loanCapitalEur != null ? Number(body.loanCapitalEur) : undefined,
     });

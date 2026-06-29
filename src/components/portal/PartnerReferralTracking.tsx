@@ -3,12 +3,26 @@ import { ExternalLink } from "lucide-react";
 
 type Step = { key: string; label: string; done: boolean; active: boolean };
 
+type Commission = {
+  feesCourtageEur: number;
+  apporteurPayoutEur: number;
+  source: "manual" | "auto" | "estimate";
+  hasStudyFees: boolean;
+};
+
 type Tracking = {
   dossierId: string;
   clientPortalUrl: string;
   statusLabel: string;
   statusDetail?: string;
   steps: Step[];
+  commission?: Commission | null;
+};
+
+const COMMISSION_SOURCE_LABEL: Record<Commission["source"], string> = {
+  manual: "montant confirmé LCIF",
+  auto: "extrait de l'étude",
+  estimate: "estimation barème",
 };
 
 export default function PartnerReferralTracking({ tracking }: { tracking: Tracking }) {
@@ -33,6 +47,14 @@ export default function PartnerReferralTracking({ tracking }: { tracking: Tracki
           </a>
         ) : null}
       </div>
+      {tracking.commission ? (
+        <p className="text-[11px] text-slate-600 mb-2 bg-slate-50 rounded-lg px-2.5 py-2 border border-slate-100">
+          Courtage LCIF : <strong>{tracking.commission.feesCourtageEur} €</strong>
+          {" · "}
+          Votre part (50 %) : <strong className="text-emerald-700">{tracking.commission.apporteurPayoutEur} €</strong>
+          <span className="text-slate-400"> ({COMMISSION_SOURCE_LABEL[tracking.commission.source]})</span>
+        </p>
+      ) : null}
       <ol className="space-y-1.5">
         {tracking.steps.map((step) => (
           <li key={step.key} className="flex items-center gap-2 text-[11px]">

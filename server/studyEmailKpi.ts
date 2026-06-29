@@ -577,22 +577,35 @@ export function getStudyKpiActivityDate(dossier: Dossier): number {
   return Number.isFinite(updatedTs) ? updatedTs : 0;
 }
 
-/** Saisie manuelle admin — prioritaire sur l'extraction automatique. */
-export function applyManualStudyKpi(
+/** Saisie / correction admin — prioritaire sur l'extraction automatique. Champs partiels acceptés. */
+export function patchStudyKpi(
   dossier: Dossier,
   input: {
-    grossSavingsEur: number;
-    feesCourtageEur: number;
+    grossSavingsEur?: number;
+    feesCourtageEur?: number;
     loanCapitalEur?: number;
   },
 ): StudyKpiRecord {
-  const gross = Math.round(Number(input.grossSavingsEur) || 0);
-  const feesCourtageEur = Math.round(Number(input.feesCourtageEur) || 0);
-  const loanCapitalEur =
-    Number(input.loanCapitalEur) > 0
-      ? Math.round(Number(input.loanCapitalEur))
-      : getLoanCapitalFromDossier(dossier);
   const prev = dossier.studyKpi as StudyKpiRecord | undefined;
+  const draftGross = dossier.studyDraft?.economySummary?.grossSavingsEur;
+  const gross =
+    input.grossSavingsEur != null
+      ? Math.round(Number(input.grossSavingsEur) || 0)
+      : Math.round(Number(prev?.grossSavingsEur ?? draftGross) || 0);
+  const feesCourtageEur =
+    input.feesCourtageEur != null
+      ? Math.round(Number(input.feesCourtageEur) || 0)
+      : Math.round(
+          Number(
+            prev?.feesCourtageEur ?? dossier.studyDraft?.economySummary?.feesCourtageEur,
+          ) || 0,
+        );
+  const loanCapitalEur =
+    input.loanCapitalEur != null && Number(input.loanCapitalEur) > 0
+      ? Math.round(Number(input.loanCapitalEur))
+      : prev?.loanCapitalEur && prev.loanCapitalEur > 0
+        ? prev.loanCapitalEur
+        : getLoanCapitalFromDossier(dossier);
   const now = new Date().toISOString();
   const record: StudyKpiRecord = {
     grossSavingsEur: gross,
@@ -605,12 +618,17 @@ export function applyManualStudyKpi(
     gmailId: prev?.gmailId || `manual_${dossier.id}`,
     extractedAt: now,
     subject: prev?.subject,
+    feesAssureurEur: prev?.feesAssureurEur,
   };
   dossier.studyKpi = record;
+  const parts: string[] = [];
+  if (input.grossSavingsEur != null) parts.push(`${gross} € économie brute`);
+  if (input.feesCourtageEur != null) parts.push(`${feesCourtageEur} € courtage`);
+  if (input.loanCapitalEur != null) parts.push(`${loanCapitalEur} € capital prêt`);
   addEvent(dossier, {
     type: "NOTE_ADDED",
     actor: { kind: "ADMIN", label: "Admin" },
-    message: `KPI étude saisis manuellement : ${gross} € économie brute, ${feesCourtageEur} € courtage.`,
+    message: `KPI étude mis à jour manuellement${parts.length ? ` : ${parts.join(", ")}` : ""}.`,
     meta: {
       template: "STUDY_KPI_MANUAL",
       grossSavingsEur: gross,
@@ -620,6 +638,18 @@ export function applyManualStudyKpi(
     },
   });
   return record;
+}
+
+/** @deprecated Utiliser patchStudyKpi — conserve la signature complète. */
+export function applyManualStudyKpi(
+  dossier: Dossier,
+  input: {
+    grossSavingsEur: number;
+    feesCourtageEur: number;
+    loanCapitalEur?: number;
+  },
+): StudyKpiRecord {
+  return patchStudyKpi(dossier, input);
 }
 
 export function formatEurKpi(n: number): string {

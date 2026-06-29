@@ -1,4 +1,9 @@
 import type { Referral } from "../shared/apporteurTypes";
+import type { RemunerationConfig } from "../shared/apporteurRemuneration";
+import {
+  resolveDossierCommission,
+  type CommissionSource,
+} from "../shared/apporteurCommissionFromDossier";
 import type { Dossier } from "./dossierModel";
 import {
   buildClientPortalSteps,
@@ -7,17 +12,26 @@ import {
   getClientPortalAbsoluteUrl,
 } from "./clientPortal";
 
+export type ApporteurReferralCommission = {
+  feesCourtageEur: number;
+  apporteurPayoutEur: number;
+  source: CommissionSource;
+  hasStudyFees: boolean;
+};
+
 export type ApporteurReferralTracking = {
   dossierId: string;
   clientPortalUrl: string;
   statusLabel: string;
   statusDetail?: string;
   steps: { key: string; label: string; done: boolean; active: boolean }[];
+  commission?: ApporteurReferralCommission | null;
 };
 
 export async function enrichReferralsForApporteurPortal(
   referrals: Referral[],
   publicBaseUrl: string,
+  remuneration?: RemunerationConfig,
 ): Promise<
   Array<{
     id: string;
@@ -91,6 +105,17 @@ export async function enrichReferralsForApporteurPortal(
       statusLabel: statusView.label,
       statusDetail: statusView.description,
       steps: mappedSteps,
+      commission: remuneration
+        ? (() => {
+            const c = resolveDossierCommission(dossier, remuneration);
+            return {
+              feesCourtageEur: c.feesCourtageEur,
+              apporteurPayoutEur: c.apporteurPayoutEur,
+              source: c.source,
+              hasStudyFees: c.hasStudyFees,
+            };
+          })()
+        : null,
     };
     results.push(base);
   }

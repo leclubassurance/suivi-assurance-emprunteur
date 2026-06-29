@@ -26,6 +26,12 @@ type PortalReferralTracking = {
   statusLabel: string;
   statusDetail?: string;
   steps: { key: string; label: string; done: boolean; active: boolean }[];
+  commission?: {
+    feesCourtageEur: number;
+    apporteurPayoutEur: number;
+    source: "manual" | "auto" | "estimate";
+    hasStudyFees: boolean;
+  } | null;
 };
 
 type PortalReferral = {
@@ -92,6 +98,8 @@ type PortalData = {
     teamEarnedEur?: number;
     payoutPerDirect?: number;
     payoutPerOverride?: number;
+    earningsBasis?: "study" | "mixed" | "estimate";
+    studyBasedSignedCount?: number;
   };
   payoutPerSignature: number;
   portalUnlocked: boolean;
@@ -327,14 +335,37 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
         />
 
         {(data.earnings.personalEarnedEur != null || data.earnings.teamEarnedEur != null) ? (
-          <div className="grid sm:grid-cols-2 gap-3 -mt-2">
+          <div className="space-y-2 -mt-2">
+            {data.earnings.earningsBasis && data.earnings.earningsBasis !== "estimate" ? (
+              <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                {data.earnings.earningsBasis === "study"
+                  ? "Montants basés sur les frais de courtage réels de vos dossiers signés."
+                  : "Montants mixtes : étude réelle + estimation barème sur dossiers sans KPI."}
+              </p>
+            ) : (
+              <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                Estimation barème — les montants se précisent dès que l&apos;étude est envoyée.
+              </p>
+            )}
+            <div className="grid sm:grid-cols-2 gap-3">
             <div className="bg-white rounded-xl border border-slate-200 p-4 text-sm">
               <p className="text-emerald-700 font-black text-lg">{data.earnings.personalEarnedEur ?? 0} €</p>
-              <p className="text-slate-500 text-xs">Vos dossiers signés ({data.earnings.payoutPerDirect ?? payoutPerSignature} € / signature)</p>
+              <p className="text-slate-500 text-xs">
+                Vos dossiers signés
+                {data.kpis.signed > 0
+                  ? ` (≈ ${data.earnings.payoutPerDirect ?? payoutPerSignature} € / signature)`
+                  : ""}
+              </p>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4 text-sm">
               <p className="text-violet-700 font-black text-lg">{data.earnings.teamEarnedEur ?? 0} €</p>
-              <p className="text-slate-500 text-xs">Override filleuls ({data.earnings.payoutPerOverride ?? 0} € / signature)</p>
+              <p className="text-slate-500 text-xs">
+                Override filleuls
+                {(data.kpis.teamSigned ?? 0) > 0
+                  ? ` (≈ ${data.earnings.payoutPerOverride ?? 0} € / signature)`
+                  : ""}
+              </p>
+            </div>
             </div>
           </div>
         ) : null}

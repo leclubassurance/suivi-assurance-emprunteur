@@ -1002,6 +1002,7 @@ export function AdminCamillePanel({
   const [savingPlaybook, setSavingPlaybook] = useState(false);
   const [refreshingKpi, setRefreshingKpi] = useState(false);
   const [savingManualKpi, setSavingManualKpi] = useState(false);
+  const [savingCourtageOnly, setSavingCourtageOnly] = useState(false);
   const [showManualKpi, setShowManualKpi] = useState(false);
   const [manualGross, setManualGross] = useState("");
   const [manualCourtage, setManualCourtage] = useState("");
@@ -1076,16 +1077,54 @@ export function AdminCamillePanel({
     }
   };
 
-  const handleSaveManualKpi = async () => {
-    const gross = Number(String(manualGross).replace(/\s/g, "").replace(",", "."));
+  const handleSaveCourtageOnly = async () => {
     const courtage = Number(String(manualCourtage).replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(courtage) || courtage < 0) {
+      showToast("Montant de courtage invalide", "error");
+      return;
+    }
+    setSavingCourtageOnly(true);
+    try {
+      const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/study-kpi`, {
+        method: "PATCH",
+        headers: await authHeaders(),
+        body: JSON.stringify({ feesCourtageEur: courtage }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        showToast(data.error || "Impossible d'enregistrer le courtage", "error");
+        return;
+      }
+      setStudyKpi(data.studyKpi);
+      (dossier as any).studyKpi = data.studyKpi;
+      showToast(`Frais de courtage enregistrés : ${courtage} €`, "success");
+      await reloadCamilleContext();
+      onDossierUpdated?.();
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setSavingCourtageOnly(false);
+    }
+  };
+
+  const handleSaveManualKpi = async () => {
+    const grossRaw = String(manualGross).replace(/\s/g, "").replace(",", ".");
+    const courtageRaw = String(manualCourtage).replace(/\s/g, "").replace(",", ".");
+    const grossProvided = grossRaw.trim().length > 0;
+    const courtageProvided = courtageRaw.trim().length > 0;
+    if (!grossProvided && !courtageProvided) {
+      showToast("Renseignez au moins l'économie brute ou le courtage", "error");
+      return;
+    }
+    const gross = grossProvided ? Number(grossRaw) : undefined;
+    const courtage = courtageProvided ? Number(courtageRaw) : undefined;
     const capitalRaw = String(manualCapital).replace(/\s/g, "").replace(",", ".");
     const capital = capitalRaw.trim() ? Number(capitalRaw) : undefined;
-    if (!Number.isFinite(gross) || gross < 0) {
+    if (gross != null && (!Number.isFinite(gross) || gross < 0)) {
       showToast("Économie brute invalide", "error");
       return;
     }
-    if (!Number.isFinite(courtage) || courtage < 0) {
+    if (courtage != null && (!Number.isFinite(courtage) || courtage < 0)) {
       showToast("Courtage invalide", "error");
       return;
     }
@@ -1099,8 +1138,8 @@ export function AdminCamillePanel({
         method: "PATCH",
         headers: await authHeaders(),
         body: JSON.stringify({
-          grossSavingsEur: gross,
-          feesCourtageEur: courtage,
+          ...(gross != null ? { grossSavingsEur: gross } : {}),
+          ...(courtage != null ? { feesCourtageEur: courtage } : {}),
           loanCapitalEur: capital,
         }),
       });
@@ -1111,7 +1150,12 @@ export function AdminCamillePanel({
       }
       setStudyKpi(data.studyKpi);
       (dossier as any).studyKpi = data.studyKpi;
-      showToast(`KPI enregistré manuellement : ${gross} €`, "success");
+      showToast(
+        courtage != null
+          ? `KPI enregistré : ${courtage} € courtage${gross != null ? ` · ${gross} € économie` : ""}`
+          : `KPI enregistré : ${gross} €`,
+        "success",
+      );
       setShowManualKpi(false);
       await reloadCamilleContext();
       onDossierUpdated?.();
@@ -1215,7 +1259,7 @@ export function AdminCamillePanel({
         {studyKpi ? (
           <>
             <p>Économie brute : <strong>{studyKpi.grossSavingsEur} €</strong></p>
-            <p>Courtage : <strong>{studyKpi.feesCourtageEur} €</strong> · Capital prêt : <strong>{studyKpi.loanCapitalEur} €</strong></p>
+            <p>Capital prêt : <strong>{studyKpi.loanCapitalEur} €</strong></p>
             {(studyKpi.confidence || studyKpi.grossSource || studyKpi.source) && (
               <p className="text-[10px] text-emerald-800 mt-1">
                 {studyKpi.source === "manual" ? (
@@ -1232,6 +1276,41 @@ export function AdminCamillePanel({
         ) : (
           <p className="text-emerald-800">Aucun KPI — utilisez la saisie manuelle ou recalculer après sync Gmail.</p>
         )}
+        <div className="mt-3 pt-3 border-t border-emerald-200">
+          <p className="text-[10px] font-black uppercase text-emerald-900 mb-1.5">Frais de courtage LCIF</p>
+          <p className="text-[10px] text-emerald-800 mb-2">
+            Extrait automatiquement du mail d&apos;étude (Camille / Gmail) — modifiable à tout moment.
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="block flex-1 min-w-[140px]">
+              <span className="text-[10px] font-bold">Montant (€)</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={manualCourtage}
+                onChange={(e) => setManualCourtage(e.target.value)}
+                className="mt-0.5 w-full rounded border border-emerald-300 px-2 py-1.5 text-sm font-bold"
+                placeholder="ex. 990"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={savingCourtageOnly}
+              onClick={handleSaveCourtageOnly}
+              className="text-[10px] font-bold px-3 py-2 rounded bg-emerald-900 text-white hover:bg-emerald-950 disabled:opacity-50 shrink-0"
+            >
+              {savingCourtageOnly ? "…" : "Enregistrer courtage"}
+            </button>
+          </div>
+          {studyKpi?.feesCourtageEur != null && studyKpi.feesCourtageEur > 0 ? (
+            <p className="text-[10px] text-emerald-800 mt-2">
+              Actuel : <strong>{studyKpi.feesCourtageEur} €</strong>
+              {studyKpi.source === "manual" ? " · saisie manuelle" : " · extrait du mail"}
+              {" · "}
+              Commission apporteur (50 %) ≈ <strong>{Math.round(studyKpi.feesCourtageEur * 0.5)} €</strong>
+            </p>
+          ) : null}
+        </div>
         {showManualKpi && (
           <div className="mt-3 pt-3 border-t border-emerald-200 space-y-2">
             <p className="text-[10px] text-emerald-800">
