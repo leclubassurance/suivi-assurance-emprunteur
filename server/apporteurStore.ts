@@ -13,6 +13,7 @@ import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
 import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
+import { generatePortalToken } from "./apporteurNotify";
 
 export type ApporteurStore = {
   version: 1;
@@ -57,17 +58,22 @@ function emptyStore(): ApporteurStore {
   return { version: 1, apporteurs: [], referrals: [], updatedAt: new Date().toISOString() };
 }
 
+function normalizeStore(raw: unknown): ApporteurStore {
+  const data = raw as ApporteurStore | null;
+  return {
+    version: 1,
+    apporteurs: Array.isArray(data?.apporteurs) ? data.apporteurs : [],
+    referrals: Array.isArray(data?.referrals) ? data.referrals : [],
+    updatedAt: data?.updatedAt || new Date().toISOString(),
+  };
+}
+
 function loadStoreFromFile(): ApporteurStore {
   try {
     const p = getStoreFilePath();
     if (!fs.existsSync(p)) return emptyStore();
     const raw = JSON.parse(fs.readFileSync(p, "utf-8"));
-    return {
-      version: 1,
-      apporteurs: Array.isArray(raw?.apporteurs) ? raw.apporteurs : [],
-      referrals: Array.isArray(raw?.referrals) ? raw.referrals : [],
-      updatedAt: raw?.updatedAt || new Date().toISOString(),
-    };
+    return normalizeStore(raw);
   } catch {
     return emptyStore();
   }
@@ -81,13 +87,30 @@ function saveStoreToFile(store: ApporteurStore) {
   fs.writeFileSync(p, JSON.stringify(store, null, 2), "utf-8");
 }
 
-async function loadStoreFromFirestore(): Promise<ApporteurStore | null> {
+async function loadLegacyStoreFromMetaDossier(): Promise<ApporteurStore | null> {
   try {
     const { readDB } = await import("./db");
     const db = await readDB();
     const meta = db.dossiers.find((d: any) => d.id === APPORTEUR_META_DOSSIER_ID);
     const fromMeta = meta?.apporteurStore as ApporteurStore | undefined;
-    if (fromMeta?.apporteurs) return fromMeta;
+    if (fromMeta?.apporteurs && Array.isArray(fromMeta.apporteurs)) return normalizeStore(fromMeta);
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+async function loadStoreFromFirestore(): Promise<ApporteurStore | null> {
+  try {
+    const { readApporteurStoreFromFirestore } = await import("./firebaseSync");
+    const fromDedicated = await readApporteurStoreFromFirestore();
+    if (fromDedicated && Array.isArray(fromDedicated.apporteurs)) return normalizeStore(fromDedicated);
+
+    const legacy = await loadLegacyStoreFromMetaDossier();
+    if (legacy) {
+      await saveStoreToFirestore(legacy);
+      return legacy;
+    }
   } catch {
     /* fallback file */
   }
@@ -96,28 +119,11 @@ async function loadStoreFromFirestore(): Promise<ApporteurStore | null> {
 
 async function saveStoreToFirestore(store: ApporteurStore) {
   try {
-    const { readDB, writeDB } = await import("./db");
-    const db = await readDB();
-    let meta = db.dossiers.find((d: any) => d.id === APPORTEUR_META_DOSSIER_ID);
-    if (!meta) {
-      meta = {
-        id: APPORTEUR_META_DOSSIER_ID,
-        status: "CLOS",
-        createdAt: store.updatedAt,
-        updatedAt: store.updatedAt,
-        formData: {
-          assures: [{ prenom: "Apporteurs", nom: "LCIF", email: "internal@lcif.local" }],
-        },
-        apporteurStore: store,
-      };
-      db.dossiers.push(meta);
-    } else {
-      meta.apporteurStore = store;
-      meta.updatedAt = store.updatedAt;
-    }
-    await writeDB(db, meta);
+    const { writeApporteurStoreToFirestore } = await import("./firebaseSync");
+    store.updatedAt = new Date().toISOString();
+    await writeApporteurStoreToFirestore(store);
   } catch (e: any) {
-    console.warn("[Apporteurs] Firestore meta save:", e?.message || e);
+    console.warn("[Apporteurs] Firestore store save:", e?.message || e);
   }
 }
 
@@ -126,10 +132,42 @@ function invalidateCache() {
   cachedAt = 0;
 }
 
+async function ensureApporteurFields(store: ApporteurStore): Promise<void> {
+  let changed = false;
+  for (const apporteur of store.apporteurs) {
+    if (!apporteur.portalToken) {
+      apporteur.portalToken = generatePortalToken();
+      changed = true;
+    }
+    if (apporteur.notifyEmailEnabled === undefined) {
+      apporteur.notifyEmailEnabled = true;
+      changed = true;
+    }
+  }
+  if (changed) await persistStore(store);
+}
+
+async function notifyAfterReferralChange(
+  store: ApporteurStore,
+  referral: Referral,
+  previousStatus?: ReferralStatus,
+): Promise<void> {
+  const apporteur = store.apporteurs.find((a) => a.id === referral.apporteurId);
+  if (!apporteur) return;
+  try {
+    const { notifyApporteurReferralStatusChange } = await import("./apporteurNotify");
+    const sent = await notifyApporteurReferralStatusChange({ apporteur, referral, previousStatus });
+    if (sent) await persistStore(store);
+  } catch (err: any) {
+    console.warn("[Apporteurs] Notification email:", err?.message || err);
+  }
+}
+
 export async function loadApporteurStore(): Promise<ApporteurStore> {
   if (cachedStore && Date.now() - cachedAt < STORE_CACHE_MS) return cachedStore;
   const fromFirestore = await loadStoreFromFirestore();
   const store = fromFirestore || loadStoreFromFile();
+  await ensureApporteurFields(store);
   cachedStore = store;
   cachedAt = Date.now();
   return store;
@@ -192,6 +230,13 @@ export async function findApporteurByToken(token: string): Promise<Apporteur | n
   return store.apporteurs.find((a) => a.active && a.referralToken === t) || null;
 }
 
+export async function findApporteurByPortalToken(token: string): Promise<Apporteur | null> {
+  const t = String(token || "").trim();
+  if (!t || t.length < 16) return null;
+  const store = await loadApporteurStore();
+  return store.apporteurs.find((a) => a.active && a.portalToken === t) || null;
+}
+
 export async function findReferralById(id: string): Promise<Referral | null> {
   const store = await loadApporteurStore();
   return store.referrals.find((r) => r.id === id) || null;
@@ -226,6 +271,8 @@ export async function createApporteur(input: {
     phone: String(input.phone || "").trim() || undefined,
     type: input.type || "autre",
     referralToken: uniqueReferralToken(store, tokenBase),
+    portalToken: generatePortalToken(),
+    notifyEmailEnabled: true,
     notes: String(input.notes || "").trim() || undefined,
   };
   store.apporteurs.push(apporteur);
@@ -235,7 +282,12 @@ export async function createApporteur(input: {
 
 export async function updateApporteur(
   id: string,
-  patch: Partial<Pick<Apporteur, "companyName" | "contactName" | "email" | "phone" | "type" | "notes" | "active">>,
+  patch: Partial<
+    Pick<
+      Apporteur,
+      "companyName" | "contactName" | "email" | "phone" | "type" | "notes" | "active" | "notifyEmailEnabled"
+    >
+  >,
 ): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const apporteur = store.apporteurs.find((a) => a.id === id);
@@ -247,6 +299,7 @@ export async function updateApporteur(
   if (patch.type != null) apporteur.type = patch.type;
   if (patch.notes != null) apporteur.notes = String(patch.notes).trim() || undefined;
   if (patch.active != null) apporteur.active = Boolean(patch.active);
+  if (patch.notifyEmailEnabled != null) apporteur.notifyEmailEnabled = Boolean(patch.notifyEmailEnabled);
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);
   return apporteur;
@@ -290,6 +343,7 @@ export async function createReferral(input: {
   );
   store.referrals.push(referral);
   await persistStore(store);
+  await notifyAfterReferralChange(store, referral);
   return referral;
 }
 
@@ -306,6 +360,7 @@ export async function updateReferral(
   const store = await loadApporteurStore();
   const referral = store.referrals.find((r) => r.id === id);
   if (!referral) throw new Error("Recommandation introuvable.");
+  const previousStatus = referral.status;
   if (patch.contact) {
     referral.contact = { ...referral.contact, ...patch.contact };
   }
@@ -320,6 +375,9 @@ export async function updateReferral(
   }
   referral.updatedAt = new Date().toISOString();
   await persistStore(store);
+  if (patch.status && patch.status !== previousStatus) {
+    await notifyAfterReferralChange(store, referral, previousStatus);
+  }
   return referral;
 }
 
@@ -385,6 +443,7 @@ export async function syncReferralFromDossier(dossier: Dossier, actor = "system"
     store.referrals.push(referral);
     attr.referralId = referral.id;
     await persistStore(store);
+    await notifyAfterReferralChange(store, referral);
     return;
   }
 
@@ -394,10 +453,12 @@ export async function syncReferralFromDossier(dossier: Dossier, actor = "system"
   if (!attr.referralId) attr.referralId = referral.id;
 
   if (inferred && statusRank(inferred) > statusRank(referral.status)) {
+    const previousStatus = referral.status;
     referral.status = inferred;
     pushReferralEvent(referral, inferred, `Sync dossier ${dossier.id}`, actor);
     referral.updatedAt = new Date().toISOString();
     await persistStore(store);
+    await notifyAfterReferralChange(store, referral, previousStatus);
   }
 }
 

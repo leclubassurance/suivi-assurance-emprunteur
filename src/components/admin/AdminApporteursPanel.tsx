@@ -3,6 +3,7 @@ import {
   Building2,
   Copy,
   Link2,
+  Mail,
   Plus,
   RefreshCw,
   UserPlus,
@@ -18,7 +19,6 @@ import {
 
 type Props = {
   onBack: () => void;
-  onOpenDossier?: (dossierId: string) => void;
 };
 
 const EMPTY_APPORTEUR = {
@@ -39,7 +39,7 @@ const EMPTY_REFERRAL = {
   dossierId: "",
 };
 
-export default function AdminApporteursPanel({ onBack, onOpenDossier }: Props) {
+export default function AdminApporteursPanel({ onBack }: Props) {
   const [loading, setLoading] = useState(true);
   const [apporteurs, setApporteurs] = useState<Apporteur[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
@@ -50,6 +50,7 @@ export default function AdminApporteursPanel({ onBack, onOpenDossier }: Props) {
   const [newApporteur, setNewApporteur] = useState({ ...EMPTY_APPORTEUR });
   const [newReferral, setNewReferral] = useState({ ...EMPTY_REFERRAL });
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
 
   const load = useCallback(async () => {
@@ -171,6 +172,20 @@ export default function AdminApporteursPanel({ onBack, onOpenDossier }: Props) {
     await load();
   };
 
+  const sendPortalInvite = async (apporteurId: string) => {
+    setError(null);
+    setSuccessMsg(null);
+    const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}/send-portal-invite`, {
+      method: "POST",
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Envoi impossible");
+      return;
+    }
+    setSuccessMsg("Invitation espace apporteur envoyée par email.");
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap justify-between items-center gap-3">
@@ -180,7 +195,7 @@ export default function AdminApporteursPanel({ onBack, onOpenDossier }: Props) {
             onClick={onBack}
             className="text-sm text-slate-500 hover:text-slate-800 mb-1"
           >
-            ← Retour aux dossiers
+            ← Retour au tableau de bord dossiers
           </button>
           <h1 className="text-xl font-bold flex items-center gap-2">
             <Users className="w-5 h-5 text-indigo-600" />
@@ -220,6 +235,11 @@ export default function AdminApporteursPanel({ onBack, onOpenDossier }: Props) {
       {error ? (
         <div className="mx-6 mt-4 rounded-lg bg-red-50 border border-red-100 text-red-800 text-sm px-4 py-3">
           {error}
+        </div>
+      ) : null}
+      {successMsg ? (
+        <div className="mx-6 mt-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-sm px-4 py-3">
+          {successMsg}
         </div>
       ) : null}
 
@@ -269,6 +289,11 @@ export default function AdminApporteursPanel({ onBack, onOpenDossier }: Props) {
                 const link = publicBaseUrl
                   ? `${publicBaseUrl.replace(/\/$/, "")}/?ref=${encodeURIComponent(a.referralToken)}`
                   : `/?ref=${a.referralToken}`;
+                const portalLink = a.portalToken
+                  ? publicBaseUrl
+                    ? `${publicBaseUrl.replace(/\/$/, "")}/apporteur/${a.portalToken}`
+                    : `/apporteur/${a.portalToken}`
+                  : "";
                 return (
                   <>
                     <h2 className="text-lg font-black text-slate-900 mb-1">{a.companyName}</h2>
@@ -276,18 +301,45 @@ export default function AdminApporteursPanel({ onBack, onOpenDossier }: Props) {
                       {a.contactName} — {a.email}
                       {a.phone ? ` · ${a.phone}` : ""}
                     </p>
-                    <div className="flex flex-wrap gap-2 items-center">
-                      <code className="text-xs bg-slate-100 px-2 py-1 rounded">{link}</code>
-                      <button
-                        type="button"
-                        onClick={() => copyText(link)}
-                        className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 hover:underline"
-                      >
-                        <Copy className="w-3.5 h-3.5" /> Copier le lien
-                      </button>
-                      <span className="text-xs text-slate-400 inline-flex items-center gap-1">
-                        <Link2 className="w-3.5 h-3.5" /> Attribution auto au dépôt formulaire
-                      </span>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-[11px] font-black uppercase text-slate-400 mb-1">Espace apporteur (privé)</p>
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <code className="text-xs bg-indigo-50 text-indigo-900 px-2 py-1 rounded">{portalLink || "—"}</code>
+                          {portalLink ? (
+                            <button
+                              type="button"
+                              onClick={() => copyText(portalLink)}
+                              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 hover:underline"
+                            >
+                              <Copy className="w-3.5 h-3.5" /> Copier
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => sendPortalInvite(a.id)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 hover:underline"
+                          >
+                            <Mail className="w-3.5 h-3.5" /> Envoyer par email
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-black uppercase text-slate-400 mb-1">Lien client (?ref=)</p>
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <code className="text-xs bg-slate-100 px-2 py-1 rounded">{link}</code>
+                          <button
+                            type="button"
+                            onClick={() => copyText(link)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 hover:underline"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> Copier le lien
+                          </button>
+                          <span className="text-xs text-slate-400 inline-flex items-center gap-1">
+                            <Link2 className="w-3.5 h-3.5" /> Attribution auto au dépôt formulaire
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </>
                 );
@@ -334,13 +386,7 @@ export default function AdminApporteursPanel({ onBack, onOpenDossier }: Props) {
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="font-mono text-slate-400">{r.id}</span>
                     {r.dossierId ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenDossier?.(r.dossierId!)}
-                        className="font-mono font-bold text-indigo-700 hover:underline"
-                      >
-                        {r.dossierId}
-                      </button>
+                      <span className="font-mono text-slate-500">{r.dossierId}</span>
                     ) : (
                       <form
                         className="inline-flex gap-1 items-center"

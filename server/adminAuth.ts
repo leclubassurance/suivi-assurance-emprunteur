@@ -31,6 +31,7 @@ export function isPublicApiRoute(method: string, path: string): boolean {
   if (path === "/api/dossiers" && m === "POST") return true;
   if (path === "/api/public/help" && m === "POST") return true;
   if (path.startsWith("/api/public/apporteur-ref/") && m === "GET") return true;
+  if (path.startsWith("/api/apporteur-portal/") && (m === "GET" || m === "POST")) return true;
   if (path.startsWith("/api/portail/") && m === "GET") return true;
   if (path === "/api/telegram/webhook" && m === "POST") return true;
   if (path.startsWith("/api/telegram/") && m === "GET") return true;

@@ -16,8 +16,10 @@ import DocumentsStep from './components/steps/DocumentsStep';
 import SuccessStep from './components/steps/SuccessStep';
 import AdminLogin from './components/admin/AdminLogin';
 import AdminDashboard from './components/admin/AdminDashboard';
+import AdminApporteursPanel from './components/admin/AdminApporteursPanel';
 import ClientPortalPage from './components/portal/ClientPortalPage';
 import ClientPortalDemoPage from './components/portal/ClientPortalDemoPage';
+import ApporteurPortalPage from './components/portal/ApporteurPortalPage';
 import MentionsLegalesPage from './pages/MentionsLegalesPage';
 import PolitiqueConfidentialitePage from './pages/PolitiqueConfidentialitePage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
@@ -49,11 +51,15 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [portalToken, setPortalToken] = useState<string | null>(null);
   const [portalDemo, setPortalDemo] = useState(false);
+  const [apporteurPortalToken, setApporteurPortalToken] = useState<string | null>(null);
+  const [adminApporteursView, setAdminApporteursView] = useState(false);
 
   const goHome = () => {
     setLegalView(null);
     setPortalDemo(false);
     setPortalToken(null);
+    setApporteurPortalToken(null);
+    setAdminApporteursView(false);
     setCurrentStep(Step.LANDING);
     window.history.pushState({}, '', '/');
   };
@@ -74,11 +80,26 @@ export default function App() {
         return;
       }
       setLegalView(null);
+      if (path === "/admin/apporteurs") {
+        setAdminApporteursView(true);
+        setPortalDemo(false);
+        setApporteurPortalToken(null);
+        setPortalToken(null);
+        return;
+      }
+      setAdminApporteursView(false);
       if (path === "/demo/suivi" || path === "/apercu-suivi-client") {
         setPortalDemo(true);
         return;
       }
       setPortalDemo(false);
+      const apporteurMatch = path.match(/^\/apporteur\/([a-f0-9]{32,64})$/i);
+      if (apporteurMatch) {
+        setApporteurPortalToken(apporteurMatch[1]);
+        setPortalToken(null);
+        return;
+      }
+      setApporteurPortalToken(null);
       const m = path.match(/^\/suivi\/([a-f0-9]{32,64})$/i);
       if (m) {
         setPortalToken(m[1]);
@@ -325,6 +346,10 @@ export default function App() {
 
   const handleLogin = (user: UserInfo) => {
     setCurrentUser(user);
+    if (adminApporteursView && user.role === 'ADMIN') {
+      goToStep(Step.ADMIN_DASHBOARD);
+      return;
+    }
     if (user.role === 'ADMIN') {
       goToStep(Step.ADMIN_DASHBOARD);
     } else {
@@ -332,10 +357,39 @@ export default function App() {
     }
   };
 
+  const openAdminApporteurs = () => {
+    setAdminApporteursView(true);
+    window.history.pushState({}, '', '/admin/apporteurs');
+    if (currentUser?.role === 'ADMIN') {
+      goToStep(Step.ADMIN_DASHBOARD);
+    } else {
+      goToStep(Step.ADMIN_LOGIN);
+    }
+  };
+
+  const closeAdminApporteurs = () => {
+    setAdminApporteursView(false);
+    window.history.pushState({}, '', '/');
+    if (currentUser) {
+      goToStep(currentUser.role === 'ADMIN' ? Step.ADMIN_DASHBOARD : Step.CONSEILLER_DASHBOARD);
+    }
+  };
+
   const handleLogout = () => {
     setCurrentUser(null);
     goToStep(Step.LANDING);
   };
+
+  if (apporteurPortalToken) {
+    return <ApporteurPortalPage token={apporteurPortalToken} />;
+  }
+
+  if (adminApporteursView) {
+    if (!currentUser || currentUser.role !== 'ADMIN') {
+      return <AdminLogin onLogin={handleLogin} onBack={closeAdminApporteurs} />;
+    }
+    return <AdminApporteursPanel onBack={closeAdminApporteurs} />;
+  }
 
   if (portalDemo) {
     return <ClientPortalDemoPage />;
@@ -466,7 +520,7 @@ export default function App() {
         )}
 
         {(currentStep === Step.ADMIN_DASHBOARD || currentStep === Step.CONSEILLER_DASHBOARD) && currentUser && (
-          <AdminDashboard user={currentUser} onLogout={handleLogout} />
+          <AdminDashboard user={currentUser} onLogout={handleLogout} onOpenApporteurs={openAdminApporteurs} />
         )}
       </main>
 

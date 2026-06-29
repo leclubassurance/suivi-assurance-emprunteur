@@ -1,0 +1,178 @@
+import crypto from "crypto";
+import type { Apporteur, Referral, ReferralStatus } from "../shared/apporteurTypes";
+import { REFERRAL_STATUS_LABELS } from "../shared/apporteurTypes";
+import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
+import { resolvePublicAppBaseUrl } from "./clientPortal";
+import { sendEmail } from "./emailProvider";
+import { sendEmailReplyWithGmailAPI } from "./mailAutomation";
+import { hasServerOAuthRefreshToken, getServerAccessToken } from "./googleOAuthServer";
+
+export function generatePortalToken(): string {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+export function buildApporteurPortalPath(portalToken: string): string {
+  return `/apporteur/${encodeURIComponent(portalToken)}`;
+}
+
+export function buildApporteurPortalUrl(baseUrl: string, portalToken: string): string {
+  const base = String(baseUrl || "").replace(/\/$/, "");
+  return `${base}${buildApporteurPortalPath(portalToken)}`;
+}
+
+function referralContactLabel(referral: Referral): string {
+  const name = [referral.contact.prenom, referral.contact.nom].filter(Boolean).join(" ").trim();
+  if (name) return name;
+  if (referral.contact.email) return referral.contact.email;
+  if (referral.contact.phone) return referral.contact.phone;
+  return "Votre contact recommandé";
+}
+
+function statusMessage(status: ReferralStatus): string {
+  switch (status) {
+    case "NOUVEAU":
+      return "Nous avons bien enregistré votre recommandation. Notre équipe va prendre contact.";
+    case "CONTACTE":
+      return "Nous avons contacté votre recommandation.";
+    case "DOSSIER_OUVERT":
+      return "Un dossier d'étude a été ouvert pour ce contact.";
+    case "ETUDE_ENVOYEE":
+      return "L'étude personnalisée a été envoyée au client.";
+    case "SIGNE":
+      return "Le changement d'assurance emprunteur a été finalisé.";
+    case "REFUSE":
+      return "Le contact a décliné ou le dossier a été refusé.";
+    case "PERDU":
+      return "Le dossier n'a pas abouti.";
+    default:
+      return REFERRAL_STATUS_LABELS[status] || status;
+  }
+}
+
+export function buildApporteurReferralStatusEmail(params: {
+  apporteur: Apporteur;
+  referral: Referral;
+  status: ReferralStatus;
+  portalUrl?: string;
+}): { subject: string; html: string } {
+  const contact = referralContactLabel(params.referral);
+  const statusLabel = REFERRAL_STATUS_LABELS[params.status] || params.status;
+  const body = statusMessage(params.status);
+  const portalBlock = params.portalUrl
+    ? `<p style="margin:18px 0 0 0;"><a href="${params.portalUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:bold;font-size:14px;">Voir mon espace apporteur</a></p>`
+    : "";
+
+  const html = `
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
+  <div style="max-width:640px;margin:0 auto;background:#FFFFFF;border:1px solid #E5E7EB;">
+    <div style="background-color:#1E3A8A;padding:24px 20px;text-align:center;">
+      ${LCIF_EMAIL_LOGO_HEADER_IMG}
+    </div>
+    <div style="padding:24px 22px;">
+      <p style="font-size:16px;margin:0 0 14px 0;color:#111827;"><strong>Bonjour ${params.apporteur.contactName || params.apporteur.companyName},</strong></p>
+      <p style="font-size:14px;margin:0 0 12px 0;color:#374151;">
+        Mise à jour concernant votre recommandation <strong>${contact}</strong> :
+      </p>
+      <p style="font-size:14px;margin:0 0 8px 0;padding:12px 16px;background:#EFF6FF;border-radius:8px;color:#1E3A8A;">
+        <strong>${statusLabel}</strong> — ${body}
+      </p>
+      ${portalBlock}
+      <p style="font-size:13px;margin:20px 0 0 0;color:#6B7280;">
+        Vous recevez cet email car vous collaborez avec Le Club Immobilier Français en tant qu'apporteur d'affaires.
+      </p>
+      <p style="font-size:14px;margin:18px 0 0 0;color:#111827;">Bien cordialement,<br/>
+        <strong>L'équipe Le Club Immobilier Français</strong>
+      </p>
+    </div>
+    <div style="background:#F8FAFC;padding:16px 22px;border-top:1px solid #E5E7EB;">
+      <p style="font-size:11px;margin:0;color:#9CA3AF;">Le Club Immobilier Français — ORIAS 24002253</p>
+    </div>
+  </div>
+</div>`;
+
+  return {
+    subject: `[LCIF] Recommandation — ${statusLabel} (${contact})`,
+    html,
+  };
+}
+
+export function buildApporteurPortalInviteEmail(params: {
+  apporteur: Apporteur;
+  portalUrl: string;
+  referralLink: string;
+}): { subject: string; html: string } {
+  const html = `
+<div style="margin:0;padding:0;font-family:Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
+  <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #E5E7EB;">
+    <div style="background:#1E3A8A;padding:24px;text-align:center;">${LCIF_EMAIL_LOGO_HEADER_IMG}</div>
+    <div style="padding:24px 22px;">
+      <p style="font-size:16px;margin:0 0 12px 0;"><strong>Bonjour ${params.apporteur.contactName},</strong></p>
+      <p style="font-size:14px;margin:0 0 16px 0;">Votre espace apporteur Le Club Immobilier Français est prêt.</p>
+      <p style="font-size:14px;margin:0 0 8px 0;"><strong>1. Suivre vos recommandations</strong></p>
+      <p style="margin:0 0 16px 0;"><a href="${params.portalUrl}" style="color:#1E3A8A;font-weight:bold;">${params.portalUrl}</a></p>
+      <p style="font-size:14px;margin:0 0 8px 0;"><strong>2. Lien à partager à vos clients</strong> (formulaire en ligne)</p>
+      <p style="margin:0 0 16px 0;"><a href="${params.referralLink}" style="color:#1E3A8A;">${params.referralLink}</a></p>
+      <p style="font-size:13px;color:#6B7280;">Conservez ce lien privé — il donne accès à vos recommandations uniquement.</p>
+    </div>
+  </div>
+</div>`;
+  return { subject: "Votre espace apporteur — Le Club Immobilier Français", html };
+}
+
+async function sendApporteurHtmlEmail(to: string, subject: string, html: string): Promise<boolean> {
+  if (!to.includes("@")) return false;
+  try {
+    if (hasServerOAuthRefreshToken()) {
+      const token = await getServerAccessToken();
+      const res = await sendEmailReplyWithGmailAPI(token, to, subject, html);
+      return res.ok;
+    }
+    const smtp = await sendEmail({ to, subject, html });
+    return smtp.ok && smtp.providerId !== "SIMULATED";
+  } catch (err: any) {
+    console.warn(`[Apporteur] Email ${to}:`, err?.message || err);
+    return false;
+  }
+}
+
+export async function notifyApporteurReferralStatusChange(params: {
+  apporteur: Apporteur;
+  referral: Referral;
+  previousStatus?: ReferralStatus;
+  portalBaseUrl?: string;
+}): Promise<boolean> {
+  if (params.apporteur.notifyEmailEnabled === false) return false;
+  if (!params.apporteur.email) return false;
+  if (params.referral.lastNotifiedStatus === params.referral.status) return false;
+  if (params.previousStatus === params.referral.status) return false;
+
+  const portalUrl = params.apporteur.portalToken
+    ? buildApporteurPortalUrl(resolvePublicAppBaseUrl(params.portalBaseUrl), params.apporteur.portalToken)
+    : undefined;
+
+  const { subject, html } = buildApporteurReferralStatusEmail({
+    apporteur: params.apporteur,
+    referral: params.referral,
+    status: params.referral.status,
+    portalUrl,
+  });
+
+  const sent = await sendApporteurHtmlEmail(params.apporteur.email, subject, html);
+  if (sent) {
+    params.referral.lastNotifiedStatus = params.referral.status;
+    params.referral.lastNotifiedAt = new Date().toISOString();
+  }
+  return sent;
+}
+
+export async function sendApporteurPortalInvite(
+  apporteur: Apporteur,
+  portalBaseUrl?: string,
+): Promise<boolean> {
+  if (!apporteur.portalToken || !apporteur.email) return false;
+  const base = resolvePublicAppBaseUrl(portalBaseUrl);
+  const portalUrl = buildApporteurPortalUrl(base, apporteur.portalToken);
+  const referralLink = `${base.replace(/\/$/, "")}/?ref=${encodeURIComponent(apporteur.referralToken)}`;
+  const { subject, html } = buildApporteurPortalInviteEmail({ apporteur, portalUrl, referralLink });
+  return sendApporteurHtmlEmail(apporteur.email, subject, html);
+}

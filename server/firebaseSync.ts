@@ -15,6 +15,8 @@ import { ensureDossierShape } from "./dossierModel";
 import { compactDossierForPersistence } from "./dossierFirestoreCompact";
 
 const DOSSIERS_COLLECTION = "dossiers";
+const APPORTEUR_STORE_COLLECTION = "apporteur_store";
+const APPORTEUR_STORE_DOC_ID = "main";
 
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
@@ -187,6 +189,30 @@ export async function deleteDossierFromFirebase(id: string) {
     console.error("[Firebase] Error deleting dossier:", id, err.message);
     throw err;
   }
+}
+
+export type ApporteurStoreDoc = {
+  version: 1;
+  apporteurs: unknown[];
+  referrals: unknown[];
+  updatedAt: string;
+};
+
+/** Stockage apporteurs — collection dédiée, séparée des dossiers clients. */
+export async function readApporteurStoreFromFirestore(): Promise<ApporteurStoreDoc | null> {
+  await initFirebaseSync();
+  if (!firestoreDb) return null;
+  const snap = await getDoc(doc(firestoreDb, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID));
+  if (!snap.exists()) return null;
+  const data = snap.data() as ApporteurStoreDoc;
+  if (!Array.isArray(data?.apporteurs)) return null;
+  return data;
+}
+
+export async function writeApporteurStoreToFirestore(store: ApporteurStoreDoc): Promise<void> {
+  await initFirebaseSync();
+  if (!firestoreDb) return;
+  await setDoc(doc(firestoreDb, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID), store);
 }
 
 /** Import unique : data/db.json ou /tmp/data/db.json → Firestore (FIREBASE_IMPORT_LOCAL=true). */

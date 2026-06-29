@@ -1381,6 +1381,26 @@ export function createApp() {
     }
   });
 
+  app.post("/api/admin/apporteurs/:id/send-portal-invite", async (req, res) => {
+    try {
+      const { findApporteurById } = await import("./apporteurStore");
+      const { sendApporteurPortalInvite } = await import("./apporteurNotify");
+      const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const apporteur = await findApporteurById(req.params.id);
+      if (!apporteur) return res.status(404).json({ success: false, error: "Apporteur introuvable" });
+      const baseUrl = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      const sent = await sendApporteurPortalInvite(apporteur, baseUrl);
+      if (!sent) {
+        return res.status(502).json({ success: false, error: "Envoi email impossible (vérifiez la config Gmail/SMTP)." });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/referrals", async (req, res) => {
     try {
       const { createReferral, syncReferralFromDossier } = await import("./apporteurStore");
@@ -1473,6 +1493,97 @@ export function createApp() {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
+
+  const apporteurPortalPostLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
+  app.get("/api/apporteur-portal/:token", async (req, res) => {
+    try {
+      const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl } = await import(
+        "./apporteurStore"
+      );
+      const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const apporteur = await findApporteurByPortalToken(req.params.token);
+      if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+      const referrals = await listReferrals({ apporteurId: apporteur.id });
+      const publicBaseUrl = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      const referralLink = buildApporteurReferralUrl(publicBaseUrl, apporteur.referralToken);
+      const open = referrals.filter((r) => !["SIGNE", "REFUSE", "PERDU"].includes(r.status)).length;
+      const signed = referrals.filter((r) => r.status === "SIGNE").length;
+      res.json({
+        ok: true,
+        apporteur: {
+          companyName: apporteur.companyName,
+          contactName: apporteur.contactName,
+          type: apporteur.type,
+        },
+        referrals: referrals.map((r) => ({
+          id: r.id,
+          status: r.status,
+          contact: r.contact,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+          events: (r.events || []).slice(-5).map((e) => ({
+            at: e.at,
+            status: e.status,
+            message: e.message,
+          })),
+        })),
+        referralLink,
+        stats: { total: referrals.length, open, signed },
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post(
+    "/api/apporteur-portal/:token/referrals",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken, createReferral } = await import("./apporteurStore");
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        const body = (req.body || {}) as any;
+        const contact = body.contact || {};
+        const email = String(contact.email || "").trim().toLowerCase();
+        const phone = String(contact.phone || "").trim();
+        const prenom = String(contact.prenom || "").trim();
+        const nom = String(contact.nom || "").trim();
+        if (!email && !phone) {
+          return res.status(400).json({ ok: false, error: "Email ou téléphone requis" });
+        }
+        if (!prenom && !nom) {
+          return res.status(400).json({ ok: false, error: "Nom du contact requis" });
+        }
+        const referral = await createReferral({
+          apporteurId: apporteur.id,
+          contact: {
+            prenom,
+            nom,
+            email: email || undefined,
+            phone: phone || undefined,
+            notes: String(contact.notes || "").trim() || undefined,
+          },
+          source: "apporteur_portal",
+          actor: "apporteur_portal",
+        });
+        res.json({
+          ok: true,
+          referral: {
+            id: referral.id,
+            status: referral.status,
+            contact: referral.contact,
+            createdAt: referral.createdAt,
+          },
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
 
   app.post("/api/admin/dossiers/:id/save-playbook-from-last-reply", async (req, res) => {
     try {

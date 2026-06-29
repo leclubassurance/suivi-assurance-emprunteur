@@ -21,18 +21,24 @@ import {
   useAdminOpsData,
 } from "./AdminOpsPanel";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
-import AdminApporteursPanel from "./AdminApporteursPanel";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
 
-export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onLogout: () => void; }) {
+export default function AdminDashboard({
+  user,
+  onLogout,
+  onOpenApporteurs,
+}: {
+  user: UserInfo;
+  onLogout: () => void;
+  onOpenApporteurs?: () => void;
+}) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [search, setSearch] = useState("");
   const [selectedDossier, setSelectedDossier] = useState<Dossier | null>(null);
   const [activeTab, setActiveTab] = useState<"SUIVI" | "MESSAGES" | "INFORMATIONS" | "DOCUMENTS" | "ENVOI_MAIL">("SUIVI");
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
   const [autoSyncGmail, setAutoSyncGmail] = useState(true);
-  const [showApporteursPanel, setShowApporteursPanel] = useState(false);
   const [replySubject, setReplySubject] = useState("");
   const [replyBody, setReplyBody] = useState("");
   const [showDeleteConfirmId, setShowDeleteConfirmId] = useState<string | null>(null);
@@ -44,7 +50,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
   const [previewActive, setPreviewActive] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
-  const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers">("queue");
+  const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers">("dossiers");
   const { metrics, reloadMetrics, metricsPeriodDays, setMetricsPeriodDays } = useAdminOpsData();
   const [driveDiagnostic, setDriveDiagnostic] = useState<{
     summary: string;
@@ -805,22 +811,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {showApporteursPanel ? (
-        <AdminApporteursPanel
-          onBack={() => setShowApporteursPanel(false)}
-          onOpenDossier={(dossierId) => {
-            setShowApporteursPanel(false);
-            const d = dossiers.find((x) => x.id === dossierId);
-            if (d) {
-              setSelectedDossier(d);
-              setSidebarMode(isProspectDossier(d) ? "prospects" : "dossiers");
-            } else {
-              showToast(`Dossier ${dossierId} non chargé — rafraîchissez la liste.`, "info");
-            }
-          }}
-        />
-      ) : (
-        <>
+      <>
       <AdminActivityBar
         metrics={metrics}
         metricsPeriodDays={metricsPeriodDays}
@@ -851,13 +842,15 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
           </button>
         </h1>
         <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => setShowApporteursPanel(true)}
-            className="flex gap-2 text-indigo-700 hover:text-indigo-900 transition-colors font-bold text-sm"
-          >
-            <Users className="w-5 h-5" /> Apporteurs
-          </button>
+          {user.role === "ADMIN" && onOpenApporteurs ? (
+            <button
+              type="button"
+              onClick={onOpenApporteurs}
+              className="flex gap-2 text-slate-500 hover:text-indigo-700 transition-colors text-sm"
+            >
+              <Users className="w-4 h-4" /> Apporteurs d&apos;affaires
+            </button>
+          ) : null}
           <button onClick={onLogout} className="flex gap-2 text-slate-500 hover:text-slate-900 transition-colors">
             <LogOut className="w-5 h-5"/> Déconnexion
           </button>
@@ -890,14 +883,13 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
               Dossiers
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowApporteursPanel(true)}
-            className="mx-3 mt-3 mb-1 flex w-[calc(100%-1.5rem)] items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-xs font-black text-white shadow-sm hover:bg-indigo-700 transition-colors"
-          >
-            <Users className="w-4 h-4" />
-            Apporteurs d&apos;affaires
-          </button>
+          {user.role === "ADMIN" && onOpenApporteurs ? (
+            <p className="mx-3 mt-2 mb-1 text-[10px] text-slate-400 text-center">
+              <button type="button" onClick={onOpenApporteurs} className="hover:text-indigo-600 underline">
+                Gérer les apporteurs →
+              </button>
+            </p>
+          ) : null}
           {sidebarMode === "queue" ? (
             <AdminWorkQueuePanel
               authHeaders={authHeaders}
@@ -1963,8 +1955,7 @@ export default function AdminDashboard({ user, onLogout }: { user: UserInfo; onL
           </div>
         </div>
       )}
-        </>
-      )}
+      </>
     </div>
   );
 }

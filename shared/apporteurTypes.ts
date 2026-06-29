@@ -23,7 +23,11 @@ export type Apporteur = {
   type: ApporteurType;
   /** Slug pour ?ref= sur le formulaire */
   referralToken: string;
+  /** Accès espace apporteur (lien privé, ne pas partager publiquement). */
+  portalToken: string;
   notes?: string;
+  /** Recevoir un email à chaque changement de statut d'une recommandation. */
+  notifyEmailEnabled?: boolean;
 };
 
 export type ReferralContact = {
@@ -51,6 +55,8 @@ export type Referral = {
   contact: ReferralContact;
   dossierId?: string;
   events: ReferralEvent[];
+  lastNotifiedStatus?: ReferralStatus;
+  lastNotifiedAt?: string;
 };
 
 export const REFERRAL_STATUS_LABELS: Record<ReferralStatus, string> = {
