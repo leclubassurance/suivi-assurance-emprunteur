@@ -348,6 +348,7 @@ export async function updateApporteur(
       | "notifyEmailEnabled"
       | "contractStatus"
       | "contractSignedAt"
+      | "contractSignature"
       | "referralToken"
       | "sponsorId"
     >
@@ -388,6 +389,9 @@ export async function updateApporteur(
   }
   if ((patch as any).contractSignedAt != null) {
     apporteur.contractSignedAt = (patch as any).contractSignedAt || undefined;
+  }
+  if (patch.contractSignature !== undefined) {
+    apporteur.contractSignature = patch.contractSignature || undefined;
   }
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);
@@ -809,10 +813,18 @@ export async function createPartnerRecruit(input: {
   return recruit;
 }
 
-async function createApporteurFromRecruit(recruit: PartnerRecruitRequest): Promise<Apporteur> {
+async function ensureApporteurForRecruit(
+  recruit: PartnerRecruitRequest,
+  contractStatus: Apporteur["contractStatus"] = "sent",
+): Promise<Apporteur> {
   if (recruit.createdApporteurId) {
     const existing = await findApporteurById(recruit.createdApporteurId);
-    if (existing) return existing;
+    if (existing) {
+      if ((existing.contractStatus || "none") !== "signed") {
+        return updateApporteur(existing.id, { contractStatus });
+      }
+      return existing;
+    }
   }
   const apporteur = await createApporteur({
     companyName: recruit.companyName || recruit.contactName,
@@ -820,9 +832,11 @@ async function createApporteurFromRecruit(recruit: PartnerRecruitRequest): Promi
     email: recruit.email,
     phone: recruit.phone,
     type: "autre",
-    notes: recruit.notes ? `Reco parrain : ${recruit.sponsorApporteurId}. ${recruit.notes}` : undefined,
+    notes: recruit.notes
+      ? `Reco parrain : ${recruit.sponsorApporteurId}. ${recruit.notes}`
+      : `Reco parrain : ${recruit.sponsorApporteurId}`,
     sponsorId: recruit.sponsorApporteurId,
-    contractStatus: "signed",
+    contractStatus,
   });
   const store = await loadApporteurStore();
   const r = store.partnerRecruits.find((x) => x.id === recruit.id);
@@ -832,6 +846,53 @@ async function createApporteurFromRecruit(recruit: PartnerRecruitRequest): Promi
     await persistStore(store);
   }
   return apporteur;
+}
+
+async function createApporteurFromRecruit(recruit: PartnerRecruitRequest): Promise<Apporteur> {
+  if (recruit.createdApporteurId) {
+    const existing = await findApporteurById(recruit.createdApporteurId);
+    if (existing) {
+      if ((existing.contractStatus || "none") !== "signed") {
+        return updateApporteur(existing.id, { contractStatus: "signed" });
+      }
+      return existing;
+    }
+  }
+  return ensureApporteurForRecruit(recruit, "signed");
+}
+
+export async function finalizeRecruitAfterOnlineSignature(apporteurId: string): Promise<void> {
+  const store = await loadApporteurStore();
+  const recruit = store.partnerRecruits.find(
+    (r) =>
+      r.createdApporteurId === apporteurId &&
+      r.status !== "CONTRAT_SIGNE" &&
+      r.status !== "REFUSE",
+  );
+  if (!recruit) return;
+
+  const previousStatus = recruit.status;
+  recruit.status = "CONTRAT_SIGNE";
+  pushRecruitEvent(recruit, "CONTRAT_SIGNE", "Contrat signé en ligne — apporteur activé", "contract_sign");
+  recruit.updatedAt = new Date().toISOString();
+  await persistStore(store);
+
+  if (previousStatus !== "CONTRAT_SIGNE") {
+    try {
+      const { notifyTelegramPartnerRecruitConverted } = await import("./telegramNotify");
+      const apporteur = store.apporteurs.find((a) => a.id === apporteurId);
+      const sponsor = store.apporteurs.find((a) => a.id === recruit.sponsorApporteurId);
+      if (apporteur) {
+        await notifyTelegramPartnerRecruitConverted({
+          recruit,
+          apporteur,
+          sponsorName: sponsor?.contactName || recruit.sponsorApporteurId,
+        });
+      }
+    } catch (err: any) {
+      console.warn("[Apporteurs] Telegram conversion signature:", err?.message || err);
+    }
+  }
 }
 
 export async function updatePartnerRecruit(
@@ -854,6 +915,16 @@ export async function updatePartnerRecruit(
   }
   recruit.updatedAt = new Date().toISOString();
   await persistStore(store);
+
+  if (patch.status === "CONTRAT_ENVOYE" && previousStatus !== "CONTRAT_ENVOYE") {
+    const apporteur = await ensureApporteurForRecruit(recruit, "sent");
+    try {
+      const { sendApporteurContractSigningInvite } = await import("./apporteurNotify");
+      await sendApporteurContractSigningInvite(apporteur);
+    } catch (err: any) {
+      console.warn("[Apporteurs] Email signature contrat:", err?.message || err);
+    }
+  }
 
   if (patch.status === "CONTRAT_SIGNE" && previousStatus !== "CONTRAT_SIGNE") {
     const apporteur = await createApporteurFromRecruit(recruit);

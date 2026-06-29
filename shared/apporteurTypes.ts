@@ -31,6 +31,16 @@ export type Apporteur = {
   /** Statut du contrat d'apporteur (phase contrat — à compléter). */
   contractStatus?: "none" | "pending" | "sent" | "signed" | "expired";
   contractSignedAt?: string;
+  /** Preuve de signature électronique in-app. */
+  contractSignature?: {
+    version: string;
+    signedAt: string;
+    signerName: string;
+    signerEmail: string;
+    companyName: string;
+    ipAddress?: string;
+    userAgent?: string;
+  };
   /** Apporteur parrain (niveau 1 — marketing de réseau). */
   sponsorId?: string;
 };

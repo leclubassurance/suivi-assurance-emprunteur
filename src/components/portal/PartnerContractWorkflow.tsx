@@ -30,9 +30,13 @@ export default function PartnerContractWorkflow({
       <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 mb-1">Contrat partenaire</h2>
       {semiAutoPreview ? (
         <p className="text-xs text-slate-500 mb-4">
-          Parcours cible (semi-automatique DocuSign) — en attendant, notre équipe valide et vous envoie le contrat.
+          Signature en ligne depuis votre espace partenaire — aucun outil externe requis.
         </p>
-      ) : null}
+      ) : (
+        <p className="text-xs text-slate-500 mb-4">
+          Lisez le contrat, cochez votre acceptation et signez pour débloquer votre espace.
+        </p>
+      )}
       <ol className="space-y-3">
         {STEPS.map((step, i) => {
           const done = i < current || (signed && i <= 3);

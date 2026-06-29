@@ -1428,6 +1428,29 @@ export function createApp() {
       if (!sent) {
         return res.status(502).json({ success: false, error: "Envoi email impossible (vérifiez la config Gmail/SMTP)." });
       }
+      res.json({
+        success: true,
+        contractPending: (apporteur.contractStatus || "none") !== "signed",
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/apporteurs/:id/send-contract-signing-invite", async (req, res) => {
+    try {
+      const { findApporteurById } = await import("./apporteurStore");
+      const { sendApporteurContractSigningInvite } = await import("./apporteurNotify");
+      const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const apporteur = await findApporteurById(req.params.id);
+      if (!apporteur) return res.status(404).json({ success: false, error: "Apporteur introuvable" });
+      const baseUrl = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      const sent = await sendApporteurContractSigningInvite(apporteur, baseUrl);
+      if (!sent) {
+        return res.status(502).json({ success: false, error: "Envoi email impossible (vérifiez la config Gmail/SMTP)." });
+      }
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
@@ -1639,11 +1662,81 @@ export function createApp() {
         },
         payoutPerSignature: defaultPayoutDirect,
         portalUnlocked: contractSigned,
+        contract: {
+          status: contractStatus,
+          signed: contractSigned,
+          signedAt: apporteur.contractSignedAt || null,
+          needsSignature: !contractSigned,
+        },
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
+
+  app.get("/api/apporteur-portal/:token/contract", async (req, res) => {
+    try {
+      const { findApporteurByPortalToken, loadApporteurStore } = await import("./apporteurStore");
+      const {
+        getApporteurContractPayload,
+        isApporteurContractSigned,
+      } = await import("./apporteurContractSign");
+      const apporteur = await findApporteurByPortalToken(req.params.token);
+      if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+      const store = await loadApporteurStore();
+      const sponsor = apporteur.sponsorId
+        ? store.apporteurs.find((a) => a.id === apporteur.sponsorId) || null
+        : null;
+      res.json({
+        ok: true,
+        signed: isApporteurContractSigned(apporteur),
+        signedAt: apporteur.contractSignedAt || null,
+        signature: apporteur.contractSignature || null,
+        document: getApporteurContractPayload(apporteur, sponsor?.contactName || null),
+        signerHint: apporteur.contactName,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post(
+    "/api/apporteur-portal/:token/contract/sign",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken } = await import("./apporteurStore");
+        const { signApporteurContractOnline, isApporteurContractSigned } = await import(
+          "./apporteurContractSign"
+        );
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (isApporteurContractSigned(apporteur)) {
+          return res.json({
+            ok: true,
+            alreadySigned: true,
+            contractSignedAt: apporteur.contractSignedAt || null,
+          });
+        }
+        const body = (req.body || {}) as { signerName?: string; acceptTerms?: boolean };
+        const updated = await signApporteurContractOnline({
+          apporteur,
+          signerName: String(body.signerName || "").trim(),
+          acceptTerms: Boolean(body.acceptTerms),
+          ipAddress: String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim() || undefined,
+          userAgent: String(req.headers["user-agent"] || "").slice(0, 500) || undefined,
+        });
+        res.json({
+          ok: true,
+          contractSignedAt: updated.contractSignedAt || null,
+          signature: updated.contractSignature || null,
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
 
   app.post(
     "/api/apporteur-portal/:token/referrals",

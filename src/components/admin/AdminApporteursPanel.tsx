@@ -200,6 +200,20 @@ export default function AdminApporteursPanel({ onBack }: Props) {
     setSuccessMsg("Invitation espace apporteur envoyée par email.");
   };
 
+  const sendContractSigningInvite = async (apporteurId: string) => {
+    setError(null);
+    setSuccessMsg(null);
+    const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}/send-contract-signing-invite`, {
+      method: "POST",
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Envoi impossible");
+      return;
+    }
+    setSuccessMsg("Lien de signature du contrat envoyé par email.");
+  };
+
   const updatePartnerRecruitStatus = async (recruitId: string, status: PartnerRecruitStatus) => {
     setError(null);
     const res = await adminFetch(`/api/admin/partner-recruits/${recruitId}`, {
@@ -215,6 +229,8 @@ export default function AdminApporteursPanel({ onBack }: Props) {
     if (status === "CONTRAT_SIGNE" && data.recruit?.createdApporteurId) {
       setSuccessMsg(`Apporteur créé et rattaché au parrain (${data.recruit.createdApporteurId}).`);
       setSelectedApporteurId(data.recruit.createdApporteurId);
+    } else if (status === "CONTRAT_ENVOYE") {
+      setSuccessMsg("Lien de signature envoyé — le candidat peut signer en ligne depuis son espace.");
     } else if (status === "REFUSE") {
       setSuccessMsg("Candidature refusée.");
     }
@@ -332,20 +348,30 @@ export default function AdminApporteursPanel({ onBack }: Props) {
             Candidatures à traiter ({pendingRecruits.length})
           </h2>
           <p className="text-xs text-slate-500 mb-4">
-            Une action principale par candidature — à la dernière étape, l&apos;apporteur filleul est créé automatiquement.
+            À l&apos;étape « signature en ligne », un email part au candidat avec le lien pour signer le contrat dans son espace.
           </p>
           <div className="space-y-4">
-            {pendingRecruits.map((r) => (
+            {pendingRecruits.map((r) => {
+              const created = r.createdApporteurId ? apporteurById.get(r.createdApporteurId) : undefined;
+              const signingLink =
+                created?.portalToken && publicBaseUrl
+                  ? `${publicBaseUrl.replace(/\/$/, "")}/apporteur/${created.portalToken}`
+                  : created?.portalToken
+                    ? `/apporteur/${created.portalToken}`
+                    : "";
+              return (
               <PartnerRecruitCard
                 key={r.id}
                 recruit={r}
                 sponsorLabel={apporteurById.get(r.sponsorApporteurId)?.contactName || r.sponsorApporteurId}
                 sponsorCompany={apporteurById.get(r.sponsorApporteurId)?.companyName}
+                signingLink={signingLink}
                 onAdvance={(status) => updatePartnerRecruitStatus(r.id, status)}
                 onRefuse={() => updatePartnerRecruitStatus(r.id, "REFUSE")}
                 copyText={copyText}
               />
-            ))}
+            );
+            })}
           </div>
         </div>
       ) : null}
@@ -456,33 +482,35 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                     ) : null}
                     <div className="space-y-4">
                       <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/80">
-                        <p className="text-[11px] font-black uppercase text-slate-400 mb-2">Contrat (manuel → DocuSign)</p>
+                        <p className="text-[11px] font-black uppercase text-slate-400 mb-2">Contrat partenaire (signature en ligne)</p>
                         <PartnerContractWorkflow contractStatus={a.contractStatus || "none"} semiAutoPreview />
                         <div className="flex flex-wrap gap-2 mt-3">
-                          <button
-                            type="button"
-                            onClick={() => updateContractStatus(a.id, "pending")}
-                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50"
-                          >
-                            Valider LCIF
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateContractStatus(a.id, "sent")}
-                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-indigo-200 text-indigo-800 bg-indigo-50 hover:bg-indigo-100"
-                          >
-                            Contrat envoyé
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateContractStatus(a.id, "signed")}
-                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
-                          >
-                            Marquer signé
-                          </button>
+                          {(a.contractStatus || "none") !== "signed" ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => sendContractSigningInvite(a.id)}
+                                className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                              >
+                                Envoyer lien signature
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateContractStatus(a.id, "signed")}
+                                className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100"
+                              >
+                                Marquer signé (hors ligne)
+                              </button>
+                            </>
+                          ) : (
+                            <p className="text-xs text-emerald-700 font-bold">
+                              Signé{a.contractSignedAt ? ` le ${new Date(a.contractSignedAt).toLocaleDateString("fr-FR")}` : ""}
+                              {a.contractSignature?.signerName ? ` · ${a.contractSignature.signerName}` : ""}
+                            </p>
+                          )}
                         </div>
                         <p className="text-[10px] text-slate-400 mt-2">
-                          Cible semi-auto : ces actions seront remplacées par l&apos;envoi DocuSign + webhook signature.
+                          Le partenaire signe depuis son espace privé — le portail se débloque automatiquement.
                         </p>
                       </div>
                       <div>
@@ -704,8 +732,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
 
 function recruitNextAction(status: PartnerRecruitStatus): { label: string; next: PartnerRecruitStatus } | null {
   if (status === "NOUVEAU") return { label: "1. Valider la candidature", next: "VALIDE_LCIF" };
-  if (status === "VALIDE_LCIF") return { label: "2. Marquer contrat envoyé", next: "CONTRAT_ENVOYE" };
-  if (status === "CONTRAT_ENVOYE") return { label: "3. Contrat signé — créer l'apporteur", next: "CONTRAT_SIGNE" };
+  if (status === "VALIDE_LCIF") return { label: "2. Activer la signature en ligne", next: "CONTRAT_ENVOYE" };
   return null;
 }
 
@@ -713,6 +740,7 @@ function PartnerRecruitCard({
   recruit,
   sponsorLabel,
   sponsorCompany,
+  signingLink,
   onAdvance,
   onRefuse,
   copyText,
@@ -720,6 +748,7 @@ function PartnerRecruitCard({
   recruit: PartnerRecruitRequest;
   sponsorLabel: string;
   sponsorCompany?: string;
+  signingLink?: string;
   onAdvance: (status: PartnerRecruitStatus) => void;
   onRefuse: () => void;
   copyText: (text: string) => void;
@@ -783,14 +812,35 @@ function PartnerRecruitCard({
           <button
             type="button"
             onClick={() => onAdvance(action.next)}
-            className={`text-sm font-bold px-4 py-2.5 rounded-xl ${
-              action.next === "CONTRAT_SIGNE"
-                ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md"
-                : "bg-indigo-600 text-white hover:bg-indigo-700"
-            }`}
+            className="text-sm font-bold px-4 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
           >
             {action.label}
           </button>
+        ) : recruit.status === "CONTRAT_ENVOYE" ? (
+          <div className="space-y-2 w-full">
+            <p className="text-sm text-amber-800 font-bold bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              En attente de signature en ligne par le candidat
+            </p>
+            {signingLink ? (
+              <div className="flex flex-wrap gap-2 items-center">
+                <code className="text-[11px] bg-slate-100 px-2 py-1 rounded break-all">{signingLink}</code>
+                <button
+                  type="button"
+                  onClick={() => copyText(signingLink)}
+                  className="text-xs font-bold text-indigo-700 hover:underline"
+                >
+                  Copier le lien
+                </button>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onAdvance("CONTRAT_SIGNE")}
+              className="text-xs font-bold text-emerald-700 hover:underline"
+            >
+              Marquer signé manuellement (hors ligne)
+            </button>
+          </div>
         ) : (
           <span className="text-sm text-emerald-700 font-bold">Terminé</span>
         )}

@@ -119,6 +119,35 @@ export function buildApporteurPortalInviteEmail(params: {
   return { subject: "Votre espace apporteur — Le Club Immobilier Français", html };
 }
 
+export function buildApporteurContractSigningInviteEmail(params: {
+  apporteur: Apporteur;
+  portalUrl: string;
+}): { subject: string; html: string } {
+  const html = `
+<div style="margin:0;padding:0;font-family:Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
+  <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #E5E7EB;">
+    <div style="background:#1E3A8A;padding:24px;text-align:center;">${LCIF_EMAIL_LOGO_HEADER_IMG}</div>
+    <div style="padding:24px 22px;">
+      <p style="font-size:16px;margin:0 0 12px 0;"><strong>Bonjour ${params.apporteur.contactName},</strong></p>
+      <p style="font-size:14px;margin:0 0 16px 0;">
+        Votre candidature partenaire Le Club Immobilier Français est validée. Il ne reste plus qu'à
+        <strong>signer votre contrat d'apporteur en ligne</strong> pour débloquer votre espace.
+      </p>
+      <p style="margin:0 0 20px 0;text-align:center;">
+        <a href="${params.portalUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:bold;font-size:15px;">
+          Signer mon contrat et accéder à mon espace
+        </a>
+      </p>
+      <p style="font-size:13px;color:#6B7280;margin:0;">
+        Lien direct : <a href="${params.portalUrl}" style="color:#1E3A8A;">${params.portalUrl}</a><br/>
+        La signature prend environ 2 minutes. Conservez ce lien privé.
+      </p>
+    </div>
+  </div>
+</div>`;
+  return { subject: "Signez votre contrat partenaire — Le Club Immobilier Français", html };
+}
+
 async function sendApporteurHtmlEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!to.includes("@")) return false;
   try {
@@ -170,10 +199,24 @@ export async function sendApporteurPortalInvite(
   portalBaseUrl?: string,
 ): Promise<boolean> {
   if (!apporteur.portalToken || !apporteur.email) return false;
+  if ((apporteur.contractStatus || "none") !== "signed") {
+    return sendApporteurContractSigningInvite(apporteur, portalBaseUrl);
+  }
   const base = resolvePublicAppBaseUrl(portalBaseUrl);
   const portalUrl = buildApporteurPortalUrl(base, apporteur.portalToken);
   const referralLink = `${base.replace(/\/$/, "")}/?ref=${encodeURIComponent(apporteur.referralToken)}`;
   const { subject, html } = buildApporteurPortalInviteEmail({ apporteur, portalUrl, referralLink });
+  return sendApporteurHtmlEmail(apporteur.email, subject, html);
+}
+
+export async function sendApporteurContractSigningInvite(
+  apporteur: Apporteur,
+  portalBaseUrl?: string,
+): Promise<boolean> {
+  if (!apporteur.portalToken || !apporteur.email) return false;
+  const base = resolvePublicAppBaseUrl(portalBaseUrl);
+  const portalUrl = buildApporteurPortalUrl(base, apporteur.portalToken);
+  const { subject, html } = buildApporteurContractSigningInviteEmail({ apporteur, portalUrl });
   return sendApporteurHtmlEmail(apporteur.email, subject, html);
 }
 

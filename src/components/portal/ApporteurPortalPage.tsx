@@ -19,6 +19,8 @@ import PartnerBenefitCards from "./PartnerBenefitCards";
 import PartnerClientScript from "./PartnerClientScript";
 import PartnerJourneyTimeline from "./PartnerJourneyTimeline";
 import PartnerEarningsPanel from "./PartnerEarningsPanel";
+import PartnerContractSigning from "./PartnerContractSigning";
+import PartnerContractWorkflow from "./PartnerContractWorkflow";
 
 type PortalReferralTracking = {
   dossierId: string;
@@ -103,6 +105,12 @@ type PortalData = {
   };
   payoutPerSignature: number;
   portalUnlocked: boolean;
+  contract?: {
+    status: string;
+    signed: boolean;
+    signedAt: string | null;
+    needsSignature: boolean;
+  };
 };
 
 const FILLEUL_STATUS: Record<
@@ -284,7 +292,35 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
 
   const typeLabel =
     APPORTEUR_TYPE_LABELS[data.apporteur.type as keyof typeof APPORTEUR_TYPE_LABELS] || data.apporteur.type;
-  const unlocked = data.portalUnlocked !== false;
+  const unlocked = data.portalUnlocked !== false && data.contract?.signed !== false;
+
+  if (!unlocked) {
+    return (
+      <div className="min-h-[100dvh] bg-[#f4f6fb]">
+        <LcifPartnerHeader
+          partnerName={data.apporteur.companyName}
+          partnerContact={data.apporteur.contactName}
+          partnerTypeLabel={typeLabel}
+        />
+        <main className="max-w-3xl mx-auto px-5 py-8 space-y-6">
+          {submitMsg ? (
+            <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center font-medium">
+              {submitMsg}
+            </p>
+          ) : null}
+          <PartnerContractWorkflow contractStatus={data.contract?.status || "sent"} semiAutoPreview={false} />
+          <PartnerContractSigning portalToken={token} onSigned={() => load()} />
+          <p className="text-xs text-slate-500 text-center">
+            Une question ?{" "}
+            <a className="font-bold text-indigo-700 underline" href="mailto:assurance@leclubimmobilier.fr">
+              assurance@leclubimmobilier.fr
+            </a>
+          </p>
+          <LcifPartnerFooter />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] bg-[#f4f6fb]">

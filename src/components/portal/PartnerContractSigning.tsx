@@ -1,0 +1,202 @@
+import React, { useCallback, useEffect, useState } from "react";
+import { CheckCircle2, FileSignature, Loader2 } from "lucide-react";
+import { getApiUrl } from "../../lib/utils";
+
+type ContractSection = { heading: string; body: string };
+
+type ContractDocument = {
+  version: string;
+  title: string;
+  preamble: string;
+  sections: ContractSection[];
+  acceptanceLabel: string;
+};
+
+type ContractPayload = {
+  signed: boolean;
+  signedAt: string | null;
+  document: ContractDocument;
+  signerHint: string;
+};
+
+export default function PartnerContractSigning({
+  portalToken,
+  onSigned,
+}: {
+  portalToken: string;
+  onSigned: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [payload, setPayload] = useState<ContractPayload | null>(null);
+  const [signerName, setSignerName] = useState("");
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [scrolledToEnd, setScrolledToEnd] = useState(false);
+
+  const loadContract = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract`));
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Impossible de charger le contrat.");
+      }
+      if (json.signed) {
+        onSigned();
+        return;
+      }
+      setPayload({
+        signed: json.signed,
+        signedAt: json.signedAt,
+        document: json.document,
+        signerHint: json.signerHint,
+      });
+      setSignerName(json.signerHint || "");
+    } catch (err: any) {
+      setError(err?.message || "Erreur");
+    } finally {
+      setLoading(false);
+    }
+  }, [portalToken, onSigned]);
+
+  useEffect(() => {
+    loadContract();
+  }, [loadContract]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 48) {
+      setScrolledToEnd(true);
+    }
+  };
+
+  const handleSign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!acceptTerms) {
+      setError("Vous devez accepter le contrat.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract/sign`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ signerName, acceptTerms: true }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Signature impossible.");
+      }
+      onSigned();
+    } catch (err: any) {
+      setError(err?.message || "Erreur");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+      </div>
+    );
+  }
+
+  if (!payload) {
+    return (
+      <div className="bg-white rounded-2xl border border-red-100 p-6 text-center text-red-700 text-sm">
+        {error || "Contrat indisponible."}
+      </div>
+    );
+  }
+
+  const doc = payload.document;
+
+  return (
+    <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-[#1E3A8A] text-white px-5 py-4">
+        <div className="flex items-center gap-2 mb-1">
+          <FileSignature className="w-5 h-5 text-amber-300" />
+          <h2 className="text-sm font-black uppercase tracking-wide">Signature du contrat partenaire</h2>
+        </div>
+        <p className="text-xs text-indigo-100">
+          Dernière étape avant d&apos;accéder à votre lien client et à vos recommandations.
+        </p>
+      </div>
+
+      <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+        <h3 className="font-black text-slate-900 text-base">{doc.title}</h3>
+        <p className="text-xs text-slate-500 mt-1">{doc.preamble}</p>
+      </div>
+
+      <div
+        className="max-h-[420px] overflow-y-auto px-5 py-4 space-y-4 text-sm text-slate-700 leading-relaxed"
+        onScroll={handleScroll}
+      >
+        {doc.sections.map((section) => (
+          <article key={section.heading}>
+            <h4 className="font-bold text-slate-900 mb-1.5">{section.heading}</h4>
+            <div className="whitespace-pre-wrap text-[13px]">{section.body}</div>
+          </article>
+        ))}
+      </div>
+
+      {!scrolledToEnd ? (
+        <p className="text-[11px] text-amber-700 bg-amber-50 border-t border-amber-100 px-5 py-2">
+          Faites défiler le contrat jusqu&apos;en bas pour activer la signature.
+        </p>
+      ) : null}
+
+      <form onSubmit={handleSign} className="px-5 py-4 border-t border-slate-100 space-y-3 bg-slate-50/80">
+        <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={acceptTerms}
+            onChange={(e) => setAcceptTerms(e.target.checked)}
+            disabled={!scrolledToEnd}
+            className="mt-0.5 rounded border-slate-300"
+          />
+          <span>{doc.acceptanceLabel}</span>
+        </label>
+
+        <label className="block text-xs font-bold text-slate-600">
+          Nom complet (signature électronique)
+          <input
+            type="text"
+            value={signerName}
+            onChange={(e) => setSignerName(e.target.value)}
+            disabled={!scrolledToEnd}
+            placeholder={payload.signerHint}
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-normal disabled:opacity-50"
+          />
+        </label>
+
+        {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
+
+        <button
+          type="submit"
+          disabled={submitting || !scrolledToEnd || !acceptTerms || !signerName.trim()}
+          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
+        >
+          {submitting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4" />
+          )}
+          {submitting ? "Signature en cours…" : "Signer et débloquer mon espace"}
+        </button>
+
+        <p className="text-[10px] text-slate-400 text-center">
+          Horodatage et identité enregistrés par LCIF · version {doc.version}
+        </p>
+      </form>
+    </section>
+  );
+}
