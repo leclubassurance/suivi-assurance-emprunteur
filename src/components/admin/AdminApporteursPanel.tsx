@@ -16,6 +16,10 @@ import {
   REFERRAL_STATUS_LABELS,
   REFERRAL_STATUS_ORDER,
 } from "../../../shared/apporteurTypes";
+import { LCIF_LOGO_URL } from "../../../shared/apporteurBrand";
+import { computeReferralKpis } from "../../../shared/apporteurKpis";
+import KpiCard, { formatPercent } from "../portal/PartnerKpiGrid";
+import PartnerContractWorkflow from "../portal/PartnerContractWorkflow";
 
 type Props = {
   onBack: () => void;
@@ -85,6 +89,9 @@ export default function AdminApporteursPanel({ onBack }: Props) {
     for (const a of apporteurs) map.set(a.id, a);
     return map;
   }, [apporteurs]);
+
+  const globalKpis = useMemo(() => computeReferralKpis(referrals), [referrals]);
+  const selectedKpis = useMemo(() => computeReferralKpis(filteredReferrals), [filteredReferrals]);
 
   const copyText = async (text: string) => {
     try {
@@ -186,46 +193,71 @@ export default function AdminApporteursPanel({ onBack }: Props) {
     setSuccessMsg("Invitation espace apporteur envoyée par email.");
   };
 
+  const updateContractStatus = async (apporteurId: string, contractStatus: Apporteur["contractStatus"]) => {
+    setError(null);
+    const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contractStatus }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Mise à jour contrat impossible");
+      return;
+    }
+    setSuccessMsg(
+      contractStatus === "signed"
+        ? "Contrat marqué signé — portail débloqué pour l'apporteur."
+        : `Statut contrat : ${contractStatus}`,
+    );
+    await load();
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap justify-between items-center gap-3">
+      <header className="bg-[#1E3A8A] text-white px-6 py-5 flex flex-wrap justify-between items-center gap-4">
         <div>
           <button
             type="button"
             onClick={onBack}
-            className="text-sm text-slate-500 hover:text-slate-800 mb-1"
+            className="text-sm text-indigo-200 hover:text-white mb-2"
           >
             ← Retour au tableau de bord dossiers
           </button>
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <Users className="w-5 h-5 text-indigo-600" />
-            Apporteurs d&apos;affaires
-          </h1>
-          {summary ? (
-            <p className="text-xs text-slate-500 mt-1">
-              {summary.apporteurs} apporteur(s) · {summary.openReferrals} recommandation(s) ouverte(s)
-            </p>
-          ) : null}
+          <div className="flex items-center gap-4">
+            <img src={LCIF_LOGO_URL} alt="LCIF" className="h-10 w-auto brightness-0 invert hidden sm:block" />
+            <div>
+              <h1 className="text-xl font-black flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Apporteurs d&apos;affaires
+              </h1>
+              {summary ? (
+                <p className="text-xs text-indigo-200 mt-1">
+                  {summary.activeApporteurs ?? summary.apporteurs} actif(s) · {summary.openReferrals ?? summary.open} reco ouverte(s)
+                </p>
+              ) : null}
+            </div>
+          </div>
         </div>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => setShowNewApporteur(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white text-[#1E3A8A] text-sm font-bold hover:bg-indigo-50"
           >
             <Plus className="w-4 h-4" /> Nouvel apporteur
           </button>
           <button
             type="button"
             onClick={() => setShowNewReferral(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-bold hover:bg-slate-50"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/30 bg-white/10 text-white text-sm font-bold hover:bg-white/20"
           >
             <UserPlus className="w-4 h-4" /> Recommandation
           </button>
           <button
             type="button"
             onClick={load}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-bold hover:bg-slate-50"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/30 bg-white/10 text-white text-sm font-bold hover:bg-white/20"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
@@ -243,7 +275,38 @@ export default function AdminApporteursPanel({ onBack }: Props) {
         </div>
       ) : null}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="mx-6 mt-4 space-y-3">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+          {selectedApporteurId === "all" ? "Vue réseau" : `KPI — ${apporteurById.get(selectedApporteurId)?.companyName || ""}`}
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+          {(selectedApporteurId === "all" ? globalKpis : selectedKpis) && (
+            <>
+              <KpiCard label="Total" value={(selectedApporteurId === "all" ? globalKpis : selectedKpis).total} accent="indigo" />
+              <KpiCard label="En cours" value={(selectedApporteurId === "all" ? globalKpis : selectedKpis).open} accent="amber" />
+              <KpiCard label="Signées" value={(selectedApporteurId === "all" ? globalKpis : selectedKpis).signed} accent="emerald" />
+              <KpiCard label="Conversion" value={formatPercent((selectedApporteurId === "all" ? globalKpis : selectedKpis).conversionRate)} accent="violet" />
+              <KpiCard label="Ce mois" value={(selectedApporteurId === "all" ? globalKpis : selectedKpis).thisMonth} />
+              <KpiCard label="Études" value={(selectedApporteurId === "all" ? globalKpis : selectedKpis).etudeEnvoyee} accent="violet" />
+              <KpiCard label="Refusés" value={(selectedApporteurId === "all" ? globalKpis : selectedKpis).refused} />
+              <KpiCard label="Perdus" value={(selectedApporteurId === "all" ? globalKpis : selectedKpis).lost} />
+            </>
+          )}
+        </div>
+        {selectedApporteurId === "all" && summary ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <KpiCard label="Apporteurs" value={Number(summary.apporteurs) || 0} accent="indigo" />
+            <KpiCard label="Actifs" value={Number(summary.activeApporteurs) || 0} accent="emerald" />
+            <KpiCard
+              label="Avec pipeline"
+              value={Number(summary.apporteursWithOpenReferrals) || 0}
+              sub="apporteurs avec reco ouverte"
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex flex-1 overflow-hidden mt-2">
         <aside className="w-80 max-w-[40%] bg-white border-r border-slate-200 overflow-y-auto">
           <div className="p-3 border-b">
             <button
@@ -301,7 +364,37 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                       {a.contactName} — {a.email}
                       {a.phone ? ` · ${a.phone}` : ""}
                     </p>
-                    <div className="space-y-3">
+                    <div className="space-y-4">
+                      <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/80">
+                        <p className="text-[11px] font-black uppercase text-slate-400 mb-2">Contrat (manuel → DocuSign)</p>
+                        <PartnerContractWorkflow contractStatus={a.contractStatus || "none"} semiAutoPreview />
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <button
+                            type="button"
+                            onClick={() => updateContractStatus(a.id, "pending")}
+                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50"
+                          >
+                            Valider LCIF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateContractStatus(a.id, "sent")}
+                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-indigo-200 text-indigo-800 bg-indigo-50 hover:bg-indigo-100"
+                          >
+                            Contrat envoyé
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateContractStatus(a.id, "signed")}
+                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                          >
+                            Marquer signé
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-2">
+                          Cible semi-auto : ces actions seront remplacées par l&apos;envoi DocuSign + webhook signature.
+                        </p>
+                      </div>
                       <div>
                         <p className="text-[11px] font-black uppercase text-slate-400 mb-1">Espace apporteur (privé)</p>
                         <div className="flex flex-wrap gap-2 items-center">

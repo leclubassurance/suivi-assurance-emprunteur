@@ -10,6 +10,8 @@ import type {
   ReferralStatus,
 } from "../shared/apporteurTypes";
 import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
+import { computeAdminApporteurKpis, computeReferralKpis } from "../shared/apporteurKpis";
+import { getRemunerationConfig } from "../shared/apporteurRemuneration";
 import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
@@ -285,7 +287,16 @@ export async function updateApporteur(
   patch: Partial<
     Pick<
       Apporteur,
-      "companyName" | "contactName" | "email" | "phone" | "type" | "notes" | "active" | "notifyEmailEnabled"
+      | "companyName"
+      | "contactName"
+      | "email"
+      | "phone"
+      | "type"
+      | "notes"
+      | "active"
+      | "notifyEmailEnabled"
+      | "contractStatus"
+      | "contractSignedAt"
     >
   >,
 ): Promise<Apporteur> {
@@ -300,6 +311,15 @@ export async function updateApporteur(
   if (patch.notes != null) apporteur.notes = String(patch.notes).trim() || undefined;
   if (patch.active != null) apporteur.active = Boolean(patch.active);
   if (patch.notifyEmailEnabled != null) apporteur.notifyEmailEnabled = Boolean(patch.notifyEmailEnabled);
+  if (patch.contractStatus != null) {
+    apporteur.contractStatus = patch.contractStatus;
+    if (patch.contractStatus === "signed" && !apporteur.contractSignedAt) {
+      apporteur.contractSignedAt = new Date().toISOString();
+    }
+  }
+  if ((patch as any).contractSignedAt != null) {
+    apporteur.contractSignedAt = (patch as any).contractSignedAt || undefined;
+  }
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);
   return apporteur;
@@ -532,15 +552,19 @@ export function buildApporteurReferralUrl(baseUrl: string, token: string): strin
 
 export async function getApporteurSummary() {
   const store = await loadApporteurStore();
-  const activeApporteurs = store.apporteurs.filter((a) => a.active).length;
-  const openReferrals = store.referrals.filter(
-    (r) => !["SIGNE", "REFUSE", "PERDU"].includes(r.status),
-  ).length;
+  const kpis = computeAdminApporteurKpis(store.apporteurs, store.referrals);
   return {
-    apporteurs: store.apporteurs.length,
-    activeApporteurs,
+    ...kpis,
     referrals: store.referrals.length,
-    openReferrals,
+    openReferrals: kpis.open,
     updatedAt: store.updatedAt,
   };
+}
+
+export function getApporteurKpisForReferrals(referrals: Referral[]) {
+  return computeReferralKpis(referrals);
+}
+
+export function getRemunerationForApporteur(apporteur: Apporteur) {
+  return getRemunerationConfig(apporteur.type);
 }

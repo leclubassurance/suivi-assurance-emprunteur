@@ -28,6 +28,9 @@ export type Apporteur = {
   notes?: string;
   /** Recevoir un email à chaque changement de statut d'une recommandation. */
   notifyEmailEnabled?: boolean;
+  /** Statut du contrat d'apporteur (phase contrat — à compléter). */
+  contractStatus?: "none" | "pending" | "sent" | "signed" | "expired";
+  contractSignedAt?: string;
 };
 
 export type ReferralContact = {

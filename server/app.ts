@@ -1497,9 +1497,10 @@ export function createApp() {
   const apporteurPortalPostLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
   app.get("/api/apporteur-portal/:token", async (req, res) => {
     try {
-      const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl } = await import(
+      const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl, getApporteurKpisForReferrals, getRemunerationForApporteur } = await import(
         "./apporteurStore"
       );
+      const { computeEarnedAndPipelineEur } = await import("../shared/apporteurRemuneration");
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
@@ -1508,14 +1509,32 @@ export function createApp() {
         String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
       );
       const referralLink = buildApporteurReferralUrl(publicBaseUrl, apporteur.referralToken);
-      const open = referrals.filter((r) => !["SIGNE", "REFUSE", "PERDU"].includes(r.status)).length;
-      const signed = referrals.filter((r) => r.status === "SIGNE").length;
+      const kpis = getApporteurKpisForReferrals(referrals);
+      const remuneration = getRemunerationForApporteur(apporteur);
+      const { computeApporteurPayoutEur } = await import("../shared/apporteurRemuneration");
+      const payoutPerSignature = computeApporteurPayoutEur({
+        annualSavingsEur: remuneration.defaultAnnualSavingsEur,
+        assuredCount: remuneration.defaultAssuredPerDossier,
+        config: remuneration,
+      });
+      const conversionForEarn =
+        kpis.conversionRate ?? remuneration.defaultConversionRate;
+      const earnings = computeEarnedAndPipelineEur(
+        kpis.signed,
+        kpis.open,
+        payoutPerSignature,
+        conversionForEarn,
+      );
+      const contractStatus = apporteur.contractStatus || "none";
+      const contractSigned = contractStatus === "signed";
       res.json({
         ok: true,
         apporteur: {
           companyName: apporteur.companyName,
           contactName: apporteur.contactName,
           type: apporteur.type,
+          contractStatus,
+          contractSigned,
         },
         referrals: referrals.map((r) => ({
           id: r.id,
@@ -1530,7 +1549,12 @@ export function createApp() {
           })),
         })),
         referralLink,
-        stats: { total: referrals.length, open, signed },
+        stats: { total: kpis.total, open: kpis.open, signed: kpis.signed },
+        kpis,
+        remuneration,
+        earnings,
+        payoutPerSignature,
+        portalUnlocked: contractSigned,
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
@@ -1546,6 +1570,13 @@ export function createApp() {
         const { findApporteurByPortalToken, createReferral } = await import("./apporteurStore");
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if ((apporteur.contractStatus || "none") !== "signed") {
+          return res.status(403).json({
+            ok: false,
+            error: "contract_required",
+            message: "Le contrat partenaire doit être signé avant d'enregistrer une recommandation.",
+          });
+        }
         const body = (req.body || {}) as any;
         const contact = body.contact || {};
         const email = String(contact.email || "").trim().toLowerCase();
