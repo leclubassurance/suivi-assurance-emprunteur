@@ -120,13 +120,10 @@ async function loadStoreFromFirestore(): Promise<ApporteurStore | null> {
 }
 
 async function saveStoreToFirestore(store: ApporteurStore) {
-  try {
-    const { writeApporteurStoreToFirestore } = await import("./firebaseSync");
-    store.updatedAt = new Date().toISOString();
-    await writeApporteurStoreToFirestore(store);
-  } catch (e: any) {
-    console.warn("[Apporteurs] Firestore store save:", e?.message || e);
-  }
+  const { writeApporteurStoreToFirestore, isFirebaseConfigured } = await import("./firebaseSync");
+  if (!isFirebaseConfigured()) return;
+  store.updatedAt = new Date().toISOString();
+  await writeApporteurStoreToFirestore(store);
 }
 
 function invalidateCache() {
@@ -177,7 +174,17 @@ export async function loadApporteurStore(): Promise<ApporteurStore> {
 
 async function persistStore(store: ApporteurStore) {
   saveStoreToFile(store);
-  await saveStoreToFirestore(store);
+  try {
+    await saveStoreToFirestore(store);
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    console.error("[Apporteurs] Échec sauvegarde Firestore apporteur_store:", msg);
+    if (process.env.RAILWAY_ENVIRONMENT || process.env.FIREBASE_REQUIRED === "true") {
+      throw new Error(
+        `Impossible de persister les apporteurs dans Firestore (collection apporteur_store). ${msg}`,
+      );
+    }
+  }
   cachedStore = store;
   cachedAt = Date.now();
 }

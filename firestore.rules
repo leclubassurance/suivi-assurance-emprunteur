@@ -8,6 +8,9 @@ service cloud.firestore {
     match /dossiers/{dossierId} {
       allow read, write: if true;
     }
+    match /apporteur_store/{docId} {
+      allow read, write: if true;
+    }
     match /_camilleLocks/{lockId} {
       allow read, write: if true;
     }

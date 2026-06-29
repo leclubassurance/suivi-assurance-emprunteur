@@ -211,7 +211,9 @@ export async function readApporteurStoreFromFirestore(): Promise<ApporteurStoreD
 
 export async function writeApporteurStoreToFirestore(store: ApporteurStoreDoc): Promise<void> {
   await initFirebaseSync();
-  if (!firestoreDb) return;
+  if (!firestoreDb) {
+    throw new Error("Firestore non initialisé — impossible d'écrire apporteur_store.");
+  }
   await setDoc(doc(firestoreDb, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID), store);
 }
 
