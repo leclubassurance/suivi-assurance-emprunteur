@@ -200,6 +200,28 @@ function uniqueReferralToken(store: ApporteurStore, base: string): string {
   return token;
 }
 
+/** Candidats ?ref= : contact en priorité (évite les conflits même société), puis contact+société. */
+function buildReferralTokenCandidates(contactName: string, companyName: string): string[] {
+  const contact = slugifyToken(contactName);
+  const company = slugifyToken(companyName);
+  const candidates: string[] = [];
+  if (contact) candidates.push(contact);
+  if (contact && company) {
+    const combined = slugifyToken(`${contactName} ${companyName}`) || `${contact}-${company}`.slice(0, 48);
+    if (combined && combined !== contact) candidates.push(combined);
+  }
+  if (company) candidates.push(company);
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+function pickReferralToken(store: ApporteurStore, candidates: string[]): string {
+  for (const base of candidates) {
+    const root = slugifyToken(base) || base;
+    if (root && !store.apporteurs.some((a) => a.referralToken === root)) return root;
+  }
+  return uniqueReferralToken(store, candidates[0] || "partenaire");
+}
+
 function pushReferralEvent(referral: Referral, status: ReferralStatus, message?: string, actor?: string) {
   referral.events = referral.events || [];
   referral.events.push({
@@ -268,7 +290,9 @@ export async function createApporteur(input: {
   if (!companyName || !contactName || !email.includes("@")) {
     throw new Error("Nom société, contact et email valides requis.");
   }
-  const tokenBase = input.referralToken ? slugifyToken(input.referralToken) : slugifyToken(companyName);
+  const tokenCandidates = input.referralToken?.trim()
+    ? [slugifyToken(input.referralToken)]
+    : buildReferralTokenCandidates(contactName, companyName);
   const apporteur: Apporteur = {
     id: newId("AP"),
     createdAt: now,
@@ -279,7 +303,7 @@ export async function createApporteur(input: {
     email,
     phone: String(input.phone || "").trim() || undefined,
     type: input.type || "autre",
-    referralToken: uniqueReferralToken(store, tokenBase),
+    referralToken: pickReferralToken(store, tokenCandidates.filter(Boolean)),
     portalToken: generatePortalToken(),
     notifyEmailEnabled: true,
     notes: String(input.notes || "").trim() || undefined,
@@ -304,12 +328,21 @@ export async function updateApporteur(
       | "notifyEmailEnabled"
       | "contractStatus"
       | "contractSignedAt"
+      | "referralToken"
     >
   >,
 ): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const apporteur = store.apporteurs.find((a) => a.id === id);
   if (!apporteur) throw new Error("Apporteur introuvable.");
+  if (patch.referralToken != null) {
+    const next = slugifyToken(String(patch.referralToken));
+    if (!next) throw new Error("Lien ?ref= invalide.");
+    if (store.apporteurs.some((a) => a.id !== id && a.referralToken === next)) {
+      throw new Error("Ce lien ?ref= est déjà utilisé par un autre apporteur.");
+    }
+    apporteur.referralToken = next;
+  }
   if (patch.companyName != null) apporteur.companyName = String(patch.companyName).trim();
   if (patch.contactName != null) apporteur.contactName = String(patch.contactName).trim();
   if (patch.email != null) apporteur.email = String(patch.email).trim().toLowerCase();

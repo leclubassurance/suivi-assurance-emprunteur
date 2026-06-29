@@ -337,6 +337,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
               </div>
               <div className="text-xs text-slate-500 mt-1">{a.contactName} · {APPORTEUR_TYPE_LABELS[a.type]}</div>
               <div className="text-[11px] text-slate-400 mt-1 font-mono">ref={a.referralToken}</div>
+              <p className="text-[10px] text-slate-400 mt-0.5">Lien basé sur le contact — plusieurs personnes d&apos;une même société ont chacun leur ref.</p>
             </button>
           ))}
           {!loading && apporteurs.length === 0 ? (
@@ -518,6 +519,9 @@ export default function AdminApporteursPanel({ onBack }: Props) {
           <div className="grid gap-3">
             <Field label="Société / réseau" value={newApporteur.companyName} onChange={(v) => setNewApporteur((s) => ({ ...s, companyName: v }))} />
             <Field label="Contact" value={newApporteur.contactName} onChange={(v) => setNewApporteur((s) => ({ ...s, contactName: v }))} />
+            <p className="text-[10px] text-slate-500 -mt-1">
+              Le lien client (?ref=) sera généré à partir du nom du contact (ex. marie-dupont), pas du nom de société.
+            </p>
             <Field label="Email" value={newApporteur.email} onChange={(v) => setNewApporteur((s) => ({ ...s, email: v }))} />
             <Field label="Téléphone" value={newApporteur.phone} onChange={(v) => setNewApporteur((s) => ({ ...s, phone: v }))} />
             <label className="text-xs font-bold text-slate-600">
