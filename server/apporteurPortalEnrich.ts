@@ -29,12 +29,22 @@ export async function enrichReferralsForApporteurPortal(
     tracking: ApporteurReferralTracking | null;
   }>
 > {
-  const { readDB } = await import("./db");
+  const { readDB, writeDB } = await import("./db");
   const db = await readDB();
   const dossierById = new Map<string, Dossier>();
   for (const d of db.dossiers) dossierById.set(d.id, d);
 
-  return referrals.map((r) => {
+  const results: Array<{
+    id: string;
+    status: Referral["status"];
+    contact: Referral["contact"];
+    createdAt: string;
+    updatedAt: string;
+    events: Referral["events"];
+    tracking: ApporteurReferralTracking | null;
+  }> = [];
+
+  for (const r of referrals) {
     const base = {
       id: r.id,
       status: r.status,
@@ -45,16 +55,21 @@ export async function enrichReferralsForApporteurPortal(
       tracking: null as ApporteurReferralTracking | null,
     };
 
-    if (!r.dossierId) return base;
+    if (!r.dossierId) {
+      results.push(base);
+      continue;
+    }
 
     const dossier = dossierById.get(r.dossierId);
-    if (!dossier) return base;
+    if (!dossier) {
+      results.push(base);
+      continue;
+    }
 
     let token = String(dossier.clientPortal?.token || "");
     if (!token || token.length < 24) {
       token = ensureClientPortalToken(dossier);
       try {
-        const { writeDB } = await import("./db");
         await writeDB(db, dossier);
       } catch {
         /* non bloquant */
@@ -77,6 +92,8 @@ export async function enrichReferralsForApporteurPortal(
       statusDetail: statusView.description,
       steps: mappedSteps,
     };
-    return base;
-  });
+    results.push(base);
+  }
+
+  return results;
 }
