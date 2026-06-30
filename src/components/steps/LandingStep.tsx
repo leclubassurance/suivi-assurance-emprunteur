@@ -65,19 +65,19 @@ const HOW_IT_WORKS = [
 const CLIENT_REVIEWS = [
   {
     name: 'Marie A.',
-    text: "Je pensais que changer d'assurance allait être compliqué. Finalement, j'ai juste envoyé mes documents et j'ai reçu une proposition claire, avec les économies expliquées simplement.",
+    text: "L'étude m'a permis de voir clairement l'économie possible sur mon assurance de prêt. Le montant était significatif, et j'ai surtout apprécié que Le Club Immobilier Français prenne en charge les démarches de substitution avec la banque.",
   },
   {
     name: 'Pauline L.',
-    text: "Très bonne surprise. On m'a proposé une assurance moins chère que celle de ma banque, sans me pousser à signer tout de suite.",
+    text: "Après l'étude, quelques questions complémentaires m'ont été demandées selon mon profil. L'équipe m'a bien expliqué que si la tarification finale changeait, je restais libre de poursuivre ou non. C'était rassurant.",
   },
   {
     name: 'Olivier J.',
-    text: "Le formulaire est rapide et les explications sont compréhensibles. J'ai surtout apprécié qu'on me dise clairement ce qui changeait et ce qui restait identique.",
+    text: "J'avais du mal à comparer seul les garanties et les tarifs. Le Club m'a présenté une étude claire, avec le détail des économies possibles, puis m'a accompagné dans les étapes suivantes.",
   },
   {
     name: 'Yohan R.',
-    text: "J'avais déjà un prêt en cours et je ne savais pas si je pouvais changer. L'équipe m'a guidé étape par étape et l'offre était vraiment compétitive.",
+    text: "Le dépôt du dossier a été simple et l'accompagnement sérieux. J'ai compris combien je pouvais économiser, quelles garanties étaient conservées, et comment se passait la substitution.",
   },
 ] as const;
 
