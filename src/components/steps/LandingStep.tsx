@@ -299,7 +299,9 @@ export default function LandingStep({
         </p>
         <div className="divide-y divide-slate-100">
           {FAQ_ITEMS.map((item) => (
-            <FaqItem key={item.q} q={item.q} a={item.a} />
+            <div key={item.q}>
+              <FaqItem q={item.q} a={item.a} />
+            </div>
           ))}
         </div>
       </div>
