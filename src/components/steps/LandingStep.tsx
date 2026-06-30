@@ -62,6 +62,25 @@ const HOW_IT_WORKS = [
   },
 ] as const;
 
+const CLIENT_REVIEWS = [
+  {
+    name: 'Marie A.',
+    text: "Je pensais que changer d'assurance allait être compliqué. Finalement, j'ai juste envoyé mes documents et j'ai reçu une proposition claire, avec les économies expliquées simplement.",
+  },
+  {
+    name: 'Pauline L.',
+    text: "Très bonne surprise. On m'a proposé une assurance moins chère que celle de ma banque, sans me pousser à signer tout de suite.",
+  },
+  {
+    name: 'Olivier J.',
+    text: "Le formulaire est rapide et les explications sont compréhensibles. J'ai surtout apprécié qu'on me dise clairement ce qui changeait et ce qui restait identique.",
+  },
+  {
+    name: 'Yohan R.',
+    text: "J'avais déjà un prêt en cours et je ne savais pas si je pouvais changer. L'équipe m'a guidé étape par étape et l'offre était vraiment compétitive.",
+  },
+] as const;
+
 function FaqItem({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -165,7 +184,7 @@ export default function LandingStep({
               Réduisez le coût<br />de votre assurance<br />de prêt.
             </h1>
             <p className="text-blue-100 text-[14px] sm:text-[15px] md:text-[16px] max-w-md leading-relaxed mb-3 sm:mb-4">
-              2 PDF depuis votre banque → étude gratuite par email. Charles Victor analyse votre dossier et vous propose une solution à garanties équivalentes, en toute transparence.
+              2 PDF depuis votre banque → étude gratuite par email. Charles Victor analyse votre dossier et recherche une solution compétitive à garanties équivalentes, en s&apos;appuyant sur nos tarifications partenaires négociées lorsque votre profil le permet.
             </p>
             <p className="text-blue-200/90 text-[13px] max-w-md leading-relaxed">
               Après envoi, vous recevez un lien personnel pour suivre l&apos;avancement de votre dossier à tout moment.
@@ -365,9 +384,9 @@ export default function LandingStep({
             <div className="w-10 h-10 rounded-full border border-blue-100 flex items-center justify-center text-[#1E3A8A] mb-5 bg-[#eff6ff]">
               <Search className="w-4 h-4" strokeWidth={2.5} />
             </div>
-            <h3 className="font-bold text-[#111318] text-[16px] mb-3 leading-snug">Accès aux meilleurs assureurs du marché</h3>
+            <h3 className="font-bold text-[#111318] text-[16px] mb-3 leading-snug">Tarifs négociés auprès de nos partenaires</h3>
             <p className="text-slate-500 text-[14px] leading-relaxed">
-              Nous comparons pour vous les offres des principaux acteurs du marché et retenons uniquement celle qui correspond le mieux à votre profil.
+              Nous comparons pour vous les offres des principaux acteurs du marché et mobilisons nos conditions partenaires pour rechercher une assurance emprunteur compétitive, adaptée à votre profil et aux garanties exigées par votre banque.
             </p>
           </div>
           <div>
@@ -388,6 +407,45 @@ export default function LandingStep({
               Vous ne perdez rien. La loi Lemoine vous permet de changer à tout moment en conservant — voire en améliorant — votre niveau de couverture.
             </p>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200/60 rounded-[24px] sm:rounded-[28px] p-6 sm:p-8 md:p-10 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-6 sm:mb-8">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.15em] text-slate-500 font-bold mb-3">
+              Avis clients
+            </div>
+            <h2 className="text-[24px] sm:text-[28px] font-bold tracking-tight text-[#111318] leading-tight">
+              Ils ont comparé leur assurance avec nous
+            </h2>
+          </div>
+          <p className="text-slate-500 text-[13px] sm:text-[14px] leading-relaxed max-w-md">
+            Des retours simples, après une étude claire et sans engagement.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
+          {CLIENT_REVIEWS.map((review) => (
+            <article
+              key={review.name}
+              className="bg-[#F8FAFC] border border-slate-200/70 rounded-[20px] p-5 sm:p-6 flex flex-col min-h-[220px]"
+            >
+              <div className="flex items-center justify-between gap-3 mb-5">
+                <div className="text-[#1E3A8A] text-[12px] font-bold tracking-[0.18em]" aria-label="Note 5 sur 5">
+                  5/5
+                </div>
+                <Quote className="w-6 h-6 text-blue-200 fill-blue-100 shrink-0" />
+              </div>
+              <p className="text-slate-600 text-[14px] leading-relaxed flex-1">
+                &quot;{review.text}&quot;
+              </p>
+              <div className="mt-6 pt-4 border-t border-slate-200/70">
+                <div className="font-bold text-[#111318] text-[14px]">{review.name}</div>
+                <div className="text-slate-400 text-[12px] mt-1">Client accompagné</div>
+              </div>
+            </article>
+          ))}
         </div>
       </div>
 
