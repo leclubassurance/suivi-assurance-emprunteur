@@ -39,10 +39,10 @@ export function resolveCompanyNamesFromRegistryLookup(match: {
 } {
   const isMasked = isMaskedRegistryCompanyName(match.name, match.siren, match.siret);
   if (isMasked) {
-    const fallback = registryFallbackCompanyLabel(match);
+    // Ne pas recopier le SIREN/SIRET dans la raison sociale — les identifiants sont sur des lignes dédiées.
     return {
-      companyLegalName: fallback,
-      suggestedCompanyName: fallback,
+      companyLegalName: "",
+      suggestedCompanyName: "",
       isMasked: true,
     };
   }

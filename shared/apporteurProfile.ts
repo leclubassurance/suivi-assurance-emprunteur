@@ -1,5 +1,6 @@
 import type { Apporteur, ApporteurType } from "./apporteurTypes";
 import { APPORTEUR_TYPE_LABELS } from "./apporteurTypes";
+import { isMaskedRegistryCompanyName } from "./companyRegistryName";
 import { extractSirenFromSiret, formatSirenDisplay, formatSiretDisplay, normalizeSiretInput } from "./siret";
 
 export const APPORTEUR_LEGAL_FORM_OPTIONS = [
@@ -176,6 +177,46 @@ export function validateApporteurProfileForContract(
   return { ok: true };
 }
 
+const INDIVIDUAL_BUSINESS_LEGAL_FORMS = new Set(["micro_entrepreneur", "ei"]);
+
+function normalizePartyLabel(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function formatApporteurContractPartyHeadline(
+  apporteur: Pick<
+    Apporteur,
+    | "contactPrenom"
+    | "contactNom"
+    | "contactName"
+    | "companyName"
+    | "companyLegalName"
+    | "siren"
+    | "siret"
+    | "legalForm"
+    | "legalFormOther"
+  >,
+): string {
+  const name = formatApporteurDisplayName(apporteur);
+  const legal = resolveLegalFormLabel(apporteur.legalForm, apporteur.legalFormOther);
+  const companyRaw = String(apporteur.companyLegalName || apporteur.companyName || "").trim();
+  const isIndividual = INDIVIDUAL_BUSINESS_LEGAL_FORMS.has(String(apporteur.legalForm || ""));
+  const companyIsMasked = isMaskedRegistryCompanyName(companyRaw, apporteur.siren, apporteur.siret);
+  const companySameAsPerson =
+    companyRaw && normalizePartyLabel(companyRaw) === normalizePartyLabel(name);
+
+  if (isIndividual || companySameAsPerson || !companyRaw || companyIsMasked) {
+    return legal ? `${name}, ${legal}` : name;
+  }
+
+  return `${name}, agissant pour le compte de ${companyRaw}`;
+}
+
 export function apporteurProfileToContractPartyBlock(
   apporteur: Pick<
     Apporteur,
@@ -197,13 +238,11 @@ export function apporteurProfileToContractPartyBlock(
     | "typeCustomLabel"
   >,
 ): string {
-  const name = formatApporteurDisplayName(apporteur);
   const address = formatApporteurPostalAddress(apporteur);
   const legal = resolveLegalFormLabel(apporteur.legalForm, apporteur.legalFormOther);
   const typeLabel = resolveApporteurTypeLabel(apporteur);
-  const companyLabel = apporteur.companyLegalName || apporteur.companyName;
   const lines = [
-    `${name}${companyLabel ? `, agissant pour le compte de ${companyLabel}` : ""}`,
+    formatApporteurContractPartyHeadline(apporteur),
     address ? `Adresse : ${address}` : undefined,
     `Email : ${apporteur.email}${apporteur.phone ? ` · Tél. : ${apporteur.phone}` : ""}`,
     apporteur.siren ? `SIREN : ${formatSirenDisplay(apporteur.siren)}` : undefined,

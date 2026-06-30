@@ -101,7 +101,11 @@ export default function SiretLookupField({
           <div className="flex items-start gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold">{match.name}</p>
+              <p className="font-bold">
+                {resolveCompanyNamesFromRegistryLookup(match).isMasked
+                  ? "Établissement identifié au registre"
+                  : match.name}
+              </p>
               {match.siret ? <p>SIRET : {formatSiretDisplay(match.siret)}</p> : null}
               <p>SIREN : {formatSirenDisplay(match.siren)}</p>
               {match.addressLine ? (
