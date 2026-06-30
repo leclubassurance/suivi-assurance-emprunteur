@@ -19,7 +19,7 @@ export const APPORTEUR_CONTRACT_MLM_CLAUSE = {
     {
       heading: "Rémunération réseau (override niveau 1)",
       body:
-        "En sus de la rémunération sur ses propres dossiers (50 % des frais de courtage, dans les conditions du contrat principal), le parrain perçoit une commission de 10 % des frais de courtage afférents aux dossiers d'assurance emprunteur effectivement signés par les clients apportés par ses filleuls directs. Les montants sont indicatifs et calculés selon le barème en vigueur (10 % des économies, plancher 200 € / plafond 500 € par assuré).",
+        "En sus de la rémunération sur ses propres dossiers (50 % des frais de courtage, dans les conditions du contrat principal), le parrain perçoit une commission de 10 % des frais de courtage afférents aux dossiers d'assurance emprunteur effectivement signés par les clients apportés par ses filleuls directs. Les montants sont indicatifs et calculés selon le barème en vigueur (10 % de l'économie totale sur la durée de l'emprunt restante, plancher 200 € / plafond 500 € par assuré).",
     },
     {
       heading: "Paiement",

@@ -21,6 +21,7 @@ import PartnerJourneyTimeline from "./PartnerJourneyTimeline";
 import PartnerEarningsPanel from "./PartnerEarningsPanel";
 import PartnerContractSigning from "./PartnerContractSigning";
 import SiretLookupField, { type SiretLookupResult } from "./SiretLookupField";
+import { resolveCompanyNamesFromRegistryLookup } from "../../../shared/companyRegistryName";
 import PartnerContractWorkflow from "./PartnerContractWorkflow";
 
 type PortalReferralTracking = {
@@ -478,22 +479,23 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
                 value={partnerForm.companyName}
                 onChange={(v) => setPartnerForm((s) => ({ ...s, companyName: v }))}
               />
-              {partnerForm.companyName.trim() ? (
+              {partnerForm.companyName.trim() || partnerForm.siret.trim() ? (
                 <SiretLookupField
                   siret={partnerForm.siret}
                   onSiretChange={(v) => setPartnerForm((s) => ({ ...s, siret: v }))}
                   companyName={partnerForm.companyName}
                   onCompanyNameChange={(v) => setPartnerForm((s) => ({ ...s, companyName: v }))}
-                  onVerified={(match: SiretLookupResult) =>
+                  onVerified={(match: SiretLookupResult) => {
+                    const resolved = resolveCompanyNamesFromRegistryLookup(match);
                     setPartnerForm((s) => ({
                       ...s,
                       siren: match.siren,
                       siret: match.siret || s.siret,
-                      companyLegalName: match.name,
-                      companyName: s.companyName.trim() || match.name,
-                    }))
-                  }
-                  required
+                      companyLegalName: resolved.companyLegalName,
+                      companyName: s.companyName.trim() || resolved.suggestedCompanyName,
+                    }));
+                  }}
+                  required={Boolean(partnerForm.companyName.trim())}
                 />
               ) : null}
               <Field label="Notes (optionnel)" value={partnerForm.notes} onChange={(v) => setPartnerForm((s) => ({ ...s, notes: v }))} />

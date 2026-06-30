@@ -12,6 +12,7 @@ import type {
   ReferralStatus,
 } from "../shared/apporteurTypes";
 import { buildContactNameFromParts, normalizeApporteurProfileInput, validateApporteurProfileForContract, type ApporteurProfileInput } from "../shared/apporteurProfile";
+import { resolveCompanyNamesFromRegistryLookup } from "../shared/companyRegistryName";
 import { extractSirenFromSiret } from "../shared/siret";
 import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
 import { computeAdminApporteurKpis, computeReferralKpis } from "../shared/apporteurKpis";
@@ -491,7 +492,11 @@ export async function updateApporteurProfileFromPortal(
       const match = await lookupFrenchCompany(merged.siret);
       if (!match) throw new Error("SIREN/SIRET introuvable au registre national des entreprises.");
       if (!match.isActive) throw new Error("L'établissement associé à ce SIRET est inactif ou radié.");
-      normalized.companyLegalName = match.name;
+      const resolved = resolveCompanyNamesFromRegistryLookup(match);
+      normalized.companyLegalName = resolved.companyLegalName;
+      if (!merged.companyName.trim() && resolved.suggestedCompanyName) {
+        normalized.companyName = resolved.suggestedCompanyName;
+      }
       normalized.siren = match.siren;
       normalized.siret = match.siret || merged.siret;
       siretVerifiedAt = new Date().toISOString();

@@ -1,4 +1,8 @@
 import { extractSirenFromSiret, normalizeSiretInput } from "./siret";
+import {
+  isMaskedRegistryCompanyName,
+  registryFallbackCompanyLabel,
+} from "./companyRegistryName";
 
 export type GouvEntrepriseMatch = {
   siren: string;
@@ -97,12 +101,17 @@ export function parseGouvEntrepriseSearchResponse(
   if (!result?.siren) return null;
 
   const establishment = pickEstablishment(result, normalizedQuery);
-  const name = String(result.nom_raison_sociale || result.nom_complet || "").trim();
+  const siret = normalizedQuery.length === 14 ? normalizedQuery : establishment?.siret;
+  const rawName = String(result.nom_raison_sociale || result.nom_complet || "").trim();
+  const isMasked = isMaskedRegistryCompanyName(rawName, result.siren, siret);
+  const name = isMasked
+    ? registryFallbackCompanyLabel({ siren: result.siren, siret })
+    : rawName;
   if (!name) return null;
 
   return {
     siren: result.siren,
-    siret: normalizedQuery.length === 14 ? normalizedQuery : establishment?.siret,
+    siret,
     name,
     tradeName: result.nom_commercial || undefined,
     addressLine: establishment?.adresse,

@@ -38,8 +38,8 @@ export const APPORTEUR_GUIDE_SECTIONS: { title: string; paragraphs: string[] }[]
     title: "Votre rémunération d'apporteur d'affaires",
     paragraphs: [
       "Vous êtes rémunéré uniquement lorsqu'un dossier aboutit — c'est-à-dire lorsque le client change effectivement son assurance emprunteur via Le Club Immobilier Français. Le paiement intervient à la réception par le Club de la commission de l'assureur.",
-      "Le barème est le suivant (montants TTC) : les frais de courtage représentent 10 % des économies annuelles réalisées par le client, avec un minimum de 200 € et un maximum de 500 € par assuré. Vous percevez 50 % de ces frais de courtage.",
-      "Exemple : pour un couple (2 assurés) avec 3 600 € d'économies annuelles, les frais de courtage sont de 360 € par assuré (10 % × 3 600 €), soit 720 € au total — votre part est de 360 €. Le simulateur ci-dessus vous aide à estimer vos gains selon votre volume de recommandations ; seuls les dossiers effectivement signés génèrent une rémunération.",
+      "Le barème est le suivant (montants TTC) : les frais de courtage représentent 10 % de l'économie totale réalisée sur la durée de l'emprunt restante, avec un minimum de 200 € et un maximum de 500 € par assuré. Vous percevez 50 % de ces frais de courtage.",
+      "Exemple indicatif : pour un couple (2 assurés) avec 18 000 € d'économie totale sur la durée restante du prêt, les frais de courtage sont de 360 € par assuré (10 % × 18 000 € ÷ 2), soit 720 € au total — votre part est de 360 €. Le simulateur ci-dessus reste une estimation selon votre volume ; seuls les dossiers effectivement signés génèrent une rémunération.",
       "En cas de lien commercial, informez le client avec transparence : « En cas de changement effectué, je perçois une rémunération de la part du Club Immobilier Français, sans surcoût pour vous. »",
     ],
   },

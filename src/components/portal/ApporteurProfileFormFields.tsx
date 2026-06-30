@@ -2,6 +2,7 @@ import React from "react";
 import type { ApporteurType } from "../../../shared/apporteurTypes";
 import { APPORTEUR_TYPE_LABELS } from "../../../shared/apporteurTypes";
 import { APPORTEUR_LEGAL_FORM_OPTIONS } from "../../../shared/apporteurProfile";
+import { resolveCompanyNamesFromRegistryLookup } from "../../../shared/companyRegistryName";
 import SiretLookupField, { type SiretLookupResult } from "./SiretLookupField";
 
 export type ApporteurProfileFormState = {
@@ -79,6 +80,7 @@ function Field({
   placeholder,
   type = "text",
   disabled,
+  hint,
 }: {
   label: string;
   value: string;
@@ -87,6 +89,7 @@ function Field({
   placeholder?: string;
   type?: string;
   disabled?: boolean;
+  hint?: string;
 }) {
   return (
     <label className="text-xs font-bold text-slate-600 block">
@@ -94,6 +97,8 @@ function Field({
       {required ? <span className="text-red-500"> *</span> : null}
       <input
         type={type}
+        inputMode="text"
+        autoComplete="off"
         className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-normal disabled:bg-slate-100 disabled:text-slate-500"
         value={value}
         placeholder={placeholder}
@@ -101,6 +106,7 @@ function Field({
         disabled={disabled}
         readOnly={disabled}
       />
+      {hint ? <span className="mt-1 block text-[10px] font-normal text-slate-500">{hint}</span> : null}
     </label>
   );
 }
@@ -119,12 +125,14 @@ export default function ApporteurProfileFormFields({
   };
 
   const applySiretMatch = (match: SiretLookupResult) => {
+    const resolved = resolveCompanyNamesFromRegistryLookup(match);
+    const companyName = value.companyName.trim() || resolved.suggestedCompanyName;
     onChange({
       ...value,
       siren: match.siren,
       siret: match.siret || value.siret,
-      companyLegalName: match.name,
-      companyName: value.companyName.trim() || match.name,
+      companyLegalName: resolved.companyLegalName,
+      companyName,
       addressLine: value.addressLine || match.addressLine || "",
       postalCode: value.postalCode || match.postalCode || "",
       city: value.city || match.city || "",
@@ -152,23 +160,34 @@ export default function ApporteurProfileFormFields({
         label="Raison sociale / enseigne"
         value={value.companyName}
         onChange={(v) => set("companyName", v)}
-        placeholder="Ex. Cabinet Dupont, agence immobilière…"
+        placeholder="Ex. Cabinet Dupont — ou SIREN/SIRET si non diffusé"
+        hint="Les chiffres sont acceptés (ex. si l'INSEE ne diffuse pas la dénomination)."
       />
 
-      {value.companyName.trim() ? (
+      {value.companyName.trim() || value.siret.trim() ? (
         <SiretLookupField
           siret={value.siret}
           onSiretChange={(v) => set("siret", v)}
           companyName={value.companyName}
           onCompanyNameChange={(v) => set("companyName", v)}
           onVerified={applySiretMatch}
-          required
+          required={Boolean(value.companyName.trim())}
         />
       ) : (
         <p className="text-[10px] text-slate-500">
-          Si vous agissez pour une société, renseignez d&apos;abord la raison sociale puis vérifiez le SIRET.
+          Si vous agissez pour une société, renseignez la raison sociale (ou le SIREN/SIRET) puis vérifiez.
         </p>
       )}
+
+      {value.siren ? (
+        <Field
+          label="Dénomination au registre (figurera au contrat)"
+          value={value.companyLegalName}
+          onChange={(v) => set("companyLegalName", v)}
+          placeholder="Raison sociale INSEE ou SIREN/SIRET"
+          hint="Modifiable si les données sont protégées au registre national."
+        />
+      ) : null}
 
       <Field
         label="Email"

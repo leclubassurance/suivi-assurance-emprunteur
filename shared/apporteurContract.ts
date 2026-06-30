@@ -8,7 +8,7 @@ import {
 } from "./apporteurProfile";
 
 /** Incrémenter à chaque révision substantielle du contrat affiché en ligne. */
-export const APPORTEUR_CONTRACT_VERSION = "2025-06-v3";
+export const APPORTEUR_CONTRACT_VERSION = "2026-06-v4";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -141,7 +141,7 @@ Le Partenaire demeure libre d'exercer toute autre activité professionnelle, sou
 Pour chaque dossier d'assurance emprunteur effectivement conclu par un client apporté par le Partenaire et dont la commission assureur est encaissée par la Société, le Partenaire perçoit une rémunération égale à cinquante pour cent (50 %) des frais de courtage effectivement perçus par ${CLUB} sur ce dossier.
 
 5.2 — Barème des frais de courtage
-Sauf mention contraire sur l'étude personnalisée transmise au client, les frais de courtage sont calculés selon le barème suivant : dix pour cent (10 %) des économies annuelles réalisées, avec un minimum de deux cents euros (200 €) et un maximum de cinq cents euros (500 €) par assuré. Les simulations affichées dans l'espace partenaire sont indicatives.
+Sauf mention contraire sur l'étude personnalisée transmise au client, les frais de courtage sont calculés selon le barème suivant : dix pour cent (10 %) de l'économie totale réalisée sur la durée de l'emprunt restante, avec un minimum de deux cents euros (200 €) et un maximum de cinq cents euros (500 €) par assuré. Les simulations affichées dans l'espace partenaire sont indicatives.
 
 5.3 — Condition suspensive
 Aucune rémunération n'est due tant que :

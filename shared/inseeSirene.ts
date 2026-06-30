@@ -1,4 +1,8 @@
 import type { GouvEntrepriseMatch } from "./gouvEntrepriseSearch";
+import {
+  isMaskedRegistryCompanyName,
+  registryFallbackCompanyLabel,
+} from "./companyRegistryName";
 import { extractSirenFromSiret } from "./siret";
 
 export const INSEE_SIRENE_API_BASE = "https://api.insee.fr/api-sirene/3.11";
@@ -115,7 +119,9 @@ export function parseInseeEtablissementToMatch(etablissement: InseeEtablissement
 
   const period = currentPeriod(etablissement.periodesEtablissement);
   const ul = etablissement.uniteLegale;
-  const name = legalNameFromUniteLegaleEtablissement(ul) || String(period?.enseigne1Etablissement || "").trim();
+  const rawName = legalNameFromUniteLegaleEtablissement(ul) || String(period?.enseigne1Etablissement || "").trim();
+  const isMasked = isMaskedRegistryCompanyName(rawName, siren, etablissement.siret);
+  const name = isMasked ? registryFallbackCompanyLabel({ siren, siret: etablissement.siret }) : rawName;
   if (!name) return null;
 
   const etatEtab = period?.etatAdministratifEtablissement;
@@ -143,7 +149,9 @@ export function parseInseeUniteLegaleToMatch(
   if (!siren) return null;
 
   const period = currentPeriod(uniteLegale.periodesUniteLegale);
-  const name = legalNameFromUniteLegalePeriod(period);
+  const rawName = legalNameFromUniteLegalePeriod(period);
+  const isMasked = isMaskedRegistryCompanyName(rawName, siren);
+  const name = isMasked ? registryFallbackCompanyLabel({ siren }) : rawName;
   if (!name) return null;
 
   if (siegeEtablissement) {

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { CheckCircle2, Loader2, Search } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
 import type { GouvEntrepriseMatch } from "../../../shared/gouvEntrepriseSearch";
+import { resolveCompanyNamesFromRegistryLookup } from "../../../shared/companyRegistryName";
 import { formatSirenDisplay, formatSiretDisplay, normalizeSiretInput } from "../../../shared/siret";
 
 export type SiretLookupResult = GouvEntrepriseMatch;
@@ -54,8 +55,9 @@ export default function SiretLookupField({
         throw new Error("Cet établissement est radié ou inactif au registre.");
       }
       setMatch(found);
-      if (!companyName.trim()) {
-        onCompanyNameChange(found.name);
+      const resolved = resolveCompanyNamesFromRegistryLookup(found);
+      if (!companyName.trim() && resolved.suggestedCompanyName) {
+        onCompanyNameChange(resolved.suggestedCompanyName);
       }
       onVerified?.(found);
     } catch (err: any) {
