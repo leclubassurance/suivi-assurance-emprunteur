@@ -1,13 +1,7 @@
 import React, { useState } from "react";
 import { CheckCircle2, Loader2, Search } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
-import {
-  buildGouvEntrepriseSearchQueries,
-  buildGouvEntrepriseSearchUrl,
-  GOUV_ENTREPRISE_USER_AGENT,
-  parseGouvEntrepriseSearchResponse,
-  type GouvEntrepriseMatch,
-} from "../../../shared/gouvEntrepriseSearch";
+import type { GouvEntrepriseMatch } from "../../../shared/gouvEntrepriseSearch";
 import { formatSirenDisplay, formatSiretDisplay, normalizeSiretInput } from "../../../shared/siret";
 
 export type SiretLookupResult = GouvEntrepriseMatch;
@@ -20,23 +14,6 @@ type Props = {
   onVerified?: (match: SiretLookupResult) => void;
   required?: boolean;
 };
-
-async function lookupViaGouvDirect(normalized: string): Promise<SiretLookupResult | null> {
-  const queries = buildGouvEntrepriseSearchQueries(normalized);
-  for (const q of queries) {
-    const res = await fetch(buildGouvEntrepriseSearchUrl(q), {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": GOUV_ENTREPRISE_USER_AGENT,
-      },
-    });
-    if (!res.ok) continue;
-    const json = await res.json().catch(() => ({}));
-    const match = parseGouvEntrepriseSearchResponse(json, normalized);
-    if (match) return match;
-  }
-  return null;
-}
 
 async function lookupViaBackendProxy(raw: string): Promise<SiretLookupResult | null> {
   const res = await fetch(getApiUrl(`/api/public/entreprise-lookup?q=${encodeURIComponent(raw)}`));
@@ -69,15 +46,7 @@ export default function SiretLookupField({
         throw new Error("Saisissez un SIREN (9 chiffres) ou un SIRET (14 chiffres).");
       }
 
-      let found: SiretLookupResult | null = null;
-      try {
-        found = await lookupViaGouvDirect(normalized);
-      } catch {
-        /* CORS ou réseau navigateur — repli proxy backend */
-      }
-      if (!found) {
-        found = await lookupViaBackendProxy(siret);
-      }
+      const found = await lookupViaBackendProxy(siret);
       if (!found) {
         throw new Error("Aucune entreprise trouvée pour ce SIREN/SIRET au registre national.");
       }

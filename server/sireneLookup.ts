@@ -7,6 +7,7 @@ import {
   type GouvSearchResponse,
 } from "../shared/gouvEntrepriseSearch";
 import { normalizeSiretInput } from "../shared/siret";
+import { isInseeSireneConfigured, lookupFrenchCompanyViaInsee } from "./inseeSireneLookup";
 
 export type SireneCompanyMatch = GouvEntrepriseMatch;
 
@@ -63,6 +64,27 @@ async function fetchGouvSearch(q: string): Promise<GouvSearchResponse> {
   return (await res.json()) as GouvSearchResponse;
 }
 
+async function lookupFrenchCompanyViaGouv(normalized: string): Promise<GouvEntrepriseMatch | null> {
+  const queries = buildGouvEntrepriseSearchQueries(normalized);
+  let lastError: Error | null = null;
+
+  for (const q of queries) {
+    try {
+      const data = await fetchGouvSearch(q);
+      const match = parseGouvEntrepriseSearchResponse(data, normalized);
+      if (match) return match;
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (lastError.message.includes("saturé") || lastError.message.includes("indisponible")) {
+        throw lastError;
+      }
+    }
+  }
+
+  if (lastError && lastError.message.includes("Accès refusé")) throw lastError;
+  return null;
+}
+
 export async function lookupFrenchCompany(query: string): Promise<SireneCompanyMatch | null> {
   const normalized = normalizeSiretInput(query);
   if (!/^\d{9}$/.test(normalized) && !/^\d{14}$/.test(normalized)) {
@@ -72,26 +94,25 @@ export async function lookupFrenchCompany(query: string): Promise<SireneCompanyM
   const cached = readCache(normalized);
   if (cached !== undefined) return cached;
 
-  const queries = buildGouvEntrepriseSearchQueries(normalized);
-  let lastError: Error | null = null;
-
-  for (const q of queries) {
+  if (isInseeSireneConfigured()) {
     try {
-      const data = await fetchGouvSearch(q);
-      const match = parseGouvEntrepriseSearchResponse(data, normalized);
-      if (match) {
-        writeCache(normalized, match);
-        return match;
-      }
+      const match = await lookupFrenchCompanyViaInsee(normalized);
+      writeCache(normalized, match);
+      return match;
     } catch (err: any) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (lastError.message.includes("saturé") || lastError.message.includes("indisponible")) {
-        throw lastError;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[SIRET] API INSEE échec, repli API gouv:", msg);
+      if (
+        msg.includes("Clé API INSEE") ||
+        msg.includes("non configurée") ||
+        msg.includes("Quota API INSEE")
+      ) {
+        throw err;
       }
     }
   }
 
-  writeCache(normalized, null);
-  if (lastError && lastError.message.includes("Accès refusé")) throw lastError;
-  return null;
+  const match = await lookupFrenchCompanyViaGouv(normalized);
+  writeCache(normalized, match);
+  return match;
 }

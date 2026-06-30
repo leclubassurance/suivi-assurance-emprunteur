@@ -53,6 +53,7 @@ export function buildGouvEntrepriseSearchUrl(q: string): string {
     q,
     page: "1",
     per_page: "5",
+    minimal: "true",
     include: "siege,matching_etablissements",
     limite_matching_etablissements: "100",
   });
