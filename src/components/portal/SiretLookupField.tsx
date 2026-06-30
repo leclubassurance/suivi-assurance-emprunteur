@@ -125,18 +125,6 @@ export default function SiretLookupField({
           </button>
         </div>
       </label>
-      <p className="text-[10px] text-slate-500">
-        API publique officielle{" "}
-        <a
-          href="https://recherche-entreprises.api.gouv.fr/docs/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-indigo-600 underline"
-        >
-          recherche-entreprises.api.gouv.fr
-        </a>{" "}
-        — sans compte ni clé d&apos;accès.
-      </p>
       {match ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
           <div className="flex items-start gap-2">
