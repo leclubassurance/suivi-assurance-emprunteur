@@ -489,15 +489,23 @@ export async function updateApporteurProfileFromPortal(
     try {
       const { lookupFrenchCompany } = await import("./sireneLookup");
       const match = await lookupFrenchCompany(merged.siret);
-      if (!match) throw new Error("SIRET introuvable au registre national des entreprises.");
+      if (!match) throw new Error("SIREN/SIRET introuvable au registre national des entreprises.");
       if (!match.isActive) throw new Error("L'établissement associé à ce SIRET est inactif ou radié.");
       normalized.companyLegalName = match.name;
       normalized.siren = match.siren;
       normalized.siret = match.siret || merged.siret;
       siretVerifiedAt = new Date().toISOString();
     } catch (err: any) {
-      if (err?.message?.includes("indisponible")) throw err;
-      throw new Error(err?.message || "Impossible de vérifier le SIRET.");
+      const msg = String(err?.message || "");
+      const infraBlocked =
+        msg.includes("saturé") || msg.includes("Accès refusé") || msg.includes("indisponible");
+      if (infraBlocked) {
+        console.warn("[SIRET] Vérification registre non joignable depuis le serveur:", msg);
+        normalized.companyLegalName = normalized.companyLegalName || merged.companyName;
+        normalized.siren = normalized.siren || extractSirenFromSiret(merged.siret || "");
+      } else {
+        throw new Error(msg || "Impossible de vérifier le SIRET.");
+      }
     }
   }
 

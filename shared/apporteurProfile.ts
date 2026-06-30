@@ -1,6 +1,6 @@
 import type { Apporteur, ApporteurType } from "./apporteurTypes";
 import { APPORTEUR_TYPE_LABELS } from "./apporteurTypes";
-import { extractSirenFromSiret, formatSirenDisplay, formatSiretDisplay, isValidSiret, normalizeSiretInput } from "./siret";
+import { extractSirenFromSiret, formatSirenDisplay, formatSiretDisplay, normalizeSiretInput } from "./siret";
 
 export const APPORTEUR_LEGAL_FORM_OPTIONS = [
   { value: "micro_entrepreneur", label: "Micro-entrepreneur / auto-entrepreneur" },
@@ -167,10 +167,10 @@ export function validateApporteurProfileForContract(
   if (company) {
     const siret = normalizeSiretInput(String(apporteur.siret || ""));
     if (!siret) {
-      return { ok: false, error: "Le numéro SIRET est requis lorsqu'une société est renseignée." };
+      return { ok: false, error: "Le numéro SIRET ou SIREN est requis lorsqu'une société est renseignée." };
     }
-    if (!isValidSiret(siret)) {
-      return { ok: false, error: "Le numéro SIRET saisi est invalide (14 chiffres)." };
+    if (!/^\d{9}$/.test(siret) && !/^\d{14}$/.test(siret)) {
+      return { ok: false, error: "Le SIREN (9 chiffres) ou SIRET (14 chiffres) saisi est invalide." };
     }
   }
   return { ok: true };

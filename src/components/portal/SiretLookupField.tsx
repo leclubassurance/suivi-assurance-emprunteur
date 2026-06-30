@@ -1,18 +1,16 @@
 import React, { useState } from "react";
 import { CheckCircle2, Loader2, Search } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
-import { formatSirenDisplay, formatSiretDisplay } from "../../../shared/siret";
+import {
+  buildGouvEntrepriseSearchQueries,
+  buildGouvEntrepriseSearchUrl,
+  GOUV_ENTREPRISE_USER_AGENT,
+  parseGouvEntrepriseSearchResponse,
+  type GouvEntrepriseMatch,
+} from "../../../shared/gouvEntrepriseSearch";
+import { formatSirenDisplay, formatSiretDisplay, normalizeSiretInput } from "../../../shared/siret";
 
-export type SiretLookupResult = {
-  siren: string;
-  siret?: string;
-  name: string;
-  tradeName?: string;
-  addressLine?: string;
-  postalCode?: string;
-  city?: string;
-  isActive: boolean;
-};
+export type SiretLookupResult = GouvEntrepriseMatch;
 
 type Props = {
   siret: string;
@@ -22,6 +20,32 @@ type Props = {
   onVerified?: (match: SiretLookupResult) => void;
   required?: boolean;
 };
+
+async function lookupViaGouvDirect(normalized: string): Promise<SiretLookupResult | null> {
+  const queries = buildGouvEntrepriseSearchQueries(normalized);
+  for (const q of queries) {
+    const res = await fetch(buildGouvEntrepriseSearchUrl(q), {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": GOUV_ENTREPRISE_USER_AGENT,
+      },
+    });
+    if (!res.ok) continue;
+    const json = await res.json().catch(() => ({}));
+    const match = parseGouvEntrepriseSearchResponse(json, normalized);
+    if (match) return match;
+  }
+  return null;
+}
+
+async function lookupViaBackendProxy(raw: string): Promise<SiretLookupResult | null> {
+  const res = await fetch(getApiUrl(`/api/public/entreprise-lookup?q=${encodeURIComponent(raw)}`));
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || "Vérification impossible.");
+  }
+  return (json.match as SiretLookupResult | null) || null;
+}
 
 export default function SiretLookupField({
   siret,
@@ -40,15 +64,23 @@ export default function SiretLookupField({
     setError(null);
     setMatch(null);
     try {
-      const res = await fetch(getApiUrl(`/api/public/entreprise-lookup?q=${encodeURIComponent(siret)}`));
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || "Vérification impossible.");
+      const normalized = normalizeSiretInput(siret);
+      if (!/^\d{9}$/.test(normalized) && !/^\d{14}$/.test(normalized)) {
+        throw new Error("Saisissez un SIREN (9 chiffres) ou un SIRET (14 chiffres).");
       }
-      if (!json.match) {
-        throw new Error("Aucune entreprise trouvée pour ce SIREN/SIRET.");
+
+      let found: SiretLookupResult | null = null;
+      try {
+        found = await lookupViaGouvDirect(normalized);
+      } catch {
+        /* CORS ou réseau navigateur — repli proxy backend */
       }
-      const found = json.match as SiretLookupResult;
+      if (!found) {
+        found = await lookupViaBackendProxy(siret);
+      }
+      if (!found) {
+        throw new Error("Aucune entreprise trouvée pour ce SIREN/SIRET au registre national.");
+      }
       if (!found.isActive) {
         throw new Error("Cet établissement est radié ou inactif au registre.");
       }
@@ -67,7 +99,7 @@ export default function SiretLookupField({
   return (
     <div className="space-y-2">
       <label className="text-xs font-bold text-slate-600 block">
-        SIRET de la société
+        SIRET / SIREN de la société
         {required ? <span className="text-red-500"> *</span> : null}
         <div className="mt-1 flex gap-2">
           <input
@@ -75,7 +107,7 @@ export default function SiretLookupField({
             inputMode="numeric"
             className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm font-normal"
             value={siret}
-            placeholder="123 456 789 00012"
+            placeholder="SIRET 14 chiffres ou SIREN 9 chiffres"
             onChange={(e) => {
               setMatch(null);
               setError(null);
@@ -94,7 +126,16 @@ export default function SiretLookupField({
         </div>
       </label>
       <p className="text-[10px] text-slate-500">
-        Vérification automatique via le registre national des entreprises (API officielle data.gouv.fr).
+        API publique officielle{" "}
+        <a
+          href="https://recherche-entreprises.api.gouv.fr/docs/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-indigo-600 underline"
+        >
+          recherche-entreprises.api.gouv.fr
+        </a>{" "}
+        — sans compte ni clé d&apos;accès.
       </p>
       {match ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">

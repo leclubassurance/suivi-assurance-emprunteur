@@ -1,116 +1,97 @@
-import { extractSirenFromSiret, isValidSiren, isValidSiret, normalizeSiretInput } from "../shared/siret";
+import {
+  buildGouvEntrepriseSearchQueries,
+  buildGouvEntrepriseSearchUrl,
+  GOUV_ENTREPRISE_USER_AGENT,
+  parseGouvEntrepriseSearchResponse,
+  type GouvEntrepriseMatch,
+  type GouvSearchResponse,
+} from "../shared/gouvEntrepriseSearch";
+import { normalizeSiretInput } from "../shared/siret";
 
-export type SireneCompanyMatch = {
-  siren: string;
-  siret?: string;
-  name: string;
-  tradeName?: string;
-  addressLine?: string;
-  postalCode?: string;
-  city?: string;
-  legalForm?: string;
-  isActive: boolean;
-};
+export type SireneCompanyMatch = GouvEntrepriseMatch;
 
-type GouvSearchResult = {
-  results?: Array<{
-    siren?: string;
-    nom_complet?: string;
-    nom_raison_sociale?: string;
-    nom_commercial?: string;
-    nature_juridique?: string;
-    etat_administratif?: string;
-    siege?: {
-      siret?: string;
-      adresse?: string;
-      code_postal?: string;
-      libelle_commune?: string;
-      etat_administratif?: string;
-    };
-    matching_etablissements?: Array<{
-      siret?: string;
-      adresse?: string;
-      code_postal?: string;
-      libelle_commune?: string;
-      etat_administratif?: string;
-    }>;
-  }>;
-};
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const cache = new Map<string, { expiresAt: number; match: GouvEntrepriseMatch | null }>();
 
-function pickEstablishment(
-  result: NonNullable<GouvSearchResult["results"]>[number],
-  normalizedQuery: string,
-): {
-  siret?: string;
-  addressLine?: string;
-  postalCode?: string;
-  city?: string;
-  isActive: boolean;
-} {
-  if (normalizedQuery.length === 14) {
-    const match =
-      result.matching_etablissements?.find((e) => e.siret === normalizedQuery) ||
-      (result.siege?.siret === normalizedQuery ? result.siege : undefined);
-    if (match) {
-      return {
-        siret: match.siret,
-        addressLine: match.adresse,
-        postalCode: match.code_postal,
-        city: match.libelle_commune,
-        isActive: (match.etat_administratif || "A") === "A",
-      };
-    }
+function cacheKey(normalized: string): string {
+  return normalized;
+}
+
+function readCache(normalized: string): GouvEntrepriseMatch | null | undefined {
+  const hit = cache.get(cacheKey(normalized));
+  if (!hit) return undefined;
+  if (Date.now() > hit.expiresAt) {
+    cache.delete(cacheKey(normalized));
+    return undefined;
   }
-  const siege = result.siege;
-  return {
-    siret: siege?.siret,
-    addressLine: siege?.adresse,
-    postalCode: siege?.code_postal,
-    city: siege?.libelle_commune,
-    isActive: (siege?.etat_administratif || result.etat_administratif || "A") === "A",
-  };
+  return hit.match;
+}
+
+function writeCache(normalized: string, match: GouvEntrepriseMatch | null): void {
+  cache.set(cacheKey(normalized), { expiresAt: Date.now() + CACHE_TTL_MS, match });
+}
+
+async function fetchGouvSearch(q: string): Promise<GouvSearchResponse> {
+  const url = buildGouvEntrepriseSearchUrl(q);
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": GOUV_ENTREPRISE_USER_AGENT,
+    },
+    signal: AbortSignal.timeout(12_000),
+  });
+
+  if (res.status === 429) {
+    const retryAfter = res.headers.get("Retry-After");
+    throw new Error(
+      retryAfter
+        ? `Service gouv temporairement saturé. Réessayez dans ${retryAfter} secondes.`
+        : "Service gouv temporairement saturé. Réessayez dans quelques instants.",
+    );
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.warn("[SIRET] API gouv erreur", res.status, q, body.slice(0, 200));
+    throw new Error(
+      res.status === 403
+        ? "Accès refusé par l'API entreprises (souvent lié à l'hébergeur cloud). Réessayez depuis le bouton Vérifier."
+        : `Service de vérification SIREN/SIRET indisponible (${res.status}).`,
+    );
+  }
+
+  return (await res.json()) as GouvSearchResponse;
 }
 
 export async function lookupFrenchCompany(query: string): Promise<SireneCompanyMatch | null> {
   const normalized = normalizeSiretInput(query);
-  if (normalized.length !== 9 && normalized.length !== 14) return null;
-  if (normalized.length === 9 && !isValidSiren(normalized)) return null;
-  if (normalized.length === 14 && !isValidSiret(normalized)) return null;
-
-  const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(normalized)}&per_page=5`;
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) {
-    throw new Error("Service de vérification SIREN/SIRET indisponible. Réessayez plus tard.");
+  if (!/^\d{9}$/.test(normalized) && !/^\d{14}$/.test(normalized)) {
+    throw new Error("Saisissez un SIREN (9 chiffres) ou un SIRET (14 chiffres).");
   }
-  const data = (await res.json()) as GouvSearchResult;
-  const expectedSiren = extractSirenFromSiret(normalized);
-  const result =
-    data.results?.find((r) => r.siren === expectedSiren) ||
-    (normalized.length === 14
-      ? data.results?.find((r) =>
-          r.matching_etablissements?.some((e) => e.siret === normalized) ||
-          r.siege?.siret === normalized,
-        )
-      : undefined) ||
-    data.results?.[0];
-  if (!result?.siren) return null;
 
-  const establishment = pickEstablishment(result, normalized);
-  const name = String(result.nom_raison_sociale || result.nom_complet || "").trim();
-  if (!name) return null;
+  const cached = readCache(normalized);
+  if (cached !== undefined) return cached;
 
-  return {
-    siren: result.siren,
-    siret: normalized.length === 14 ? normalized : establishment.siret,
-    name,
-    tradeName: result.nom_commercial || undefined,
-    addressLine: establishment.addressLine,
-    postalCode: establishment.postalCode,
-    city: establishment.city,
-    legalForm: result.nature_juridique || undefined,
-    isActive: establishment.isActive,
-  };
+  const queries = buildGouvEntrepriseSearchQueries(normalized);
+  let lastError: Error | null = null;
+
+  for (const q of queries) {
+    try {
+      const data = await fetchGouvSearch(q);
+      const match = parseGouvEntrepriseSearchResponse(data, normalized);
+      if (match) {
+        writeCache(normalized, match);
+        return match;
+      }
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (lastError.message.includes("saturé") || lastError.message.includes("indisponible")) {
+        throw lastError;
+      }
+    }
+  }
+
+  writeCache(normalized, null);
+  if (lastError && lastError.message.includes("Accès refusé")) throw lastError;
+  return null;
 }
