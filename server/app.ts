@@ -1380,10 +1380,21 @@ export function createApp() {
       const body = (req.body || {}) as any;
       const apporteur = await createApporteur({
         companyName: body.companyName,
+        contactPrenom: body.contactPrenom,
+        contactNom: body.contactNom,
         contactName: body.contactName,
         email: body.email,
         phone: body.phone,
+        addressLine: body.addressLine,
+        postalCode: body.postalCode,
+        city: body.city,
+        siret: body.siret,
+        siren: body.siren,
+        companyLegalName: body.companyLegalName,
+        legalForm: body.legalForm,
+        legalFormOther: body.legalFormOther,
         type: body.type,
+        typeCustomLabel: body.typeCustomLabel,
         notes: body.notes,
         referralToken: body.referralToken,
         sponsorId: body.sponsorId,
@@ -1552,6 +1563,18 @@ export function createApp() {
     }
   });
 
+  app.get("/api/public/entreprise-lookup", async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim();
+      if (!q) return res.status(400).json({ ok: false, error: "SIREN ou SIRET requis." });
+      const { lookupFrenchCompany } = await import("./sireneLookup");
+      const match = await lookupFrenchCompany(q);
+      res.json({ ok: true, match });
+    } catch (err: any) {
+      res.status(400).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   app.get("/api/public/apporteur-ref/:token", async (req, res) => {
     try {
       const { findApporteurByToken } = await import("./apporteurStore");
@@ -1679,7 +1702,9 @@ export function createApp() {
       const { findApporteurByPortalToken, loadApporteurStore } = await import("./apporteurStore");
       const {
         getApporteurContractPayload,
+        getApporteurProfilePayload,
         isApporteurContractSigned,
+        isApporteurProfileComplete,
       } = await import("./apporteurContractSign");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
@@ -1692,6 +1717,8 @@ export function createApp() {
         signed: isApporteurContractSigned(apporteur),
         signedAt: apporteur.contractSignedAt || null,
         signature: apporteur.contractSignature || null,
+        profile: getApporteurProfilePayload(apporteur),
+        profileComplete: isApporteurProfileComplete(apporteur),
         document: getApporteurContractPayload(apporteur, sponsor?.contactName || null),
         signerHint: apporteur.contactName,
         pdfAvailable: isApporteurContractSigned(apporteur),
@@ -1701,6 +1728,28 @@ export function createApp() {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
+
+  app.patch(
+    "/api/apporteur-portal/:token/profile",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { updateApporteurProfileFromPortal } = await import("./apporteurStore");
+        const apporteur = await updateApporteurProfileFromPortal(req.params.token, (req.body || {}) as any);
+        const { getApporteurProfilePayload, isApporteurProfileComplete } = await import(
+          "./apporteurContractSign"
+        );
+        res.json({
+          ok: true,
+          profile: getApporteurProfilePayload(apporteur),
+          profileComplete: isApporteurProfileComplete(apporteur),
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
 
   app.post(
     "/api/apporteur-portal/:token/contract/sign",
@@ -1852,10 +1901,15 @@ export function createApp() {
         const body = (req.body || {}) as any;
         const recruit = await createPartnerRecruit({
           sponsorApporteurId: apporteur.id,
+          contactPrenom: body.contactPrenom,
+          contactNom: body.contactNom,
           contactName: body.contactName,
           email: body.email,
           phone: body.phone,
           companyName: body.companyName,
+          siret: body.siret,
+          siren: body.siren,
+          companyLegalName: body.companyLegalName,
           notes: body.notes,
           actor: "apporteur_portal",
         });

@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FileSignature, Loader2 } from "lucide-react";
+import { CheckCircle2, FileSignature, Loader2, UserPen } from "lucide-react";
 import { getApiUrl } from "../../lib/utils";
+import ApporteurProfileFormFields, {
+  apporteurToProfileForm,
+  type ApporteurProfileFormState,
+} from "./ApporteurProfileFormFields";
 
 type ContractSection = { heading: string; body: string };
 
@@ -17,6 +21,8 @@ type ContractPayload = {
   signedAt: string | null;
   document: ContractDocument;
   signerHint: string;
+  profileComplete: boolean;
+  profile: ApporteurProfileFormState;
 };
 
 export default function PartnerContractSigning({
@@ -28,9 +34,12 @@ export default function PartnerContractSigning({
 }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [signedSuccess, setSignedSuccess] = useState<{ pdfUrl: string; driveLink?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ContractPayload | null>(null);
+  const [step, setStep] = useState<"profile" | "contract">("profile");
+  const [profileForm, setProfileForm] = useState<ApporteurProfileFormState | null>(null);
   const [signerName, setSignerName] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [scrolledToEnd, setScrolledToEnd] = useState(false);
@@ -48,13 +57,19 @@ export default function PartnerContractSigning({
         onSigned();
         return;
       }
+      const profile = apporteurToProfileForm(json.profile || {});
+      setProfileForm(profile);
       setPayload({
         signed: json.signed,
         signedAt: json.signedAt,
         document: json.document,
         signerHint: json.signerHint,
+        profileComplete: Boolean(json.profileComplete),
+        profile,
       });
-      setSignerName(json.signerHint || "");
+      setStep(json.profileComplete ? "contract" : "profile");
+      const hint = [profile.contactPrenom, profile.contactNom].filter(Boolean).join(" ") || json.signerHint || "";
+      setSignerName(hint);
     } catch (err: any) {
       setError(err?.message || "Erreur");
     } finally {
@@ -70,6 +85,64 @@ export default function PartnerContractSigning({
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 48) {
       setScrolledToEnd(true);
+    }
+  };
+
+  const saveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profileForm) return;
+    setSavingProfile(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/profile`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profileForm),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Enregistrement impossible.");
+      }
+      const profile = apporteurToProfileForm(json.profile || profileForm);
+      setProfileForm(profile);
+      setPayload((prev) =>
+        prev
+          ? {
+              ...prev,
+              profile,
+              profileComplete: Boolean(json.profileComplete),
+              document: prev.document,
+            }
+          : prev,
+      );
+      setSignerName([profile.contactPrenom, profile.contactNom].filter(Boolean).join(" "));
+      if (json.profileComplete) {
+        const contractRes = await fetch(
+          getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract`),
+        );
+        const contractJson = await contractRes.json().catch(() => ({}));
+        if (contractRes.ok && contractJson.ok) {
+          setPayload((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  document: contractJson.document,
+                  signerHint: contractJson.signerHint,
+                  profileComplete: true,
+                  profile,
+                }
+              : prev,
+          );
+        }
+        setStep("contract");
+      }
+    } catch (err: any) {
+      setError(err?.message || "Erreur");
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -116,7 +189,7 @@ export default function PartnerContractSigning({
     );
   }
 
-  if (!payload) {
+  if (!payload || !profileForm) {
     return (
       <div className="bg-white rounded-2xl border border-red-100 p-6 text-center text-red-700 text-sm">
         {error || "Contrat indisponible."}
@@ -152,14 +225,54 @@ export default function PartnerContractSigning({
     );
   }
 
+  if (step === "profile") {
+    return (
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-[#1E3A8A] text-white px-5 py-4">
+          <div className="flex items-center gap-2 mb-1">
+            <UserPen className="w-5 h-5 text-amber-300" />
+            <h2 className="text-sm font-black uppercase tracking-wide">Vos informations contractuelles</h2>
+          </div>
+          <p className="text-xs text-indigo-100">
+            Renseignez chaque champ distinctement — ces données figureront telles quelles dans le contrat.
+          </p>
+        </div>
+
+        <form onSubmit={saveProfile} className="px-5 py-4 space-y-3">
+          <ApporteurProfileFormFields value={profileForm} onChange={setProfileForm} emailEditable={false} />
+
+          {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
+
+          <button
+            type="submit"
+            disabled={savingProfile}
+            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
+          >
+            {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSignature className="w-4 h-4" />}
+            {savingProfile ? "Enregistrement…" : "Continuer vers le contrat"}
+          </button>
+        </form>
+      </section>
+    );
+  }
+
   const doc = payload.document;
 
   return (
     <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="bg-[#1E3A8A] text-white px-5 py-4">
-        <div className="flex items-center gap-2 mb-1">
-          <FileSignature className="w-5 h-5 text-amber-300" />
-          <h2 className="text-sm font-black uppercase tracking-wide">Signature du contrat partenaire</h2>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-2">
+            <FileSignature className="w-5 h-5 text-amber-300" />
+            <h2 className="text-sm font-black uppercase tracking-wide">Signature du contrat partenaire</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStep("profile")}
+            className="text-[10px] font-bold uppercase tracking-wide text-indigo-100 hover:text-white underline"
+          >
+            Modifier mes infos
+          </button>
         </div>
         <p className="text-xs text-indigo-100">
           Dernière étape avant d&apos;accéder à votre lien client et à vos recommandations.

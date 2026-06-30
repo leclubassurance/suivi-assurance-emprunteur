@@ -11,6 +11,8 @@ import type {
   ReferralSource,
   ReferralStatus,
 } from "../shared/apporteurTypes";
+import { buildContactNameFromParts, normalizeApporteurProfileInput, validateApporteurProfileForContract, type ApporteurProfileInput } from "../shared/apporteurProfile";
+import { extractSirenFromSiret } from "../shared/siret";
 import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
 import { computeAdminApporteurKpis, computeReferralKpis } from "../shared/apporteurKpis";
 import { getRemunerationConfig } from "../shared/apporteurRemuneration";
@@ -277,12 +279,7 @@ export async function findReferralById(id: string): Promise<Referral | null> {
   return store.referrals.find((r) => r.id === id) || null;
 }
 
-export async function createApporteur(input: {
-  companyName: string;
-  contactName: string;
-  email: string;
-  phone?: string;
-  type?: ApporteurType;
+export async function createApporteur(input: ApporteurProfileInput & {
   notes?: string;
   referralToken?: string;
   sponsorId?: string;
@@ -291,11 +288,18 @@ export async function createApporteur(input: {
 }): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const now = new Date().toISOString();
-  const companyName = String(input.companyName || "").trim();
-  const contactName = String(input.contactName || "").trim();
-  const email = String(input.email || "").trim().toLowerCase();
-  if (!companyName || !contactName || !email.includes("@")) {
-    throw new Error("Nom société, contact et email valides requis.");
+  const normalized = normalizeApporteurProfileInput(input);
+  const companyName = String(normalized.companyName || "").trim() || normalized.contactName || "";
+  const contactName = String(normalized.contactName || "").trim();
+  const email = String(normalized.email || "").trim().toLowerCase();
+  if (!contactName || !email.includes("@")) {
+    throw new Error("Prénom, nom et email valides requis.");
+  }
+  if (normalized.type === "autre" && !normalized.typeCustomLabel) {
+    throw new Error("Précisez le statut professionnel (champ « Autre »).");
+  }
+  if (normalized.legalForm === "autre" && !normalized.legalFormOther) {
+    throw new Error("Précisez la forme juridique (champ « Autre »).");
   }
   if (input.sponsorId) {
     const sponsor = store.apporteurs.find((a) => a.id === input.sponsorId);
@@ -315,9 +319,20 @@ export async function createApporteur(input: {
     active: true,
     companyName,
     contactName,
+    contactPrenom: normalized.contactPrenom,
+    contactNom: normalized.contactNom,
     email,
-    phone: String(input.phone || "").trim() || undefined,
-    type: input.type || "autre",
+    phone: normalized.phone,
+    addressLine: normalized.addressLine,
+    postalCode: normalized.postalCode,
+    city: normalized.city,
+    siret: normalized.siret,
+    siren: normalized.siren,
+    companyLegalName: normalized.companyLegalName,
+    legalForm: normalized.legalForm,
+    legalFormOther: normalized.legalFormOther,
+    type: normalized.type || "apporteur_affaires",
+    typeCustomLabel: normalized.typeCustomLabel,
     referralToken: pickReferralToken(store, tokenCandidates.filter(Boolean)),
     portalToken: generatePortalToken(),
     notifyEmailEnabled: true,
@@ -340,9 +355,21 @@ export async function updateApporteur(
       Apporteur,
       | "companyName"
       | "contactName"
+      | "contactPrenom"
+      | "contactNom"
       | "email"
       | "phone"
+      | "addressLine"
+      | "postalCode"
+      | "city"
+      | "siret"
+      | "siren"
+      | "companyLegalName"
+      | "siretVerifiedAt"
+      | "legalForm"
+      | "legalFormOther"
       | "type"
+      | "typeCustomLabel"
       | "notes"
       | "active"
       | "notifyEmailEnabled"
@@ -375,10 +402,48 @@ export async function updateApporteur(
     apporteur.referralToken = next;
   }
   if (patch.companyName != null) apporteur.companyName = String(patch.companyName).trim();
+  if (patch.contactPrenom != null) apporteur.contactPrenom = String(patch.contactPrenom).trim() || undefined;
+  if (patch.contactNom != null) apporteur.contactNom = String(patch.contactNom).trim() || undefined;
   if (patch.contactName != null) apporteur.contactName = String(patch.contactName).trim();
+  if (patch.contactPrenom != null || patch.contactNom != null) {
+    const fromParts = buildContactNameFromParts(apporteur.contactPrenom, apporteur.contactNom);
+    if (fromParts) apporteur.contactName = fromParts;
+  }
   if (patch.email != null) apporteur.email = String(patch.email).trim().toLowerCase();
   if (patch.phone != null) apporteur.phone = String(patch.phone).trim() || undefined;
-  if (patch.type != null) apporteur.type = patch.type;
+  if (patch.addressLine != null) apporteur.addressLine = String(patch.addressLine).trim() || undefined;
+  if (patch.postalCode != null) apporteur.postalCode = String(patch.postalCode).trim() || undefined;
+  if (patch.city != null) apporteur.city = String(patch.city).trim() || undefined;
+  if (patch.siret != null) apporteur.siret = String(patch.siret).replace(/\s/g, "").trim() || undefined;
+  if (patch.siren != null) apporteur.siren = String(patch.siren).replace(/\s/g, "").trim() || undefined;
+  if (patch.companyLegalName != null) {
+    apporteur.companyLegalName = String(patch.companyLegalName).trim() || undefined;
+  }
+  if (patch.siretVerifiedAt != null) {
+    apporteur.siretVerifiedAt = patch.siretVerifiedAt || undefined;
+  }
+  if (patch.siret != null || patch.siren != null) {
+    const siren = extractSirenFromSiret(apporteur.siret || apporteur.siren || "");
+    if (siren) apporteur.siren = siren;
+  }
+  if (patch.legalForm != null) apporteur.legalForm = String(patch.legalForm).trim() || undefined;
+  if (patch.legalFormOther != null) {
+    apporteur.legalFormOther = String(patch.legalFormOther).trim() || undefined;
+  }
+  if (patch.type != null) {
+    apporteur.type = patch.type;
+    if (patch.type !== "autre") apporteur.typeCustomLabel = undefined;
+  }
+  if (patch.typeCustomLabel != null) {
+    apporteur.typeCustomLabel =
+      apporteur.type === "autre" ? String(patch.typeCustomLabel).trim() || undefined : undefined;
+  }
+  if (patch.type === "autre" && patch.typeCustomLabel === "") {
+    apporteur.typeCustomLabel = undefined;
+  }
+  if (patch.legalForm != null && patch.legalForm !== "autre") {
+    apporteur.legalFormOther = undefined;
+  }
   if (patch.notes != null) apporteur.notes = String(patch.notes).trim() || undefined;
   if (patch.active != null) apporteur.active = Boolean(patch.active);
   if (patch.notifyEmailEnabled != null) apporteur.notifyEmailEnabled = Boolean(patch.notifyEmailEnabled);
@@ -400,6 +465,43 @@ export async function updateApporteur(
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);
   return apporteur;
+}
+
+export async function updateApporteurProfileFromPortal(
+  portalToken: string,
+  input: ApporteurProfileInput,
+): Promise<Apporteur> {
+  const apporteur = await findApporteurByPortalToken(portalToken);
+  if (!apporteur) throw new Error("Lien portail invalide.");
+  if ((apporteur.contractStatus || "none") === "signed") {
+    throw new Error("Contrat déjà signé — profil non modifiable.");
+  }
+  const normalized = normalizeApporteurProfileInput({
+    ...input,
+    email: input.email || apporteur.email,
+  });
+  const merged: Apporteur = { ...apporteur, ...normalized, companyName: normalized.companyName || apporteur.companyName };
+  const check = validateApporteurProfileForContract(merged);
+  if (!check.ok) throw new Error(check.error);
+
+  let siretVerifiedAt: string | undefined;
+  if (merged.companyName && merged.siret) {
+    try {
+      const { lookupFrenchCompany } = await import("./sireneLookup");
+      const match = await lookupFrenchCompany(merged.siret);
+      if (!match) throw new Error("SIRET introuvable au registre national des entreprises.");
+      if (!match.isActive) throw new Error("L'établissement associé à ce SIRET est inactif ou radié.");
+      normalized.companyLegalName = match.name;
+      normalized.siren = match.siren;
+      normalized.siret = match.siret || merged.siret;
+      siretVerifiedAt = new Date().toISOString();
+    } catch (err: any) {
+      if (err?.message?.includes("indisponible")) throw err;
+      throw new Error(err?.message || "Impossible de vérifier le SIRET.");
+    }
+  }
+
+  return updateApporteur(apporteur.id, { ...normalized, siretVerifiedAt });
 }
 
 export async function createReferral(input: {
@@ -758,10 +860,15 @@ export async function listPartnerRecruits(filters?: {
 
 export async function createPartnerRecruit(input: {
   sponsorApporteurId: string;
-  contactName: string;
+  contactName?: string;
+  contactPrenom?: string;
+  contactNom?: string;
   email: string;
   phone?: string;
   companyName?: string;
+  siret?: string;
+  siren?: string;
+  companyLegalName?: string;
   notes?: string;
   actor?: string;
 }): Promise<PartnerRecruitRequest> {
@@ -772,10 +879,16 @@ export async function createPartnerRecruit(input: {
     throw new Error("Contrat apporteur signé requis pour recommander un partenaire.");
   }
   const email = String(input.email || "").trim().toLowerCase();
-  const contactName = String(input.contactName || "").trim();
+  const contactPrenom = String(input.contactPrenom || "").trim();
+  const contactNom = String(input.contactNom || "").trim();
+  const contactName =
+    buildContactNameFromParts(contactPrenom, contactNom) ||
+    String(input.contactName || "").trim();
   if (!contactName || !email.includes("@")) {
-    throw new Error("Nom et email valides requis.");
+    throw new Error("Prénom, nom et email valides requis.");
   }
+  if (!contactPrenom || contactPrenom.length < 2) throw new Error("Le prénom est requis.");
+  if (!contactNom || contactNom.length < 2) throw new Error("Le nom de famille est requis.");
   if (store.apporteurs.some((a) => a.email === email)) {
     throw new Error("Cette personne est déjà apporteur LCIF.");
   }
@@ -795,9 +908,14 @@ export async function createPartnerRecruit(input: {
     updatedAt: now,
     status: "NOUVEAU",
     contactName,
+    contactPrenom,
+    contactNom,
     email,
     phone: String(input.phone || "").trim() || undefined,
     companyName: String(input.companyName || "").trim() || undefined,
+    siret: String(input.siret || "").replace(/\s/g, "").trim() || undefined,
+    siren: String(input.siren || "").replace(/\s/g, "").trim() || undefined,
+    companyLegalName: String(input.companyLegalName || "").trim() || undefined,
     notes: String(input.notes || "").trim() || undefined,
     events: [],
   };
@@ -832,10 +950,15 @@ async function ensureApporteurForRecruit(
   }
   const apporteur = await createApporteur({
     companyName: recruit.companyName || recruit.contactName,
+    contactPrenom: recruit.contactPrenom,
+    contactNom: recruit.contactNom,
     contactName: recruit.contactName,
     email: recruit.email,
     phone: recruit.phone,
-    type: "autre",
+    siret: recruit.siret,
+    siren: recruit.siren,
+    companyLegalName: recruit.companyLegalName,
+    type: "apporteur_affaires",
     notes: recruit.notes
       ? `Reco parrain : ${recruit.sponsorApporteurId}. ${recruit.notes}`
       : `Reco parrain : ${recruit.sponsorApporteurId}`,

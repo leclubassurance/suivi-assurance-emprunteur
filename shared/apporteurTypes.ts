@@ -1,4 +1,4 @@
-export type ApporteurType = "agent_immo" | "courtier" | "autre";
+export type ApporteurType = "apporteur_affaires" | "agent_immo" | "courtier" | "autre";
 
 export type ReferralStatus =
   | "NOUVEAU"
@@ -18,9 +18,26 @@ export type Apporteur = {
   active: boolean;
   companyName: string;
   contactName: string;
+  /** Prénom — utilisé pour le contrat et la signature. */
+  contactPrenom?: string;
+  /** Nom de famille — utilisé pour le contrat et la signature. */
+  contactNom?: string;
   email: string;
   phone?: string;
+  addressLine?: string;
+  postalCode?: string;
+  city?: string;
+  siret?: string;
+  /** SIREN (9 chiffres) — dérivé du SIRET ou saisi. */
+  siren?: string;
+  /** Dénomination légale issue du registre SIRENE (si vérifiée). */
+  companyLegalName?: string;
+  siretVerifiedAt?: string;
+  legalForm?: string;
+  legalFormOther?: string;
   type: ApporteurType;
+  /** Libellé libre si type = autre (ex. coach, CGP…). */
+  typeCustomLabel?: string;
   /** Slug pour ?ref= sur le formulaire */
   referralToken: string;
   /** Accès espace apporteur (lien privé, ne pas partager publiquement). */
@@ -43,6 +60,13 @@ export type Apporteur = {
     pdfFileName?: string;
     driveFileId?: string;
     driveLink?: string;
+    /** Contre-signature électronique du mandant (Le Club Immobilier Français). */
+    mandantSignature?: {
+      signedAt: string;
+      signerName: string;
+      signerTitle: string;
+      companyName: string;
+    };
   };
   /** Dossier Google Drive « Apporteurs d'affaires » (contrats archivés). */
   driveFolderId?: string;
@@ -64,9 +88,14 @@ export type PartnerRecruitRequest = {
   updatedAt: string;
   status: PartnerRecruitStatus;
   contactName: string;
+  contactPrenom?: string;
+  contactNom?: string;
   email: string;
   phone?: string;
   companyName?: string;
+  siret?: string;
+  siren?: string;
+  companyLegalName?: string;
   notes?: string;
   /** Apporteur créé automatiquement à la signature du contrat. */
   createdApporteurId?: string;
@@ -129,6 +158,7 @@ export const REFERRAL_STATUS_LABELS: Record<ReferralStatus, string> = {
 };
 
 export const APPORTEUR_TYPE_LABELS: Record<ApporteurType, string> = {
+  apporteur_affaires: "Apporteur d'affaires",
   agent_immo: "Agent immobilier",
   courtier: "Courtier",
   autre: "Autre",

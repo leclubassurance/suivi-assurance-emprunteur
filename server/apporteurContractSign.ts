@@ -1,6 +1,10 @@
 import type { Apporteur } from "../shared/apporteurTypes";
 import { APPORTEUR_CONTRACT_VERSION } from "../shared/apporteurContract";
-import { APPORTEUR_TYPE_LABELS } from "../shared/apporteurTypes";
+import {
+  formatApporteurDisplayName,
+  validateApporteurProfileForContract,
+} from "../shared/apporteurProfile";
+import { LCIF_LEGAL } from "../shared/lcifLegalIdentity";
 import { buildApporteurContractDocument } from "../shared/apporteurContract";
 import { buildApporteurContractPdfFilename, generateApporteurContractPdfBuffer } from "./apporteurContractPdf";
 import { uploadApporteurContractPdfToDrive } from "./apporteurDriveArchive";
@@ -15,13 +19,31 @@ export function getApporteurContractPayload(
   apporteur: Apporteur,
   sponsorName?: string | null,
 ) {
-  return buildApporteurContractDocument({
-    contactName: apporteur.contactName,
-    companyName: apporteur.companyName,
-    email: apporteur.email,
-    typeLabel: APPORTEUR_TYPE_LABELS[apporteur.type] || apporteur.type,
-    sponsorName,
-  });
+  return buildApporteurContractDocument(apporteur, sponsorName);
+}
+
+export function isApporteurProfileComplete(apporteur: Apporteur): boolean {
+  return validateApporteurProfileForContract(apporteur).ok;
+}
+
+export function getApporteurProfilePayload(apporteur: Apporteur) {
+  return {
+    contactPrenom: apporteur.contactPrenom || "",
+    contactNom: apporteur.contactNom || "",
+    companyName: apporteur.companyName || "",
+    companyLegalName: apporteur.companyLegalName || "",
+    email: apporteur.email || "",
+    phone: apporteur.phone || "",
+    addressLine: apporteur.addressLine || "",
+    postalCode: apporteur.postalCode || "",
+    city: apporteur.city || "",
+    siret: apporteur.siret || "",
+    siren: apporteur.siren || "",
+    legalForm: apporteur.legalForm || "",
+    legalFormOther: apporteur.legalFormOther || "",
+    type: apporteur.type || "apporteur_affaires",
+    typeCustomLabel: apporteur.typeCustomLabel || "",
+  };
 }
 
 function normalizeName(value: string): string {
@@ -38,7 +60,7 @@ export function validateSignerName(apporteur: Apporteur, signerName: string): vo
   if (declared.length < 3) {
     throw new Error("Indiquez votre nom complet pour signer.");
   }
-  const contact = normalizeName(apporteur.contactName);
+  const contact = normalizeName(formatApporteurDisplayName(apporteur));
   const parts = contact.split(" ").filter(Boolean);
   const declaredParts = declared.split(" ").filter(Boolean);
   const matchesContact =
@@ -47,7 +69,7 @@ export function validateSignerName(apporteur: Apporteur, signerName: string): vo
       declaredParts.some((p) => p.length >= 3 && parts.some((c) => c === p || c.startsWith(p))));
   if (!matchesContact) {
     throw new Error(
-      `Le nom saisi doit correspondre au contact du dossier (${apporteur.contactName}).`,
+      `Le nom saisi doit correspondre à votre identité (${formatApporteurDisplayName(apporteur)}).`,
     );
   }
 }
@@ -136,6 +158,10 @@ export async function signApporteurContractOnline(params: {
   if (isApporteurContractSigned(params.apporteur)) {
     return params.apporteur;
   }
+  const profileCheck = validateApporteurProfileForContract(params.apporteur);
+  if (!profileCheck.ok) {
+    throw new Error(profileCheck.error);
+  }
   validateSignerName(params.apporteur, params.signerName);
 
   const now = new Date().toISOString();
@@ -147,6 +173,12 @@ export async function signApporteurContractOnline(params: {
     companyName: params.apporteur.companyName,
     ipAddress: params.ipAddress,
     userAgent: params.userAgent,
+    mandantSignature: {
+      signedAt: now,
+      signerName: LCIF_LEGAL.legalRepresentative,
+      signerTitle: LCIF_LEGAL.legalRepresentativeTitle,
+      companyName: LCIF_LEGAL.companyName,
+    },
   };
 
   const { updateApporteur, finalizeRecruitAfterOnlineSignature } = await import("./apporteurStore");

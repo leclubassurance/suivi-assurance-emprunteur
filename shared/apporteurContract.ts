@@ -1,8 +1,14 @@
 import { APPORTEUR_CONTRACT_MLM_CLAUSE } from "./apporteurContractMlm";
 import { LCIF_LEGAL } from "./lcifLegalIdentity";
+import type { Apporteur } from "./apporteurTypes";
+import {
+  apporteurProfileToContractPartyBlock,
+  formatApporteurDisplayName,
+  resolveApporteurTypeLabel,
+} from "./apporteurProfile";
 
 /** Incrémenter à chaque révision substantielle du contrat affiché en ligne. */
-export const APPORTEUR_CONTRACT_VERSION = "2025-06-v2";
+export const APPORTEUR_CONTRACT_VERSION = "2025-06-v3";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -35,19 +41,33 @@ function clubIdentityBlock(): string {
   ].join("\n");
 }
 
-export function buildApporteurContractDocument(params: {
-  contactName: string;
-  companyName: string;
-  email: string;
-  typeLabel: string;
-  sponsorName?: string | null;
-}): ApporteurContractDocument {
-  const partnerLine = params.companyName
-    ? `${params.contactName}, agissant pour le compte de ${params.companyName} (ci-après « le Partenaire »)`
-    : `${params.contactName} (ci-après « le Partenaire »)`;
-
-  const sponsorBlock = params.sponsorName
-    ? `\n\nLe Partenaire déclare avoir été recommandé par ${params.sponsorName}, qui exerce en qualité de parrain au sens de l'article relatif au programme de recommandation de partenaires figurant au présent Contrat.`
+export function buildApporteurContractDocument(
+  apporteur: Pick<
+    Apporteur,
+    | "contactName"
+    | "contactPrenom"
+    | "contactNom"
+    | "companyName"
+    | "companyLegalName"
+    | "email"
+    | "phone"
+    | "addressLine"
+    | "postalCode"
+    | "city"
+    | "siret"
+    | "siren"
+    | "legalForm"
+    | "legalFormOther"
+    | "type"
+    | "typeCustomLabel"
+  >,
+  sponsorName?: string | null,
+): ApporteurContractDocument {
+  const contactName = formatApporteurDisplayName(apporteur);
+  const typeLabel = resolveApporteurTypeLabel(apporteur);
+  const partnerBlock = apporteurProfileToContractPartyBlock(apporteur);
+  const sponsorBlock = sponsorName
+    ? `\n\nLe Partenaire déclare avoir été recommandé par ${sponsorName}, qui exerce en qualité de parrain au sens de l'article relatif au programme de recommandation de partenaires figurant au présent Contrat.`
     : "";
 
   const sections: ApporteurContractSection[] = [
@@ -61,7 +81,8 @@ ${clubIdentityBlock()}
 Ci-après dénommée « ${CLUB} » ou « la Société ».
 
 D'autre part,
-${partnerLine}, domicilié(e) ou établi(e) aux coordonnées communiquées lors de l'inscription, joignable à l'adresse électronique ${params.email}, exerçant en qualité de ${params.typeLabel}.${sponsorBlock}
+${partnerBlock}
+(ci-après « le Partenaire »).${sponsorBlock}
 
 1.1 — Objet du Contrat
 Le Contrat a pour objet de définir les conditions dans lesquelles le Partenaire recommande, à titre strictement commercial et non exclusif, des contacts (personnes physiques ou morales) susceptibles de bénéficier d'une étude comparative d'assurance emprunteur et, le cas échéant, d'un accompagnement dans le cadre de la loi n° 2022-270 du 28 février 2022 relative à la résiliation des contrats de assurance emprunteur (dite « loi Lemoine ») et des textes applicables.
@@ -129,7 +150,10 @@ Aucune rémunération n'est due tant que :
 — le client apporté est identifiable comme provenant du lien ou de la recommandation du Partenaire.
 
 5.4 — Réclamations et annulations
-En cas d'annulation, de rétractation légale ou de remboursement de commission par l'assureur, la rémunération correspondante pourra être annulée ou faire l'objet d'une régularisation sur les sommes ultérieurement dues.`,
+En cas d'annulation, de rétractation légale ou de remboursement de commission par l'assureur, la rémunération correspondante pourra être annulée ou faire l'objet d'une régularisation sur les sommes ultérieurement dues.
+
+5.5 — Révision à la hausse en fonction du volume
+En fonction du volume de contrats effectivement conclus et de l'engagement du Partenaire, le mandant (Le Club Immobilier Français) se réserve la faculté de réviser à la hausse les taux ou montants de rémunération prévus au présent article, à titre de gratification de l'engagement de l'apporteur d'affaires. Toute révision favorable fera l'objet d'une information écrite au Partenaire et ne s'appliquera qu'aux dossiers conclus postérieurement à cette information, sauf mention contraire expresse du mandant.`,
     },
     {
       heading: "6. Facturation — TVA — paiement",
@@ -240,21 +264,28 @@ Les parties reconnaissent la valeur probante des enregistrements électroniques 
 En cas de litige et à défaut de résolution amiable, compétence expresse est attribuée aux tribunaux du ressort du siège social de ${CLUB}, sous réserve des règles d'ordre public applicables au Partenaire non commerçant.`,
     },
     {
-      heading: "17. Acceptation électronique",
-      body: `En cochant la case d'acceptation et en validant son nom complet, le Partenaire reconnaît :
+      heading: "17. Acceptation électronique — double signature",
+      body: `Le présent Contrat n'est valablement conclu qu'après signature par les deux parties :
+
+17.1 — Signature du Partenaire
+En cochant la case d'acceptation et en validant son nom complet, le Partenaire reconnaît :
 — avoir lu l'intégralité du présent Contrat dans sa version ${APPORTEUR_CONTRACT_VERSION} ;
 — en accepter les termes sans réserve ;
 — disposer de la capacité juridique et, le cas échéant, des pouvoirs nécessaires pour engager la personne morale qu'il représente ;
 — consentir à la signature électronique simple et à la conservation des éléments de preuve par ${CLUB}.
 
-Une copie PDF du Contrat signé est remise au Partenaire par voie électronique et archivée par la Société.`,
+17.2 — Contre-signature du mandant
+${CLUB}, représentée par ${LCIF_LEGAL.legalRepresentative}, en qualité de ${LCIF_LEGAL.legalRepresentativeTitle}, apposera sa contre-signature électronique simultanément à la validation du Partenaire, attestant l'engagement réciproque des parties.
+
+17.3 — Remise d'exemplaire
+Une copie PDF du Contrat signé par les deux parties est remise au Partenaire par voie électronique et archivée par la Société.`,
     },
   ];
 
   return {
     version: APPORTEUR_CONTRACT_VERSION,
     title: `Contrat d'apporteur d'affaires — ${CLUB}`,
-    preamble: `Partenaire : ${params.typeLabel} · ${params.contactName}${params.companyName ? ` · ${params.companyName}` : ""} · Version ${APPORTEUR_CONTRACT_VERSION}.`,
+    preamble: `Partenaire : ${typeLabel} · ${contactName}${apporteur.companyName ? ` · ${apporteur.companyName}` : ""} · Version ${APPORTEUR_CONTRACT_VERSION}.`,
     sections,
     acceptanceLabel: `Je certifie avoir lu l'intégralité du contrat d'apporteur d'affaires de ${CLUB}, en accepter tous les termes sans réserve, et disposer de la capacité juridique pour m'y engager en qualité de Partenaire indépendant.`,
   };

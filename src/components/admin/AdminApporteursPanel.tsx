@@ -11,9 +11,8 @@ import {
   Users,
 } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
-import type { Apporteur, ApporteurType, PartnerRecruitRequest, PartnerRecruitStatus, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
+import type { Apporteur, PartnerRecruitRequest, PartnerRecruitStatus, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
 import {
-  APPORTEUR_TYPE_LABELS,
   PARTNER_RECRUIT_FLOW,
   PARTNER_RECRUIT_STATUS_LABELS,
   REFERRAL_STATUS_LABELS,
@@ -23,17 +22,18 @@ import { LCIF_LOGO_URL } from "../../../shared/apporteurBrand";
 import { computeReferralKpis } from "../../../shared/apporteurKpis";
 import KpiCard, { formatPercent } from "../portal/PartnerKpiGrid";
 import PartnerContractWorkflow from "../portal/PartnerContractWorkflow";
+import ApporteurProfileFormFields, {
+  EMPTY_APPORTEUR_PROFILE_FORM,
+  type ApporteurProfileFormState,
+} from "../portal/ApporteurProfileFormFields";
+import { resolveApporteurTypeLabel } from "../../../shared/apporteurProfile";
 
 type Props = {
   onBack: () => void;
 };
 
-const EMPTY_APPORTEUR = {
-  companyName: "",
-  contactName: "",
-  email: "",
-  phone: "",
-  type: "agent_immo" as ApporteurType,
+const EMPTY_APPORTEUR: ApporteurProfileFormState & { notes: string } = {
+  ...EMPTY_APPORTEUR_PROFILE_FORM,
   notes: "",
 };
 
@@ -436,7 +436,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                   <span className="text-[10px] uppercase bg-slate-200 px-1.5 py-0.5 rounded">Inactif</span>
                 ) : null}
               </div>
-              <div className="text-xs text-slate-500 mt-1">{a.contactName} · {APPORTEUR_TYPE_LABELS[a.type]}</div>
+              <div className="text-xs text-slate-500 mt-1">{a.contactName} · {resolveApporteurTypeLabel(a)}</div>
               <div className="text-[11px] text-slate-400 mt-1 font-mono">ref={a.referralToken}</div>
               <p className="text-[10px] text-slate-400 mt-0.5">Lien basé sur le contact — plusieurs personnes d&apos;une même société ont chacun leur ref.</p>
             </button>
@@ -649,27 +649,15 @@ export default function AdminApporteursPanel({ onBack }: Props) {
       {showNewApporteur ? (
         <Modal title="Nouvel apporteur" onClose={() => setShowNewApporteur(false)}>
           <div className="grid gap-3">
-            <Field label="Société / réseau" value={newApporteur.companyName} onChange={(v) => setNewApporteur((s) => ({ ...s, companyName: v }))} />
-            <Field label="Contact" value={newApporteur.contactName} onChange={(v) => setNewApporteur((s) => ({ ...s, contactName: v }))} />
+            <ApporteurProfileFormFields
+              value={newApporteur}
+              onChange={(next) => setNewApporteur((s) => ({ ...s, ...next }))}
+            />
             <p className="text-[10px] text-slate-500 -mt-1">
-              Le lien client (?ref=) sera généré à partir du nom du contact (ex. marie-dupont), pas du nom de société.
+              Le lien client (?ref=) sera généré à partir du prénom et nom (ex. marie-dupont).
             </p>
-            <Field label="Email" value={newApporteur.email} onChange={(v) => setNewApporteur((s) => ({ ...s, email: v }))} />
-            <Field label="Téléphone" value={newApporteur.phone} onChange={(v) => setNewApporteur((s) => ({ ...s, phone: v }))} />
             <label className="text-xs font-bold text-slate-600">
-              Type
-              <select
-                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
-                value={newApporteur.type}
-                onChange={(e) => setNewApporteur((s) => ({ ...s, type: e.target.value as ApporteurType }))}
-              >
-                {Object.entries(APPORTEUR_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs font-bold text-slate-600">
-              Notes
+              Notes internes
               <textarea
                 className="mt-1 w-full border rounded-lg px-3 py-2 text-sm min-h-[72px]"
                 value={newApporteur.notes}

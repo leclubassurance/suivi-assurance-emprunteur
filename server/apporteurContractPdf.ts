@@ -17,13 +17,29 @@ export function buildApporteurContractPdfFilename(apporteur: Pick<Apporteur, "id
   return `Contrat_${sanitizeFilePart(apporteur.id)}_${date}.pdf`;
 }
 
+function resolveMandantSignature(signature: NonNullable<Apporteur["contractSignature"]>) {
+  return (
+    signature.mandantSignature || {
+      signedAt: signature.signedAt,
+      signerName: LCIF_LEGAL.legalRepresentative,
+      signerTitle: LCIF_LEGAL.legalRepresentativeTitle,
+      companyName: LCIF_LEGAL.companyName,
+    }
+  );
+}
+
 export function generateApporteurContractPdfBuffer(params: {
   document: ApporteurContractDocument;
   apporteur: Apporteur;
   signature: NonNullable<Apporteur["contractSignature"]>;
 }): Promise<Buffer> {
   const { document, apporteur, signature } = params;
-  const signedLabel = new Date(signature.signedAt).toLocaleString("fr-FR", {
+  const mandant = resolveMandantSignature(signature);
+  const partnerSignedLabel = new Date(signature.signedAt).toLocaleString("fr-FR", {
+    dateStyle: "long",
+    timeStyle: "short",
+  });
+  const mandantSignedLabel = new Date(mandant.signedAt).toLocaleString("fr-FR", {
     dateStyle: "long",
     timeStyle: "short",
   });
@@ -57,22 +73,45 @@ export function generateApporteurContractPdfBuffer(params: {
       doc.moveDown(0.6);
     }
 
+    if (doc.y > 620) doc.addPage();
+
     doc.moveDown(0.5);
-    doc.fontSize(11).fillColor("#111827").text("Signature électronique", { underline: true });
-    doc.moveDown(0.4);
-    doc.fontSize(10).fillColor("#374151");
-    doc.text(`Signataire : ${signature.signerName}`);
-    doc.text(`Société / raison sociale : ${signature.companyName || apporteur.companyName}`);
-    doc.text(`Email : ${signature.signerEmail}`);
-    doc.text(`Date : ${signedLabel}`);
-    doc.text(`Version du contrat : ${signature.version}`);
+    doc.fontSize(11).fillColor("#111827").text("Signatures électroniques", { underline: true });
+    doc.moveDown(0.6);
+
+    const leftX = 50;
+    const rightX = 310;
+    const blockTop = doc.y;
+
+    doc.fontSize(10).fillColor("#1E3A8A").text("Le Partenaire", leftX, blockTop, { width: 230 });
+    doc.fontSize(10).fillColor("#1E3A8A").text("Le Club Immobilier Français", rightX, blockTop, { width: 230 });
+
+    doc.moveDown(0.8);
+    const contentTop = doc.y;
+
+    doc.fontSize(10).fillColor("#111827");
+    doc.text(signature.signerName, leftX, contentTop, { width: 230 });
+    doc.text(mandant.signerName, rightX, contentTop, { width: 230 });
+
+    doc.fontSize(9).fillColor("#374151");
+    doc.text(signature.companyName || apporteur.companyName || "—", leftX, doc.y + 2, { width: 230 });
+    const afterPartnerCompany = doc.y;
+    doc.text(mandant.companyName, rightX, contentTop + 14, { width: 230 });
+    doc.text(mandant.signerTitle, rightX, contentTop + 28, { width: 230 });
+
+    const partnerDetailsTop = Math.max(afterPartnerCompany + 4, contentTop + 42);
+    doc.text(`Email : ${signature.signerEmail}`, leftX, partnerDetailsTop, { width: 230 });
+    doc.text(`Signé le ${partnerSignedLabel}`, leftX, partnerDetailsTop + 14, { width: 230 });
+    doc.text(`Signé le ${mandantSignedLabel}`, rightX, partnerDetailsTop + 14, { width: 230 });
+
+    doc.text(`Version : ${signature.version}`, leftX, partnerDetailsTop + 28, { width: 230 });
     if (signature.ipAddress) {
-      doc.text(`Adresse IP (audit) : ${signature.ipAddress}`);
+      doc.text(`IP (audit) : ${signature.ipAddress}`, leftX, partnerDetailsTop + 42, { width: 230 });
     }
 
-    doc.moveDown(1);
+    doc.moveDown(4);
     doc.fontSize(8).fillColor("#9CA3AF").text(
-      "Document généré automatiquement par Le Club Immobilier Français — copie archivée pour le partenaire et la Société.",
+      "Document généré automatiquement par Le Club Immobilier Français — copie archivée pour le Partenaire et la Société.",
       { align: "center" },
     );
 

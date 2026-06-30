@@ -20,6 +20,7 @@ import PartnerClientScript from "./PartnerClientScript";
 import PartnerJourneyTimeline from "./PartnerJourneyTimeline";
 import PartnerEarningsPanel from "./PartnerEarningsPanel";
 import PartnerContractSigning from "./PartnerContractSigning";
+import SiretLookupField, { type SiretLookupResult } from "./SiretLookupField";
 import PartnerContractWorkflow from "./PartnerContractWorkflow";
 
 type PortalReferralTracking = {
@@ -153,7 +154,17 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
   const [form, setForm] = useState({ prenom: "", nom: "", email: "", phone: "", notes: "" });
   const [showPartnerForm, setShowPartnerForm] = useState(false);
-  const [partnerForm, setPartnerForm] = useState({ contactName: "", email: "", phone: "", companyName: "", notes: "" });
+  const [partnerForm, setPartnerForm] = useState({
+    contactPrenom: "",
+    contactNom: "",
+    email: "",
+    phone: "",
+    companyName: "",
+    companyLegalName: "",
+    siret: "",
+    siren: "",
+    notes: "",
+  });
   const [simDossiers, setSimDossiers] = useState(5);
   const [simConversion, setSimConversion] = useState(28);
   const [simSavings, setSimSavings] = useState(3600);
@@ -237,7 +248,17 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.message || json.error || "Envoi impossible");
-      setPartnerForm({ contactName: "", email: "", phone: "", companyName: "", notes: "" });
+      setPartnerForm({
+        contactPrenom: "",
+        contactNom: "",
+        email: "",
+        phone: "",
+        companyName: "",
+        companyLegalName: "",
+        siret: "",
+        siren: "",
+        notes: "",
+      });
       setShowPartnerForm(false);
       setSubmitMsg("Candidature partenaire transmise — LCIF va contacter votre filleul.");
       await load();
@@ -446,10 +467,36 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           </p>
           {showPartnerForm && unlocked ? (
             <form onSubmit={submitPartnerRecruit} className="space-y-3 border border-slate-100 rounded-xl p-4 bg-slate-50/50">
-              <Field label="Nom complet" value={partnerForm.contactName} onChange={(v) => setPartnerForm((s) => ({ ...s, contactName: v }))} />
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Field label="Prénom" value={partnerForm.contactPrenom} onChange={(v) => setPartnerForm((s) => ({ ...s, contactPrenom: v }))} />
+                <Field label="Nom de famille" value={partnerForm.contactNom} onChange={(v) => setPartnerForm((s) => ({ ...s, contactNom: v }))} />
+              </div>
               <Field label="Email" value={partnerForm.email} onChange={(v) => setPartnerForm((s) => ({ ...s, email: v }))} type="email" />
               <Field label="Téléphone" value={partnerForm.phone} onChange={(v) => setPartnerForm((s) => ({ ...s, phone: v }))} />
-              <Field label="Société (optionnel)" value={partnerForm.companyName} onChange={(v) => setPartnerForm((s) => ({ ...s, companyName: v }))} />
+              <Field
+                label="Société (optionnel)"
+                value={partnerForm.companyName}
+                onChange={(v) => setPartnerForm((s) => ({ ...s, companyName: v }))}
+              />
+              {partnerForm.companyName.trim() ? (
+                <SiretLookupField
+                  siret={partnerForm.siret}
+                  onSiretChange={(v) => setPartnerForm((s) => ({ ...s, siret: v }))}
+                  companyName={partnerForm.companyName}
+                  onCompanyNameChange={(v) => setPartnerForm((s) => ({ ...s, companyName: v }))}
+                  onVerified={(match: SiretLookupResult) =>
+                    setPartnerForm((s) => ({
+                      ...s,
+                      siren: match.siren,
+                      siret: match.siret || s.siret,
+                      companyLegalName: match.name,
+                      companyName: s.companyName.trim() || match.name,
+                    }))
+                  }
+                  required
+                />
+              ) : null}
+              <Field label="Notes (optionnel)" value={partnerForm.notes} onChange={(v) => setPartnerForm((s) => ({ ...s, notes: v }))} />
               <button type="submit" disabled={submitting} className="w-full py-2.5 rounded-lg bg-slate-900 text-white font-bold text-sm disabled:opacity-60">
                 Envoyer la candidature à LCIF
               </button>
