@@ -108,7 +108,8 @@ export default function AdminApporteurLeaderboard({ rows, onSelectApporteur }: P
       </div>
       <p className="text-[10px] text-slate-400 mt-3">
         Classement selon : <strong>{METRICS.find((m) => m.key === metric)?.label}</strong>. CA = commissions
-        apporteur sur dossiers signés (réel ou estimé). Géoloc = pays si l&apos;hébergeur expose l&apos;en-tête pays.
+        apporteur sur dossiers signés (réel ou estimé). Origine clics = pays (GeoIP locale, sans conservation
+        d&apos;adresse IP).
       </p>
     </section>
   );

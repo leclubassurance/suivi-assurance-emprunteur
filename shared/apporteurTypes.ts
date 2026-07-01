@@ -82,7 +82,7 @@ export type Apporteur = {
     /** Agrégat visites par pays (code ISO) quand disponible. */
     clicksByCountry?: Record<string, number>;
     /** Derniers événements (sans IP — pays + horodatage). */
-    recentClicks?: { at: string; sessionId?: string; countryCode?: string }[];
+    recentClicks?: { at: string; sessionId?: string; countryCode?: string; region?: string }[];
   };
   /** Apporteur parrain (niveau 1 — marketing de réseau). */
   sponsorId?: string;

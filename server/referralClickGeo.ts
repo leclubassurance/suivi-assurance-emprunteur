@@ -1,7 +1,35 @@
 import type { Request } from "express";
+import geoip from "geoip-lite";
 
-/** Pays ISO-3166 alpha-2 si l'hébergeur ou le CDN l'expose (sans IP brute). */
-export function resolveReferralClickCountry(req: Pick<Request, "headers">): string | undefined {
+export type ReferralClickGeo = {
+  countryCode?: string;
+  region?: string;
+};
+
+function normalizeCountryCode(raw: unknown): string | undefined {
+  const code = String(raw || "")
+    .trim()
+    .toUpperCase();
+  if (code.length === 2 && code !== "XX" && code !== "T1") return code;
+  return undefined;
+}
+
+/** IP client (proxy Railway / CDN) — non stockée, lookup GeoIP uniquement. */
+export function getClientIp(req: Pick<Request, "headers" | "ip" | "socket">): string | undefined {
+  const forwarded = String(req.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim();
+  const candidates = [forwarded, String(req.ip || ""), req.socket?.remoteAddress || ""].filter(Boolean);
+
+  for (const raw of candidates) {
+    const ip = raw.replace(/^::ffff:/, "").trim();
+    if (!ip || ip === "::1" || ip === "127.0.0.1") continue;
+    return ip;
+  }
+  return undefined;
+}
+
+function countryFromHeaders(req: Pick<Request, "headers">): string | undefined {
   const headers = req.headers;
   const candidates = [
     headers["cf-ipcountry"],
@@ -10,10 +38,30 @@ export function resolveReferralClickCountry(req: Pick<Request, "headers">): stri
     headers["x-country-code"],
   ];
   for (const raw of candidates) {
-    const code = String(raw || "")
-      .trim()
-      .toUpperCase();
-    if (code.length === 2 && code !== "XX" && code !== "T1") return code;
+    const code = normalizeCountryCode(raw);
+    if (code) return code;
   }
   return undefined;
+}
+
+/** Pays (+ région MaxMind) : en-tête CDN en priorité, sinon geoip-lite (gratuit, local). */
+export function resolveReferralClickGeo(req: Pick<Request, "headers" | "ip" | "socket">): ReferralClickGeo {
+  const fromHeader = countryFromHeaders(req);
+  if (fromHeader) return { countryCode: fromHeader };
+
+  const ip = getClientIp(req);
+  if (!ip) return {};
+
+  const lookup = geoip.lookup(ip);
+  if (!lookup?.country) return {};
+
+  return {
+    countryCode: normalizeCountryCode(lookup.country),
+    region: lookup.region ? String(lookup.region).trim().slice(0, 12) : undefined,
+  };
+}
+
+/** @deprecated Utiliser resolveReferralClickGeo */
+export function resolveReferralClickCountry(req: Pick<Request, "headers" | "ip" | "socket">): string | undefined {
+  return resolveReferralClickGeo(req).countryCode;
 }

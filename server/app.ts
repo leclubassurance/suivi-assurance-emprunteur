@@ -1605,10 +1605,10 @@ export function createApp() {
     try {
       const ref = String((req.body || {}).ref || "").trim();
       const sessionId = String((req.body || {}).sessionId || "").trim();
-      const { resolveReferralClickCountry } = await import("./referralClickGeo");
-      const countryCode = resolveReferralClickCountry(req);
+      const { resolveReferralClickGeo } = await import("./referralClickGeo");
+      const geo = resolveReferralClickGeo(req);
       const { recordReferralLinkClick } = await import("./apporteurStore");
-      const result = await recordReferralLinkClick(ref, sessionId, countryCode);
+      const result = await recordReferralLinkClick(ref, sessionId, geo.countryCode, geo.region);
       res.json({ ok: result.ok });
     } catch {
       res.json({ ok: false });

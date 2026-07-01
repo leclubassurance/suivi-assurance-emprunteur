@@ -273,6 +273,7 @@ export async function recordReferralLinkClick(
   refToken: string,
   sessionId?: string,
   countryCode?: string,
+  region?: string,
 ): Promise<{ ok: boolean; apporteurId?: string }> {
   const token = slugifyToken(refToken);
   if (!token) return { ok: false };
@@ -309,6 +310,7 @@ export async function recordReferralLinkClick(
     at: stats.lastClickAt,
     sessionId: sid || undefined,
     countryCode: cc || undefined,
+    region: region ? String(region).trim().slice(0, 12) : undefined,
   });
   stats.recentClicks = recent.slice(-120);
 
