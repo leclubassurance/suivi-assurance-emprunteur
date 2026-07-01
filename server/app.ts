@@ -1676,22 +1676,6 @@ export function createApp() {
         publicBaseUrl,
         remuneration,
       );
-      const { buildApporteurLeaderboard, findApporteurRank } = await import("../shared/apporteurLeaderboard");
-      const lbSigned = buildApporteurLeaderboard({
-        apporteurs: store.apporteurs,
-        referrals: store.referrals,
-        dossierById,
-        metric: "signed",
-      });
-      const lbClicks = buildApporteurLeaderboard({
-        apporteurs: store.apporteurs,
-        referrals: store.referrals,
-        dossierById,
-        metric: "clicks",
-      });
-      const rankSigned = findApporteurRank(lbSigned, apporteur.id);
-      const rankClicks = findApporteurRank(lbClicks, apporteur.id);
-      const clicksByCountry = apporteur.referralStats?.clicksByCountry || {};
       res.json({
         ok: true,
         apporteur: {
@@ -1721,15 +1705,6 @@ export function createApp() {
           linkClicks: apporteur.referralStats?.linkClicks || 0,
           uniqueSessions: apporteur.referralStats?.uniqueSessions || 0,
           lastClickAt: apporteur.referralStats?.lastClickAt || null,
-          clicksByCountry,
-        },
-        leaderboardPosition: {
-          signed: rankSigned
-            ? { rank: rankSigned.rank, total: lbSigned.length, value: rankSigned.signedCount }
-            : null,
-          clicks: rankClicks
-            ? { rank: rankClicks.rank, total: lbClicks.length, value: rankClicks.linkClicks }
-            : null,
         },
         stats: { total: kpis.total, open: kpis.open, signed: kpis.signed },
         kpis,

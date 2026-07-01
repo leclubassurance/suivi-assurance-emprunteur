@@ -2,9 +2,6 @@ import React from "react";
 import { Copy, Plus } from "lucide-react";
 import type { ApporteurType } from "../../../shared/apporteurTypes";
 import { getHeroCopy, TRUST_BADGES } from "../../../shared/apporteurPortalContent";
-import { countryCodeToLabel } from "../../../shared/referralGeo";
-
-type LeaderboardPosition = { rank: number; total: number; value: number };
 
 type Props = {
   apporteurType: ApporteurType | string;
@@ -14,11 +11,6 @@ type Props = {
     linkClicks: number;
     uniqueSessions: number;
     lastClickAt?: string | null;
-    clicksByCountry?: Record<string, number>;
-  };
-  leaderboardPosition?: {
-    signed: LeaderboardPosition | null;
-    clicks: LeaderboardPosition | null;
   };
   onCopyLink: () => void;
   onNewReferral: () => void;
@@ -29,7 +21,6 @@ export default function PartnerHeroSection({
   referralLink,
   unlocked,
   referralStats,
-  leaderboardPosition,
   onCopyLink,
   onNewReferral,
 }: Props) {
@@ -96,24 +87,6 @@ export default function PartnerHeroSection({
             ) : (
               <p className="mt-2 text-[10px] text-indigo-200/70">0 visite du lien pour le moment.</p>
             )}
-            {leaderboardPosition?.signed && leaderboardPosition.signed.total > 1 ? (
-              <p className="mt-1 text-[10px] text-amber-200/90">
-                Classement réseau : #{leaderboardPosition.signed.rank}/{leaderboardPosition.signed.total} dossiers signés
-                {leaderboardPosition.clicks && leaderboardPosition.clicks.value > 0
-                  ? ` · #${leaderboardPosition.clicks.rank} visites lien`
-                  : ""}
-              </p>
-            ) : null}
-            {referralStats?.clicksByCountry && Object.keys(referralStats.clicksByCountry).length > 0 ? (
-              <p className="mt-1 text-[10px] text-indigo-200/80">
-                Origine visites :{" "}
-                {Object.entries(referralStats.clicksByCountry)
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 3)
-                  .map(([code, n]) => `${countryCodeToLabel(code)} (${n})`)
-                  .join(" · ")}
-              </p>
-            ) : null}
           </>
         ) : null}
       </div>
