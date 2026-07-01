@@ -1606,7 +1606,8 @@ export function createApp() {
       const ref = String((req.body || {}).ref || "").trim();
       const sessionId = String((req.body || {}).sessionId || "").trim();
       const { resolveReferralClickGeo } = await import("./referralClickGeo");
-      const geo = resolveReferralClickGeo(req);
+      const bodyGeo = (req.body || {}).geo;
+      const geo = resolveReferralClickGeo(req, bodyGeo);
       const { recordReferralLinkClick } = await import("./apporteurStore");
       const result = await recordReferralLinkClick(ref, sessionId, geo);
       res.json({ ok: result.ok });

@@ -10,6 +10,24 @@ export function generateId() {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
+/**
+ * Clics lien ?ref= : en prod Vercel, passe par /api/ref-click (fonction edge MaxMind)
+ * au lieu d'appeler Railway directement (geoip-lite moins précis).
+ */
+export function getRefClickUrl(): string {
+  const apiBase = import.meta.env.VITE_API_URL as string | undefined;
+  if (import.meta.env.PROD && apiBase?.startsWith("http") && typeof window !== "undefined") {
+    try {
+      if (new URL(apiBase).host !== window.location.host) {
+        return "/api/ref-click";
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return getApiUrl("/api/ref-click");
+}
+
 export function getApiUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;

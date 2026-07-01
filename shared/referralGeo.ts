@@ -4,6 +4,71 @@ export type ReferralClickGeoSlice = {
   city?: string;
 };
 
+function tryDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/** Libellé ville lisible (Osny-sous-Bois, Saint-Étienne…). */
+export function formatCityLabel(raw: string): string {
+  const decoded = tryDecodeURIComponent(String(raw || "").trim());
+  if (!decoded) return "";
+  const lowerParticles = new Set(["de", "du", "des", "la", "le", "les", "en", "sur", "sous", "d", "l"]);
+  return decoded
+    .split(/(\s+|-)/)
+    .map((part) => {
+      if (part === "-" || /^\s+$/.test(part)) return part;
+      const lower = part.toLowerCase();
+      if (lowerParticles.has(lower)) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join("");
+}
+
+export function sanitizeReferralClickGeoSlice(geo?: ReferralClickGeoSlice | null): ReferralClickGeoSlice {
+  if (!geo) return {};
+  const countryCode = String(geo.countryCode || "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 2);
+  const region = geo.region ? String(geo.region).trim().slice(0, 12) : undefined;
+  const city = geo.city ? formatCityLabel(String(geo.city).trim().slice(0, 64)) : undefined;
+  const out: ReferralClickGeoSlice = {};
+  if (countryCode && countryCode !== "XX" && countryCode !== "T1") out.countryCode = countryCode;
+  if (region) out.region = region;
+  if (city) out.city = city;
+  return out;
+}
+
+/** En-têtes géo Vercel (MaxMind) — disponibles sur les fonctions edge, pas sur Railway direct. */
+export function geoFromVercelHeaders(headers: Record<string, string | string[] | undefined>): ReferralClickGeoSlice {
+  const read = (name: string) => {
+    const raw = headers[name] ?? headers[name.toLowerCase()];
+    return Array.isArray(raw) ? raw[0] : raw;
+  };
+  return sanitizeReferralClickGeoSlice({
+    countryCode: read("x-vercel-ip-country"),
+    region: read("x-vercel-ip-country-region"),
+    city: read("x-vercel-ip-city"),
+  });
+}
+
+export function mergeReferralClickGeo(
+  preferred?: ReferralClickGeoSlice | null,
+  fallback?: ReferralClickGeoSlice | null,
+): ReferralClickGeoSlice {
+  const a = sanitizeReferralClickGeoSlice(preferred);
+  const b = sanitizeReferralClickGeoSlice(fallback);
+  return sanitizeReferralClickGeoSlice({
+    countryCode: a.countryCode || b.countryCode,
+    region: a.region || b.region,
+    city: a.city || b.city,
+  });
+}
+
 const FR_REGION_LABELS: Record<string, string> = {
   IDF: "Île-de-France",
   ARA: "Auvergne-Rhône-Alpes",
@@ -72,12 +137,10 @@ export function applyReferralClickGeoToStats(
   at: string,
   sessionId?: string,
 ): void {
-  const cc = String(geo.countryCode || "")
-    .trim()
-    .toUpperCase()
-    .slice(0, 2);
-  const region = geo.region ? String(geo.region).trim().slice(0, 12) : undefined;
-  const city = geo.city ? String(geo.city).trim().slice(0, 64) : undefined;
+  const normalized = sanitizeReferralClickGeoSlice(geo);
+  const cc = normalized.countryCode;
+  const region = normalized.region;
+  const city = normalized.city;
 
   if (cc && cc !== "XX") {
     const byCountry = { ...(stats.clicksByCountry || {}) };

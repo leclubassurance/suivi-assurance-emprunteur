@@ -25,7 +25,7 @@ import PolitiqueConfidentialitePage from './pages/PolitiqueConfidentialitePage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
 import { AlertCircle } from 'lucide-react';
 import { showToast } from './lib/toast';
-import { getApiUrl } from './lib/utils';
+import { getApiUrl, getRefClickUrl } from './lib/utils';
 import { buildClientPrivacyConsentPayload } from '../shared/privacyConsent';
 
 const STORAGE_KEY = 'insurance-form-draft';
@@ -122,7 +122,7 @@ export default function App() {
                 : `s-${Date.now()}`;
             sessionStorage.setItem(sessionKey, sessionId);
           }
-          fetch(getApiUrl("/api/ref-click"), {
+          fetch(getRefClickUrl(), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ref: normalized, sessionId }),

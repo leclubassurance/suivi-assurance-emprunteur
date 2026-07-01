@@ -1,6 +1,12 @@
 import type { Request } from "express";
 import geoip from "geoip-lite";
-import type { ReferralClickGeoSlice } from "../shared/referralGeo";
+import {
+  formatCityLabel,
+  geoFromVercelHeaders,
+  mergeReferralClickGeo,
+  sanitizeReferralClickGeoSlice,
+  type ReferralClickGeoSlice,
+} from "../shared/referralGeo";
 
 function normalizeCountryCode(raw: unknown): string | undefined {
   const code = String(raw || "")
@@ -40,21 +46,49 @@ function countryFromHeaders(req: Pick<Request, "headers">): string | undefined {
   return undefined;
 }
 
-/** Pays, région et ville via geoip-lite (gratuit, local) — IP jamais persistée. */
-export function resolveReferralClickGeo(req: Pick<Request, "headers" | "ip" | "socket">): ReferralClickGeoSlice {
+/** Fallback local geoip-lite (base MaxMind embarquée, souvent moins précise). */
+export function resolveReferralClickGeoFromIp(req: Pick<Request, "headers" | "ip" | "socket">): ReferralClickGeoSlice {
+  const vercel = geoFromVercelHeaders(req.headers as Record<string, string | string[] | undefined>);
+  if (vercel.countryCode && (vercel.city || vercel.region)) return vercel;
+
   const ip = getClientIp(req);
   const lookup = ip ? geoip.lookup(ip) : null;
 
   const countryCode =
-    countryFromHeaders(req) || normalizeCountryCode(lookup?.country) || undefined;
+    countryFromHeaders(req) || vercel.countryCode || normalizeCountryCode(lookup?.country) || undefined;
 
-  if (!countryCode && !lookup) return {};
+  if (!countryCode && !lookup) return vercel;
 
-  return {
+  return sanitizeReferralClickGeoSlice({
     countryCode,
-    region: lookup?.region ? String(lookup.region).trim().slice(0, 12) : undefined,
-    city: lookup?.city ? String(lookup.city).trim().slice(0, 64) : undefined,
-  };
+    region: vercel.region || (lookup?.region ? String(lookup.region).trim().slice(0, 12) : undefined),
+    city: vercel.city || (lookup?.city ? formatCityLabel(String(lookup.city).trim().slice(0, 64)) : undefined),
+  });
+}
+
+export function isTrustedRefClickProxy(req: Pick<Request, "headers">): boolean {
+  const secret = String(process.env.REF_CLICK_PROXY_SECRET || "").trim();
+  if (!secret) return false;
+  const incoming = String(req.headers["x-lcif-ref-proxy"] || "").trim();
+  return incoming.length > 0 && incoming === secret;
+}
+
+/** Géo finale : proxy Vercel (MaxMind récent) prioritaire, sinon geoip-lite. */
+export function resolveReferralClickGeo(
+  req: Pick<Request, "headers" | "ip" | "socket">,
+  bodyGeo?: ReferralClickGeoSlice | null,
+): ReferralClickGeoSlice {
+  const fromIp = resolveReferralClickGeoFromIp(req);
+  const sanitizedBody = sanitizeReferralClickGeoSlice(bodyGeo);
+  const secret = String(process.env.REF_CLICK_PROXY_SECRET || "").trim();
+
+  if (sanitizedBody.city || sanitizedBody.region) {
+    if (!secret || isTrustedRefClickProxy(req)) {
+      return mergeReferralClickGeo(sanitizedBody, fromIp);
+    }
+  }
+
+  return fromIp;
 }
 
 /** @deprecated Utiliser resolveReferralClickGeo */
