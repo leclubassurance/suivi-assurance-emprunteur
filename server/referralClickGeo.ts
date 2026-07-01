@@ -1,10 +1,6 @@
 import type { Request } from "express";
 import geoip from "geoip-lite";
-
-export type ReferralClickGeo = {
-  countryCode?: string;
-  region?: string;
-};
+import type { ReferralClickGeoSlice } from "../shared/referralGeo";
 
 function normalizeCountryCode(raw: unknown): string | undefined {
   const code = String(raw || "")
@@ -44,20 +40,20 @@ function countryFromHeaders(req: Pick<Request, "headers">): string | undefined {
   return undefined;
 }
 
-/** Pays (+ région MaxMind) : en-tête CDN en priorité, sinon geoip-lite (gratuit, local). */
-export function resolveReferralClickGeo(req: Pick<Request, "headers" | "ip" | "socket">): ReferralClickGeo {
-  const fromHeader = countryFromHeaders(req);
-  if (fromHeader) return { countryCode: fromHeader };
-
+/** Pays, région et ville via geoip-lite (gratuit, local) — IP jamais persistée. */
+export function resolveReferralClickGeo(req: Pick<Request, "headers" | "ip" | "socket">): ReferralClickGeoSlice {
   const ip = getClientIp(req);
-  if (!ip) return {};
+  const lookup = ip ? geoip.lookup(ip) : null;
 
-  const lookup = geoip.lookup(ip);
-  if (!lookup?.country) return {};
+  const countryCode =
+    countryFromHeaders(req) || normalizeCountryCode(lookup?.country) || undefined;
+
+  if (!countryCode && !lookup) return {};
 
   return {
-    countryCode: normalizeCountryCode(lookup.country),
-    region: lookup.region ? String(lookup.region).trim().slice(0, 12) : undefined,
+    countryCode,
+    region: lookup?.region ? String(lookup.region).trim().slice(0, 12) : undefined,
+    city: lookup?.city ? String(lookup.city).trim().slice(0, 64) : undefined,
   };
 }
 

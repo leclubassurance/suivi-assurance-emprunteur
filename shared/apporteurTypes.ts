@@ -79,10 +79,14 @@ export type Apporteur = {
     lastClickAt?: string;
     /** Interne — identifiants de session déjà comptés (cap 3000). */
     _sessionIds?: string[];
-    /** Agrégat visites par pays (code ISO) quand disponible. */
+    /** Agrégat visites par pays (code ISO). */
     clicksByCountry?: Record<string, number>;
-    /** Derniers événements (sans IP — pays + horodatage). */
-    recentClicks?: { at: string; sessionId?: string; countryCode?: string; region?: string }[];
+    /** Agrégat visites par région (clé `CC:REGION`, ex. FR:IDF). */
+    clicksByRegion?: Record<string, number>;
+    /** Agrégat visites par ville (clé `CC:Ville`, ex. FR:Paris). */
+    clicksByCity?: Record<string, number>;
+    /** Derniers événements géolocalisés (sans IP). */
+    recentClicks?: { at: string; sessionId?: string; countryCode?: string; region?: string; city?: string }[];
   };
   /** Apporteur parrain (niveau 1 — marketing de réseau). */
   sponsorId?: string;

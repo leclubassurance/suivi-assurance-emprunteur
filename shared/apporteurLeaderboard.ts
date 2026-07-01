@@ -5,7 +5,7 @@ import {
   type DossierEconomicsSlice,
 } from "./apporteurCommissionFromDossier";
 import { computeApporteurPayoutEur, getRemunerationConfig } from "./apporteurRemuneration";
-import { countryCodeToLabel } from "./referralGeo";
+import { countryCodeToLabel, formatGeoLocationSummaries, summarizeReferralClickGeo } from "./referralGeo";
 
 export type ApporteurLeaderboardMetric = "clicks" | "signed" | "earned" | "referrals";
 
@@ -25,6 +25,7 @@ export type ApporteurLeaderboardRow = {
   pipelineEur: number;
   conversionRate: number | null;
   topCountries: { code: string; label: string; count: number }[];
+  geoSummary: string;
 };
 
 export function buildApporteurLeaderboard(params: {
@@ -67,6 +68,7 @@ export function buildApporteurLeaderboard(params: {
         }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 5);
+      const geoSummary = formatGeoLocationSummaries(summarizeReferralClickGeo(apporteur.referralStats));
 
       return {
         rank: 0,
@@ -84,6 +86,7 @@ export function buildApporteurLeaderboard(params: {
         pipelineEur: earnings.pipelineEur,
         conversionRate: kpis.conversionRate,
         topCountries,
+        geoSummary,
       };
     });
 

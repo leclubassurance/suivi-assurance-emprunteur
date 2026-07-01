@@ -29,6 +29,7 @@ import ApporteurProfileFormFields, {
   type ApporteurProfileFormState,
 } from "../portal/ApporteurProfileFormFields";
 import { resolveApporteurTypeLabel } from "../../../shared/apporteurProfile";
+import { formatReferralGeoDetail } from "../../../shared/referralGeo";
 
 type Props = {
   onBack: () => void;
@@ -591,6 +592,29 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                             ? ` · dernière : ${new Date(a.referralStats.lastClickAt).toLocaleString("fr-FR")}`
                             : ""}
                         </p>
+                        {(() => {
+                          const geo = formatReferralGeoDetail(a.referralStats);
+                          if (!geo.cities && !geo.regions && !geo.countries) return null;
+                          return (
+                            <div className="text-[11px] text-slate-500 mt-1.5 space-y-0.5">
+                              {geo.cities ? (
+                                <p>
+                                  <span className="font-bold text-slate-600">Villes :</span> {geo.cities}
+                                </p>
+                              ) : null}
+                              {geo.regions ? (
+                                <p>
+                                  <span className="font-bold text-slate-600">Régions :</span> {geo.regions}
+                                </p>
+                              ) : null}
+                              {geo.countries ? (
+                                <p>
+                                  <span className="font-bold text-slate-600">Pays :</span> {geo.countries}
+                                </p>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </>

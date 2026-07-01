@@ -1608,7 +1608,7 @@ export function createApp() {
       const { resolveReferralClickGeo } = await import("./referralClickGeo");
       const geo = resolveReferralClickGeo(req);
       const { recordReferralLinkClick } = await import("./apporteurStore");
-      const result = await recordReferralLinkClick(ref, sessionId, geo.countryCode, geo.region);
+      const result = await recordReferralLinkClick(ref, sessionId, geo);
       res.json({ ok: result.ok });
     } catch {
       res.json({ ok: false });

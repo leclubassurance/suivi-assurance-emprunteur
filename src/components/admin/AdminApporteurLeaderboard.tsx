@@ -95,10 +95,10 @@ export default function AdminApporteurLeaderboard({ rows, onSelectApporteur }: P
                   {row.earnedEur > 0 ? `${row.earnedEur.toLocaleString("fr-FR")} €` : "—"}
                 </td>
                 <td className="py-2.5 text-[11px] text-slate-500">
-                  {row.topCountries.length
-                    ? row.topCountries.map((c) => `${c.label} (${c.count})`).join(" · ")
+                  {row.geoSummary !== "—"
+                    ? row.geoSummary
                     : row.linkClicks > 0
-                      ? "Pays non détecté"
+                      ? "Localisation non détectée"
                       : "—"}
                 </td>
               </tr>
@@ -108,8 +108,8 @@ export default function AdminApporteurLeaderboard({ rows, onSelectApporteur }: P
       </div>
       <p className="text-[10px] text-slate-400 mt-3">
         Classement selon : <strong>{METRICS.find((m) => m.key === metric)?.label}</strong>. CA = commissions
-        apporteur sur dossiers signés (réel ou estimé). Origine clics = pays (GeoIP locale, sans conservation
-        d&apos;adresse IP).
+        apporteur sur dossiers signés (réel ou estimé). Origine clics = ville, région ou pays (GeoIP locale,
+        sans conservation d&apos;adresse IP).
       </p>
     </section>
   );

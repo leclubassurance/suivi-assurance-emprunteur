@@ -20,6 +20,8 @@ import { getRemunerationConfig } from "../shared/apporteurRemuneration";
 import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
+import { applyReferralClickGeoToStats } from "../shared/referralGeo";
+import type { ReferralClickGeoSlice } from "../shared/referralGeo";
 import { generatePortalToken } from "./apporteurNotify";
 
 export type ApporteurStore = {
@@ -272,8 +274,7 @@ export async function findApporteurByToken(token: string): Promise<Apporteur | n
 export async function recordReferralLinkClick(
   refToken: string,
   sessionId?: string,
-  countryCode?: string,
-  region?: string,
+  geo?: ReferralClickGeoSlice,
 ): Promise<{ ok: boolean; apporteurId?: string }> {
   const token = slugifyToken(refToken);
   if (!token) return { ok: false };
@@ -295,24 +296,7 @@ export async function recordReferralLinkClick(
     }
   }
 
-  const cc = String(countryCode || "")
-    .trim()
-    .toUpperCase()
-    .slice(0, 2);
-  if (cc && cc !== "XX") {
-    const byCountry = { ...(stats.clicksByCountry || {}) };
-    byCountry[cc] = (byCountry[cc] || 0) + 1;
-    stats.clicksByCountry = byCountry;
-  }
-
-  const recent = [...(stats.recentClicks || [])];
-  recent.push({
-    at: stats.lastClickAt,
-    sessionId: sid || undefined,
-    countryCode: cc || undefined,
-    region: region ? String(region).trim().slice(0, 12) : undefined,
-  });
-  stats.recentClicks = recent.slice(-120);
+  applyReferralClickGeoToStats(stats, geo || {}, stats.lastClickAt, sid || undefined);
 
   apporteur.referralStats = stats;
   await persistStore(store);
