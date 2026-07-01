@@ -15,14 +15,15 @@ export const APPORTEUR_GUIDE_SECTIONS: { title: string; paragraphs: string[] }[]
     title: "Pourquoi recommander Le Club Immobilier Français",
     paragraphs: [
       "Le Club Immobilier Français est courtier en assurance immatriculé ORIAS 24002253. Nous ne sommes pas un assureur : nous analysons la situation du client, comparons les offres du marché et l'accompagnons jusqu'au changement effectif — uniquement s'il le souhaite.",
-      "Pour votre contact, vous proposez un service concret et gratuit : une étude personnalisée des économies possibles, avec des chiffres clairs et sans engagement. Le Club Immobilier Français gère la partie technique (dossier banque, équivalence des garanties, résiliation de l'ancien contrat le cas échéant). Vous restez son interlocuteur de confiance.",
+      "Pour votre contact, vous proposez une étude personnalisée gratuite des économies possibles, avec des chiffres clairs et sans engagement. Si le client décide de changer d'assurance, des frais de courtage s'appliquent au moment du changement effectif — le montant exact figure dans l'étude, avant toute décision. Le Club Immobilier Français gère la partie technique (dossier banque, équivalence des garanties, résiliation de l'ancien contrat le cas échéant). Vous restez son interlocuteur de confiance.",
       "Pour vous, c'est une valeur ajoutée simple à activer : quand un contact évoque son prêt ou ses charges mensuelles, une recommandation prend deux minutes et peut lui faire économiser plusieurs centaines d'euros par an.",
     ],
   },
   {
     title: "Quand et comment recommander",
     paragraphs: [
-      "Les moments les plus propices : après un projet immobilier ou de financement, à l'anniversaire du prêt, lors d'une renégociation, ou dès que votre contact parle de ses mensualités ou de son budget.",
+      "Les moments les plus propices : après un projet immobilier ou de financement, lors d'une renégociation, ou dès que votre contact parle de ses mensualités ou de son budget. Depuis la loi Lemoine, il n'est plus nécessaire d'attendre l'anniversaire du contrat : votre contact peut faire étudier sa situation à tout moment.",
+      "Pour en parler avec transparence : « L'étude est gratuite et sans engagement. Si vous décidez de changer, des frais de courtage s'appliquent — le montant exact vous est indiqué dans l'étude avant de vous engager. »",
       "Partagez votre lien personnel (bouton « Copier mon lien client ») ou créez une recommandation depuis cet espace. Le contact reçoit une invitation par email et dépose ses documents en ligne en une dizaine de minutes (offre de prêt et tableau d'amortissement). L'attribution est automatique via votre lien.",
       "Utilisez le message WhatsApp proposé sur cette page : adaptez le prénom, copiez-collez, envoyez. Ne promettez jamais un montant d'économies précis — seule l'étude du Club Immobilier Français peut le chiffrer.",
     ],

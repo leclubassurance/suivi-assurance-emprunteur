@@ -35,7 +35,7 @@ export function buildWhatsAppMessage(params: {
 
 Je me permets de vous écrire : beaucoup d'emprunteurs paient encore trop cher leur assurance de prêt, souvent sans le savoir. Depuis la loi Lemoine, un changement est possible à tout moment.
 
-Le Club Immobilier Français (courtier ORIAS) propose une analyse gratuite et sans engagement de votre assurance emprunteur. En une dizaine de minutes en ligne, vous déposez vos documents ; leur équipe vous envoie une étude claire avec les économies possibles. Vous décidez ensuite librement.
+Le Club Immobilier Français (courtier ORIAS) propose une analyse gratuite et sans engagement de votre assurance emprunteur. En cas de changement effectif, des frais de courtage s'appliquent — le montant exact vous est indiqué dans l'étude avant toute décision. En une dizaine de minutes en ligne, vous déposez vos documents ; leur équipe vous envoie une étude claire avec les économies possibles. Vous décidez ensuite librement.
 
 Lien pour démarrer : ${params.referralLink}
 
@@ -57,7 +57,7 @@ export function getBenefitCards(payoutPerSignatureEur: number) {
       title: "Pour votre contact",
       lines: [
         "Étude gratuite et personnalisée",
-        "Économies possibles sur la cotisation",
+        "Frais de courtage uniquement si changement effectif",
         "Aucun engagement de sa part",
       ],
     },
