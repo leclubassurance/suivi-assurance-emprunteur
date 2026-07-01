@@ -1365,10 +1365,20 @@ export function createApp() {
         getApporteurSummary(),
         listPartnerRecruits(),
       ]);
+      const { readDB } = await import("./db");
+      const { buildApporteurLeaderboard } = await import("../shared/apporteurLeaderboard");
+      const db = await readDB();
+      const dossierById = new Map(db.dossiers.map((d: any) => [d.id, d]));
+      const store = await (await import("./apporteurStore")).loadApporteurStore();
+      const leaderboard = buildApporteurLeaderboard({
+        apporteurs,
+        referrals: store.referrals,
+        dossierById,
+      });
       const publicBaseUrl = resolvePublicAppBaseUrl(
         String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
       );
-      res.json({ success: true, apporteurs, referrals, partnerRecruits, summary, publicBaseUrl });
+      res.json({ success: true, apporteurs, referrals, partnerRecruits, summary, publicBaseUrl, leaderboard });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }
@@ -1595,8 +1605,10 @@ export function createApp() {
     try {
       const ref = String((req.body || {}).ref || "").trim();
       const sessionId = String((req.body || {}).sessionId || "").trim();
+      const { resolveReferralClickCountry } = await import("./referralClickGeo");
+      const countryCode = resolveReferralClickCountry(req);
       const { recordReferralLinkClick } = await import("./apporteurStore");
-      const result = await recordReferralLinkClick(ref, sessionId);
+      const result = await recordReferralLinkClick(ref, sessionId, countryCode);
       res.json({ ok: result.ok });
     } catch {
       res.json({ ok: false });
@@ -1664,6 +1676,22 @@ export function createApp() {
         publicBaseUrl,
         remuneration,
       );
+      const { buildApporteurLeaderboard, findApporteurRank } = await import("../shared/apporteurLeaderboard");
+      const lbSigned = buildApporteurLeaderboard({
+        apporteurs: store.apporteurs,
+        referrals: store.referrals,
+        dossierById,
+        metric: "signed",
+      });
+      const lbClicks = buildApporteurLeaderboard({
+        apporteurs: store.apporteurs,
+        referrals: store.referrals,
+        dossierById,
+        metric: "clicks",
+      });
+      const rankSigned = findApporteurRank(lbSigned, apporteur.id);
+      const rankClicks = findApporteurRank(lbClicks, apporteur.id);
+      const clicksByCountry = apporteur.referralStats?.clicksByCountry || {};
       res.json({
         ok: true,
         apporteur: {
@@ -1693,6 +1721,15 @@ export function createApp() {
           linkClicks: apporteur.referralStats?.linkClicks || 0,
           uniqueSessions: apporteur.referralStats?.uniqueSessions || 0,
           lastClickAt: apporteur.referralStats?.lastClickAt || null,
+          clicksByCountry,
+        },
+        leaderboardPosition: {
+          signed: rankSigned
+            ? { rank: rankSigned.rank, total: lbSigned.length, value: rankSigned.signedCount }
+            : null,
+          clicks: rankClicks
+            ? { rank: rankClicks.rank, total: lbClicks.length, value: rankClicks.linkClicks }
+            : null,
         },
         stats: { total: kpis.total, open: kpis.open, signed: kpis.signed },
         kpis,

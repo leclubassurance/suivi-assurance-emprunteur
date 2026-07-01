@@ -91,7 +91,16 @@ type PortalData = {
   }[];
   referrals: PortalReferral[];
   referralLink: string;
-  referralStats?: { linkClicks: number; uniqueSessions: number; lastClickAt?: string | null };
+  referralStats?: {
+    linkClicks: number;
+    uniqueSessions: number;
+    lastClickAt?: string | null;
+    clicksByCountry?: Record<string, number>;
+  };
+  leaderboardPosition?: {
+    signed: { rank: number; total: number; value: number } | null;
+    clicks: { rank: number; total: number; value: number } | null;
+  };
   stats: { total: number; open: number; signed: number };
   kpis: ApporteurTeamKpis;
   remuneration: RemunerationConfig;
@@ -365,6 +374,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           referralLink={data.referralLink}
           unlocked={unlocked}
           referralStats={data.referralStats}
+          leaderboardPosition={data.leaderboardPosition}
           onCopyLink={() => copyText(data.referralLink, "Lien client copié !")}
           onNewReferral={openNewReferral}
         />

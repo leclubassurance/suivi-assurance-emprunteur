@@ -79,6 +79,10 @@ export type Apporteur = {
     lastClickAt?: string;
     /** Interne — identifiants de session déjà comptés (cap 3000). */
     _sessionIds?: string[];
+    /** Agrégat visites par pays (code ISO) quand disponible. */
+    clicksByCountry?: Record<string, number>;
+    /** Derniers événements (sans IP — pays + horodatage). */
+    recentClicks?: { at: string; sessionId?: string; countryCode?: string }[];
   };
   /** Apporteur parrain (niveau 1 — marketing de réseau). */
   sponsorId?: string;

@@ -22,6 +22,8 @@ import { LCIF_LOGO_URL } from "../../../shared/apporteurBrand";
 import { computeReferralKpis } from "../../../shared/apporteurKpis";
 import KpiCard, { formatPercent } from "../portal/PartnerKpiGrid";
 import PartnerContractWorkflow from "../portal/PartnerContractWorkflow";
+import AdminApporteurLeaderboard from "./AdminApporteurLeaderboard";
+import type { ApporteurLeaderboardRow } from "../../../shared/apporteurLeaderboard";
 import ApporteurProfileFormFields, {
   EMPTY_APPORTEUR_PROFILE_FORM,
   type ApporteurProfileFormState,
@@ -62,6 +64,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<ApporteurLeaderboardRow[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +78,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
       setPartnerRecruits(data.partnerRecruits || []);
       setSummary(data.summary || null);
       setPublicBaseUrl(String(data.publicBaseUrl || ""));
+      setLeaderboard(data.leaderboard || []);
     } catch (e: any) {
       setError(e?.message || "Erreur réseau");
     } finally {
@@ -406,6 +410,13 @@ export default function AdminApporteursPanel({ onBack }: Props) {
           </div>
         ) : null}
       </div>
+
+      {selectedApporteurId === "all" && leaderboard.length > 0 ? (
+        <AdminApporteurLeaderboard
+          rows={leaderboard}
+          onSelectApporteur={(id) => setSelectedApporteurId(id)}
+        />
+      ) : null}
 
       <div className="flex flex-1 overflow-hidden mt-2">
         <aside className="w-80 max-w-[40%] bg-white border-r border-slate-200 overflow-y-auto">

@@ -272,6 +272,7 @@ export async function findApporteurByToken(token: string): Promise<Apporteur | n
 export async function recordReferralLinkClick(
   refToken: string,
   sessionId?: string,
+  countryCode?: string,
 ): Promise<{ ok: boolean; apporteurId?: string }> {
   const token = slugifyToken(refToken);
   if (!token) return { ok: false };
@@ -292,6 +293,24 @@ export async function recordReferralLinkClick(
       stats.uniqueSessions = stats._sessionIds.length;
     }
   }
+
+  const cc = String(countryCode || "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 2);
+  if (cc && cc !== "XX") {
+    const byCountry = { ...(stats.clicksByCountry || {}) };
+    byCountry[cc] = (byCountry[cc] || 0) + 1;
+    stats.clicksByCountry = byCountry;
+  }
+
+  const recent = [...(stats.recentClicks || [])];
+  recent.push({
+    at: stats.lastClickAt,
+    sessionId: sid || undefined,
+    countryCode: cc || undefined,
+  });
+  stats.recentClicks = recent.slice(-120);
 
   apporteur.referralStats = stats;
   await persistStore(store);
