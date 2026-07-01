@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Copy, MessageCircle } from "lucide-react";
-import { buildWhatsAppMessage, TRANSPARENCY_SCRIPT } from "../../../shared/apporteurPortalContent";
+import { buildWhatsAppMessage, TRANSPARENCY_SCRIPT, TRANSPARENCY_SCRIPT_HINT } from "../../../shared/apporteurPortalContent";
 
 type Props = {
   referralLink: string;
@@ -10,8 +10,9 @@ type Props = {
 
 export default function PartnerClientScript({ referralLink, partnerContactName, onCopy }: Props) {
   const [clientPrenom, setClientPrenom] = useState("");
+  const [includeTransparency, setIncludeTransparency] = useState(false);
 
-  const message = useMemo(
+  const baseMessage = useMemo(
     () =>
       buildWhatsAppMessage({
         clientPrenom,
@@ -19,6 +20,11 @@ export default function PartnerClientScript({ referralLink, partnerContactName, 
         partnerContactName,
       }),
     [clientPrenom, referralLink, partnerContactName],
+  );
+
+  const message = useMemo(
+    () => (includeTransparency ? `${baseMessage}\n\n${TRANSPARENCY_SCRIPT}` : baseMessage),
+    [baseMessage, includeTransparency],
   );
 
   return (
@@ -41,6 +47,19 @@ export default function PartnerClientScript({ referralLink, partnerContactName, 
         />
       </label>
 
+      <label className="flex items-start gap-2 text-xs text-slate-600 mb-4 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={includeTransparency}
+          onChange={(e) => setIncludeTransparency(e.target.checked)}
+          className="mt-0.5 rounded border-slate-300"
+        />
+        <span>
+          <span className="font-bold text-slate-700">Ajouter la phrase de transparence</span>
+          <span className="block text-slate-500 font-normal mt-0.5">{TRANSPARENCY_SCRIPT_HINT}</span>
+        </span>
+      </label>
+
       <div className="bg-[#f0f2f5] rounded-xl p-4 mb-4 border border-slate-100">
         <p className="text-[10px] font-bold uppercase text-slate-400 mb-2">Aperçu</p>
         <pre className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap font-sans">{message}</pre>
@@ -56,10 +75,11 @@ export default function PartnerClientScript({ referralLink, partnerContactName, 
         </button>
         <button
           type="button"
-          onClick={() => onCopy(TRANSPARENCY_SCRIPT, "Phrase transparence copiée !")}
+          onClick={() => onCopy(TRANSPARENCY_SCRIPT, "Phrase de transparence copiée !")}
           className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50"
+          title={TRANSPARENCY_SCRIPT_HINT}
         >
-          <Copy className="w-3.5 h-3.5" /> Phrase transparence (optionnel)
+          <Copy className="w-3.5 h-3.5" /> Copier uniquement la phrase
         </button>
       </div>
     </section>

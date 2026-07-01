@@ -5,6 +5,10 @@ export const BRAND_NAME = "Le Club Immobilier Français";
 export const TRANSPARENCY_SCRIPT =
   "En cas de changement effectué, je perçois une rémunération de la part du Club Immobilier Français, sans surcoût pour vous.";
 
+/** Courte explication affichée à côté du bouton « phrase transparence ». */
+export const TRANSPARENCY_SCRIPT_HINT =
+  "Obligation contractuelle : informer le client que vous êtes rémunéré en cas de changement effectué. Sans surcoût pour lui — à ajouter en fin de message si vous le souhaitez.";
+
 export const TRUST_BADGES = [
   "ORIAS 24002253",
   "Loi Lemoine",
@@ -33,13 +37,15 @@ export function buildWhatsAppMessage(params: {
 
   return `${greeting},
 
-Je me permets de vous écrire : beaucoup d'emprunteurs paient encore trop cher leur assurance de prêt, souvent sans le savoir. Depuis la loi Lemoine, un changement est possible à tout moment.
+Beaucoup d'emprunteurs paient encore trop cher leur assurance de prêt, sans forcément le savoir. Depuis la loi Lemoine, vous pouvez la faire étudier et la changer à tout moment — sans attendre une date anniversaire.
 
-Le Club Immobilier Français (courtier ORIAS) propose une analyse gratuite et sans engagement de votre assurance emprunteur. En cas de changement effectif, des frais de courtage s'appliquent — le montant exact vous est indiqué dans l'étude avant toute décision. En une dizaine de minutes en ligne, vous déposez vos documents ; leur équipe vous envoie une étude claire avec les économies possibles. Vous décidez ensuite librement.
+Je vous oriente vers Le Club Immobilier Français (courtier ORIAS) : l'étude est gratuite et sans engagement. En une dizaine de minutes en ligne, vous déposez votre offre de prêt et votre tableau d'amortissement ; leur équipe vous envoie ensuite une analyse claire avec les économies possibles. Vous décidez librement de donner suite ou non.
 
-Lien pour démarrer : ${params.referralLink}
+Si vous changez d'assurance, des frais de courtage s'appliquent — le montant exact vous est indiqué dans l'étude, avant tout engagement.
 
-N'hésitez pas si vous avez la moindre question.${signature}`;
+Pour démarrer : ${params.referralLink}
+
+Je reste disponible si vous avez des questions.${signature}`;
 }
 
 export function getHeroCopy(_type: ApporteurType): { title: string; subtitle: string } {
