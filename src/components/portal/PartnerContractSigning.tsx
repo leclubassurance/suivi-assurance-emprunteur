@@ -43,6 +43,9 @@ export default function PartnerContractSigning({
   const [signerName, setSignerName] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [scrolledToEnd, setScrolledToEnd] = useState(false);
+  const [emailOtp, setEmailOtp] = useState("");
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpSentHint, setOtpSentHint] = useState<string | null>(null);
 
   const loadContract = useCallback(async () => {
     setLoading(true);
@@ -146,10 +149,34 @@ export default function PartnerContractSigning({
     }
   };
 
+  const requestOtp = async () => {
+    setOtpSending(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract/otp`),
+        { method: "POST" },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Envoi du code impossible.");
+      }
+      setOtpSentHint(json.maskedEmail ? `Code envoyé à ${json.maskedEmail}` : "Code envoyé par email.");
+    } catch (err: any) {
+      setError(err?.message || "Erreur");
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
   const handleSign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!acceptTerms) {
       setError("Vous devez accepter le contrat.");
+      return;
+    }
+    if (!emailOtp.trim()) {
+      setError("Saisissez le code reçu par email.");
       return;
     }
     setSubmitting(true);
@@ -160,7 +187,7 @@ export default function PartnerContractSigning({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ signerName, acceptTerms: true }),
+          body: JSON.stringify({ signerName, acceptTerms: true, emailOtp: emailOtp.trim() }),
         },
       );
       const json = await res.json().catch(() => ({}));
@@ -318,11 +345,37 @@ export default function PartnerContractSigning({
           />
         </label>
 
+        <label className="block text-xs font-bold text-slate-600">
+          Code de validation (envoyé à votre email)
+          <div className="mt-1 flex flex-wrap gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={emailOtp}
+              onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              disabled={!scrolledToEnd}
+              placeholder="6 chiffres"
+              className="flex-1 min-w-[120px] border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-normal tracking-widest disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={requestOtp}
+              disabled={!scrolledToEnd || otpSending}
+              className="px-3 py-2.5 rounded-lg border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-50 disabled:opacity-50"
+            >
+              {otpSending ? "Envoi…" : "Recevoir un code"}
+            </button>
+          </div>
+          {otpSentHint ? <span className="block mt-1 text-[10px] font-normal text-slate-500">{otpSentHint}</span> : null}
+        </label>
+
         {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
 
         <button
           type="submit"
-          disabled={submitting || !scrolledToEnd || !acceptTerms || !signerName.trim()}
+          disabled={submitting || !scrolledToEnd || !acceptTerms || !signerName.trim() || emailOtp.trim().length < 6}
           className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
           {submitting ? (
@@ -334,7 +387,7 @@ export default function PartnerContractSigning({
         </button>
 
         <p className="text-[10px] text-slate-400 text-center">
-          Horodatage et identité enregistrés par Le Club Immobilier Français · version {doc.version}
+          Horodatage, code email et identité enregistrés par Le Club Immobilier Français · version {doc.version}
         </p>
       </form>
     </section>

@@ -161,6 +161,7 @@ export async function signApporteurContractOnline(params: {
   apporteur: Apporteur;
   signerName: string;
   acceptTerms: boolean;
+  emailOtp?: string;
   ipAddress?: string;
   userAgent?: string;
   portalBaseUrl?: string;
@@ -168,6 +169,13 @@ export async function signApporteurContractOnline(params: {
 }): Promise<Apporteur> {
   if (!params.acceptTerms) {
     throw new Error("Vous devez accepter le contrat pour continuer.");
+  }
+  if (!String(params.emailOtp || "").trim()) {
+    throw new Error("Saisissez le code reçu par email pour valider votre signature.");
+  }
+  const { verifyApporteurContractOtp } = await import("./apporteurContractOtp");
+  if (!verifyApporteurContractOtp(params.apporteur.id, String(params.emailOtp || "").trim())) {
+    throw new Error("Code invalide ou expiré. Demandez un nouveau code.");
   }
   if (isApporteurContractSigned(params.apporteur)) {
     return params.apporteur;
@@ -187,6 +195,7 @@ export async function signApporteurContractOnline(params: {
     companyName: params.apporteur.companyName,
     ipAddress: params.ipAddress,
     userAgent: params.userAgent,
+    emailOtpVerifiedAt: now,
     mandantSignature: {
       signedAt: now,
       signerName: LCIF_LEGAL.legalRepresentative,

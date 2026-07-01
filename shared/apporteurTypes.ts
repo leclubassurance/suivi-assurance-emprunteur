@@ -58,6 +58,8 @@ export type Apporteur = {
     ipAddress?: string;
     userAgent?: string;
     pdfFileName?: string;
+    /** Validation OTP email avant signature (renforce la preuve pour personnes physiques). */
+    emailOtpVerifiedAt?: string;
     driveFileId?: string;
     driveLink?: string;
     /** Contre-signature électronique du mandant (Le Club Immobilier Français). */
@@ -70,6 +72,14 @@ export type Apporteur = {
   };
   /** Dossier Google Drive « Apporteurs d'affaires » (contrats archivés). */
   driveFolderId?: string;
+  /** Statistiques lien client (?ref=) — clics page d'accueil. */
+  referralStats?: {
+    linkClicks: number;
+    uniqueSessions: number;
+    lastClickAt?: string;
+    /** Interne — identifiants de session déjà comptés (cap 3000). */
+    _sessionIds?: string[];
+  };
   /** Apporteur parrain (niveau 1 — marketing de réseau). */
   sponsorId?: string;
 };

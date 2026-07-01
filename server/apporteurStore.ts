@@ -268,6 +268,36 @@ export async function findApporteurByToken(token: string): Promise<Apporteur | n
   return store.apporteurs.find((a) => a.active && a.referralToken === t) || null;
 }
 
+/** Comptabilise une visite via lien ?ref= (clics + sessions uniques approximatives). */
+export async function recordReferralLinkClick(
+  refToken: string,
+  sessionId?: string,
+): Promise<{ ok: boolean; apporteurId?: string }> {
+  const token = slugifyToken(refToken);
+  if (!token) return { ok: false };
+  const store = await loadApporteurStore();
+  const apporteur = store.apporteurs.find((a) => a.active && a.referralToken === token);
+  if (!apporteur) return { ok: false };
+
+  const stats = apporteur.referralStats || { linkClicks: 0, uniqueSessions: 0 };
+  stats.linkClicks = (stats.linkClicks || 0) + 1;
+  stats.lastClickAt = new Date().toISOString();
+
+  const sid = String(sessionId || "").trim().slice(0, 80);
+  if (sid) {
+    const seen = stats._sessionIds || [];
+    if (!seen.includes(sid)) {
+      seen.push(sid);
+      stats._sessionIds = seen.slice(-3000);
+      stats.uniqueSessions = stats._sessionIds.length;
+    }
+  }
+
+  apporteur.referralStats = stats;
+  await persistStore(store);
+  return { ok: true, apporteurId: apporteur.id };
+}
+
 export async function findApporteurByPortalToken(token: string): Promise<Apporteur | null> {
   const t = String(token || "").trim();
   if (!t || t.length < 16) return null;

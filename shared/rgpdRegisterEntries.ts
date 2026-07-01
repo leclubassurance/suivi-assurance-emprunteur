@@ -122,6 +122,32 @@ export const RGPD_REGISTER_ENTRIES: RgpdRegisterRow[] = [
     legalBasis: "Intérêt légitime / nécessité technique (pas de cookie non essentiel)",
   },
   {
+    treatmentName: "Espace partenaire apporteur d'affaires",
+    purpose:
+      "Gestion des partenaires commerciaux : contrat, lien de recommandation, suivi des recommandations et rémunérations",
+    dataCategories:
+      "Identité partenaire, coordonnées, SIRET/SIREN, statut contrat, jetons d'accès portail, historique recommandations, statistiques de clics sur lien client",
+    dataSubjects: "Apporteurs d'affaires / partenaires commerciaux",
+    recipients: "Équipe LCIF habilitée ; partenaire (ses propres données via espace sécurisé)",
+    transfersOutsideEu: "Selon hébergeur applicatif — CCT si hors UE",
+    retention: "Durée de la relation contractuelle + archivage contrat signé (10 ans)",
+    securityMeasures: "Jeton portail opaque, HTTPS, accès restreint, PDF contrat archivé",
+    legalBasis: "Art. 6.1.b RGPD (contrat d'apport) ; 6.1.c (obligations comptables / preuve)",
+  },
+  {
+    treatmentName: "Canal recommandation partenaire (lien client ?ref=)",
+    purpose:
+      "Attribuer un dossier client au partenaire ayant initié la mise en relation et assurer le suivi commercial",
+    dataCategories:
+      "Identifiant de lien (?ref=), horodatage de visite, identifiant de session technique, données client issues du formulaire",
+    dataSubjects: "Clients / prospects emprunteurs ; partenaires référents",
+    recipients: "Équipe LCIF ; partenaire (statut avancé uniquement, sans pièces médicales)",
+    transfersOutsideEu: "Non, sauf sous-traitants techniques — CCT",
+    retention: "Alignée sur le dossier client et le contrat partenaire",
+    securityMeasures: "Attribution serveur à l'ouverture de dossier ; pas d'exposition des pièces au partenaire",
+    legalBasis: "Art. 6.1.b RGPD (mesures précontractuelles) ; 6.1.f (suivi légitime du canal partenaire)",
+  },
+  {
     treatmentName: "Journal des consentements politique de confidentialité",
     purpose: "Preuve de l'acceptation de la politique à l'envoi du dossier",
     dataCategories: "Horodatage, version politique, libellé case, IP, user-agent, id dossier",

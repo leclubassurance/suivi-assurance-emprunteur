@@ -1589,6 +1589,20 @@ export function createApp() {
   });
 
   const apporteurPortalPostLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
+  const refClickLimiter = rateLimit({ windowMs: 60 * 1000, max: 40 });
+
+  app.post("/api/ref-click", refClickLimiter, express.json(), async (req, res) => {
+    try {
+      const ref = String((req.body || {}).ref || "").trim();
+      const sessionId = String((req.body || {}).sessionId || "").trim();
+      const { recordReferralLinkClick } = await import("./apporteurStore");
+      const result = await recordReferralLinkClick(ref, sessionId);
+      res.json({ ok: result.ok });
+    } catch {
+      res.json({ ok: false });
+    }
+  });
+
   app.get("/api/apporteur-portal/:token", async (req, res) => {
     try {
       const { findApporteurByPortalToken, listReferrals, buildApporteurReferralUrl, getRemunerationForApporteur, loadApporteurStore, listDirectDownlineApporteurs, getTeamReferralsForApporteur, listPartnerRecruits, enrichDownlineForPortal } = await import(
@@ -1675,6 +1689,11 @@ export function createApp() {
         })),
         referrals: enrichedReferrals,
         referralLink,
+        referralStats: {
+          linkClicks: apporteur.referralStats?.linkClicks || 0,
+          uniqueSessions: apporteur.referralStats?.uniqueSessions || 0,
+          lastClickAt: apporteur.referralStats?.lastClickAt || null,
+        },
         stats: { total: kpis.total, open: kpis.open, signed: kpis.signed },
         kpis,
         remuneration,
@@ -1752,6 +1771,50 @@ export function createApp() {
   );
 
   app.post(
+    "/api/apporteur-portal/:token/contract/otp",
+    apporteurPortalPostLimiter,
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken } = await import("./apporteurStore");
+        const { isApporteurContractSigned } = await import("./apporteurContractSign");
+        const { issueApporteurContractOtp, buildApporteurContractOtpEmailHtml } = await import(
+          "./apporteurContractOtp"
+        );
+        const { sendApporteurHtmlEmail } = await import("./apporteurNotify");
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (isApporteurContractSigned(apporteur)) {
+          return res.json({ ok: true, alreadySigned: true });
+        }
+        if (!apporteur.email?.includes("@")) {
+          return res.status(400).json({ ok: false, error: "Email partenaire manquant." });
+        }
+        const issued = issueApporteurContractOtp(apporteur.id);
+        if (!issued.code) {
+          return res.status(429).json({
+            ok: false,
+            error: `Réessayez dans ${issued.cooldownSeconds || 60} secondes.`,
+            cooldownSeconds: issued.cooldownSeconds,
+          });
+        }
+        const sent = await sendApporteurHtmlEmail(
+          apporteur.email,
+          "Code de signature — contrat partenaire LCIF",
+          buildApporteurContractOtpEmailHtml(issued.code),
+        );
+        if (!sent) {
+          return res.status(500).json({ ok: false, error: "Envoi du code impossible." });
+        }
+        const [local, domain] = apporteur.email.split("@");
+        const maskedEmail = `${local.slice(0, 2)}***@${domain}`;
+        res.json({ ok: true, maskedEmail });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.post(
     "/api/apporteur-portal/:token/contract/sign",
     apporteurPortalPostLimiter,
     express.json(),
@@ -1779,11 +1842,12 @@ export function createApp() {
         const publicBaseUrl = resolvePublicAppBaseUrl(
           String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
         );
-        const body = (req.body || {}) as { signerName?: string; acceptTerms?: boolean };
+        const body = (req.body || {}) as { signerName?: string; acceptTerms?: boolean; emailOtp?: string };
         const updated = await signApporteurContractOnline({
           apporteur,
           signerName: String(body.signerName || "").trim(),
           acceptTerms: Boolean(body.acceptTerms),
+          emailOtp: String(body.emailOtp || "").trim(),
           ipAddress: String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim() || undefined,
           userAgent: String(req.headers["user-agent"] || "").slice(0, 500) || undefined,
           portalBaseUrl: publicBaseUrl,

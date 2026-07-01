@@ -1,4 +1,5 @@
 import { APPORTEUR_CONTRACT_MLM_CLAUSE } from "./apporteurContractMlm";
+import { APPORTEUR_PROSPECTION_DISCLAIMER } from "./apporteurCompliance";
 import { LCIF_LEGAL } from "./lcifLegalIdentity";
 import type { Apporteur } from "./apporteurTypes";
 import {
@@ -8,7 +9,7 @@ import {
 } from "./apporteurProfile";
 
 /** Incrémenter à chaque révision substantielle du contrat affiché en ligne. */
-export const APPORTEUR_CONTRACT_VERSION = "2026-06-v4";
+export const APPORTEUR_CONTRACT_VERSION = "2026-07-v1";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -113,7 +114,10 @@ Il est strictement interdit au Partenaire de :
 — utiliser la marque ou les supports de ${CLUB} de manière non conforme aux instructions communiquées.
 
 2.4 — Autres activités
-Le Partenaire demeure libre d'exercer toute autre activité professionnelle, sous réserve de ne pas porter atteinte aux intérêts légitimes de ${CLUB} ni de créer de confusion sur son statut indépendant.`,
+Le Partenaire demeure libre d'exercer toute autre activité professionnelle, sous réserve de ne pas porter atteinte aux intérêts légitimes de ${CLUB} ni de créer de confusion sur son statut indépendant.
+
+2.5 — Profils immobiliers ou de conseil
+Les partenaires exerçant une activité immobilière, de transaction ou de conseil patrimonial le font à titre distinct de leur mission au présent Contrat. Ils ne représentent pas ${CLUB} en assurance et ne doivent pas laisser entendre qu'ils conseillent, comparent ou souscrivent des contrats d'assurance pour le compte de la Société.`,
     },
     {
       heading: "3. Obligations du Partenaire",
@@ -122,7 +126,7 @@ Le Partenaire demeure libre d'exercer toute autre activité professionnelle, sou
 — orienter les contacts vers le formulaire en ligne ou le lien personnel de recommandation ;
 — ne pas faire de promesses de résultat (montant d'économies, acceptation bancaire, délai garanti) ;
 — informer sans délai la Société de toute difficulté ou réclamation dont il aurait connaissance ;
-— respecter la réglementation applicable en matière de prospection (notamment opposition au démarchage, listes d'opposition le cas échéant) ;
+— respecter la réglementation applicable en matière de prospection : ${APPORTEUR_PROSPECTION_DISCLAIMER}
 — disposer, s'il est assujetti, d'un numéro de TVA intracommunautaire valide et le communiquer à la Société ;
 — souscrire et maintenir une assurance responsabilité civile professionnelle adaptée à son activité, sur demande de la Société.`,
     },
@@ -268,7 +272,7 @@ En cas de litige et à défaut de résolution amiable, compétence expresse est 
       body: `Le présent Contrat n'est valablement conclu qu'après signature par les deux parties :
 
 17.1 — Signature du Partenaire
-En cochant la case d'acceptation et en validant son nom complet, le Partenaire reconnaît :
+En cochant la case d'acceptation, en validant son nom complet et en confirmant un code à usage unique envoyé à l'adresse email déclarée, le Partenaire reconnaît :
 — avoir lu l'intégralité du présent Contrat dans sa version ${APPORTEUR_CONTRACT_VERSION} ;
 — en accepter les termes sans réserve ;
 — disposer de la capacité juridique et, le cas échéant, des pouvoirs nécessaires pour engager la personne morale qu'il représente ;

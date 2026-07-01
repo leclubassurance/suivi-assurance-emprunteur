@@ -60,11 +60,11 @@ export const LCIF_FAQ: FaqItem[] = [
   },
   {
     q: "Puis-je changer en cours de prêt ?",
-    a: "Oui, à des dates réglementaires (anniversaire du contrat, fin de période de fixation du taux, ou selon la loi Bourquin pour l'assurance emprunteur). Charles précise la fenêtre adaptée à votre contrat lors de l'étude.",
+    a: "Oui. Depuis la loi Lemoine (2022), vous pouvez en principe changer d'assurance emprunteur à tout moment, sans attendre une date anniversaire, dès lors que le nouveau contrat offre des garanties équivalentes pour votre banque. Charles précise les conditions propres à votre dossier dans l'étude.",
   },
   {
     q: "Qu'est-ce que la loi Lemoine ?",
-    a: "Pour certains prêts (notamment capital initial modéré), elle peut permettre de changer d'assurance sans nouveau questionnaire médical, sous conditions. Charles indique si votre dossier y est éligible dans l'étude personnalisée.",
+    a: "Elle facilite le changement d'assurance emprunteur en cours de prêt : résiliation à tout moment sans frais ni pénalité côté assurance, sous réserve d'équivalence des garanties pour l'établissement prêteur. Pour certains profils, elle peut aussi limiter le questionnaire médical. Charles indique ce qui s'applique à votre situation dans l'étude.",
   },
   {
     q: "Pourquoi le Club Immobilier Français propose l'assurance emprunteur ?",

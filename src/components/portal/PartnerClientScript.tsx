@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Copy, MessageCircle } from "lucide-react";
 import { buildWhatsAppMessage, TRANSPARENCY_SCRIPT, TRANSPARENCY_SCRIPT_HINT } from "../../../shared/apporteurPortalContent";
+import { APPORTEUR_PROSPECTION_DISCLAIMER_SHORT } from "../../../shared/apporteurCompliance";
 
 type Props = {
   referralLink: string;
@@ -34,6 +35,10 @@ export default function PartnerClientScript({ referralLink, partnerContactName, 
       </h2>
       <p className="text-xs text-slate-500 mb-4">
         Personnalisez le prénom de votre contact, puis copiez le message tel quel dans WhatsApp ou par SMS.
+      </p>
+
+      <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-4 leading-relaxed">
+        {APPORTEUR_PROSPECTION_DISCLAIMER_SHORT}
       </p>
 
       <label className="block text-xs font-bold text-slate-600 mb-3">

@@ -26,6 +26,7 @@ export const APPORTEUR_GUIDE_SECTIONS: { title: string; paragraphs: string[] }[]
       "Pour en parler avec transparence : « L'étude est gratuite et sans engagement. Si vous décidez de changer, des frais de courtage s'appliquent — le montant exact vous est indiqué dans l'étude avant de vous engager. »",
       "Partagez votre lien personnel (bouton « Copier mon lien client ») ou créez une recommandation depuis cet espace. Le contact reçoit une invitation par email et dépose ses documents en ligne en une dizaine de minutes (offre de prêt et tableau d'amortissement). L'attribution est automatique via votre lien.",
       "Utilisez le message WhatsApp proposé sur cette page : adaptez le prénom, copiez-collez, envoyez. Ne promettez jamais un montant d'économies précis — seule l'étude du Club Immobilier Français peut le chiffrer.",
+      "Prospection : toute prise de contact (WhatsApp, SMS, téléphone) doit respecter le consentement de vos contacts, les listes d'opposition au démarchage (Bloctel pour le téléphone) et le droit d'opposition. Vous restez seul responsable de vos messages.",
     ],
   },
   {

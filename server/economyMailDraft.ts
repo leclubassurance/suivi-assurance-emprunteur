@@ -1,5 +1,6 @@
 import type { EconomyComputation } from "./economyFromDocs";
 import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
+import { LCIF_COURTAGE_BARME_DISCLOSURE } from "../shared/apporteurCompliance";
 
 function eur(n: number) {
   return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
@@ -130,9 +131,9 @@ export function buildEconomyHtmlDraft(dossier: any, comp: EconomyComputation) {
         </div>
         <div style="margin:6px 0;">
           <span style="font-weight:600;">Frais de courtage :</span>
-          <span>${feesCourtier != null ? eurPlain(feesCourtier) : "___ €"}</span>
+          <span>${feesCourtier != null ? eurPlain(feesCourtier) : "selon barème LCIF (voir ci-dessous)"}</span>
         </div>
-        ${feesKnown ? `<div style="margin-top:6px;color:#6B7280;font-style:italic;">Ces frais ne se reproduisent pas aux renouvellements.</div>` : ""}
+        ${feesKnown ? `<div style="margin-top:6px;color:#6B7280;font-style:italic;">Ces frais ne se reproduisent pas aux renouvellements.</div>` : `<div style="margin-top:10px;padding:10px 12px;background:#F8FAFC;border-radius:6px;font-size:12px;color:#4B5563;line-height:1.5;">${LCIF_COURTAGE_BARME_DISCLOSURE}</div>`}
       </div>
     </div>
 

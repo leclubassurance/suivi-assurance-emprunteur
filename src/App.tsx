@@ -110,7 +110,26 @@ export default function App() {
     try {
       const ref = new URLSearchParams(window.location.search).get("ref");
       if (ref && ref.trim()) {
-        sessionStorage.setItem(APPORTEUR_REF_SESSION_KEY, ref.trim().toLowerCase());
+        const normalized = ref.trim().toLowerCase();
+        sessionStorage.setItem(APPORTEUR_REF_SESSION_KEY, normalized);
+        try {
+          const sessionKey = "lcif_ref_click_session";
+          let sessionId = sessionStorage.getItem(sessionKey);
+          if (!sessionId) {
+            sessionId =
+              typeof crypto !== "undefined" && "randomUUID" in crypto
+                ? crypto.randomUUID()
+                : `s-${Date.now()}`;
+            sessionStorage.setItem(sessionKey, sessionId);
+          }
+          fetch(getApiUrl("/api/ref-click"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ref: normalized, sessionId }),
+          }).catch(() => {});
+        } catch {
+          /* ignore */
+        }
       }
     } catch {
       /* ignore */

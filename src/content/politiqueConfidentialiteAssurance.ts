@@ -6,7 +6,7 @@ const platformUrl = getAssurancePlatformUrl();
 export const politiqueConfidentialiteAssurance: LegalDocument = {
   title: "Politique de confidentialité",
   subtitle: "Protection des données personnelles — assurance emprunteur",
-  lastUpdated: "16 juin 2026",
+  lastUpdated: "1 juillet 2026",
   disclaimer:
     "Cette politique décrit comment LE CLUB IMMOBILIER FRANÇAIS traite vos données dans le cadre de la Plateforme assurance emprunteur, conformément au Règlement (UE) 2016/679 (RGPD) et à la loi n° 78-17 du 6 janvier 1978 modifiée (loi « Informatique et Libertés »).",
   sections: [
@@ -47,6 +47,24 @@ export const politiqueConfidentialiteAssurance: LegalDocument = {
       ],
     },
     {
+      id: "partenaires",
+      title: "2 bis. Parcours « recommandation partenaire »",
+      blocks: [
+        {
+          type: "p",
+          text: "Si vous accédez à la Plateforme via le lien personnel d'un partenaire commercial indépendant du Club (paramètre d'URL de recommandation, notamment ?ref=), nous enregistrons cet identifiant pour attribuer votre dossier au canal concerné et assurer le suivi de la recommandation.",
+        },
+        {
+          type: "p",
+          text: "Le partenaire n'instruit pas votre dossier d'assurance et n'a pas accès à vos pièces contractuelles ou médicales : seul Le Club Immobilier Français réalise l'étude et gère la relation avec les assureurs et, le cas échéant, votre banque.",
+        },
+        {
+          type: "p",
+          text: "Ce partenaire peut percevoir une rémunération du Club si vous décidez, de votre propre initiative, de poursuivre un changement d'assurance effectivement réalisé — sans surcoût pour vous. Cette information vous est rappelée lors de votre prise de contact.",
+        },
+      ],
+    },
+    {
       id: "donnees",
       title: "3. Données collectées",
       blocks: [
@@ -64,6 +82,7 @@ export const politiqueConfidentialiteAssurance: LegalDocument = {
             "Données d'échanges : contenus des emails, historique des relances, réponses apportées",
             "Données techniques : journaux de connexion, horodatages, métadonnées de fichiers, adresse IP lors de l'envoi du formulaire",
             "Données de suivi dossier : statut, références LCIF, jeton d'accès à l'espace client",
+            "Canal de recommandation partenaire : identifiant de lien (?ref=), horodatage de visite et attribution du dossier",
             "Preuve de consentement : horodatage et version de la présente politique acceptée lors du dépôt",
           ],
         },
@@ -90,6 +109,7 @@ export const politiqueConfidentialiteAssurance: LegalDocument = {
             "Assistance automatisée à la rédaction de certaines réponses par email, sous contrôle et validation de l'équipe (base : art. 6.1.b et 6.1.f — qualité et continuité du service demandé)",
             "Respect des obligations légales et réglementaires applicables aux intermédiaires en assurance (ORIAS, ACPR, lutte contre le blanchiment, etc.) — art. 6.1.c",
             "Gestion des réclamations et preuve des échanges — art. 6.1.f (intérêt légitime) ou obligation légale",
+            "Attribution et suivi des dossiers issus d'une recommandation partenaire (lien ?ref=) — art. 6.1.b et 6.1.f",
             "Sécurité de la Plateforme et prévention des abus — art. 6.1.f",
           ],
         },

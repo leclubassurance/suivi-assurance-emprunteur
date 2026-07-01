@@ -91,6 +91,7 @@ type PortalData = {
   }[];
   referrals: PortalReferral[];
   referralLink: string;
+  referralStats?: { linkClicks: number; uniqueSessions: number; lastClickAt?: string | null };
   stats: { total: number; open: number; signed: number };
   kpis: ApporteurTeamKpis;
   remuneration: RemunerationConfig;
@@ -363,6 +364,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           apporteurType={data.apporteur.type}
           referralLink={data.referralLink}
           unlocked={unlocked}
+          referralStats={data.referralStats}
           onCopyLink={() => copyText(data.referralLink, "Lien client copié !")}
           onNewReferral={openNewReferral}
         />
