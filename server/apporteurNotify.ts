@@ -185,6 +185,15 @@ async function sendApporteurHtmlEmail(
   }
 }
 
+export async function sendApporteurContractOtpEmail(email: string, code: string): Promise<boolean> {
+  const { buildApporteurContractOtpEmailHtml } = await import("./apporteurContractOtp");
+  return sendApporteurHtmlEmail(
+    email,
+    "Code de signature — contrat partenaire LCIF",
+    buildApporteurContractOtpEmailHtml(code),
+  );
+}
+
 export async function notifyApporteurReferralStatusChange(params: {
   apporteur: Apporteur;
   referral: Referral;

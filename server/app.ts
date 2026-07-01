@@ -1777,10 +1777,8 @@ export function createApp() {
       try {
         const { findApporteurByPortalToken } = await import("./apporteurStore");
         const { isApporteurContractSigned } = await import("./apporteurContractSign");
-        const { issueApporteurContractOtp, buildApporteurContractOtpEmailHtml } = await import(
-          "./apporteurContractOtp"
-        );
-        const { sendApporteurHtmlEmail } = await import("./apporteurNotify");
+        const { issueApporteurContractOtp } = await import("./apporteurContractOtp");
+        const { sendApporteurContractOtpEmail } = await import("./apporteurNotify");
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
         if (isApporteurContractSigned(apporteur)) {
@@ -1797,11 +1795,7 @@ export function createApp() {
             cooldownSeconds: issued.cooldownSeconds,
           });
         }
-        const sent = await sendApporteurHtmlEmail(
-          apporteur.email,
-          "Code de signature — contrat partenaire LCIF",
-          buildApporteurContractOtpEmailHtml(issued.code),
-        );
+        const sent = await sendApporteurContractOtpEmail(apporteur.email, issued.code);
         if (!sent) {
           return res.status(500).json({ ok: false, error: "Envoi du code impossible." });
         }
