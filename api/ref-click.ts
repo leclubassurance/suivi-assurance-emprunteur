@@ -1,4 +1,9 @@
-import { geoFromVercelHeaders, type ReferralClickGeoSlice } from "../shared/referralGeo";
+import {
+  geoFromVercelHeaders,
+  mergeReferralClickGeo,
+  type ReferralClickGeoSlice,
+} from "../shared/referralGeo";
+import { reverseGeocodeReferralGeo } from "../shared/referralGoogleGeo";
 
 type Req = {
   method?: string;
@@ -11,6 +16,12 @@ type Res = {
   setHeader: (key: string, value: string) => void;
   end: (body?: string) => void;
 };
+
+function readHeader(headers: Record<string, string | string[] | undefined>, name: string): string {
+  const raw = headers[name] ?? headers[name.toLowerCase()];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return String(value || "").trim();
+}
 
 function parseBody(req: Req): Record<string, unknown> {
   if (!req.body) return {};
@@ -27,7 +38,29 @@ function railwayApiBase(): string {
   return raw.replace(/\/$/, "");
 }
 
-/** Proxy Vercel → Railway avec géo MaxMind (en-têtes edge), plus précis que geoip-lite. */
+async function resolveEdgeReferralGeo(
+  headers: Record<string, string | string[] | undefined>,
+): Promise<ReferralClickGeoSlice> {
+  const vercelGeo = geoFromVercelHeaders(headers);
+  const mapsKey = String(process.env.GOOGLE_MAPS_API_KEY || "").trim();
+  const lat = Number(readHeader(headers, "x-vercel-ip-latitude"));
+  const lng = Number(readHeader(headers, "x-vercel-ip-longitude"));
+
+  if (mapsKey && Number.isFinite(lat) && Number.isFinite(lng)) {
+    try {
+      const googleGeo = await reverseGeocodeReferralGeo(lat, lng, mapsKey);
+      if (googleGeo.city || googleGeo.region) {
+        return mergeReferralClickGeo(googleGeo, vercelGeo);
+      }
+    } catch {
+      /* fallback Vercel */
+    }
+  }
+
+  return vercelGeo;
+}
+
+/** Proxy Vercel → Railway avec géo edge (Vercel MaxMind + option Google Geocoding). */
 export default async function handler(req: Req, res: Res) {
   if (req.method !== "POST") {
     res.statusCode = 405;
@@ -46,7 +79,7 @@ export default async function handler(req: Req, res: Res) {
     return;
   }
 
-  const geo: ReferralClickGeoSlice = geoFromVercelHeaders(req.headers);
+  const geo = await resolveEdgeReferralGeo(req.headers);
   const apiBase = railwayApiBase();
 
   if (!apiBase.startsWith("http")) {
