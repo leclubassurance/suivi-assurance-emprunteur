@@ -1025,6 +1025,20 @@ export async function syncGmailInbox(
 
   let insurerInboundHandled = 0;
   try {
+    const { syncInboundProspectLeads } = await import("./inboundProspectLead");
+    await syncInboundProspectLeads(gmail, db, {
+      processedIds,
+      decodeEmailBodies,
+      upsertCommunication,
+      markDossierDirty,
+      getProcessedIds,
+      markProcessed,
+    });
+  } catch (err: any) {
+    console.warn(`[Gmail] Sync prospects entrants: ${err?.message || err}`);
+  }
+
+  try {
     const { syncInsurerInboundEmails } = await import("./insurerMailSync");
     insurerInboundHandled = await syncInsurerInboundEmails(gmail, db, {
       processedIds,

@@ -918,7 +918,10 @@ export default function AdminDashboard({
           <div className="flex-1 overflow-y-auto">
             {sidebarMode === "prospects" ? (
               filteredProspects.length ? renderDossierList(filteredProspects, "amber") : (
-                <p className="p-4 text-sm text-slate-500">Aucun prospect pour le moment.</p>
+                <p className="p-4 text-sm text-slate-500">
+                  Aucun prospect pour le moment. Les emails vers assurance@ sans dossier client apparaissent ici
+                  après la synchro Gmail (pas de réponse automatique Camille).
+                </p>
               )
             ) : (
               renderDossierList(filteredDossiers, "indigo")

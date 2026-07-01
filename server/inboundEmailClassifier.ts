@@ -115,7 +115,7 @@ export type InboundEmailHeaders = {
   listUnsubscribe?: string;
 };
 
-function getAssuranceMailbox(): string {
+export function getAssuranceMailbox(): string {
   return String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
 }
 
