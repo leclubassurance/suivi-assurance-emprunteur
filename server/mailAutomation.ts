@@ -636,14 +636,9 @@ export async function syncGmailInbox(
         } catch (kpiErr: any) {
           console.warn(`[KPI] Extraction étude Gmail: ${kpiErr?.message || kpiErr}`);
         }
-        const { hasStudyBeenSent } = await import("./dossierLifecycle");
+        const { applyStudySentStatusIfNeeded } = await import("./dossierLifecycle");
         const prevStatus = dossier.status;
-        if (
-          hasStudyBeenSent(dossier) &&
-          !["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))
-        ) {
-          dossier.status = "MAIL_ENVOYÉ";
-        }
+        if (applyStudySentStatusIfNeeded(dossier)) msgChanged = true;
         if (dossier.status !== prevStatus) msgChanged = true;
       }
 

@@ -224,6 +224,8 @@ export interface Dossier {
   isLead?: boolean;
   leadSource?: string;
   leadPromotedAt?: string;
+  /** Statut CRM figé par l'admin — la synchro Gmail n'écrase plus le statut. */
+  statusManualAt?: string;
 }
 
 export function newId(prefix: string) {
@@ -284,10 +286,12 @@ export function ensureDossierShape(d: any): Dossier {
     isLead: isLead,
     leadSource: d.leadSource,
     leadPromotedAt: d.leadPromotedAt,
+    statusManualAt: d.statusManualAt,
   };
   if (!dossier.isLead) delete (dossier as any).isLead;
   if (!dossier.leadSource) delete (dossier as any).leadSource;
   if (!dossier.leadPromotedAt) delete (dossier as any).leadPromotedAt;
+  if (!dossier.statusManualAt) delete (dossier as any).statusManualAt;
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,
   ) as unknown as Dossier;

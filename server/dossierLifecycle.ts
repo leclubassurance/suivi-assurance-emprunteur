@@ -84,7 +84,23 @@ export function getLastStudyOutbound(dossier: Dossier): { subject: string; date:
 }
 
 export function needsStatusStudySent(dossier: Dossier): boolean {
-  return hasStudyBeenSent(dossier) && !["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status));
+  return (
+    hasStudyBeenSent(dossier) &&
+    !isDossierStatusLockedByAdmin(dossier) &&
+    !["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))
+  );
+}
+
+/** Statut CRM modifié manuellement par l'admin — ne pas réécraser via synchro Gmail. */
+export function isDossierStatusLockedByAdmin(dossier: Dossier): boolean {
+  return Boolean(dossier.statusManualAt);
+}
+
+/** Passe en MAIL ENVOYÉ si une étude a été détectée (sauf statut figé manuellement). */
+export function applyStudySentStatusIfNeeded(dossier: Dossier): boolean {
+  if (!needsStatusStudySent(dossier)) return false;
+  dossier.status = "MAIL_ENVOYÉ";
+  return true;
 }
 
 export function getLastClientInbound(dossier: Dossier) {

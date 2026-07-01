@@ -650,6 +650,7 @@ export function createApp() {
       });
       const dossier = db.dossiers[index];
       if (req.body?.status && req.body.status !== before.status) {
+        db.dossiers[index].statusManualAt = new Date().toISOString();
         addEvent(dossier, {
           type: "STATUS_CHANGED",
           actor: { kind: "ADMIN" },
@@ -827,7 +828,7 @@ export function createApp() {
     }
     try {
       const { applyStudyKpiBestAvailable } = await import("./studyEmailKpi");
-      const { hasStudyBeenSent } = await import("./dossierLifecycle");
+      const { applyStudySentStatusIfNeeded, hasStudyBeenSent } = await import("./dossierLifecycle");
       applyStudyKpiBestAvailable(dossier, {
         subject,
         html,
@@ -835,8 +836,11 @@ export function createApp() {
         gmailId: providerId || `admin_send_${dossier.id}_${Date.now()}`,
         date: sentAt,
       });
-      if (hasStudyBeenSent(dossier) && !["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(String(dossier.status))) {
+      // Envoi admin explicite : on aligne le statut même si figé manuellement auparavant.
+      if (hasStudyBeenSent(dossier)) {
         dossier.status = "MAIL_ENVOYÉ";
+      } else {
+        applyStudySentStatusIfNeeded(dossier);
       }
     } catch (kpiErr: any) {
       console.warn(`[KPI] Extraction étude à l'envoi admin: ${kpiErr?.message || kpiErr}`);
@@ -3194,6 +3198,7 @@ export function createApp() {
       updatedBy: String((req.body as any)?.updatedBy || "admin"),
       note: note || undefined,
     });
+    dossier.statusManualAt = new Date().toISOString();
 
     dossier.updatedAt = new Date().toISOString();
     addEvent(dossier, {

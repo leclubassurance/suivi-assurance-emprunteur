@@ -137,6 +137,11 @@ export default function AdminDossierBannerControls({
             </option>
           ))}
         </select>
+        {(dossier as Dossier & { statusManualAt?: string }).statusManualAt ? (
+          <span className="text-[10px] text-amber-700 max-w-[200px] text-right leading-tight">
+            Statut figé manuellement — la synchro Gmail ne le modifie plus
+          </span>
+        ) : null}
       </div>
 
       <button

@@ -238,6 +238,7 @@ export function buildSubscriptionProgressAdminView(dossier: Dossier) {
     manualUpdatedBy: manual?.updatedBy || null,
     options: SUBSCRIPTION_PHASE_OPTIONS,
     dossierStatus: dossier.status,
+    statusManualAt: dossier.statusManualAt || null,
   };
 }
 
