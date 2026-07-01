@@ -243,11 +243,7 @@ export async function sendApporteurContractSigningInvite(
 export function buildApporteurContractSignedEmail(params: {
   apporteur: Apporteur;
   portalUrl: string;
-  driveLink?: string | null;
 }): { subject: string; html: string } {
-  const driveBlock = params.driveLink
-    ? `<p style="font-size:13px;margin:16px 0 0 0;">Archivé sur Google Drive Le Club Immobilier Français : <a href="${params.driveLink}" style="color:#1E3A8A;">${params.driveLink}</a></p>`
-    : "";
   const html = `
 <div style="margin:0;padding:0;font-family:Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
   <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #E5E7EB;">
@@ -263,7 +259,6 @@ export function buildApporteurContractSignedEmail(params: {
           Accéder à mon espace partenaire
         </a>
       </p>
-      ${driveBlock}
       <p style="font-size:13px;color:#6B7280;margin:16px 0 0 0;">
         Vous pouvez aussi retélécharger le PDF depuis votre espace à tout moment.
       </p>
@@ -278,7 +273,6 @@ export async function sendApporteurContractSignedEmail(
   pdfBuffer: Buffer,
   pdfFilename: string,
   portalBaseUrl?: string,
-  driveLink?: string | null,
 ): Promise<boolean> {
   if (!apporteur.email || !pdfBuffer.length) return false;
   const base = resolvePublicAppBaseUrl(portalBaseUrl);
@@ -288,7 +282,6 @@ export async function sendApporteurContractSignedEmail(
   const { subject, html } = buildApporteurContractSignedEmail({
     apporteur,
     portalUrl,
-    driveLink,
   });
   return sendApporteurHtmlEmail(apporteur.email, subject, html, [
     { filename: pdfFilename, content: pdfBuffer, mimeType: "application/pdf" },

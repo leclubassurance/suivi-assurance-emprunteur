@@ -135,7 +135,6 @@ async function archiveAndNotifySignedContract(
       pdfBuffer,
       pdfFilename,
       portalBaseUrl || resolvePublicAppBaseUrl(),
-      driveLink,
     );
   } catch (err: any) {
     console.warn("[Apporteur] Email copie PDF contrat:", err?.message || err);

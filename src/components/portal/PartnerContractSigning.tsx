@@ -35,7 +35,7 @@ export default function PartnerContractSigning({
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [signedSuccess, setSignedSuccess] = useState<{ pdfUrl: string; driveLink?: string | null } | null>(null);
+  const [signedSuccess, setSignedSuccess] = useState<{ pdfUrl: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ContractPayload | null>(null);
   const [step, setStep] = useState<"profile" | "contract">("profile");
@@ -172,7 +172,7 @@ export default function PartnerContractSigning({
         return;
       }
       const pdfPath = json.pdfUrl || `/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract/pdf`;
-      setSignedSuccess({ pdfUrl: getApiUrl(pdfPath), driveLink: json.driveLink });
+      setSignedSuccess({ pdfUrl: getApiUrl(pdfPath) });
       setTimeout(() => onSigned(), 2500);
     } catch (err: any) {
       setError(err?.message || "Erreur");
@@ -213,14 +213,6 @@ export default function PartnerContractSigning({
         >
           Télécharger le PDF
         </a>
-        {signedSuccess.driveLink ? (
-          <p className="text-[11px] text-slate-400 mt-3">
-            Archivé sur Drive Le Club Immobilier Français ·{" "}
-            <a href={signedSuccess.driveLink} className="text-indigo-600 underline" target="_blank" rel="noopener noreferrer">
-              ouvrir
-            </a>
-          </p>
-        ) : null}
       </section>
     );
   }
