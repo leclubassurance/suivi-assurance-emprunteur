@@ -1,9 +1,4 @@
-import {
-  geoFromVercelHeaders,
-  mergeReferralClickGeo,
-  type ReferralClickGeoSlice,
-} from "../shared/referralGeo";
-import { reverseGeocodeReferralGeo } from "../shared/referralGoogleGeo";
+import { geoFromVercelHeaders, type ReferralClickGeoSlice } from "../shared/referralGeo";
 
 type Req = {
   method?: string;
@@ -16,12 +11,6 @@ type Res = {
   setHeader: (key: string, value: string) => void;
   end: (body?: string) => void;
 };
-
-function readHeader(headers: Record<string, string | string[] | undefined>, name: string): string {
-  const raw = headers[name] ?? headers[name.toLowerCase()];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  return String(value || "").trim();
-}
 
 function parseBody(req: Req): Record<string, unknown> {
   if (!req.body) return {};
@@ -38,29 +27,13 @@ function railwayApiBase(): string {
   return raw.replace(/\/$/, "");
 }
 
-async function resolveEdgeReferralGeo(
-  headers: Record<string, string | string[] | undefined>,
-): Promise<ReferralClickGeoSlice> {
-  const vercelGeo = geoFromVercelHeaders(headers);
-  const mapsKey = String(process.env.GOOGLE_MAPS_API_KEY || "").trim();
-  const lat = Number(readHeader(headers, "x-vercel-ip-latitude"));
-  const lng = Number(readHeader(headers, "x-vercel-ip-longitude"));
-
-  if (mapsKey && Number.isFinite(lat) && Number.isFinite(lng)) {
-    try {
-      const googleGeo = await reverseGeocodeReferralGeo(lat, lng, mapsKey);
-      if (googleGeo.city || googleGeo.region) {
-        return mergeReferralClickGeo(googleGeo, vercelGeo);
-      }
-    } catch {
-      /* fallback Vercel */
-    }
-  }
-
-  return vercelGeo;
+/** Ville + pays uniquement (région IP trop imprécise, stack 100 % gratuite Vercel MaxMind). */
+function geoForFreeStack(headers: Record<string, string | string[] | undefined>): ReferralClickGeoSlice {
+  const { countryCode, city } = geoFromVercelHeaders(headers);
+  return { countryCode, city };
 }
 
-/** Proxy Vercel → Railway avec géo edge (Vercel MaxMind + option Google Geocoding). */
+/** Proxy Vercel → Railway avec géo edge gratuite (MaxMind via en-têtes Vercel). */
 export default async function handler(req: Req, res: Res) {
   if (req.method !== "POST") {
     res.statusCode = 405;
@@ -79,7 +52,7 @@ export default async function handler(req: Req, res: Res) {
     return;
   }
 
-  const geo = await resolveEdgeReferralGeo(req.headers);
+  const geo = geoForFreeStack(req.headers);
   const apiBase = railwayApiBase();
 
   if (!apiBase.startsWith("http")) {

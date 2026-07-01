@@ -49,7 +49,7 @@ function countryFromHeaders(req: Pick<Request, "headers">): string | undefined {
 /** Fallback local geoip-lite (base MaxMind embarquée, souvent moins précise). */
 export function resolveReferralClickGeoFromIp(req: Pick<Request, "headers" | "ip" | "socket">): ReferralClickGeoSlice {
   const vercel = geoFromVercelHeaders(req.headers as Record<string, string | string[] | undefined>);
-  if (vercel.countryCode && (vercel.city || vercel.region)) return vercel;
+  if (vercel.countryCode && vercel.city) return vercel;
 
   const ip = getClientIp(req);
   const lookup = ip ? geoip.lookup(ip) : null;
@@ -61,7 +61,6 @@ export function resolveReferralClickGeoFromIp(req: Pick<Request, "headers" | "ip
 
   return sanitizeReferralClickGeoSlice({
     countryCode,
-    region: vercel.region || (lookup?.region ? String(lookup.region).trim().slice(0, 12) : undefined),
     city: vercel.city || (lookup?.city ? formatCityLabel(String(lookup.city).trim().slice(0, 64)) : undefined),
   });
 }
@@ -82,7 +81,7 @@ export function resolveReferralClickGeo(
   const sanitizedBody = sanitizeReferralClickGeoSlice(bodyGeo);
   const secret = String(process.env.REF_CLICK_PROXY_SECRET || "").trim();
 
-  if (sanitizedBody.city || sanitizedBody.region) {
+  if (sanitizedBody.city) {
     if (!secret || isTrustedRefClickProxy(req)) {
       return mergeReferralClickGeo(sanitizedBody, fromIp);
     }

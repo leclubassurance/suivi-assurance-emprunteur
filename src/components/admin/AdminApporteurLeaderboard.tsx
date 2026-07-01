@@ -108,7 +108,7 @@ export default function AdminApporteurLeaderboard({ rows, onSelectApporteur }: P
       </div>
       <p className="text-[10px] text-slate-400 mt-3">
         Classement selon : <strong>{METRICS.find((m) => m.key === metric)?.label}</strong>. CA = commissions
-        apporteur sur dossiers signés (réel ou estimé). Origine clics = ville, région ou pays (GeoIP locale,
+        apporteur sur dossiers signés (réel ou estimé). Origine clics = ville ou pays (GeoIP Vercel gratuite,
         sans conservation d&apos;adresse IP).
       </p>
     </section>
