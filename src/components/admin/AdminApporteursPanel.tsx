@@ -438,14 +438,12 @@ export default function AdminApporteursPanel({ onBack }: Props) {
               </div>
               <div className="text-xs text-slate-500 mt-1">{a.contactName} · {resolveApporteurTypeLabel(a)}</div>
               <div className="text-[11px] text-slate-400 mt-1 font-mono">ref={a.referralToken}</div>
-              {a.referralStats && (a.referralStats.linkClicks > 0 || a.referralStats.uniqueSessions > 0) ? (
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  {a.referralStats.linkClicks} visite{a.referralStats.linkClicks > 1 ? "s" : ""} lien
-                  {a.referralStats.uniqueSessions
-                    ? ` · ${a.referralStats.uniqueSessions} session${a.referralStats.uniqueSessions > 1 ? "s" : ""}`
-                    : ""}
-                </div>
-              ) : null}
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                {a.referralStats?.linkClicks ?? 0} visite{(a.referralStats?.linkClicks ?? 0) !== 1 ? "s" : ""} lien
+                {(a.referralStats?.uniqueSessions ?? 0) > 0
+                  ? ` · ${a.referralStats!.uniqueSessions} session${a.referralStats!.uniqueSessions > 1 ? "s" : ""}`
+                  : ""}
+              </div>
               <p className="text-[10px] text-slate-400 mt-0.5">Lien basé sur le contact — plusieurs personnes d&apos;une même société ont chacun leur ref.</p>
             </button>
           ))}
@@ -573,6 +571,15 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                             <Link2 className="w-3.5 h-3.5" /> Attribution auto au dépôt formulaire
                           </span>
                         </div>
+                        <p className="text-xs text-slate-500 mt-2">
+                          {a.referralStats?.linkClicks ?? 0} visite{(a.referralStats?.linkClicks ?? 0) !== 1 ? "s" : ""} du lien
+                          {(a.referralStats?.uniqueSessions ?? 0) > 0
+                            ? ` · ${a.referralStats!.uniqueSessions} session(s) distincte(s)`
+                            : ""}
+                          {a.referralStats?.lastClickAt
+                            ? ` · dernière : ${new Date(a.referralStats.lastClickAt).toLocaleString("fr-FR")}`
+                            : ""}
+                        </p>
                       </div>
                     </div>
                   </>

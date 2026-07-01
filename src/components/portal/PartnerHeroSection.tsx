@@ -73,15 +73,15 @@ export default function PartnerHeroSection({
         {unlocked && referralLink ? (
           <>
             <code className="mt-4 block text-[10px] text-indigo-300/80 break-all line-clamp-2">{referralLink}</code>
-            {referralStats && (referralStats.linkClicks > 0 || referralStats.uniqueSessions > 0) ? (
+            {referralStats ? (
               <p className="mt-2 text-[10px] text-indigo-200/90">
-                {referralStats.linkClicks} visite{referralStats.linkClicks > 1 ? "s" : ""} du lien
+                {referralStats.linkClicks} visite{referralStats.linkClicks !== 1 ? "s" : ""} du lien
                 {referralStats.uniqueSessions > 0
                   ? ` · ${referralStats.uniqueSessions} session${referralStats.uniqueSessions > 1 ? "s" : ""} distincte${referralStats.uniqueSessions > 1 ? "s" : ""}`
                   : ""}
               </p>
             ) : (
-              <p className="mt-2 text-[10px] text-indigo-200/70">Les visites via votre lien s&apos;affichent ici.</p>
+              <p className="mt-2 text-[10px] text-indigo-200/70">0 visite du lien pour le moment.</p>
             )}
           </>
         ) : null}
