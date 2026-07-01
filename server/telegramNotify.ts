@@ -133,7 +133,7 @@ export async function notifyTelegramPartnerRecruit(params: {
   const text = lines.join("\n");
   for (const chatId of getAllowedChatIdsForNotify()) {
     try {
-      await sendTelegramRaw(chatId, text, { parse_mode: "HTML" });
+      await sendTelegramRaw(chatId, text, { parse_mode: "HTML" } as any);
     } catch (err: any) {
       console.warn("[Telegram] candidature apporteur:", err?.message || err);
     }
@@ -159,9 +159,45 @@ export async function notifyTelegramPartnerRecruitConverted(params: {
 
   for (const chatId of getAllowedChatIdsForNotify()) {
     try {
-      await sendTelegramRaw(chatId, text, { parse_mode: "HTML" });
+      await sendTelegramRaw(chatId, text, { parse_mode: "HTML" } as any);
     } catch {
       /* ignore */
+    }
+  }
+}
+
+/** Contrat apporteur signé (signature en ligne). */
+export async function notifyTelegramApporteurContractSigned(params: {
+  apporteur: { contactName: string; companyName?: string; email?: string; portalToken?: string; driveLink?: string | null };
+}) {
+  const { isTelegramEnabled, getAllowedChatIdsForNotify, sendTelegramRaw } = await import("./telegramCamille");
+  const { escapeTelegramHtml } = await import("./telegramUi");
+  if (!isTelegramEnabled()) return;
+  const enabled = (process.env.TELEGRAM_NOTIFY_ENABLED || "true").toLowerCase();
+  if (enabled === "false" || enabled === "0") return;
+
+  const base = String(process.env.PUBLIC_APP_URL || process.env.VITE_PUBLIC_APP_URL || process.env.APP_URL || "").replace(
+    /\/$/,
+    "",
+  );
+  const portalLink = params.apporteur.portalToken ? `${base}/apporteur/${escapeTelegramHtml(params.apporteur.portalToken)}` : "";
+  const lines = [
+    `<b>✅ Contrat apporteur signé</b>`,
+    "",
+    `<b>${escapeTelegramHtml(params.apporteur.contactName)}</b>${
+      params.apporteur.companyName ? ` — ${escapeTelegramHtml(params.apporteur.companyName)}` : ""
+    }`,
+  ];
+  if (params.apporteur.email) lines.push(`📧 ${escapeTelegramHtml(params.apporteur.email)}`);
+  if (portalLink) lines.push(`➡️ Portail : ${portalLink}`);
+  if (params.apporteur.driveLink) lines.push(`📎 Drive : ${escapeTelegramHtml(params.apporteur.driveLink)}`);
+
+  const text = lines.join("\n");
+  for (const chatId of getAllowedChatIdsForNotify()) {
+    try {
+      await sendTelegramRaw(chatId, text, { parse_mode: "HTML" } as any);
+    } catch (err: any) {
+      console.warn("[Telegram] contrat apporteur signé:", err?.message || err);
     }
   }
 }

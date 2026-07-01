@@ -10,6 +10,7 @@ import { buildApporteurContractPdfFilename, generateApporteurContractPdfBuffer }
 import { uploadApporteurContractPdfToDrive } from "./apporteurDriveArchive";
 import { sendApporteurContractSignedEmail } from "./apporteurNotify";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
+import { notifyTelegramApporteurContractSigned } from "./telegramNotify";
 
 export function isApporteurContractSigned(apporteur: Pick<Apporteur, "contractStatus">): boolean {
   return (apporteur.contractStatus || "none") === "signed";
@@ -138,6 +139,20 @@ async function archiveAndNotifySignedContract(
     );
   } catch (err: any) {
     console.warn("[Apporteur] Email copie PDF contrat:", err?.message || err);
+  }
+
+  try {
+    await notifyTelegramApporteurContractSigned({
+      apporteur: {
+        contactName: updated.contactName,
+        companyName: updated.companyName,
+        email: updated.email,
+        portalToken: updated.portalToken,
+        driveLink: updated.contractSignature?.driveLink || driveLink,
+      },
+    });
+  } catch (err: any) {
+    console.warn("[Apporteur] Telegram contrat signé:", err?.message || err);
   }
 
   return updated;
