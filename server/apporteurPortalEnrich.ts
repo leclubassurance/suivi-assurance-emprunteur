@@ -6,11 +6,11 @@ import {
 } from "../shared/apporteurCommissionFromDossier";
 import type { Dossier } from "./dossierModel";
 import {
-  buildClientPortalSteps,
   resolveClientPortalStatusView,
   ensureClientPortalToken,
   getClientPortalAbsoluteUrl,
 } from "./clientPortal";
+import { buildClientPortalSteps } from "./subscriptionProgress";
 
 export type ApporteurReferralCommission = {
   feesCourtageEur: number;
