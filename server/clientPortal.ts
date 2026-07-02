@@ -17,7 +17,7 @@ import {
   type SubscriptionPhase,
 } from "./subscriptionProgress";
 
-export { SUBSCRIPTION_PHASE_OPTIONS, type SubscriptionPhase };
+export { SUBSCRIPTION_PHASE_OPTIONS, type SubscriptionPhase, buildClientPortalSteps };
 
 export function ensureClientPortalToken(dossier: Dossier): string {
   const existing = dossier.clientPortal?.token;
