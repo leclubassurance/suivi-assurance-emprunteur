@@ -26,6 +26,7 @@ const COMMISSION_SOURCE_LABEL: Record<Commission["source"], string> = {
 };
 
 export default function PartnerReferralTracking({ tracking }: { tracking: Tracking }) {
+  const isEstimate = tracking.commission?.source === "estimate";
   return (
     <div className="mt-3 pt-3 border-t border-slate-100">
       <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
@@ -49,7 +50,8 @@ export default function PartnerReferralTracking({ tracking }: { tracking: Tracki
       </div>
       {tracking.commission ? (
         <p className="text-[11px] text-slate-600 mb-2 bg-slate-50 rounded-lg px-2.5 py-2 border border-slate-100">
-          Frais de courtage : <strong>{tracking.commission.feesCourtageEur} €</strong>
+          {isEstimate ? "Commission estimée" : "Frais de courtage"} :{" "}
+          <strong>{tracking.commission.feesCourtageEur} €</strong>
           {" · "}
           Votre part (50 %) : <strong className="text-emerald-700">{tracking.commission.apporteurPayoutEur} €</strong>
           <span className="text-slate-400"> ({COMMISSION_SOURCE_LABEL[tracking.commission.source]})</span>

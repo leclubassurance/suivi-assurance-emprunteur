@@ -418,7 +418,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
             {data.earnings.earningsBasis && data.earnings.earningsBasis !== "estimate" ? (
               <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
                 {data.earnings.earningsBasis === "study"
-                  ? "Montants basés sur les frais de courtage réels de vos dossiers signés."
+                  ? "Montants basés sur les commissions réelles de vos dossiers signés."
                   : "Montants mixtes : étude réelle + estimation barème sur dossiers sans KPI."}
               </p>
             ) : (
