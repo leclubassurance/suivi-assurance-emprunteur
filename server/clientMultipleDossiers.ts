@@ -1,5 +1,6 @@
 import { getDossierClientEmails } from "./gmailAttachments";
 import { inferDocumentCategory } from "../shared/documentClassifier";
+import { formatDossierPhaseLabel, normalizeEmailSubject } from "./gmailDossierRouting";
 
 const INACTIVE_STATUSES = new Set(["CLOS", "REFUSE", "REFUSÉ"]);
 
@@ -77,6 +78,7 @@ function pickDossierForSenderEmail(related: any[], senderEmail: string): any | n
   const sender = String(senderEmail || "").toLowerCase();
   const matches = related.filter((d) => getDossierClientEmails(d).includes(sender));
   if (matches.length === 0) return null;
+  if (matches.length > 1) return null;
   const primary = matches.find(
     (d) => String(d.formData?.assures?.[0]?.email || "").toLowerCase() === sender,
   );
@@ -86,6 +88,19 @@ function pickDossierForSenderEmail(related: any[], senderEmail: string): any | n
       new Date(b.updatedAt || b.createdAt || 0).getTime() -
       new Date(a.updatedAt || a.createdAt || 0).getTime(),
   )[0];
+}
+
+/** Dossiers actifs partageant exactement l'email de l'expéditeur. */
+export function listActiveDossiersSharingSenderEmail(
+  allDossiers: any[],
+  senderEmail: string,
+): any[] {
+  const sender = String(senderEmail || "").toLowerCase();
+  if (!sender) return [];
+  return (allDossiers || []).filter((d) => {
+    if (!isDossierActiveForClient(d)) return false;
+    return getDossierClientEmails(d).includes(sender);
+  });
 }
 
 function recentCamilleOutboundOnDossier(dossier: any, withinMs: number): boolean {
@@ -135,6 +150,11 @@ export function shouldCamilleAutoReplyOnDossier(params: {
     })
   ) {
     return { allow: true };
+  }
+
+  const sameEmailSiblings = listActiveDossiersSharingSenderEmail(params.allDossiers, sender);
+  if (sameEmailSiblings.length > 1) {
+    return { allow: true, reason: "same_email_multi_dossier" };
   }
 
   if (!dossierEmails.includes(sender)) {
@@ -209,15 +229,12 @@ export type MultiDossierClientContext = {
 function formatDossierLine(d: any, currentId: string): string {
   const id = String(d.id);
   const mark = id === currentId ? " (dossier courant pour cet email)" : "";
-  const email = String(d.formData?.assures?.[0]?.email || "").trim();
-  const emailPart = email ? `, email ${email}` : "";
+  const phase = formatDossierPhaseLabel(d);
   const prets = d.formData?.prets || [];
   const p0 = prets[0] || {};
   const bank = p0.banquePreteuse ? `, banque ${p0.banquePreteuse}` : "";
   const crd = p0.capitalRestant ? `, CRD ~${p0.capitalRestant} €` : "";
-  const created = d.createdAt ? new Date(d.createdAt).toLocaleDateString("fr-FR") : "";
-  const datePart = created ? `, créé le ${created}` : "";
-  return `- ${id}${mark}${emailPart}${datePart}${bank}${crd}`;
+  return `- ${id}${mark} — ${phase}${bank}${crd}`;
 }
 
 export function buildMultiDossierClientContext(params: {
@@ -268,4 +285,96 @@ ${
     ambiguousTargeting,
     promptBlock,
   };
+}
+
+/** Message Camille quand le client a plusieurs dossiers et le mail ne cite pas le LCIF. */
+export function buildMultiDossierClarificationReply(params: {
+  dossier: any;
+  allDossiers: any[];
+  senderEmail: string;
+  emailSubject?: string;
+  emailBody?: string;
+}): string | null {
+  const sender = String(params.senderEmail || "").toLowerCase();
+  const sameEmail = listActiveDossiersSharingSenderEmail(params.allDossiers, sender);
+  const related = listRelatedDossiersForClient(params.allDossiers, params.dossier);
+  const pool = sameEmail.length > 1 ? sameEmail : related;
+  if (pool.length <= 1) return null;
+
+  if (
+    emailClearlyTargetsDossier({
+      subject: params.emailSubject,
+      body: params.emailBody,
+      dossierId: String(params.dossier.id || ""),
+    })
+  ) {
+    return null;
+  }
+
+  const prenom = String(params.dossier.formData?.assures?.[0]?.prenom || "").trim();
+  const lines = [...pool]
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .map((d) => `• ${d.id} — ${formatDossierPhaseLabel(d)}`);
+
+  const refs = pool.map((d) => String(d.id)).join(" ou ");
+
+  return [
+    `Merci pour votre message${prenom ? `, ${prenom}` : ""}.`,
+    ``,
+    `Vous avez ${pool.length} dossiers en cours chez nous. Pour vous répondre précisément, merci d'indiquer la référence du prêt concerné (${refs}) ou de répondre directement dans le fil du mail de confirmation du dossier visé.`,
+    ``,
+    `Vos dossiers en cours :`,
+    ...lines,
+    ``,
+    `Dès réception de cette précision, nous reprenons votre demande.`,
+  ].join("\n");
+}
+
+export function dossierHasConfidentEmailThread(params: {
+  dossier: any;
+  emailSubject?: string;
+  gmailThreadId?: string;
+}): boolean {
+  const threadId = String(params.gmailThreadId || "").trim();
+  if (threadId) {
+    for (const c of params.dossier?.communications || []) {
+      if (String(c.gmailThreadId || c.threadId || "") === threadId) return true;
+    }
+  }
+  const norm = normalizeEmailSubject(String(params.emailSubject || ""));
+  if (norm.length < 10) return false;
+  for (const c of params.dossier?.communications || []) {
+    const cs = normalizeEmailSubject(String(c.subject || ""));
+    if (!cs || cs.length < 10) continue;
+    if (cs === norm || norm.includes(cs) || cs.includes(norm)) return true;
+  }
+  return false;
+}
+
+export function shouldSendMultiDossierClarification(params: {
+  dossier: any;
+  senderEmail: string;
+  emailSubject?: string;
+  emailBody?: string;
+  allDossiers: any[];
+  gmailThreadId?: string;
+}): boolean {
+  if (
+    dossierHasConfidentEmailThread({
+      dossier: params.dossier,
+      emailSubject: params.emailSubject,
+      gmailThreadId: params.gmailThreadId,
+    })
+  ) {
+    return false;
+  }
+  return Boolean(
+    buildMultiDossierClarificationReply({
+      dossier: params.dossier,
+      allDossiers: params.allDossiers,
+      senderEmail: params.senderEmail,
+      emailSubject: params.emailSubject,
+      emailBody: params.emailBody,
+    }),
+  );
 }

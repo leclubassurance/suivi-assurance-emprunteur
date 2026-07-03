@@ -11,7 +11,8 @@ export type CamilleActionKind =
   | "staff_directive"
   | "doc_followup"
   | "doc_clarify"
-  | "cooldown_ack";
+  | "cooldown_ack"
+  | "multi_dossier_clarification";
 
 export type InterventionLevel = "none" | "watch" | "required";
 
@@ -46,6 +47,7 @@ const ACTION_LABEL: Record<CamilleActionKind, string> = {
   doc_followup: "Relance documents au client",
   doc_clarify: "Précision documents (évite escalade)",
   cooldown_ack: "Accusé de réception (cooldown actif)",
+  multi_dossier_clarification: "Demande de précision LCIF (multi-dossiers)",
 };
 
 const TOPIC_LABEL: Record<string, string> = {

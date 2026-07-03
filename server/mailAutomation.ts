@@ -443,6 +443,7 @@ export async function syncGmailInbox(
       const subjectHeader = payload.headers.find((h) => h.name?.toLowerCase() === 'subject');
       const fromHeader = payload.headers.find((h) => h.name?.toLowerCase() === 'from');
       const toHeader = payload.headers.find((h) => h.name?.toLowerCase() === 'to');
+      const inReplyToHeader = payload.headers.find((h) => h.name?.toLowerCase() === 'in-reply-to');
 
       const subject = subjectHeader?.value || '';
       const fromRaw = fromHeader?.value || '';
@@ -450,7 +451,10 @@ export async function syncGmailInbox(
       const senderEmail = extractEmail(fromRaw);
       const labelIds = msgRes.data.labelIds || [];
       const isSentByMe = labelIds.includes('SENT');
+      const threadId = String(msgRes.data.threadId || '');
+      const inReplyTo = String(inReplyToHeader?.value || '');
 
+      const { text, html } = decodeEmailBodies(payload);
       const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
       const dossier = findDossierForGmailMessage(db, {
         senderEmail,
@@ -458,6 +462,9 @@ export async function syncGmailInbox(
         subject,
         messageDate: msgDate,
         isSentByMe,
+        bodyText: text,
+        threadId,
+        inReplyTo,
       });
       if (!dossier || isLeadDossier(dossier)) continue;
 
@@ -467,7 +474,6 @@ export async function syncGmailInbox(
 
       if (!isFromClient && !isToClient) continue;
 
-      const { text, html } = decodeEmailBodies(payload);
       const direction = isFromClient ? 'inbound' : 'outbound';
 
       let addedAttachments: any[] = [];
@@ -596,6 +602,7 @@ export async function syncGmailInbox(
         upsertCommunication(dossier, {
           id: `msg_${msgMeta.id}`,
           gmailId: msgMeta.id,
+          gmailThreadId: threadId || undefined,
           direction,
           from: isFromClient ? senderEmail : process.env.GMAIL_USER || 'assurance@leclubimmobilier.fr',
           to: isFromClient ? undefined : getDossierClientEmails(dossier)[0],
@@ -842,6 +849,7 @@ export async function syncGmailInbox(
               emailSubject: subject,
               allDossiers: db.dossiers,
               gmailId: msgMeta.id,
+              gmailThreadId: threadId || undefined,
             });
             if (aiDecision?.status === "review" && aiDecision.questionForStaff) {
               const { createCamilleReviewRequest } = await import("./camilleReviewQueue");

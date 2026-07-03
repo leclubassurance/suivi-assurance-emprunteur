@@ -4,6 +4,10 @@ import type { gmail_v1 } from 'googleapis';
 import { classifyFileName, type DocumentCategory } from '../shared/documentClassifier';
 import { assessDocumentQuality } from '../shared/documentQuality';
 import { normalizeDocumentForPersistence } from './documentStoragePolicy';
+import {
+  pickBestDossierAmongEmailMatches,
+  resolveInboundDossierForClientEmail,
+} from './gmailDossierRouting';
 
 export function getUploadsBaseDir() {
   if (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT) {
@@ -703,10 +707,19 @@ export function findDossierByLcifReference(db: { dossiers: any[] }, text: string
 function pickBestDossierForClient(
   matches: any[],
   messageDate?: string,
+  routingContext?: { senderEmail?: string; subject?: string; bodyText?: string },
 ): any | null {
   if (matches.length === 0) return null;
   const fullDossiers = matches.filter((d) => !d?.isLead);
   const pool = fullDossiers.length > 0 ? fullDossiers : matches;
+  if (pool.length > 1 && routingContext?.senderEmail) {
+    return pickBestDossierAmongEmailMatches(pool, {
+      senderEmail: routingContext.senderEmail,
+      subject: routingContext.subject || "",
+      bodyText: routingContext.bodyText,
+      messageDate,
+    });
+  }
   const msgTs = messageDate ? new Date(messageDate).getTime() : NaN;
   if (Number.isFinite(msgTs)) {
     const eligible = pool.filter((d) => {
@@ -736,9 +749,14 @@ export function findDossierForGmailMessage(
     subject: string;
     messageDate?: string;
     isSentByMe: boolean;
+    bodyText?: string;
+    threadId?: string;
+    inReplyTo?: string;
   },
 ): any | null {
-  const byId = matchDossierByLcif(db, params.subject);
+  const combined = `${params.subject}\n${params.bodyText || ""}`;
+  const byId =
+    matchDossierByLcif(db, params.subject) || findDossierByLcifReference(db, combined);
   if (byId) return byId;
 
   const toLc = String(params.toRaw || "").toLowerCase();
@@ -747,10 +765,18 @@ export function findDossierForGmailMessage(
     const matches = db.dossiers.filter((d) =>
       getDossierClientEmails(d).some((ce) => toLc.includes(ce)),
     );
-    return pickBestDossierForClient(matches, params.messageDate);
+    return pickBestDossierForClient(matches, params.messageDate, {
+      senderEmail: params.senderEmail,
+      subject: params.subject,
+      bodyText: params.bodyText,
+    });
   }
 
-  return findDossierForInboundMessage(db, params.senderEmail, params.subject, params.messageDate);
+  return findDossierForInboundMessage(db, params.senderEmail, params.subject, params.messageDate, {
+    bodyText: params.bodyText,
+    threadId: params.threadId,
+    inReplyTo: params.inReplyTo,
+  });
 }
 
 export function findDossierForInboundMessage(
@@ -758,10 +784,7 @@ export function findDossierForInboundMessage(
   senderEmail: string,
   subject: string,
   messageDate?: string,
+  hints?: { bodyText?: string; threadId?: string; inReplyTo?: string },
 ): any | null {
-  const byId = matchDossierByLcif(db, subject);
-  if (byId) return byId;
-
-  const matches = db.dossiers.filter((d) => getDossierClientEmails(d).includes(senderEmail));
-  return pickBestDossierForClient(matches, messageDate);
+  return resolveInboundDossierForClientEmail(db, senderEmail, subject, messageDate, hints);
 }

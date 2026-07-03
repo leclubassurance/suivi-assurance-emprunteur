@@ -20,7 +20,7 @@ import { tryCamilleDocClarificationInsteadOfEscalation } from "./camilleDocAutoR
 import { getRecentStaffOutboundSummary, isStaffActivelyHandling } from "./camilleStaffHandoff";
 import { getConversationTailForAi, hasUnansweredClientInbound } from "./gmailConversation";
 import { logAiAudit } from "./aiAuditLog";
-import { buildMultiDossierClientContext } from "./clientMultipleDossiers";
+import { buildMultiDossierClientContext, buildMultiDossierClarificationReply, shouldSendMultiDossierClarification } from "./clientMultipleDossiers";
 import {
   buildPlaybooksPromptBlock,
   tryPlaybookAutoReply,
@@ -57,11 +57,12 @@ export async function processIncomingClientEmail(
   dossier: any,
   emailText: string,
   clientEmail: string,
-  options?: {
+    options?: {
     newAttachmentNames?: string[];
     emailSubject?: string;
     allDossiers?: any[];
     gmailId?: string;
+    gmailThreadId?: string;
   },
 ) {
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
@@ -83,6 +84,43 @@ export async function processIncomingClientEmail(
     const clientMessageFresh = extractNewClientMessageText(emailText);
     const clientMessageForAi =
       clientMessageFresh.length >= 3 ? clientMessageFresh : emailText;
+
+    if (
+      options?.allDossiers?.length &&
+      shouldSendMultiDossierClarification({
+        dossier,
+        senderEmail: clientEmail,
+        emailSubject: options.emailSubject,
+        emailBody: clientMessageForAi,
+        allDossiers: options.allDossiers,
+        gmailThreadId: options.gmailThreadId,
+      })
+    ) {
+      const plain = buildMultiDossierClarificationReply({
+        dossier,
+        allDossiers: options.allDossiers,
+        senderEmail: clientEmail,
+        emailSubject: options.emailSubject,
+        emailBody: clientMessageForAi,
+      });
+      if (plain) {
+        console.log(`[AI] Clarification multi-dossiers pour ${dossier.id}`);
+        const telegramAction = buildTelegramActionFromReply({
+          dossier,
+          clientMessage: clientMessageForAi,
+          replyPlain: plain,
+          emailSubject: options.emailSubject,
+          actionKind: "multi_dossier_clarification",
+          attachmentNames,
+        });
+        return {
+          status: "replied",
+          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+          replyPlain: plain,
+          telegramAction,
+        };
+      }
+    }
 
     const { tryPlaybookAutoReply, isPlaybookAutoSendEnabled } = await import("./camillePlaybooks");
     if (isPlaybookAutoSendEnabled()) {
