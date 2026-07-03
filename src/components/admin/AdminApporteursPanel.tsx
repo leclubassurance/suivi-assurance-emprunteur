@@ -11,7 +11,13 @@ import {
   Users,
 } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
-import type { Apporteur, PartnerRecruitRequest, PartnerRecruitStatus, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
+import type { Apporteur, ApporteurType, PartnerRecruitRequest, PartnerRecruitStatus, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
+import {
+  CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
+  countSignedClientReferrals,
+  resolveConseillerOperatingPhase,
+  type AdminPartnersSegment,
+} from "../../../shared/conseillerImmoClub";
 import {
   PARTNER_RECRUIT_FLOW,
   PARTNER_RECRUIT_STATUS_LABELS,
@@ -33,12 +39,62 @@ import { formatReferralGeoDetail } from "../../../shared/referralGeo";
 
 type Props = {
   onBack: () => void;
+  segment?: AdminPartnersSegment;
 };
 
-const EMPTY_APPORTEUR: ApporteurProfileFormState & { notes: string } = {
-  ...EMPTY_APPORTEUR_PROFILE_FORM,
-  notes: "",
+const SEGMENT_UI: Record<
+  AdminPartnersSegment,
+  {
+    title: string;
+    entitySingular: string;
+    entityPlural: string;
+    newEntityLabel: string;
+    allListLabel: string;
+    emptyListMessage: string;
+    modalTitle: string;
+    defaultType: ApporteurType;
+    allowedTypes: ApporteurType[];
+    showRecruits: boolean;
+    showLeaderboard: boolean;
+    emailHint?: string;
+  }
+> = {
+  business: {
+    title: "Apporteurs d'affaires",
+    entitySingular: "apporteur",
+    entityPlural: "apporteurs",
+    newEntityLabel: "Nouvel apporteur",
+    allListLabel: "Tous les apporteurs",
+    emptyListMessage: "Aucun apporteur — créez le premier.",
+    modalTitle: "Nouvel apporteur",
+    defaultType: "apporteur_affaires",
+    allowedTypes: ["apporteur_affaires", "agent_immo", "courtier", "autre"],
+    showRecruits: true,
+    showLeaderboard: true,
+  },
+  conseiller_club: {
+    title: "Conseillers du club",
+    entitySingular: "conseiller",
+    entityPlural: "conseillers",
+    newEntityLabel: "Nouveau conseiller",
+    allListLabel: "Tous les conseillers",
+    emptyListMessage: "Aucun conseiller — créez le premier (email @leclubimmobilier.fr).",
+    modalTitle: "Nouveau conseiller du club",
+    defaultType: "conseiller_immo_club",
+    allowedTypes: ["conseiller_immo_club"],
+    showRecruits: false,
+    showLeaderboard: true,
+    emailHint: "Compte Google @leclubimmobilier.fr obligatoire.",
+  },
 };
+
+function emptyApporteurForm(segment: AdminPartnersSegment) {
+  return {
+    ...EMPTY_APPORTEUR_PROFILE_FORM,
+    type: SEGMENT_UI[segment].defaultType,
+    notes: "",
+  };
+}
 
 const EMPTY_REFERRAL = {
   prenom: "",
@@ -49,7 +105,8 @@ const EMPTY_REFERRAL = {
   dossierId: "",
 };
 
-export default function AdminApporteursPanel({ onBack }: Props) {
+export default function AdminApporteursPanel({ onBack, segment = "business" }: Props) {
+  const ui = SEGMENT_UI[segment];
   const [loading, setLoading] = useState(true);
   const [apporteurs, setApporteurs] = useState<Apporteur[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
@@ -58,7 +115,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
   const [selectedApporteurId, setSelectedApporteurId] = useState<string | "all">("all");
   const [showNewApporteur, setShowNewApporteur] = useState(false);
   const [showNewReferral, setShowNewReferral] = useState(false);
-  const [newApporteur, setNewApporteur] = useState({ ...EMPTY_APPORTEUR });
+  const [newApporteur, setNewApporteur] = useState(() => emptyApporteurForm(segment));
   const [newReferral, setNewReferral] = useState({ ...EMPTY_REFERRAL });
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -71,7 +128,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await adminFetch("/api/admin/apporteurs");
+      const res = await adminFetch(`/api/admin/apporteurs?segment=${encodeURIComponent(segment)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Chargement impossible");
       setApporteurs(data.apporteurs || []);
@@ -85,7 +142,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [segment]);
 
   useEffect(() => {
     load();
@@ -118,7 +175,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
     const res = await adminFetch("/api/admin/apporteurs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newApporteur),
+      body: JSON.stringify({ ...newApporteur, segment }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -126,7 +183,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
       return;
     }
     setShowNewApporteur(false);
-    setNewApporteur({ ...EMPTY_APPORTEUR });
+    setNewApporteur(emptyApporteurForm(segment));
     await load();
   };
 
@@ -301,11 +358,11 @@ export default function AdminApporteursPanel({ onBack }: Props) {
             <div>
               <h1 className="text-xl font-black flex items-center gap-2">
                 <Users className="w-5 h-5" />
-                Apporteurs d&apos;affaires
+                {ui.title}
               </h1>
               {summary ? (
                 <p className="text-xs text-indigo-200 mt-1">
-                  {summary.activeApporteurs ?? summary.apporteurs} actif(s) · {summary.openReferrals ?? summary.open} reco ouverte(s)
+                  {summary.activeApporteurs ?? summary.apporteurs} {ui.entitySingular}(s) actif(s) · {summary.openReferrals ?? summary.open} reco ouverte(s)
                 </p>
               ) : null}
             </div>
@@ -317,7 +374,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
             onClick={() => setShowNewApporteur(true)}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white text-[#1E3A8A] text-sm font-bold hover:bg-indigo-50"
           >
-            <Plus className="w-4 h-4" /> Nouvel apporteur
+            <Plus className="w-4 h-4" /> {ui.newEntityLabel}
           </button>
           <button
             type="button"
@@ -347,7 +404,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
         </div>
       ) : null}
 
-      {pendingRecruits.length > 0 ? (
+      {ui.showRecruits && pendingRecruits.length > 0 ? (
         <div className="mx-6 mt-4 bg-gradient-to-br from-amber-50 to-white border border-amber-200 rounded-2xl p-5 shadow-sm">
           <h2 className="text-sm font-black uppercase tracking-wide text-amber-900 mb-1">
             Candidatures à traiter ({pendingRecruits.length})
@@ -401,18 +458,18 @@ export default function AdminApporteursPanel({ onBack }: Props) {
         </div>
         {selectedApporteurId === "all" && summary ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <KpiCard label="Apporteurs" value={Number(summary.apporteurs) || 0} accent="indigo" />
+            <KpiCard label={ui.entityPlural.charAt(0).toUpperCase() + ui.entityPlural.slice(1)} value={Number(summary.apporteurs) || 0} accent="indigo" />
             <KpiCard label="Actifs" value={Number(summary.activeApporteurs) || 0} accent="emerald" />
             <KpiCard
               label="Avec pipeline"
               value={Number(summary.apporteursWithOpenReferrals) || 0}
-              sub="apporteurs avec reco ouverte"
+              sub={`${ui.entityPlural} avec reco ouverte`}
             />
           </div>
         ) : null}
       </div>
 
-      {selectedApporteurId === "all" && leaderboard.length > 0 ? (
+      {ui.showLeaderboard && selectedApporteurId === "all" && leaderboard.length > 0 ? (
         <AdminApporteurLeaderboard
           rows={leaderboard}
           onSelectApporteur={(id) => setSelectedApporteurId(id)}
@@ -429,7 +486,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                 selectedApporteurId === "all" ? "bg-indigo-50 text-indigo-900" : "hover:bg-slate-50"
               }`}
             >
-              Tous les apporteurs
+              {ui.allListLabel}
             </button>
           </div>
           {apporteurs.map((a) => (
@@ -460,7 +517,7 @@ export default function AdminApporteursPanel({ onBack }: Props) {
             </button>
           ))}
           {!loading && apporteurs.length === 0 ? (
-            <p className="p-4 text-sm text-slate-500">Aucun apporteur — créez le premier.</p>
+            <p className="p-4 text-sm text-slate-500">{ui.emptyListMessage}</p>
           ) : null}
         </aside>
 
@@ -493,7 +550,24 @@ export default function AdminApporteursPanel({ onBack }: Props) {
                       {a.contactName} — {a.email}
                       {a.phone ? ` · ${a.phone}` : ""}
                     </p>
-                    {a.sponsorId ? (
+                    {segment === "conseiller_club" ? (() => {
+                      const conseillerReferrals = referrals.filter((r) => r.apporteurId === a.id);
+                      const signedCount = countSignedClientReferrals(conseillerReferrals);
+                      const phase = resolveConseillerOperatingPhase(signedCount);
+                      return (
+                        <div className="mb-3 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                          <strong>
+                            {phase === "autonomous" ? "Phase B — autonome" : "Phase A — accompagnée"}
+                          </strong>
+                          {" · "}
+                          {signedCount}/{CONSEILLER_AUTONOMY_SIGNED_THRESHOLD} dossiers clients signés
+                          {phase === "autonomous"
+                            ? " — relation client gérée par le conseiller"
+                            : " — Club + Camille actifs sur les dossiers"}
+                        </div>
+                      );
+                    })() : null}
+                    {segment === "business" && a.sponsorId ? (
                       <p className="text-xs text-indigo-700 mb-2">
                         Parrain : {apporteurById.get(a.sponsorId)?.contactName || a.sponsorId}
                       </p>
@@ -692,11 +766,14 @@ export default function AdminApporteursPanel({ onBack }: Props) {
       </div>
 
       {showNewApporteur ? (
-        <Modal title="Nouvel apporteur" onClose={() => setShowNewApporteur(false)}>
+        <Modal title={ui.modalTitle} onClose={() => setShowNewApporteur(false)}>
           <div className="grid gap-3">
             <ApporteurProfileFormFields
               value={newApporteur}
               onChange={(next) => setNewApporteur((s) => ({ ...s, ...next }))}
+              allowedTypes={ui.allowedTypes}
+              hideTypeField={ui.allowedTypes.length === 1}
+              emailHint={ui.emailHint}
             />
             <p className="text-[10px] text-slate-500 -mt-1">
               Le lien client (?ref=) sera généré à partir du prénom et nom (ex. marie-dupont).

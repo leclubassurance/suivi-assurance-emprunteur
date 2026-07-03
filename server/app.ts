@@ -1360,29 +1360,33 @@ export function createApp() {
         listPartnerRecruits,
       } = await import("./apporteurStore");
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const { parseAdminPartnersSegment } = await import("../shared/conseillerImmoClub");
       const apporteurId = String(req.query.apporteurId || "").trim() || undefined;
+      const segment = parseAdminPartnersSegment(req.query.segment);
       const { pruneReferralsWithMissingDossiers } = await import("./apporteurStore");
       await pruneReferralsWithMissingDossiers();
       const [apporteurs, referrals, summary, partnerRecruits] = await Promise.all([
-        listApporteurs(),
+        listApporteurs(segment ? { segment } : undefined),
         listReferrals(apporteurId ? { apporteurId } : undefined),
-        getApporteurSummary(),
-        listPartnerRecruits(),
+        getApporteurSummary(segment ? { segment } : undefined),
+        segment === "conseiller_club" ? Promise.resolve([]) : listPartnerRecruits(),
       ]);
       const { readDB } = await import("./db");
       const { buildApporteurLeaderboard } = await import("../shared/apporteurLeaderboard");
       const db = await readDB();
       const dossierById = new Map(db.dossiers.map((d: any) => [d.id, d]));
       const store = await (await import("./apporteurStore")).loadApporteurStore();
+      const apporteurIds = new Set(apporteurs.map((a) => a.id));
+      const segmentReferrals = store.referrals.filter((r) => apporteurIds.has(r.apporteurId));
       const leaderboard = buildApporteurLeaderboard({
         apporteurs,
-        referrals: store.referrals,
+        referrals: segmentReferrals,
         dossierById,
       });
       const publicBaseUrl = resolvePublicAppBaseUrl(
         String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
       );
-      res.json({ success: true, apporteurs, referrals, partnerRecruits, summary, publicBaseUrl, leaderboard });
+      res.json({ success: true, apporteurs, referrals: segmentReferrals, partnerRecruits, summary, publicBaseUrl, leaderboard, segment: segment || "all" });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }
@@ -1391,7 +1395,25 @@ export function createApp() {
   app.post("/api/admin/apporteurs", async (req, res) => {
     try {
       const { createApporteur } = await import("./apporteurStore");
+      const { parseAdminPartnersSegment, isLcifStaffEmail } = await import("../shared/conseillerImmoClub");
       const body = (req.body || {}) as any;
+      const segment = parseAdminPartnersSegment(body.segment || req.query.segment);
+      let type = String(body.type || "").trim() || "apporteur_affaires";
+      if (segment === "conseiller_club") {
+        type = "conseiller_immo_club";
+      } else if (segment === "business" && type === "conseiller_immo_club") {
+        return res.status(400).json({
+          success: false,
+          error: "Créez les conseillers du club depuis la section Conseillers du club.",
+        });
+      }
+      const email = String(body.email || "").trim().toLowerCase();
+      if (type === "conseiller_immo_club" && !isLcifStaffEmail(email)) {
+        return res.status(400).json({
+          success: false,
+          error: "Les conseillers du club doivent utiliser une adresse @leclubimmobilier.fr.",
+        });
+      }
       const apporteur = await createApporteur({
         companyName: body.companyName,
         contactPrenom: body.contactPrenom,
@@ -1407,11 +1429,11 @@ export function createApp() {
         companyLegalName: body.companyLegalName,
         legalForm: body.legalForm,
         legalFormOther: body.legalFormOther,
-        type: body.type,
+        type,
         typeCustomLabel: body.typeCustomLabel,
         notes: body.notes,
         referralToken: body.referralToken,
-        sponsorId: body.sponsorId,
+        sponsorId: segment === "conseiller_club" ? undefined : body.sponsorId,
       });
       res.json({ success: true, apporteur });
     } catch (err: any) {

@@ -17,6 +17,8 @@ import { extractSirenFromSiret } from "../shared/siret";
 import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
 import { computeAdminApporteurKpis, computeReferralKpis } from "../shared/apporteurKpis";
 import { getRemunerationConfig, resolveRemunerationTier } from "../shared/apporteurRemuneration";
+import type { AdminPartnersSegment } from "../shared/conseillerImmoClub";
+import { matchesAdminPartnersSegment } from "../shared/conseillerImmoClub";
 import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
@@ -242,9 +244,13 @@ function pushReferralEvent(referral: Referral, status: ReferralStatus, message?:
   referral.events = referral.events.slice(-30);
 }
 
-export async function listApporteurs(): Promise<Apporteur[]> {
+export async function listApporteurs(filters?: { segment?: AdminPartnersSegment }): Promise<Apporteur[]> {
   const store = await loadApporteurStore();
-  return [...store.apporteurs].sort((a, b) => a.companyName.localeCompare(b.companyName, "fr"));
+  let items = [...store.apporteurs];
+  if (filters?.segment) {
+    items = items.filter((a) => matchesAdminPartnersSegment(a.type, filters.segment!));
+  }
+  return items.sort((a, b) => a.companyName.localeCompare(b.companyName, "fr"));
 }
 
 export async function listReferrals(filters?: { apporteurId?: string }): Promise<Referral[]> {
@@ -343,6 +349,10 @@ export async function createApporteur(input: ApporteurProfileInput & {
   }
   if (store.apporteurs.some((a) => a.email === email)) {
     throw new Error("Un apporteur avec cet email existe déjà.");
+  }
+  const { isConseillerImmoClubType, isLcifStaffEmail } = await import("../shared/conseillerImmoClub");
+  if (isConseillerImmoClubType(normalized.type) && !isLcifStaffEmail(email)) {
+    throw new Error("Les conseillers du club doivent utiliser une adresse @leclubimmobilier.fr.");
   }
   const tokenCandidates = input.referralToken?.trim()
     ? [slugifyToken(input.referralToken)]
@@ -789,12 +799,17 @@ export function buildApporteurReferralUrl(baseUrl: string, token: string): strin
   return `${base}/?ref=${encodeURIComponent(t)}`;
 }
 
-export async function getApporteurSummary() {
+export async function getApporteurSummary(filters?: { segment?: AdminPartnersSegment }) {
   const store = await loadApporteurStore();
-  const kpis = computeAdminApporteurKpis(store.apporteurs, store.referrals);
+  const apporteurs = filters?.segment
+    ? store.apporteurs.filter((a) => matchesAdminPartnersSegment(a.type, filters.segment!))
+    : store.apporteurs;
+  const apporteurIds = new Set(apporteurs.map((a) => a.id));
+  const referrals = store.referrals.filter((r) => apporteurIds.has(r.apporteurId));
+  const kpis = computeAdminApporteurKpis(apporteurs, referrals);
   return {
     ...kpis,
-    referrals: store.referrals.length,
+    referrals: referrals.length,
     openReferrals: kpis.open,
     updatedAt: store.updatedAt,
   };

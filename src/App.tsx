@@ -52,14 +52,14 @@ export default function App() {
   const [portalToken, setPortalToken] = useState<string | null>(null);
   const [portalDemo, setPortalDemo] = useState(false);
   const [apporteurPortalToken, setApporteurPortalToken] = useState<string | null>(null);
-  const [adminApporteursView, setAdminApporteursView] = useState(false);
+  const [adminPartnersView, setAdminPartnersView] = useState<'none' | 'apporteurs' | 'conseillers'>('none');
 
   const goHome = () => {
     setLegalView(null);
     setPortalDemo(false);
     setPortalToken(null);
     setApporteurPortalToken(null);
-    setAdminApporteursView(false);
+    setAdminPartnersView('none');
     setCurrentStep(Step.LANDING);
     window.history.pushState({}, '', '/');
   };
@@ -81,13 +81,20 @@ export default function App() {
       }
       setLegalView(null);
       if (path === "/admin/apporteurs" || path === "/admin/reseau") {
-        setAdminApporteursView(true);
+        setAdminPartnersView('apporteurs');
         setPortalDemo(false);
         setApporteurPortalToken(null);
         setPortalToken(null);
         return;
       }
-      setAdminApporteursView(false);
+      if (path === "/admin/conseillers-club" || path === "/admin/conseillers") {
+        setAdminPartnersView('conseillers');
+        setPortalDemo(false);
+        setApporteurPortalToken(null);
+        setPortalToken(null);
+        return;
+      }
+      setAdminPartnersView('none');
       if (path === "/demo/suivi" || path === "/apercu-suivi-client") {
         setPortalDemo(true);
         return;
@@ -365,7 +372,7 @@ export default function App() {
 
   const handleLogin = (user: UserInfo) => {
     setCurrentUser(user);
-    if ((adminApporteursView) && user.role === 'ADMIN') {
+    if (adminPartnersView !== 'none' && user.role === 'ADMIN') {
       goToStep(Step.ADMIN_DASHBOARD);
       return;
     }
@@ -377,7 +384,7 @@ export default function App() {
   };
 
   const openAdminApporteurs = () => {
-    setAdminApporteursView(true);
+    setAdminPartnersView('apporteurs');
     window.history.pushState({}, '', '/admin/apporteurs');
     if (currentUser?.role === 'ADMIN') {
       goToStep(Step.ADMIN_DASHBOARD);
@@ -386,8 +393,18 @@ export default function App() {
     }
   };
 
-  const closeAdminApporteurs = () => {
-    setAdminApporteursView(false);
+  const openAdminConseillersClub = () => {
+    setAdminPartnersView('conseillers');
+    window.history.pushState({}, '', '/admin/conseillers-club');
+    if (currentUser?.role === 'ADMIN') {
+      goToStep(Step.ADMIN_DASHBOARD);
+    } else {
+      goToStep(Step.ADMIN_LOGIN);
+    }
+  };
+
+  const closeAdminPartners = () => {
+    setAdminPartnersView('none');
     window.history.pushState({}, '', '/');
     if (currentUser) {
       goToStep(currentUser.role === 'ADMIN' ? Step.ADMIN_DASHBOARD : Step.CONSEILLER_DASHBOARD);
@@ -403,11 +420,16 @@ export default function App() {
     return <ApporteurPortalPage token={apporteurPortalToken} />;
   }
 
-  if (adminApporteursView) {
+  if (adminPartnersView !== 'none') {
     if (!currentUser || currentUser.role !== 'ADMIN') {
-      return <AdminLogin onLogin={handleLogin} onBack={closeAdminApporteurs} />;
+      return <AdminLogin onLogin={handleLogin} onBack={closeAdminPartners} />;
     }
-    return <AdminApporteursPanel onBack={closeAdminApporteurs} />;
+    return (
+      <AdminApporteursPanel
+        onBack={closeAdminPartners}
+        segment={adminPartnersView === 'conseillers' ? 'conseiller_club' : 'business'}
+      />
+    );
   }
 
   if (portalDemo) {
@@ -539,7 +561,12 @@ export default function App() {
         )}
 
         {(currentStep === Step.ADMIN_DASHBOARD || currentStep === Step.CONSEILLER_DASHBOARD) && currentUser && (
-          <AdminDashboard user={currentUser} onLogout={handleLogout} onOpenApporteurs={openAdminApporteurs} />
+          <AdminDashboard
+            user={currentUser}
+            onLogout={handleLogout}
+            onOpenApporteurs={openAdminApporteurs}
+            onOpenConseillersClub={openAdminConseillersClub}
+          />
         )}
       </main>
 

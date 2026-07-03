@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Dossier, UserInfo } from "../../types";
-import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload, Users } from "lucide-react";
+import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload, Users, Building2 } from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
@@ -28,10 +28,12 @@ export default function AdminDashboard({
   user,
   onLogout,
   onOpenApporteurs,
+  onOpenConseillersClub,
 }: {
   user: UserInfo;
   onLogout: () => void;
   onOpenApporteurs?: () => void;
+  onOpenConseillersClub?: () => void;
 }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [search, setSearch] = useState("");
@@ -851,6 +853,15 @@ export default function AdminDashboard({
               <Users className="w-4 h-4" /> Apporteurs d&apos;affaires
             </button>
           ) : null}
+          {user.role === "ADMIN" && onOpenConseillersClub ? (
+            <button
+              type="button"
+              onClick={onOpenConseillersClub}
+              className="flex gap-2 text-slate-500 hover:text-indigo-700 transition-colors text-sm"
+            >
+              <Building2 className="w-4 h-4" /> Conseillers du club
+            </button>
+          ) : null}
           <button onClick={onLogout} className="flex gap-2 text-slate-500 hover:text-slate-900 transition-colors">
             <LogOut className="w-5 h-5"/> Déconnexion
           </button>
@@ -883,11 +894,18 @@ export default function AdminDashboard({
               Dossiers
             </button>
           </div>
-          {user.role === "ADMIN" && onOpenApporteurs ? (
-            <p className="mx-3 mt-2 mb-1 text-[10px] text-slate-400 text-center">
-              <button type="button" onClick={onOpenApporteurs} className="hover:text-indigo-600 underline">
-                Apporteurs & réseau →
-              </button>
+          {user.role === "ADMIN" && (onOpenApporteurs || onOpenConseillersClub) ? (
+            <p className="mx-3 mt-2 mb-1 text-[10px] text-slate-400 text-center flex flex-col gap-1">
+              {onOpenApporteurs ? (
+                <button type="button" onClick={onOpenApporteurs} className="hover:text-indigo-600 underline">
+                  Apporteurs d&apos;affaires →
+                </button>
+              ) : null}
+              {onOpenConseillersClub ? (
+                <button type="button" onClick={onOpenConseillersClub} className="hover:text-indigo-600 underline">
+                  Conseillers du club →
+                </button>
+              ) : null}
             </p>
           ) : null}
           {sidebarMode === "queue" ? (

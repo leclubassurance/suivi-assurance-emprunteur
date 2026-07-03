@@ -29,3 +29,21 @@ export function isLcifStaffEmail(email: unknown): boolean {
   const e = String(email || "").trim().toLowerCase();
   return e.endsWith("@leclubimmobilier.fr");
 }
+
+/** Segmentation admin : apporteurs d'affaires vs conseillers immo LCIF. */
+export type AdminPartnersSegment = "business" | "conseiller_club";
+
+export function matchesAdminPartnersSegment(
+  apporteurType: unknown,
+  segment: AdminPartnersSegment,
+): boolean {
+  const isConseiller = isConseillerImmoClubType(apporteurType);
+  return segment === "conseiller_club" ? isConseiller : !isConseiller;
+}
+
+export function parseAdminPartnersSegment(raw: unknown): AdminPartnersSegment | null {
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "business" || s === "apporteurs" || s === "reseau") return "business";
+  if (s === "conseiller_club" || s === "conseillers" || s === "conseillers-club") return "conseiller_club";
+  return null;
+}

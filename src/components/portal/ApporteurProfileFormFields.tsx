@@ -115,10 +115,16 @@ export default function ApporteurProfileFormFields({
   value,
   onChange,
   emailEditable = true,
+  allowedTypes,
+  hideTypeField = false,
+  emailHint,
 }: {
   value: ApporteurProfileFormState;
   onChange: (next: ApporteurProfileFormState) => void;
   emailEditable?: boolean;
+  allowedTypes?: ApporteurType[];
+  hideTypeField?: boolean;
+  emailHint?: string;
 }) {
   const set = <K extends keyof ApporteurProfileFormState>(key: K, v: ApporteurProfileFormState[K]) => {
     onChange({ ...value, [key]: v });
@@ -196,6 +202,8 @@ export default function ApporteurProfileFormFields({
         required
         type="email"
         disabled={!emailEditable}
+        placeholder={emailHint ? "prenom.nom@leclubimmobilier.fr" : undefined}
+        hint={emailHint}
       />
       {!emailEditable ? (
         <p className="text-[10px] text-slate-500 -mt-2">L&apos;email ne peut pas être modifié ici.</p>
@@ -258,6 +266,7 @@ export default function ApporteurProfileFormFields({
         />
       ) : null}
 
+      {!hideTypeField ? (
       <label className="text-xs font-bold text-slate-600 block">
         Statut professionnel<span className="text-red-500"> *</span>
         <select
@@ -265,13 +274,16 @@ export default function ApporteurProfileFormFields({
           value={value.type}
           onChange={(e) => set("type", e.target.value as ApporteurType)}
         >
-          {Object.entries(APPORTEUR_TYPE_LABELS).map(([k, label]) => (
+          {Object.entries(APPORTEUR_TYPE_LABELS)
+            .filter(([k]) => !allowedTypes || allowedTypes.includes(k as ApporteurType))
+            .map(([k, label]) => (
             <option key={k} value={k}>
               {label}
             </option>
           ))}
         </select>
       </label>
+      ) : null}
 
       {value.type === "autre" ? (
         <Field
