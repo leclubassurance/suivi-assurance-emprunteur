@@ -762,6 +762,60 @@ export async function syncGmailInbox(
             const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
             const finishInbound = () => markProcessed(dossier, msgMeta.id);
 
+            const { resolveConseillerPhaseBContext, handleConseillerPhaseBClientInbound, shouldClubEscalationOverridePhaseB } =
+              await import("./conseillerPhaseBInbound");
+            const phaseBCtx = await resolveConseillerPhaseBContext(dossier);
+            if (phaseBCtx && shouldClubEscalationOverridePhaseB(text)) {
+              const { handleCamilleEscalation } = await import("./camilleEscalation");
+              await handleCamilleEscalation({
+                dossier,
+                accessToken,
+                clientEmail: replyToEmail,
+                clientPrenom: dossier.formData?.assures?.[0]?.prenom,
+                subject,
+                reason: "Phase B — litige / reprise directe Club",
+                clientMessageText: text,
+                gmailId: msgMeta.id,
+              });
+              finishInbound();
+              markDossierDirty(dossier);
+              continue;
+            }
+            if (phaseBCtx) {
+              const phaseBResult = await handleConseillerPhaseBClientInbound({
+                dossier,
+                accessToken,
+                ctx: phaseBCtx,
+                clientEmail: replyToEmail,
+                subject,
+                bodyText: text,
+                replySubject,
+                gmailId: msgMeta.id,
+                attachmentNames: addedAttachments.map((d) => d.name),
+                upsertCommunication,
+              });
+              if (phaseBResult.ok) {
+                finishInbound();
+                markDossierDirty(dossier);
+                aiReplies++;
+                void import("./telegramNotify")
+                  .then(({ notifyTelegramClientInbound }) =>
+                    notifyTelegramClientInbound({
+                      dossier,
+                      clientEmail: senderEmail,
+                      subject: replySubject,
+                      excerpt: `Phase B — transféré à ${phaseBCtx.conseillerName}. Accusé client envoyé.`,
+                      gmailId: msgMeta.id,
+                    }),
+                  )
+                  .catch(() => undefined);
+                continue;
+              }
+              console.warn(
+                `[Gmail] Phase B conseiller échec ${dossier.id}: ${phaseBResult.error || "unknown"}`,
+              );
+            }
+
             if (!sendGate.ok && sendGate.reason === "cooldown") {
               const ack = [
                 `Merci pour votre message, nous avons bien reçu votre email.`,

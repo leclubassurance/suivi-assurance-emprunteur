@@ -1,11 +1,10 @@
 import type { Apporteur } from "../shared/apporteurTypes";
-import { APPORTEUR_CONTRACT_VERSION } from "../shared/apporteurContract";
+import { buildPartnerContractDocument } from "../shared/apporteurContract";
 import {
   formatApporteurDisplayName,
   validateApporteurProfileForContract,
 } from "../shared/apporteurProfile";
 import { LCIF_LEGAL } from "../shared/lcifLegalIdentity";
-import { buildApporteurContractDocument } from "../shared/apporteurContract";
 import { buildApporteurContractPdfFilename, generateApporteurContractPdfBuffer } from "./apporteurContractPdf";
 import { uploadApporteurContractPdfToDrive } from "./apporteurDriveArchive";
 import { sendApporteurContractSignedEmail } from "./apporteurNotify";
@@ -20,7 +19,7 @@ export function getApporteurContractPayload(
   apporteur: Apporteur,
   sponsorName?: string | null,
 ) {
-  return buildApporteurContractDocument(apporteur, sponsorName);
+  return buildPartnerContractDocument(apporteur, sponsorName);
 }
 
 export function isApporteurProfileComplete(apporteur: Apporteur): boolean {
@@ -182,13 +181,14 @@ export async function signApporteurContractOnline(params: {
   }
   const profileCheck = validateApporteurProfileForContract(params.apporteur);
   if (!profileCheck.ok) {
-    throw new Error(profileCheck.error);
+    throw new Error("error" in profileCheck ? profileCheck.error : "Profil incomplet pour la signature.");
   }
   validateSignerName(params.apporteur, params.signerName);
 
+  const contractDoc = buildPartnerContractDocument(params.apporteur, params.sponsorName);
   const now = new Date().toISOString();
   const signature: NonNullable<Apporteur["contractSignature"]> = {
-    version: APPORTEUR_CONTRACT_VERSION,
+    version: contractDoc.version,
     signedAt: now,
     signerName: String(params.signerName).trim(),
     signerEmail: params.apporteur.email,

@@ -1,4 +1,4 @@
-export type ApporteurType = "apporteur_affaires" | "agent_immo" | "courtier" | "autre";
+export type ApporteurType = "apporteur_affaires" | "agent_immo" | "courtier" | "autre" | "conseiller_immo_club";
 
 export type ReferralStatus =
   | "NOUVEAU"
@@ -180,6 +180,7 @@ export const APPORTEUR_TYPE_LABELS: Record<ApporteurType, string> = {
   agent_immo: "Agent immobilier",
   courtier: "Courtier",
   autre: "Autre",
+  conseiller_immo_club: "Conseiller immobilier LCIF — assurance",
 };
 
 export const REFERRAL_STATUS_ORDER: ReferralStatus[] = [

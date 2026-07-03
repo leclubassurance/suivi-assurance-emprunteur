@@ -30,6 +30,7 @@ import {
   shouldForceReviewHeuristic,
 } from "./camilleReviewQueue";
 import { isLeadDossier } from "./leadDossierMerge";
+import { resolveConseillerPhaseBContext, buildConseillerPhaseBClientReplyPlain, wrapConseillerPhaseBClientReplyHtml, shouldClubEscalationOverridePhaseB } from "./conseillerPhaseBInbound";
 import { extractNewClientMessageText } from "./emailQuoteStrip";
 import {
   buildCamilleOperationalPromptBlock,
@@ -81,6 +82,34 @@ export async function processIncomingClientEmail(
         reason: "Prospect pré-formulaire — Camille ne répond pas avant dépôt du formulaire",
       };
     }
+
+    const phaseBCtx = await resolveConseillerPhaseBContext(dossier);
+    if (phaseBCtx) {
+      const clientMessageFresh = extractNewClientMessageText(emailText);
+      const clientMessageForEscalation =
+        clientMessageFresh.length >= 3 ? clientMessageFresh : emailText;
+      if (shouldClubEscalationOverridePhaseB(clientMessageForEscalation)) {
+        console.log(`[AI] ${dossier.id} phase B — escalade Club (litige)`);
+        return {
+          status: "escalated",
+          reason: "Phase B — litige / reprise directe Club",
+        };
+      }
+      const clientPrenom = dossier.formData?.assures?.[0]?.prenom || "";
+      const replyPlain = buildConseillerPhaseBClientReplyPlain({
+        clientPrenom,
+        conseillerPrenom: phaseBCtx.conseillerPrenom,
+        conseillerName: phaseBCtx.conseillerName,
+      });
+      console.log(`[AI] ${dossier.id} phase B conseiller — Camille désactivée, accusé client`);
+      return {
+        status: "skipped",
+        reason: `Phase autonome conseiller (${phaseBCtx.conseillerName}) — transfert + accusé géré hors Camille`,
+        replyPlain,
+        text: wrapConseillerPhaseBClientReplyHtml(replyPlain),
+      };
+    }
+
     const clientMessageFresh = extractNewClientMessageText(emailText);
     const clientMessageForAi =
       clientMessageFresh.length >= 3 ? clientMessageFresh : emailText;

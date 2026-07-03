@@ -4,7 +4,20 @@
  * - Plancher 200 € / plafond 500 € par assuré
  * - Rémunération apporteur = 50 % des frais de courtage
  */
-export type ApporteurRemunerationTier = "agent_immo" | "courtier" | "autre";
+export type ApporteurRemunerationTier =
+  | "agent_immo"
+  | "courtier"
+  | "autre"
+  | "apporteur_affaires"
+  | "conseiller_immo_club";
+
+export function resolveRemunerationTier(apporteurType: unknown): ApporteurRemunerationTier {
+  const t = String(apporteurType || "");
+  if (t === "conseiller_immo_club") return "conseiller_immo_club";
+  if (t === "agent_immo" || t === "courtier" || t === "autre") return t;
+  if (t === "apporteur_affaires") return "apporteur_affaires";
+  return "autre";
+}
 
 export type RemunerationConfig = {
   savingsSharePercent: number;
@@ -20,18 +33,35 @@ export type RemunerationConfig = {
   disclaimer: string;
 };
 
-export function getRemunerationConfig(_tier: ApporteurRemunerationTier = "autre"): RemunerationConfig {
+export function getRemunerationConfig(tier: ApporteurRemunerationTier = "autre"): RemunerationConfig {
+  if (tier === "conseiller_immo_club") {
+    return {
+      savingsSharePercent: 10,
+      minPerAssuredEur: 200,
+      maxPerAssuredEur: 500,
+      apporteurShareOfBrokerage: 0.7,
+      sponsorOverrideShareOfBrokerage: 0,
+      defaultAnnualSavingsEur: 3600,
+      defaultAssuredPerDossier: 1.5,
+      defaultConversionRate: 0.28,
+      disclaimer:
+        "Montants indicatifs TTC : 70 % des frais de courtage sur vos dossiers signés. Paiement à réception de la commission assureur.",
+    };
+  }
+  const mlmDisclaimer =
+    tier === "apporteur_affaires"
+      ? "Montants indicatifs TTC : 50 % des frais de courtage sur vos dossiers signés ; 10 % des frais de courtage sur les dossiers signés de vos filleuls directs (niveau 1). Paiement à réception de la commission assureur."
+      : "Montants indicatifs TTC : 50 % des frais de courtage sur vos dossiers signés. Paiement à réception de la commission assureur.";
   return {
     savingsSharePercent: 10,
     minPerAssuredEur: 200,
     maxPerAssuredEur: 500,
     apporteurShareOfBrokerage: 0.5,
-    sponsorOverrideShareOfBrokerage: 0.1,
+    sponsorOverrideShareOfBrokerage: tier === "apporteur_affaires" ? 0.1 : 0,
     defaultAnnualSavingsEur: 3600,
     defaultAssuredPerDossier: 1.5,
     defaultConversionRate: 0.28,
-    disclaimer:
-      "Montants indicatifs TTC : 50 % des frais de courtage sur vos dossiers signés ; 10 % des frais de courtage sur les dossiers signés de vos filleuls directs (niveau 1). Paiement à réception de la commission assureur.",
+    disclaimer: mlmDisclaimer,
   };
 }
 

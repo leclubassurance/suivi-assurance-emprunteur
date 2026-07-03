@@ -16,7 +16,7 @@ import { resolveCompanyNamesFromRegistryLookup } from "../shared/companyRegistry
 import { extractSirenFromSiret } from "../shared/siret";
 import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
 import { computeAdminApporteurKpis, computeReferralKpis } from "../shared/apporteurKpis";
-import { getRemunerationConfig } from "../shared/apporteurRemuneration";
+import { getRemunerationConfig, resolveRemunerationTier } from "../shared/apporteurRemuneration";
 import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
@@ -805,7 +805,7 @@ export function getApporteurKpisForReferrals(referrals: Referral[]) {
 }
 
 export function getRemunerationForApporteur(apporteur: Apporteur) {
-  return getRemunerationConfig(apporteur.type);
+  return getRemunerationConfig(resolveRemunerationTier(apporteur.type));
 }
 
 /** Retire les recommandations liées à un dossier supprimé. */

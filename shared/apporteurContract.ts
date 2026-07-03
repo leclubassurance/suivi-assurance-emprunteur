@@ -7,6 +7,8 @@ import {
   formatApporteurDisplayName,
   resolveApporteurTypeLabel,
 } from "./apporteurProfile";
+import { buildConseillerAssuranceContractDocument } from "./conseillerAssuranceContract";
+import { isConseillerImmoClubType } from "./conseillerImmoClub";
 
 /** Incrémenter à chaque révision substantielle du contrat affiché en ligne. */
 export const APPORTEUR_CONTRACT_VERSION = "2026-07-v1";
@@ -293,4 +295,15 @@ Une copie PDF du Contrat signé par les deux parties est remise au Partenaire pa
     sections,
     acceptanceLabel: `Je certifie avoir lu l'intégralité du contrat d'apporteur d'affaires de ${CLUB}, en accepter tous les termes sans réserve, et disposer de la capacité juridique pour m'y engager en qualité de Partenaire indépendant.`,
   };
+}
+
+/** Contrat affiché / signé selon le type de partenaire. */
+export function buildPartnerContractDocument(
+  apporteur: Parameters<typeof buildApporteurContractDocument>[0],
+  sponsorName?: string | null,
+): ApporteurContractDocument {
+  if (isConseillerImmoClubType(apporteur.type)) {
+    return buildConseillerAssuranceContractDocument(apporteur);
+  }
+  return buildApporteurContractDocument(apporteur, sponsorName);
 }
