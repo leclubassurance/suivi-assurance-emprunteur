@@ -25,6 +25,7 @@ import { adminFetch } from "../../lib/adminApi";
 import type { Dossier } from "../../types";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
 import AdminSubscriptionProgressPanel from "./AdminSubscriptionProgressPanel";
+import AdminConseillerSubscriptionPanel from "./AdminConseillerSubscriptionPanel";
 
 type GeminiUsageSummary = {
   sinceIso: string;
@@ -1233,6 +1234,11 @@ export function AdminCamillePanel({
           await reloadCamilleContext();
           onDossierUpdated?.();
         }}
+      />
+
+      <AdminConseillerSubscriptionPanel
+        dossier={dossier}
+        onUpdated={onDossierUpdated}
       />
 
       <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950">

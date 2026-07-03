@@ -1,8 +1,16 @@
 import React from "react";
 import { getBenefitCards } from "../../../shared/apporteurPortalContent";
 
-export default function PartnerBenefitCards({ payoutPerSignatureEur }: { payoutPerSignatureEur: number }) {
-  const cards = getBenefitCards(payoutPerSignatureEur);
+export default function PartnerBenefitCards({
+  payoutPerSignatureEur,
+  payoutSharePercent,
+  isConseiller,
+}: {
+  payoutPerSignatureEur: number;
+  payoutSharePercent?: number;
+  isConseiller?: boolean;
+}) {
+  const cards = getBenefitCards(payoutPerSignatureEur, { payoutSharePercent, isConseiller });
 
   return (
     <section className="grid sm:grid-cols-3 gap-3">

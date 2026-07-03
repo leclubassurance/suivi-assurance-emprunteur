@@ -48,7 +48,14 @@ Pour démarrer : ${params.referralLink}
 Je reste disponible si vous avez des questions.${signature}`;
 }
 
-export function getHeroCopy(_type: ApporteurType): { title: string; subtitle: string } {
+export function getHeroCopy(type: ApporteurType): { title: string; subtitle: string } {
+  if (type === "conseiller_immo_club") {
+    return {
+      title: "Vos clients, votre suivi",
+      subtitle:
+        "Orientez vos clients vers une étude gratuite d'assurance emprunteur. Le Club Immobilier Français gère le courtage ; vous conservez la relation et êtes rémunéré à 70 % des frais de courtage.",
+    };
+  }
   return {
     title: "Recommandez en 2 minutes",
     subtitle:
@@ -56,7 +63,11 @@ export function getHeroCopy(_type: ApporteurType): { title: string; subtitle: st
   };
 }
 
-export function getBenefitCards(payoutPerSignatureEur: number) {
+export function getBenefitCards(
+  payoutPerSignatureEur: number,
+  opts?: { payoutSharePercent?: number; isConseiller?: boolean },
+) {
+  const sharePct = Math.round((opts?.payoutSharePercent ?? (opts?.isConseiller ? 0.7 : 0.5)) * 100);
   return [
     {
       key: "client",
@@ -82,7 +93,7 @@ export function getBenefitCards(payoutPerSignatureEur: number) {
       lines: [
         `Jusqu'à ${payoutPerSignatureEur} € par dossier signé`,
         "Paiement à réception de la commission assureur",
-        "50 % des frais de courtage du Club",
+        `${sharePct} % des frais de courtage du Club`,
       ],
     },
   ] as const;

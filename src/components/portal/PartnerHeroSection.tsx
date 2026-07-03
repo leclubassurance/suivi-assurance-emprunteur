@@ -36,7 +36,9 @@ export default function PartnerHeroSection({
         }}
       />
       <div className="relative">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300/90 mb-2">Espace partenaire</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300/90 mb-2">
+          {apporteurType === "conseiller_immo_club" ? "Espace conseiller" : "Espace partenaire"}
+        </p>
         <h2 className="text-xl sm:text-2xl font-black tracking-tight leading-snug mb-2">{copy.title}</h2>
         <p className="text-sm text-indigo-100 leading-relaxed mb-5 max-w-xl">{copy.subtitle}</p>
 

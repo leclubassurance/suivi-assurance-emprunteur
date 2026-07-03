@@ -848,6 +848,18 @@ export function createApp() {
     try {
       await writeDB(db, dossier);
       try {
+        const { maybeNotifyConseillerStudySent } = await import("./conseillerStudyNotify");
+        const notifyResult = await maybeNotifyConseillerStudySent(dossier, {
+          subject: String(subject || ""),
+          excerpt: String(html || "").replace(/<[^>]+>/g, " ").slice(0, 1500),
+        }).catch(() => ({ sent: false }));
+        if (notifyResult.sent) {
+          await writeDB(db, dossier);
+        }
+      } catch {
+        /* non bloquant */
+      }
+      try {
         const { syncReferralFromDossier } = await import("./apporteurStore");
         const { syncNetworkReferralFromDossier } = await import("./networkStore");
         await syncNetworkReferralFromDossier(dossier, "admin_send_email");
@@ -1652,17 +1664,30 @@ export function createApp() {
       const { readDB } = await import("./db");
       const { computeApporteurTeamKpis } = await import("../shared/apporteurKpis");
       const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const {
+        isConseillerImmoClubType,
+        countSignedClientReferrals,
+        resolveConseillerOperatingPhase,
+        CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
+      } = await import("../shared/conseillerImmoClub");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+      const isConseillerClub = isConseillerImmoClubType(apporteur.type);
       const { pruneReferralsWithMissingDossiers } = await import("./apporteurStore");
       await pruneReferralsWithMissingDossiers();
       const store = await loadApporteurStore();
       const referrals = await listReferrals({ apporteurId: apporteur.id });
-      const downline = listDirectDownlineApporteurs(store, apporteur.id);
-      const teamReferrals = getTeamReferralsForApporteur(store, apporteur.id);
-      const partnerRecruits = (await listPartnerRecruits({ sponsorApporteurId: apporteur.id })).filter(
-        (r) => r.status !== "REFUSE" && r.status !== "CONTRAT_SIGNE",
-      );
+      const signedCount = countSignedClientReferrals(referrals);
+      const operatingPhase = isConseillerClub
+        ? resolveConseillerOperatingPhase(signedCount)
+        : null;
+      const downline = isConseillerClub ? [] : listDirectDownlineApporteurs(store, apporteur.id);
+      const teamReferrals = isConseillerClub ? [] : getTeamReferralsForApporteur(store, apporteur.id);
+      const partnerRecruits = isConseillerClub
+        ? []
+        : (await listPartnerRecruits({ sponsorApporteurId: apporteur.id })).filter(
+            (r) => r.status !== "REFUSE" && r.status !== "CONTRAT_SIGNE",
+          );
       const sponsor = apporteur.sponsorId
         ? store.apporteurs.find((a) => a.id === apporteur.sponsorId) || null
         : null;
@@ -1698,11 +1723,47 @@ export function createApp() {
       const contractStatus = apporteur.contractStatus || "none";
       const contractSigned = contractStatus === "signed";
       const { enrichReferralsForApporteurPortal } = await import("./apporteurPortalEnrich");
-      const enrichedReferrals = await enrichReferralsForApporteurPortal(
-        referrals,
-        publicBaseUrl,
-        remuneration,
-      );
+      const enrichedReferrals = isConseillerClub
+        ? await (async () => {
+            const { readDB, writeDB } = await import("./db");
+            const db = await readDB();
+            const dossierById = new Map(db.dossiers.map((d: any) => [d.id, d]));
+            const { enrichReferralForConseillerPortal } = await import("./conseillerPortalEnrich");
+            const payoutSharePercent = remuneration.apporteurShareOfBrokerage;
+            const out: any[] = [];
+            for (const r of referrals) {
+              const base = {
+                id: r.id,
+                status: r.status,
+                contact: r.contact,
+                createdAt: r.createdAt,
+                updatedAt: r.updatedAt,
+                events: (r.events || []).slice(-5),
+                tracking: null as any,
+              };
+              const dossier = r.dossierId ? dossierById.get(r.dossierId) : undefined;
+              if (!dossier) {
+                out.push(base);
+                continue;
+              }
+              base.tracking = enrichReferralForConseillerPortal({
+                referral: r,
+                dossier,
+                publicBaseUrl,
+                remuneration,
+                operatingPhase: operatingPhase!,
+                payoutSharePercent,
+              });
+              try {
+                await writeDB(db, dossier);
+              } catch {
+                /* token persist best-effort */
+              }
+              out.push(base);
+            }
+            return out;
+          })()
+        : await enrichReferralsForApporteurPortal(referrals, publicBaseUrl, remuneration);
       res.json({
         ok: true,
         apporteur: {
@@ -1749,6 +1810,14 @@ export function createApp() {
           signedAt: apporteur.contractSignedAt || null,
           needsSignature: !contractSigned,
         },
+        conseillerClub: isConseillerClub
+          ? {
+              operatingPhase,
+              signedCount,
+              autonomyThreshold: CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
+              payoutSharePercent: remuneration.apporteurShareOfBrokerage,
+            }
+          : null,
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
@@ -1980,14 +2049,130 @@ export function createApp() {
   );
 
   app.post(
+    "/api/apporteur-portal/:token/referrals/:referralId/conseiller-subscription",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken, findReferralById, listReferrals } = await import("./apporteurStore");
+        const {
+          isConseillerImmoClubType,
+          countSignedClientReferrals,
+          resolveConseillerOperatingPhase,
+        } = await import("../shared/conseillerImmoClub");
+        const { hasStudyBeenSent } = await import("./dossierLifecycle");
+        const { clientHasAcceptedInsuranceChange } = await import("./insuranceAcceptance");
+        const { addEvent } = await import("./dossierModel");
+
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (!isConseillerImmoClubType(apporteur.type)) {
+          return res.status(403).json({ ok: false, error: "not_conseiller" });
+        }
+        if ((apporteur.contractStatus || "none") !== "signed") {
+          return res.status(403).json({ ok: false, error: "contract_required" });
+        }
+
+        const referral = await findReferralById(req.params.referralId);
+        if (!referral || referral.apporteurId !== apporteur.id) {
+          return res.status(404).json({ ok: false, error: "referral_not_found" });
+        }
+        if (!referral.dossierId) {
+          return res.status(400).json({ ok: false, error: "no_dossier" });
+        }
+
+        const allReferrals = await listReferrals({ apporteurId: apporteur.id });
+        const phase = resolveConseillerOperatingPhase(countSignedClientReferrals(allReferrals));
+        if (phase !== "autonomous") {
+          return res.status(403).json({
+            ok: false,
+            error: "phase_a",
+            message: "Le formulaire souscription est disponible en phase B uniquement.",
+          });
+        }
+
+        const db = await readDBAsync();
+        const dossier = db.dossiers.find((d: any) => d.id === referral.dossierId);
+        if (!dossier) return res.status(404).json({ ok: false, error: "dossier_not_found" });
+
+        if (!hasStudyBeenSent(dossier) || !clientHasAcceptedInsuranceChange(dossier)) {
+          return res.status(400).json({
+            ok: false,
+            error: "not_ready",
+            message: "Le client doit avoir reçu l'étude et accepté le changement.",
+          });
+        }
+
+        const body = (req.body || {}) as any;
+        const creditOfferRef = String(body.creditOfferRef || "").trim();
+        const addressLine = String(body.addressLine || "").trim();
+        const postalCode = String(body.postalCode || "").trim();
+        const city = String(body.city || "").trim();
+        const borrowers = Array.isArray(body.borrowers) ? body.borrowers : [];
+        if (!creditOfferRef || !addressLine || !postalCode || !city) {
+          return res.status(400).json({ ok: false, error: "Champs adresse et référence crédit requis" });
+        }
+        const normalizedBorrowers = borrowers
+          .map((b: any) => ({
+            prenom: String(b?.prenom || "").trim(),
+            nom: String(b?.nom || "").trim(),
+            rib: String(b?.rib || "").trim() || undefined,
+            identityRef: String(b?.identityRef || "").trim() || undefined,
+          }))
+          .filter((b) => b.prenom || b.nom);
+        if (!normalizedBorrowers.length) {
+          return res.status(400).json({ ok: false, error: "Au moins un emprunteur requis" });
+        }
+
+        const now = new Date().toISOString();
+        const existing = (dossier as any).conseillerSubscription;
+        if (existing?.submittedAt && existing.status !== "pending") {
+          return res.status(409).json({ ok: false, error: "already_submitted" });
+        }
+
+        (dossier as any).conseillerSubscription = {
+          status: "pending",
+          submittedAt: now,
+          submittedByApporteurId: apporteur.id,
+          creditOfferRef,
+          addressLine,
+          postalCode,
+          city,
+          borrowers: normalizedBorrowers,
+          updatedAt: now,
+        };
+        dossier.updatedAt = now;
+        addEvent(dossier, {
+          type: "NOTE_ADDED",
+          actor: { kind: "APPORTEUR", label: apporteur.companyName || "Conseiller" },
+          message: "Formulaire souscription conseiller transmis à LCIF.",
+          meta: { conseillerSubscription: true, referralId: referral.id },
+        });
+        await writeDB(db, dossier);
+        res.json({ ok: true, subscription: (dossier as any).conseillerSubscription });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.post(
     "/api/apporteur-portal/:token/partner-recruits",
     apporteurPortalPostLimiter,
     express.json(),
     async (req, res) => {
       try {
         const { findApporteurByPortalToken, createPartnerRecruit } = await import("./apporteurStore");
+        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (isConseillerImmoClubType(apporteur.type)) {
+          return res.status(403).json({
+            ok: false,
+            error: "not_available",
+            message: "Le recrutement de partenaires n'est pas disponible pour les conseillers du club.",
+          });
+        }
         if ((apporteur.contractStatus || "none") !== "signed") {
           return res.status(403).json({
             ok: false,
@@ -3243,6 +3428,55 @@ export function createApp() {
       subscription: buildSubscriptionProgressAdminView(dossier),
       dossierStatus: dossier.status,
     });
+  });
+
+  app.patch("/api/admin/dossiers/:id/conseiller-subscription", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { findApporteurById } = await import("./apporteurStore");
+    const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+    const { isConseillerSubscriptionStatus, CONSEILLER_SUBSCRIPTION_STATUS_LABELS } = await import(
+      "../shared/conseillerSubscription"
+    );
+    const { addEvent } = await import("./dossierModel");
+
+    const apporteurId = String((dossier as any).apporteur?.apporteurId || "").trim();
+    if (apporteurId) {
+      const apporteur = await findApporteurById(apporteurId);
+      if (!apporteur || !isConseillerImmoClubType(apporteur.type)) {
+        return res.status(400).json({ error: "Dossier non rattaché à un conseiller LCIF" });
+      }
+    } else if (!(dossier as any).conseillerSubscription) {
+      return res.status(400).json({ error: "Pas de souscription conseiller sur ce dossier" });
+    }
+
+    const status = (req.body as any)?.status;
+    if (!isConseillerSubscriptionStatus(status)) {
+      return res.status(400).json({ error: "Statut invalide" });
+    }
+
+    const note = typeof (req.body as any)?.adminNote === "string" ? (req.body as any).adminNote.trim() : "";
+    const now = new Date().toISOString();
+    const prev = (dossier as any).conseillerSubscription || { status: "pending", updatedAt: now };
+    (dossier as any).conseillerSubscription = {
+      ...prev,
+      status,
+      adminNote: note || prev.adminNote,
+      updatedAt: now,
+      updatedBy: String((req.body as any)?.updatedBy || "admin"),
+    };
+    dossier.updatedAt = now;
+    addEvent(dossier, {
+      type: "STATUS_CHANGE",
+      actor: { kind: "ADMIN", label: "Admin" },
+      message: `Souscription conseiller : ${CONSEILLER_SUBSCRIPTION_STATUS_LABELS[status]}${note ? ` — ${note.slice(0, 120)}` : ""}`,
+      meta: { conseillerSubscriptionStatus: status },
+    });
+    await writeDB(db, dossier);
+    res.json({ ok: true, subscription: (dossier as any).conseillerSubscription });
   });
 
   app.get("/api/admin/dossiers/:id/portal-link", async (req, res) => {

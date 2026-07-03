@@ -8,6 +8,7 @@ type Commission = {
   apporteurPayoutEur: number;
   source: "manual" | "auto" | "estimate";
   hasStudyFees: boolean;
+  payoutSharePercent?: number;
 };
 
 type Tracking = {
@@ -27,6 +28,7 @@ const COMMISSION_SOURCE_LABEL: Record<Commission["source"], string> = {
 
 export default function PartnerReferralTracking({ tracking }: { tracking: Tracking }) {
   const isEstimate = tracking.commission?.source === "estimate";
+  const sharePct = Math.round((tracking.commission?.payoutSharePercent ?? 0.5) * 100);
   return (
     <div className="mt-3 pt-3 border-t border-slate-100">
       <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
@@ -53,7 +55,7 @@ export default function PartnerReferralTracking({ tracking }: { tracking: Tracki
           {isEstimate ? "Commission estimée" : "Frais de courtage"} :{" "}
           <strong>{tracking.commission.feesCourtageEur} €</strong>
           {" · "}
-          Votre part (50 %) : <strong className="text-emerald-700">{tracking.commission.apporteurPayoutEur} €</strong>
+          Votre part ({sharePct} %) : <strong className="text-emerald-700">{tracking.commission.apporteurPayoutEur} €</strong>
           <span className="text-slate-400"> ({COMMISSION_SOURCE_LABEL[tracking.commission.source]})</span>
         </p>
       ) : null}

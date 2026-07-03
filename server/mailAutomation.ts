@@ -647,6 +647,21 @@ export async function syncGmailInbox(
         const prevStatus = dossier.status;
         if (applyStudySentStatusIfNeeded(dossier)) msgChanged = true;
         if (dossier.status !== prevStatus) msgChanged = true;
+        try {
+          const { hasStudyBeenSent } = await import("./dossierLifecycle");
+          if (hasStudyBeenSent(dossier)) {
+            const { maybeNotifyConseillerStudySent } = await import("./conseillerStudyNotify");
+            const notifyResult = await maybeNotifyConseillerStudySent(dossier, {
+              subject,
+              excerpt: String(text || html || "")
+                .replace(/<[^>]+>/g, " ")
+                .slice(0, 1500),
+            });
+            if (notifyResult.sent) msgChanged = true;
+          }
+        } catch (notifyErr: any) {
+          console.warn(`[Conseiller] Copie étude: ${notifyErr?.message || notifyErr}`);
+        }
       }
 
       if (isFromClient) {

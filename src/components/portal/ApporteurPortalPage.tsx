@@ -23,6 +23,12 @@ import PartnerContractSigning from "./PartnerContractSigning";
 import SiretLookupField, { type SiretLookupResult } from "./SiretLookupField";
 import { resolveCompanyNamesFromRegistryLookup } from "../../../shared/companyRegistryName";
 import PartnerContractWorkflow from "./PartnerContractWorkflow";
+import ConseillerPhaseBanner from "./ConseillerPhaseBanner";
+import ConseillerSubscriptionForm from "./ConseillerSubscriptionForm";
+import ConseillerReferralCommunications from "./ConseillerReferralCommunications";
+import { CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
+import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
+import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
 
 type PortalReferralTracking = {
   dossierId: string;
@@ -35,7 +41,17 @@ type PortalReferralTracking = {
     apporteurPayoutEur: number;
     source: "manual" | "auto" | "estimate";
     hasStudyFees: boolean;
+    payoutSharePercent?: number;
   } | null;
+  communications?: {
+    direction: "inbound" | "outbound";
+    date: string;
+    subject?: string;
+    excerpt: string;
+  }[];
+  conseillerSubscription?: ConseillerSubscriptionPackage | null;
+  canSubmitSubscription?: boolean;
+  operatingPhase?: ConseillerOperatingPhase;
 };
 
 type PortalReferral = {
@@ -114,6 +130,12 @@ type PortalData = {
     signedAt: string | null;
     needsSignature: boolean;
   };
+  conseillerClub?: {
+    operatingPhase: ConseillerOperatingPhase;
+    signedCount: number;
+    autonomyThreshold: number;
+    payoutSharePercent: number;
+  } | null;
 };
 
 const FILLEUL_STATUS: Record<
@@ -315,6 +337,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
 
   const typeLabel =
     APPORTEUR_TYPE_LABELS[data.apporteur.type as keyof typeof APPORTEUR_TYPE_LABELS] || data.apporteur.type;
+  const isConseillerClub = data.apporteur.type === CONSEILLER_IMMO_CLUB_TYPE;
   const unlocked = data.portalUnlocked !== false && data.contract?.signed !== false;
 
   if (!unlocked) {
@@ -369,6 +392,14 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           onNewReferral={openNewReferral}
         />
 
+        {isConseillerClub && data.conseillerClub ? (
+          <ConseillerPhaseBanner
+            operatingPhase={data.conseillerClub.operatingPhase}
+            signedCount={data.conseillerClub.signedCount}
+            autonomyThreshold={data.conseillerClub.autonomyThreshold}
+          />
+        ) : null}
+
         {data.contract?.signed ? (
           <section className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="text-slate-600">
@@ -388,7 +419,11 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           </section>
         ) : null}
 
-        <PartnerBenefitCards payoutPerSignatureEur={payoutPerSignature} />
+        <PartnerBenefitCards
+          payoutPerSignatureEur={payoutPerSignature}
+          payoutSharePercent={data.conseillerClub?.payoutSharePercent ?? data.remuneration.apporteurShareOfBrokerage}
+          isConseiller={isConseillerClub}
+        />
 
         <PartnerClientScript
           referralLink={data.referralLink}
@@ -398,6 +433,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
 
         <PartnerJourneyTimeline />
 
+        {!isConseillerClub ? (
         <PartnerEarningsPanel
           earnings={data.earnings}
           remuneration={data.remuneration}
@@ -412,8 +448,9 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           onSimSavings={setSimSavings}
           onSimAssured={setSimAssured}
         />
+        ) : null}
 
-        {(data.earnings.personalEarnedEur != null || data.earnings.teamEarnedEur != null) ? (
+        {!isConseillerClub && (data.earnings.personalEarnedEur != null || data.earnings.teamEarnedEur != null) ? (
           <div className="space-y-2 -mt-2">
             {data.earnings.earningsBasis && data.earnings.earningsBasis !== "estimate" ? (
               <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
@@ -449,6 +486,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           </div>
         ) : null}
 
+        {!isConseillerClub ? (
         <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 flex items-center gap-2">
@@ -507,8 +545,10 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
             </form>
           ) : null}
         </section>
+        ) : null}
 
-        {((data.downline?.length ?? 0) > 0 || (data.partnerRecruits?.length ?? 0) > 0) ? (
+        {!isConseillerClub &&
+        ((data.downline?.length ?? 0) > 0 || (data.partnerRecruits?.length ?? 0) > 0) ? (
           <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 flex items-center gap-2 mb-1">
               <Users className="w-4 h-4" /> Mon équipe (filleuls directs)
@@ -597,8 +637,14 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
         ) : null}
 
         <section ref={referralsRef} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 mb-1">Mes clients recommandés</h2>
-          <p className="text-xs text-slate-400 mb-4">Personnes que vous avez orientées vers LCIF — suivi de vos propres recommandations.</p>
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 mb-1">
+            {isConseillerClub ? "Mes clients orientés" : "Mes clients recommandés"}
+          </h2>
+          <p className="text-xs text-slate-400 mb-4">
+            {isConseillerClub
+              ? "Clients que vous avez orientés vers LCIF — suivi et étapes de souscription."
+              : "Personnes que vous avez orientées vers LCIF — suivi de vos propres recommandations."}
+          </p>
           <div className="grid grid-cols-3 gap-3 mb-5">
             <KpiCard label="Total" value={data.kpis.total} accent="indigo" />
             <KpiCard label="En cours" value={data.kpis.open} accent="amber" sub="dossier ouvert ou étude" />
@@ -668,6 +714,23 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
                       Mis à jour le {new Date(r.updatedAt).toLocaleDateString("fr-FR")}
                     </p>
                     {r.tracking ? <PartnerReferralTracking tracking={r.tracking} /> : null}
+                    {isConseillerClub && r.tracking?.communications?.length ? (
+                      <ConseillerReferralCommunications communications={r.tracking.communications} />
+                    ) : null}
+                    {isConseillerClub &&
+                    r.tracking &&
+                    (r.tracking.canSubmitSubscription || r.tracking.conseillerSubscription?.submittedAt) ? (
+                      <ConseillerSubscriptionForm
+                        portalToken={token}
+                        referralId={r.id}
+                        existing={r.tracking.conseillerSubscription}
+                        canSubmit={Boolean(r.tracking.canSubmitSubscription)}
+                        onSubmitted={async () => {
+                          setSubmitMsg("Formulaire transmis — LCIF va finaliser la souscription.");
+                          await load();
+                        }}
+                      />
+                    ) : null}
                   </div>
                 );
               })
