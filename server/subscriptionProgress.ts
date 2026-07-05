@@ -1,5 +1,5 @@
 import type { Dossier } from "./dossierModel";
-import { hasStudyBeenSent, getLastStudyOutbound } from "./dossierLifecycle";
+import { hasStudyBeenSent, getLastStudyOutbound, isStudyPendingConseillerValidation } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { isLoanDocsStepComplete } from "./loanDocPresence";
 
@@ -245,6 +245,14 @@ export function buildSubscriptionProgressAdminView(dossier: Dossier) {
 export function resolveClientPortalStatusView(dossier: Dossier): ClientPortalStatusView {
   const subPhase = resolveEffectiveSubscriptionPhase(dossier);
   const studySent = hasStudyBeenSent(dossier);
+
+  if (isStudyPendingConseillerValidation(dossier)) {
+    return {
+      label: "Étude en préparation",
+      description:
+        "Votre étude personnalisée est en cours de finalisation. Vous la recevrez par email très prochainement.",
+    };
+  }
 
   if (subPhase === "completed") {
     return {

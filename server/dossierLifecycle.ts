@@ -10,11 +10,42 @@ export function isOutboundConfirmation(subject: string, text?: string) {
   return CONFIRMATION_RE.test(blob);
 }
 
+/** Étude soumise au conseiller, en attente de validation courtage (pas encore envoyée au client). */
+export function isStudyPendingConseillerValidation(dossier: Dossier): boolean {
+  return dossier.studyConseillerValidation?.status === "pending";
+}
+
+function isClientStudyOutboundEvent(meta: unknown, message?: string): boolean {
+  const blob = `${message || ""} ${JSON.stringify(meta || {})}`;
+  if (/STUDY_CONSEILLER_SUBMIT|STUDY_CONSEILLER_NOTIFY|CONSEILLER_STUDY_COPY/i.test(blob)) {
+    return false;
+  }
+  return /étude|STUDY|personnalisée|personnalisee|économies|economies/i.test(blob);
+}
+
 /** Mail d'étude / proposition d'économies déjà envoyé au client (historique réel). */
 export function hasStudyBeenSent(dossier: Dossier): boolean {
+  if (isStudyPendingConseillerValidation(dossier)) return false;
+
+  if (dossier.studyConseillerValidation?.sentAt) return true;
+
   const st = String(dossier.status || "");
-  if (["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(st)) return true;
-  if (dossier.studyDraft?.html || dossier.studyDraft?.subject) return true;
+  if (["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(st)) {
+    // Brouillon seul ou soumission conseiller sans envoi client : ne pas confondre avec un envoi réel.
+    const hasRealOutbound = [...(dossier.communications || [])].some((c) => {
+      if (c.direction !== "outbound") return false;
+      const subject = String(c.subject || "");
+      if (isOutboundConfirmation(subject, c.text)) return false;
+      return (
+        STUDY_SUBJECT_RE.test(subject) ||
+        (/assurance emprunteur/i.test(subject) &&
+          /personnalisée|personnalisee|économies|economies/i.test(subject))
+      );
+    });
+    if (hasRealOutbound || dossier.studyConseillerValidation?.status === "approved") return true;
+    if (dossier.studyDraft?.html || dossier.studyDraft?.subject) return false;
+    return true;
+  }
 
   for (const c of dossier.communications || []) {
     if (c.direction !== "outbound") continue;
@@ -28,8 +59,8 @@ export function hasStudyBeenSent(dossier: Dossier): boolean {
 
   for (const e of dossier.eventLog || []) {
     if (e.type !== "EMAIL_SENT") continue;
-    const blob = `${e.message || ""} ${JSON.stringify(e.meta || {})}`;
-    if (/étude|STUDY|personnalisée|personnalisee|économies/i.test(blob)) return true;
+    if (!isClientStudyOutboundEvent(e.meta, e.message)) continue;
+    return true;
   }
 
   for (const em of dossier.emails || []) {

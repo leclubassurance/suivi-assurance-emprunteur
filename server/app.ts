@@ -2160,9 +2160,9 @@ export function createApp() {
           validateFeesPerAssuredEur,
         } = await import("./studyConseillerValidation");
         const { sendClientStudyEmail } = await import("./sendClientStudyEmail");
-        const { hasStudyBeenSent } = await import("./dossierLifecycle");
-
-        const apporteur = await findApporteurByPortalToken(req.params.token);
+        const { hasStudyBeenSent, isStudyPendingConseillerValidation } = await import(
+          "./dossierLifecycle"
+        );
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
         if (!isConseillerImmoClubType(apporteur.type)) {
           return res.status(403).json({ ok: false, error: "not_conseiller" });
@@ -2185,8 +2185,15 @@ export function createApp() {
             message: "Aucune étude en attente de validation pour ce dossier.",
           });
         }
-        if (hasStudyBeenSent(dossier)) {
-          return res.status(409).json({ ok: false, error: "study_already_sent" });
+        if (
+          !isStudyPendingConseillerValidation(dossier) &&
+          hasStudyBeenSent(dossier)
+        ) {
+          return res.status(409).json({
+            ok: false,
+            error: "study_already_sent",
+            message: "L'étude a déjà été envoyée au client.",
+          });
         }
 
         const feesPerAssuredEur = Number((req.body as any)?.feesPerAssuredEur);

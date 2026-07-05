@@ -7,7 +7,7 @@ import {
   type ConseillerSubscriptionStatus,
 } from "../shared/conseillerSubscription";
 import type { Dossier } from "./dossierModel";
-import { hasStudyBeenSent } from "./dossierLifecycle";
+import { hasStudyBeenSent, isStudyPendingConseillerValidation } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { resolveDossierCommission } from "../shared/apporteurCommissionFromDossier";
 import type { ApporteurReferralTracking } from "./apporteurPortalEnrich";
@@ -57,25 +57,39 @@ function buildConseillerSubscriptionSteps(
   dossier: Dossier,
   operatingPhase: ConseillerOperatingPhase,
 ): { key: string; label: string; done: boolean; active: boolean }[] {
+  const studyPendingValidation = isStudyPendingConseillerValidation(dossier);
   const studySent = hasStudyBeenSent(dossier);
   const accepted = clientHasAcceptedInsuranceChange(dossier);
   const sub: ConseillerSubscriptionPackage | undefined = (dossier as any).conseillerSubscription;
   const subStatus: ConseillerSubscriptionStatus = sub?.status || "pending";
 
   const steps = [
+    {
+      key: "study_validation",
+      label: "Validation courtage (conseiller)",
+      done: studySent,
+      active: studyPendingValidation,
+    },
     { key: "study", label: "Étude envoyée au client", done: studySent, active: false },
     {
       key: "decision",
       label: "Décision client",
-      done: accepted,
+      done: accepted && studySent,
       active: studySent && !accepted,
     },
   ];
 
   if (operatingPhase !== "autonomous") {
-    return steps.map((s, i) => ({
+    const activeKey = studyPendingValidation
+      ? "study_validation"
+      : !studySent
+        ? "study"
+        : studySent && !accepted
+          ? "decision"
+          : null;
+    return steps.map((s) => ({
       ...s,
-      active: !s.done && (i === 0 ? !studySent : i === 1 && studySent && !accepted),
+      active: s.key === activeKey,
     }));
   }
 
@@ -139,7 +153,13 @@ export function enrichReferralForConseillerPortal(params: {
   if (!token || token.length < 24) {
     token = ensureClientPortalToken(dossier);
   }
-  const statusView = resolveClientPortalStatusView(dossier);
+  const statusView = studyValidationRaw?.status === "pending"
+    ? {
+        label: "Étude en validation — courtage",
+        description:
+          "L'étude a été préparée par LCIF. Validez les frais de courtage pour déclencher l'envoi au client.",
+      }
+    : resolveClientPortalStatusView(dossier);
   const studySent = hasStudyBeenSent(dossier);
   const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
   const steps = buildConseillerSubscriptionSteps(dossier, operatingPhase);

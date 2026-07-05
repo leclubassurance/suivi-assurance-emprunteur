@@ -17,6 +17,14 @@ export type StudyValidationPending = {
   payoutSharePercent: number;
 };
 
+const PORTAL_ERROR_LABELS: Record<string, string> = {
+  study_already_sent: "L'étude a déjà été envoyée au client.",
+  no_pending_validation: "Aucune étude en attente de validation.",
+  patch_failed: "Impossible de mettre à jour la ligne « Frais de courtage » dans l'étude.",
+  forbidden: "Accès refusé pour ce dossier.",
+  dossier_not_found: "Dossier introuvable.",
+};
+
 export default function ConseillerStudyValidation({
   portalToken,
   validation,
@@ -57,7 +65,12 @@ export default function ConseillerStudyValidation({
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok || json.ok === false) {
-        setError(json.error || json.message || "Validation impossible");
+        setError(
+          json.message ||
+            PORTAL_ERROR_LABELS[String(json.error || "")] ||
+            json.error ||
+            "Validation impossible",
+        );
         return;
       }
       setDone(true);
