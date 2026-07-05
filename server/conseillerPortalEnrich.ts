@@ -58,6 +58,7 @@ function buildConseillerSubscriptionSteps(
   operatingPhase: ConseillerOperatingPhase,
 ): { key: string; label: string; done: boolean; active: boolean }[] {
   const studyPendingValidation = isStudyPendingConseillerValidation(dossier);
+  const validationApproved = dossier.studyConseillerValidation?.status === "approved";
   const studySent = hasStudyBeenSent(dossier);
   const accepted = clientHasAcceptedInsuranceChange(dossier);
   const sub: ConseillerSubscriptionPackage | undefined = (dossier as any).conseillerSubscription;
@@ -67,10 +68,16 @@ function buildConseillerSubscriptionSteps(
     {
       key: "study_validation",
       label: "Validation courtage (conseiller)",
-      done: studySent,
+      done: validationApproved || studySent,
       active: studyPendingValidation,
     },
     { key: "study", label: "Étude envoyée au client", done: studySent, active: false },
+    {
+      key: "study_lcif_send",
+      label: "Envoi étude (LCIF)",
+      done: studySent,
+      active: validationApproved && !studySent,
+    },
     {
       key: "decision",
       label: "Décision client",
@@ -79,15 +86,22 @@ function buildConseillerSubscriptionSteps(
     },
   ];
 
+  const visibleStudySteps =
+    validationApproved && !studySent
+      ? steps.filter((s) => s.key !== "study")
+      : steps.filter((s) => s.key !== "study_lcif_send");
+
   if (operatingPhase !== "autonomous") {
     const activeKey = studyPendingValidation
       ? "study_validation"
-      : !studySent
-        ? "study"
-        : studySent && !accepted
-          ? "decision"
-          : null;
-    return steps.map((s) => ({
+      : validationApproved && !studySent
+        ? "study_lcif_send"
+        : !studySent
+          ? "study_validation"
+          : studySent && !accepted
+            ? "decision"
+            : null;
+    return visibleStudySteps.map((s) => ({
       ...s,
       active: s.key === activeKey,
     }));
@@ -120,7 +134,7 @@ function buildConseillerSubscriptionSteps(
     },
   ];
 
-  const all = [...steps, ...clubSteps];
+  const all = [...visibleStudySteps, ...clubSteps];
   const firstPending = all.find((s) => !s.done);
   return all.map((s) => ({
     ...s,
@@ -162,6 +176,7 @@ export function enrichReferralForConseillerPortal(params: {
           dossierId: dossier.id,
           subject: studyValidationRaw.subject,
           submittedAt: studyValidationRaw.submittedAt,
+          debriefNote: studyValidationRaw.debriefNote,
           ...buildStudyValidationSummaryForPortal(studyValidationRaw, remuneration),
         }
       : null;
@@ -171,11 +186,17 @@ export function enrichReferralForConseillerPortal(params: {
 
   const statusView = studyValidationRaw?.status === "pending"
     ? {
-        label: "Étude en validation — courtage",
+        label: "Débrief — validation courtage",
         description:
-          "L'étude a été préparée par LCIF. Validez les frais de courtage pour déclencher l'envoi au client.",
+          "Validez les frais de courtage. L'équipe LCIF enverra l'étude au client après votre validation.",
       }
-    : studySent && !clientAccepted
+    : studyValidationRaw?.status === "approved" && !studySent
+      ? {
+          label: "Courtage validé — envoi LCIF",
+          description:
+            "Les frais de courtage sont validés. L'équipe LCIF prépare l'envoi de l'étude au client.",
+        }
+      : studySent && !clientAccepted
       ? {
           label: "Étude envoyée — décision en attente",
           description:

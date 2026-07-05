@@ -29,7 +29,10 @@ export type StudyConseillerValidation = {
   conseillerRetroEur?: number;
   approvedAt?: string;
   approvedBy?: string;
+  /** @deprecated Ne plus utiliser — l'envoi client est manuel depuis l'admin. */
   sentAt?: string;
+  /** Note contexte visible par le conseiller (débrief admin). */
+  debriefNote?: string;
 };
 
 export type StudyValidationContext = {
@@ -133,6 +136,34 @@ export async function dossierRequiresConseillerStudyValidation(dossier: Dossier)
   return Boolean(await resolveDossierConseillerApporteur(dossier));
 }
 
+/** Bloque l'envoi admin tant que le courtage n'est pas validé par le conseiller. */
+export async function getConseillerStudySendGate(
+  dossier: Dossier,
+): Promise<{ blocked: boolean; reason?: string }> {
+  if (!(await dossierRequiresConseillerStudyValidation(dossier))) {
+    return { blocked: false };
+  }
+  const v = dossier.studyConseillerValidation;
+  if (v?.status === "pending") {
+    return {
+      blocked: true,
+      reason: "En attente de validation du courtage par le conseiller.",
+    };
+  }
+  if (v?.status === "approved") {
+    return { blocked: false };
+  }
+  const { hasStudyBeenSent } = await import("./dossierLifecycle");
+  if (hasStudyBeenSent(dossier)) {
+    return { blocked: false };
+  }
+  return {
+    blocked: true,
+    reason:
+      "Soumettez d'abord le débrief au conseiller pour validation du courtage, puis envoyez l'étude après sa validation.",
+  };
+}
+
 export function validateFeesPerAssuredEur(
   feesPerAssuredEur: number,
   config: Pick<RemunerationConfig, "minPerAssuredEur" | "maxPerAssuredEur">,
@@ -200,13 +231,17 @@ export async function notifyConseillerStudyPending(params: {
       ? `Économie affichée : ${Math.round(validation.grossSavingsEur).toLocaleString("fr-FR")} €`
       : "Économie : à confirmer dans l'étude";
 
-  const subject = `[${dossier.id}] Étude à valider — frais de courtage`;
+  const subject = `[${dossier.id}] Débrief étude — valider le courtage`;
+  const debriefBlock = validation.debriefNote
+    ? `<p style="background:#F8FAFC;border-left:4px solid #1E3A8A;padding:12px 16px;margin:16px 0"><strong>Contexte LCIF :</strong><br>${String(validation.debriefNote).replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>`
+    : "";
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.55;color:#334155">
     <p>Bonjour ${prenom},</p>
-    <p>Une étude d'assurance emprunteur est prête pour le dossier <strong>${dossier.id}</strong>${clientName ? ` (${clientName})` : ""}.</p>
+    <p>Un dossier assurance emprunteur est prêt pour validation du <strong>courtage</strong> : <strong>${dossier.id}</strong>${clientName ? ` (${clientName})` : ""}.</p>
     <p>${grossLine}<br>Assurés : <strong>${validation.assuredCount}</strong></p>
-    <p>Merci de valider les frais de courtage dans votre espace conseiller. L'étude sera envoyée au client automatiquement après validation.</p>
-    <p style="margin:24px 0"><a href="${portalUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Valider l'étude</a></p>
+    ${debriefBlock}
+    <p>Indiquez le montant de courtage adapté à ce client (barème 200–500 € / assuré). L'équipe LCIF enverra ensuite l'étude au client.</p>
+    <p style="margin:24px 0"><a href="${portalUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Valider le courtage</a></p>
     <p style="font-size:12px;color:#64748b">Le Club Immobilier Français</p>
   </div>`;
 
@@ -215,28 +250,52 @@ export async function notifyConseillerStudyPending(params: {
   return { sent: true };
 }
 
+export async function notifyAdminStudyCourtageApproved(params: {
+  dossier: Dossier;
+  apporteur: NonNullable<Awaited<ReturnType<typeof findApporteurById>>>;
+  validation: StudyConseillerValidation;
+}): Promise<{ sent: boolean }> {
+  const { dossier, apporteur, validation } = params;
+  const notifyTo = process.env.AI_ESCALATION_EMAIL || "remi@leclubimmobilier.fr";
+  const clientName = [
+    dossier.formData?.assures?.[0]?.prenom,
+    dossier.formData?.assures?.[0]?.nom,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const conseillerName = formatApporteurDisplayName(apporteur);
+  const perAssured = validation.feesPerAssuredEur ?? 0;
+  const total = validation.feesCourtageTotalEur ?? 0;
+  const subject = `[${dossier.id}] Courtage validé — envoyer l'étude au client`;
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.55;color:#334155">
+    <p><strong>${conseillerName}</strong> a validé le courtage pour le dossier <strong>${dossier.id}</strong>${clientName ? ` (${clientName})` : ""}.</p>
+    <ul>
+      <li>Courtage : <strong>${perAssured} €</strong> / assuré × ${validation.assuredCount} = <strong>${total} €</strong></li>
+      ${validation.grossSavingsEur != null ? `<li>Économie affichée : <strong>${Math.round(validation.grossSavingsEur).toLocaleString("fr-FR")} €</strong></li>` : ""}
+      <li>Rétro conseiller (70 %) : <strong>${validation.conseillerRetroEur ?? 0} €</strong></li>
+    </ul>
+    <p>Mettez à jour la ligne « Frais de courtage » dans votre HTML et envoyez l'étude depuis l'admin.</p>
+  </div>`;
+  const result = await sendEmail({ to: notifyTo, subject, html });
+  return { sent: result.ok };
+}
+
 export async function submitStudyToConseiller(params: {
   dossier: Dossier;
   subject: string;
   html: string;
   submittedBy?: string;
   publicBaseUrl: string;
+  debriefNote?: string;
 }): Promise<
   | { ok: true; validation: StudyConseillerValidation }
   | { ok: false; error: string }
 > {
-  const { dossier, subject, html, submittedBy, publicBaseUrl } = params;
+  const { dossier, subject, html, submittedBy, publicBaseUrl, debriefNote } = params;
   const trimmedHtml = String(html || "").trim();
   const trimmedSubject = String(subject || "").trim();
   if (!trimmedSubject || !trimmedHtml) {
     return { ok: false, error: "Objet et HTML requis." };
-  }
-  if (!hasBrokerageFeeLine(trimmedHtml)) {
-    return {
-      ok: false,
-      error:
-        "Le HTML doit contenir une ligne « Frais de courtage : <strong>…</strong> » pour que le conseiller puisse fixer le montant.",
-    };
   }
 
   const apporteur = await resolveDossierConseillerApporteur(dossier);
@@ -245,6 +304,18 @@ export async function submitStudyToConseiller(params: {
   }
   if (!apporteur.portalToken) {
     return { ok: false, error: "Le conseiller n'a pas de lien portail actif." };
+  }
+
+  const { hasStudyBeenSent } = await import("./dossierLifecycle");
+  if (hasStudyBeenSent(dossier)) {
+    return { ok: false, error: "study_already_sent" };
+  }
+  const existing = dossier.studyConseillerValidation;
+  if (existing?.status === "pending") {
+    return { ok: false, error: "validation_pending" };
+  }
+  if (existing?.status === "approved") {
+    return { ok: false, error: "validation_already_approved" };
   }
 
   const ctx = extractStudyValidationContext(trimmedHtml, dossier);
@@ -259,6 +330,7 @@ export async function submitStudyToConseiller(params: {
     feesAssureurEur: ctx.feesAssureurEur ?? undefined,
     assuredCount: ctx.assuredCount,
     suggestedFeePerAssuredEur: ctx.suggestedFeePerAssuredEur,
+    debriefNote: debriefNote?.trim() || undefined,
   };
 
   (dossier as Dossier & { studyConseillerValidation?: StudyConseillerValidation }).studyConseillerValidation =
@@ -283,7 +355,7 @@ export async function submitStudyToConseiller(params: {
   addEvent(dossier, {
     type: "NOTE_ADDED",
     actor: { kind: "ADMIN", label: submittedBy || "Admin" },
-    message: "Étude soumise au conseiller pour validation du courtage.",
+    message: "Débrief soumis au conseiller pour validation du courtage.",
     meta: {
       template: "STUDY_CONSEILLER_SUBMIT",
       grossSavingsEur: ctx.grossSavingsEur,
@@ -308,6 +380,56 @@ export async function submitStudyToConseiller(params: {
   }
 
   return { ok: true, validation };
+}
+
+/** Conseiller valide le courtage — pas d'envoi client (admin envoie manuellement). */
+export async function approveConseillerStudyCourtage(params: {
+  dossier: Dossier;
+  apporteur: NonNullable<Awaited<ReturnType<typeof findApporteurById>>>;
+  feesPerAssuredEur: number;
+  config: RemunerationConfig;
+}): Promise<
+  | { ok: true; validation: StudyConseillerValidation; total: number }
+  | { ok: false; error: string }
+> {
+  const { dossier, apporteur, feesPerAssuredEur, config } = params;
+  const validation = dossier.studyConseillerValidation;
+  if (!validation || validation.status !== "pending") {
+    return { ok: false, error: "no_pending_validation" };
+  }
+
+  const feeCheck = validateFeesPerAssuredEur(feesPerAssuredEur, config);
+  if (!feeCheck.ok) return { ok: false, error: feeCheck.error };
+
+  const approved = applyConseillerApprovedFees(validation, feesPerAssuredEur, config);
+  const total = approved.feesCourtageTotalEur ?? 0;
+  const now = new Date().toISOString();
+
+  dossier.studyConseillerValidation = {
+    ...approved,
+    status: "approved",
+    approvedAt: now,
+    approvedBy: apporteur.email || apporteur.id,
+  };
+  if (dossier.studyDraft?.economySummary) {
+    dossier.studyDraft.economySummary.feesCourtageEur = total;
+  }
+
+  addEvent(dossier, {
+    type: "NOTE_ADDED",
+    actor: { kind: "APPORTEUR", label: apporteur.companyName || "Conseiller" },
+    message: `Courtage validé par le conseiller : ${feesPerAssuredEur} €/assuré (${total} € total). Envoi étude à faire par l'admin.`,
+    meta: {
+      template: "STUDY_CONSEILLER_APPROVED",
+      feesPerAssuredEur,
+      feesCourtageTotalEur: total,
+      conseillerRetroEur: approved.conseillerRetroEur,
+    },
+  });
+
+  await notifyAdminStudyCourtageApproved({ dossier, apporteur, validation: dossier.studyConseillerValidation });
+
+  return { ok: true, validation: dossier.studyConseillerValidation, total };
 }
 
 export function applyConseillerApprovedFees(

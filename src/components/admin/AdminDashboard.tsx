@@ -52,13 +52,18 @@ export default function AdminDashboard({
   const [previewActive, setPreviewActive] = useState(false);
   const [conseillerStudyFlow, setConseillerStudyFlow] = useState<{
     requiresConseillerValidation: boolean;
+    canAdminSendStudy?: boolean;
+    studySent?: boolean;
     validation: {
       status: string;
       submittedAt?: string;
       approvedAt?: string;
+      feesPerAssuredEur?: number;
       feesCourtageTotalEur?: number;
+      assuredCount?: number;
     } | null;
   } | null>(null);
+  const [debriefNote, setDebriefNote] = useState("");
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
   const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers">("dossiers");
@@ -111,6 +116,18 @@ export default function AdminDashboard({
       cancelled = true;
     };
   }, [selectedDossier?.id, (selectedDossier as any)?.studyConseillerValidation?.status]);
+
+  const refreshConseillerStudyFlow = async (dossierId: string) => {
+    try {
+      const res = await adminFetch(`/api/admin/dossiers/${dossierId}/conseiller-study-flow`, {
+        headers: await authHeaders(false),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setConseillerStudyFlow(data);
+    } catch {
+      setConseillerStudyFlow(null);
+    }
+  };
 
   const loadDossiers = async () => {
     try {
@@ -782,22 +799,32 @@ export default function AdminDashboard({
     }
 
     try {
-      showToast("Soumission au conseiller...", "info");
+      showToast("Soumission du débrief au conseiller...", "info");
       const res = await adminFetch(
         `/api/admin/dossiers/${selectedDossier.id}/submit-study-to-conseiller`,
         {
           method: "POST",
           headers: await authHeaders(),
-          body: JSON.stringify({ subject: emailSubject, html: emailHtml }),
+          body: JSON.stringify({
+            subject: emailSubject,
+            html: emailHtml,
+            debriefNote: debriefNote.trim() || undefined,
+          }),
         },
       );
       const errData = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast("Étude soumise au conseiller — il recevra un email pour valider le courtage", "success");
+        showToast("Débrief soumis — le conseiller valide le courtage", "success");
         loadDossiers();
         reloadMetrics();
+        await refreshConseillerStudyFlow(selectedDossier.id);
       } else {
-        showToast(errData.error || "Erreur de soumission", "error");
+        const submitErrors: Record<string, string> = {
+          study_already_sent: "L'étude a déjà été envoyée — impossible de resoumettre un débrief.",
+          validation_pending: "Une validation est déjà en cours chez le conseiller.",
+          validation_already_approved: "Courtage déjà validé — mettez à jour le HTML et envoyez au client.",
+        };
+        showToast(submitErrors[errData.error] || errData.error || "Erreur de soumission", "error");
       }
     } catch {
       showToast("Erreur réseau", "error");
@@ -829,6 +856,7 @@ export default function AdminDashboard({
         setPreviewActive(false);
         loadDossiers();
         reloadMetrics();
+        await refreshConseillerStudyFlow(selectedDossier.id);
       } else {
         showToast(errData.error || "Erreur d'envoi", "error");
       }
@@ -1942,24 +1970,50 @@ export default function AdminDashboard({
                     <div className="mb-1 p-4 rounded-xl border border-indigo-200 bg-indigo-50 text-sm text-indigo-950">
                       <p className="font-bold mb-1">Dossier conseiller LCIF</p>
                       <p className="text-xs text-indigo-800 leading-relaxed">
-                        Collez votre étude HTML rédigée manuellement, puis soumettez-la au conseiller pour
-                        validation des frais de courtage. L&apos;envoi au client se fera automatiquement après
-                        validation.
+                        Collez votre étude HTML, ajoutez un débrief optionnel, puis soumettez au conseiller
+                        pour validation du courtage. Après validation, mettez à jour la ligne courtage dans le
+                        HTML et envoyez manuellement au client.
                       </p>
                       {conseillerStudyFlow.validation?.status === "pending" ? (
                         <p className="text-xs font-bold text-amber-800 mt-2">
-                          En attente de validation conseiller depuis le{" "}
+                          En attente de validation courtage depuis le{" "}
                           {new Date(conseillerStudyFlow.validation.submittedAt || "").toLocaleString("fr-FR")}
                         </p>
                       ) : null}
-                      {conseillerStudyFlow.validation?.status === "approved" ? (
+                      {conseillerStudyFlow.validation?.status === "approved" &&
+                      !conseillerStudyFlow.studySent ? (
                         <p className="text-xs font-bold text-emerald-800 mt-2">
-                          Étude validée et envoyée
-                          {conseillerStudyFlow.validation.feesCourtageTotalEur != null
-                            ? ` (courtage ${conseillerStudyFlow.validation.feesCourtageTotalEur} €)`
-                            : ""}
+                          Courtage validé
+                          {conseillerStudyFlow.validation.feesPerAssuredEur != null &&
+                          conseillerStudyFlow.validation.assuredCount != null
+                            ? ` : ${conseillerStudyFlow.validation.feesPerAssuredEur} € × ${conseillerStudyFlow.validation.assuredCount} = ${conseillerStudyFlow.validation.feesCourtageTotalEur ?? conseillerStudyFlow.validation.feesPerAssuredEur * conseillerStudyFlow.validation.assuredCount} €`
+                            : conseillerStudyFlow.validation.feesCourtageTotalEur != null
+                              ? ` (${conseillerStudyFlow.validation.feesCourtageTotalEur} € total)`
+                              : ""}
+                          {" — "}
+                          vous pouvez envoyer l&apos;étude au client.
                         </p>
                       ) : null}
+                      {conseillerStudyFlow.studySent ? (
+                        <p className="text-xs font-bold text-emerald-800 mt-2">Étude envoyée au client</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {conseillerStudyFlow?.requiresConseillerValidation &&
+                  conseillerStudyFlow.validation?.status !== "pending" &&
+                  !(conseillerStudyFlow.canAdminSendStudy && !conseillerStudyFlow.studySent) &&
+                  !conseillerStudyFlow.studySent ? (
+                    <div className="flex flex-col gap-1.5 mb-1">
+                      <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                        Débrief conseiller (optionnel)
+                      </label>
+                      <textarea
+                        className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 min-h-[72px]"
+                        placeholder="Contexte pour le conseiller : points clés, négociation, particularités du dossier…"
+                        value={debriefNote}
+                        onChange={(e) => setDebriefNote(e.target.value)}
+                      />
                     </div>
                   ) : null}
 
@@ -2000,17 +2054,43 @@ export default function AdminDashboard({
                     </button>
 
                     {conseillerStudyFlow?.requiresConseillerValidation ? (
-                      <button
-                        type="button"
-                        onClick={handleSubmitStudyToConseiller}
-                        disabled={conseillerStudyFlow.validation?.status === "pending"}
-                        className="bg-[#1E3A8A] hover:bg-indigo-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2 ml-auto"
-                      >
-                        <Send className="w-4 h-4"/>
-                        {conseillerStudyFlow.validation?.status === "pending"
-                          ? "En attente du conseiller"
-                          : "Soumettre au conseiller"}
-                      </button>
+                      conseillerStudyFlow.validation?.status === "pending" ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="bg-slate-400 text-white font-semibold px-5 py-2 rounded-xl text-sm flex items-center gap-2 ml-auto cursor-not-allowed opacity-70"
+                        >
+                          <Send className="w-4 h-4" />
+                          En attente du conseiller
+                        </button>
+                      ) : conseillerStudyFlow.canAdminSendStudy && !conseillerStudyFlow.studySent ? (
+                        <button
+                          type="button"
+                          onClick={handleSendPastedEmail}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2 ml-auto"
+                        >
+                          <Send className="w-4 h-4" />
+                          Envoyer au client ▶
+                        </button>
+                      ) : conseillerStudyFlow.studySent ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="bg-emerald-600 text-white font-semibold px-5 py-2 rounded-xl text-sm flex items-center gap-2 ml-auto opacity-80 cursor-default"
+                        >
+                          <Send className="w-4 h-4" />
+                          Étude envoyée
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleSubmitStudyToConseiller}
+                          className="bg-[#1E3A8A] hover:bg-indigo-900 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2 ml-auto"
+                        >
+                          <Send className="w-4 h-4" />
+                          Soumettre le débrief au conseiller
+                        </button>
+                      )
                     ) : (
                       <button 
                         type="button"

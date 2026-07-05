@@ -173,7 +173,7 @@ export async function signApporteurContractOnline(params: {
     throw new Error("Saisissez le code reçu par email pour valider votre signature.");
   }
   const { verifyApporteurContractOtp } = await import("./apporteurContractOtp");
-  if (!verifyApporteurContractOtp(params.apporteur.id, String(params.emailOtp || "").trim())) {
+  if (!(await verifyApporteurContractOtp(params.apporteur.id, String(params.emailOtp || "").trim()))) {
     throw new Error("Code invalide ou expiré. Demandez un nouveau code.");
   }
   if (isApporteurContractSigned(params.apporteur)) {

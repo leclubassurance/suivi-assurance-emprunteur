@@ -27,8 +27,6 @@ function isClientStudyOutboundEvent(meta: unknown, message?: string): boolean {
 export function hasStudyBeenSent(dossier: Dossier): boolean {
   if (isStudyPendingConseillerValidation(dossier)) return false;
 
-  if (dossier.studyConseillerValidation?.sentAt) return true;
-
   const st = String(dossier.status || "");
   if (["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(st)) {
     // Brouillon seul ou soumission conseiller sans envoi client : ne pas confondre avec un envoi réel.
@@ -42,7 +40,7 @@ export function hasStudyBeenSent(dossier: Dossier): boolean {
           /personnalisée|personnalisee|économies|economies/i.test(subject))
       );
     });
-    if (hasRealOutbound || dossier.studyConseillerValidation?.status === "approved") return true;
+    if (hasRealOutbound) return true;
     if (dossier.studyDraft?.html || dossier.studyDraft?.subject) return false;
     return true;
   }
@@ -117,10 +115,6 @@ export function getLastStudyOutbound(dossier: Dossier): { subject: string; date:
 /** Horodatage du dernier envoi réel de l'étude au client (ms epoch). */
 export function getStudySentAtMs(dossier: Dossier): number | null {
   const candidates: number[] = [];
-
-  if (dossier.studyConseillerValidation?.sentAt) {
-    candidates.push(new Date(dossier.studyConseillerValidation.sentAt).getTime());
-  }
 
   const last = getLastStudyOutbound(dossier);
   if (last?.date) candidates.push(new Date(last.date).getTime());

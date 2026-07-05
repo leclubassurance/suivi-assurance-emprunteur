@@ -116,13 +116,14 @@ export interface Dossier {
       feesAssureurEur?: number;
     };
   };
-  /** Validation conseiller : courtage + envoi auto au client. */
+  /** Validation conseiller : débrief courtage puis envoi manuel admin. */
   studyConseillerValidation?: {
     status: "pending" | "approved" | "cancelled";
     submittedAt: string;
     submittedBy?: string;
     subject: string;
     html: string;
+    debriefNote?: string;
     grossSavingsEur?: number;
     feesAssureurEur?: number;
     assuredCount: number;
@@ -132,7 +133,6 @@ export interface Dossier {
     conseillerRetroEur?: number;
     approvedAt?: string;
     approvedBy?: string;
-    sentAt?: string;
   };
   /** KPI extraits du mail d'étude HTML (sync Gmail sortant). */
   studyKpi?: {

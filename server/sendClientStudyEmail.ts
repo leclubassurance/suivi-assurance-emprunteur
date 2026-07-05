@@ -157,5 +157,15 @@ export async function sendClientStudyEmail(params: {
     /* non bloquant */
   }
 
+  try {
+    const { maybeNotifyConseillerStudySent } = await import("./conseillerStudyNotify");
+    await maybeNotifyConseillerStudySent(dossier, {
+      subject,
+      excerpt: html.replace(/<[^>]+>/g, " ").slice(0, 1200),
+    });
+  } catch {
+    /* non bloquant */
+  }
+
   return { ok: true, providerId, channel };
 }

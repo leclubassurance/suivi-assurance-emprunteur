@@ -48,6 +48,13 @@ export type Apporteur = {
   /** Statut du contrat d'apporteur (phase contrat — à compléter). */
   contractStatus?: "none" | "pending" | "sent" | "signed" | "expired";
   contractSignedAt?: string;
+  /** OTP email en cours pour signature contrat (persisté Firestore — survit aux redémarrages Railway). */
+  contractOtp?: {
+    hash: string;
+    expiresAt: number;
+    attempts: number;
+    sentAt: number;
+  };
   /** Preuve de signature électronique in-app. */
   contractSignature?: {
     version: string;

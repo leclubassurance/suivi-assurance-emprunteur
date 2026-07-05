@@ -733,13 +733,21 @@ export function createApp() {
     const dossier = db.dossiers.find((d: any) => d.id === id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    const { dossierRequiresConseillerStudyValidation } = await import("./studyConseillerValidation");
-    if (!forceDirect && (await dossierRequiresConseillerStudyValidation(dossier))) {
+    const { getConseillerStudySendGate } = await import("./studyConseillerValidation");
+    const gate = await getConseillerStudySendGate(dossier);
+    if (!forceDirect && gate.blocked) {
       return res.status(400).json({
-        error:
-          "Dossier conseiller LCIF : utilisez « Soumettre au conseiller » pour validation du courtage avant envoi au client.",
+        error: gate.reason,
         requiresConseillerValidation: true,
       });
+    }
+
+    let finalHtml = String(html);
+    const validation = dossier.studyConseillerValidation;
+    if (validation?.status === "approved" && validation.feesCourtageTotalEur != null) {
+      const { buildFinalStudyHtmlForSend } = await import("./studyConseillerValidation");
+      const patched = buildFinalStudyHtmlForSend(validation, validation.feesCourtageTotalEur);
+      finalHtml = patched.html;
     }
 
     const googleToken = getBearerTokenFromRequest(req);
@@ -747,7 +755,7 @@ export function createApp() {
     const sendResult = await sendClientStudyEmail({
       dossier,
       subject,
-      html,
+      html: finalHtml,
       to,
       googleToken,
       actorLabel: "Admin",
@@ -808,7 +816,7 @@ export function createApp() {
   app.post("/api/admin/dossiers/:id/submit-study-to-conseiller", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;
-    const { subject, html } = (req.body || {}) as any;
+    const { subject, html, debriefNote } = (req.body || {}) as any;
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
@@ -823,6 +831,7 @@ export function createApp() {
       html: String(html || ""),
       submittedBy: String((req as any).adminEmail || "admin"),
       publicBaseUrl: resolvePublicBaseFromRequest(req),
+      debriefNote: debriefNote ? String(debriefNote) : undefined,
     });
     if (!result.ok) return res.status(400).json({ error: result.error });
 
@@ -844,10 +853,16 @@ export function createApp() {
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    const { dossierRequiresConseillerStudyValidation } = await import("./studyConseillerValidation");
+    const { dossierRequiresConseillerStudyValidation, getConseillerStudySendGate } = await import(
+      "./studyConseillerValidation"
+    );
+    const { hasStudyBeenSent } = await import("./dossierLifecycle");
     const requiresConseillerValidation = await dossierRequiresConseillerStudyValidation(dossier);
+    const gate = await getConseillerStudySendGate(dossier);
     res.json({
       requiresConseillerValidation,
+      canAdminSendStudy: !gate.blocked,
+      studySent: hasStudyBeenSent(dossier),
       validation: dossier.studyConseillerValidation || null,
     });
   });
@@ -1890,7 +1905,7 @@ export function createApp() {
         if (!apporteur.email?.includes("@")) {
           return res.status(400).json({ ok: false, error: "Email partenaire manquant." });
         }
-        const issued = issueApporteurContractOtp(apporteur.id);
+        const issued = await issueApporteurContractOtp(apporteur.id);
         if (!issued.code) {
           return res.status(429).json({
             ok: false,
@@ -2157,23 +2172,19 @@ export function createApp() {
     express.json(),
     async (req, res) => {
       try {
-        const { findApporteurByPortalToken, listReferrals } = await import("./apporteurStore");
+        const { findApporteurByPortalToken, listReferrals, getRemunerationForApporteur } =
+          await import("./apporteurStore");
         const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
-        const { getRemunerationForApporteur } = await import("./apporteurStore");
-        const {
-          applyConseillerApprovedFees,
-          buildFinalStudyHtmlForSend,
-          validateFeesPerAssuredEur,
-        } = await import("./studyConseillerValidation");
-        const { sendClientStudyEmail } = await import("./sendClientStudyEmail");
-        const { hasStudyBeenSent, isStudyPendingConseillerValidation } = await import(
-          "./dossierLifecycle"
-        );
+        const { approveConseillerStudyCourtage } = await import("./studyConseillerValidation");
+        const { hasStudyBeenSent } = await import("./dossierLifecycle");
 
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
         if (!isConseillerImmoClubType(apporteur.type)) {
           return res.status(403).json({ ok: false, error: "not_conseiller" });
+        }
+        if ((apporteur.contractStatus || "none") !== "signed") {
+          return res.status(403).json({ ok: false, error: "contract_required" });
         }
 
         const dossierId = String(req.params.dossierId || "").trim().toUpperCase();
@@ -2185,18 +2196,7 @@ export function createApp() {
         const dossier = db.dossiers.find((d: any) => d.id === dossierId);
         if (!dossier) return res.status(404).json({ ok: false, error: "dossier_not_found" });
 
-        const validation = dossier.studyConseillerValidation;
-        if (!validation || validation.status !== "pending") {
-          return res.status(400).json({
-            ok: false,
-            error: "no_pending_validation",
-            message: "Aucune étude en attente de validation pour ce dossier.",
-          });
-        }
-        if (
-          !isStudyPendingConseillerValidation(dossier) &&
-          hasStudyBeenSent(dossier)
-        ) {
+        if (hasStudyBeenSent(dossier)) {
           return res.status(409).json({
             ok: false,
             error: "study_already_sent",
@@ -2206,61 +2206,22 @@ export function createApp() {
 
         const feesPerAssuredEur = Number((req.body as any)?.feesPerAssuredEur);
         const remuneration = getRemunerationForApporteur(apporteur);
-        const feeCheck = validateFeesPerAssuredEur(feesPerAssuredEur, remuneration);
-        if (!feeCheck.ok) return res.status(400).json({ ok: false, error: feeCheck.error });
-
-        const approved = applyConseillerApprovedFees(validation, feesPerAssuredEur, remuneration);
-        const total = approved.feesCourtageTotalEur ?? 0;
-        const { html: finalHtml, patched } = buildFinalStudyHtmlForSend(approved, total);
-        if (!patched) {
-          return res.status(400).json({
-            ok: false,
-            error: "patch_failed",
-            message: "Impossible de mettre à jour la ligne « Frais de courtage » dans l'étude.",
-          });
-        }
-
-        const sendResult = await sendClientStudyEmail({
+        const result = await approveConseillerStudyCourtage({
           dossier,
-          subject: approved.subject,
-          html: finalHtml,
-          googleToken: null,
-          actorLabel: "conseiller_study_validation",
-          actorKind: "SYSTEM",
+          apporteur,
+          feesPerAssuredEur,
+          config: remuneration,
         });
-        if (!sendResult.ok) {
-          return res.status(sendResult.status || 500).json({ ok: false, error: sendResult.error });
+        if (!result.ok) {
+          return res.status(400).json({ ok: false, error: result.error });
         }
 
-        const now = new Date().toISOString();
-        dossier.studyConseillerValidation = {
-          ...approved,
-          status: "approved",
-          approvedAt: now,
-          approvedBy: apporteur.email || apporteur.id,
-          sentAt: now,
-        };
-        if (dossier.studyDraft?.economySummary) {
-          dossier.studyDraft.economySummary.feesCourtageEur = total;
-        }
-        addEvent(dossier, {
-          type: "EMAIL_SENT",
-          actor: { kind: "APPORTEUR", label: apporteur.companyName || "Conseiller" },
-          message: `Étude validée et envoyée au client (courtage ${total} €).`,
-          meta: {
-            template: "STUDY_CONSEILLER_APPROVED",
-            feesPerAssuredEur,
-            feesCourtageTotalEur: total,
-            conseillerRetroEur: approved.conseillerRetroEur,
-          },
-        });
         await writeDB(db, dossier);
 
         res.json({
           ok: true,
-          feesCourtageTotalEur: total,
-          conseillerRetroEur: approved.conseillerRetroEur,
-          channel: sendResult.channel,
+          feesCourtageTotalEur: result.total,
+          conseillerRetroEur: result.validation.conseillerRetroEur,
         });
       } catch (err: any) {
         res.status(400).json({ ok: false, error: err?.message || String(err) });

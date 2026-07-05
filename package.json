@@ -10,7 +10,8 @@
     "start": "NODE_ENV=production npx tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "deploy:firestore-rules": "firebase deploy --only firestore:rules --project le-club-assurance-emprunteur"
   },
   "dependencies": {
     "@google/genai": "^2.6.0",
@@ -24,6 +25,7 @@
     "express": "^4.21.2",
     "express-rate-limit": "^8.5.2",
     "firebase": "^12.13.0",
+    "firebase-admin": "^13.10.0",
     "geoip-lite": "^2.0.3",
     "googleapis": "^172.0.0",
     "imap": "^0.8.19",

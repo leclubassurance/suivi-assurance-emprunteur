@@ -6,6 +6,7 @@ export type StudyValidationPending = {
   dossierId: string;
   subject: string;
   submittedAt: string;
+  debriefNote?: string;
   grossSavingsEur: number | null;
   feesAssureurEur: number | null;
   assuredCount: number;
@@ -19,10 +20,12 @@ export type StudyValidationPending = {
 
 const PORTAL_ERROR_LABELS: Record<string, string> = {
   study_already_sent: "L'étude a déjà été envoyée au client.",
-  no_pending_validation: "Aucune étude en attente de validation.",
-  patch_failed: "Impossible de mettre à jour la ligne « Frais de courtage » dans l'étude.",
+  no_pending_validation: "Aucune validation en attente.",
+  validation_pending: "Une validation est déjà en cours.",
+  validation_already_approved: "Le courtage est déjà validé — envoyez l'étude depuis l'admin.",
   forbidden: "Accès refusé pour ce dossier.",
   dossier_not_found: "Dossier introuvable.",
+  contract_required: "Signez d'abord votre contrat pour valider le courtage.",
 };
 
 export default function ConseillerStudyValidation({
@@ -86,10 +89,11 @@ export default function ConseillerStudyValidation({
     return (
       <div className="mt-3 p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-sm text-emerald-900">
         <p className="font-bold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" /> Étude envoyée au client
+          <CheckCircle2 className="w-4 h-4" /> Courtage validé
         </p>
         <p className="text-xs mt-1">
-          Courtage total : {summary.total} € · Votre rétro ({sharePct} %) : {summary.retro} €
+          {summary.total} € total · Votre rétro ({sharePct} %) : {summary.retro} € — l&apos;équipe LCIF
+          envoie l&apos;étude au client.
         </p>
       </div>
     );
@@ -104,15 +108,21 @@ export default function ConseillerStudyValidation({
       }`}
     >
       <p className="text-[11px] font-black uppercase text-indigo-800 mb-1">
-        Étude à valider — frais de courtage
+        Débrief — valider le courtage
       </p>
       <p className="text-xs text-slate-600 mb-3">
-        Soumise le {new Date(validation.submittedAt).toLocaleString("fr-FR")}
+        Reçu le {new Date(validation.submittedAt).toLocaleString("fr-FR")}
       </p>
+      {validation.debriefNote ? (
+        <p className="text-xs text-slate-700 mb-3 bg-white/80 border border-indigo-100 rounded-lg px-3 py-2 leading-relaxed">
+          <span className="font-bold text-indigo-900">Contexte LCIF : </span>
+          {validation.debriefNote}
+        </p>
+      ) : null}
       <div className="grid sm:grid-cols-2 gap-2 text-xs mb-3">
         {validation.grossSavingsEur != null ? (
           <div className="bg-white/80 rounded-lg px-3 py-2 border border-indigo-100">
-            <span className="text-slate-500">Économie affichée</span>
+            <span className="text-slate-500">Économie estimée</span>
             <p className="font-black text-indigo-900">
               {Math.round(validation.grossSavingsEur).toLocaleString("fr-FR")} €
             </p>
@@ -153,10 +163,10 @@ export default function ConseillerStudyValidation({
         className="w-full py-2.5 rounded-lg bg-[#1E3A8A] text-white font-bold text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60"
       >
         {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-        Valider et envoyer l&apos;étude au client
+        Valider le courtage
       </button>
       <p className="text-[10px] text-slate-500 mt-2 leading-relaxed">
-        Seule la ligne « Frais de courtage » sera modifiée dans le mail. Le reste de l&apos;étude reste inchangé.
+        L&apos;équipe LCIF enverra l&apos;étude au client après votre validation.
       </p>
     </div>
   );

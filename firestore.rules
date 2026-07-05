@@ -2,20 +2,10 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // L'admin ne lit pas Firestore dans le navigateur : uniquement l'API Railway.
-    // Le backend utilise le SDK sans session Auth → règles ouvertes sur dossiers.
-    // (À durcir plus tard avec firebase-admin + compte de service.)
-    match /dossiers/{dossierId} {
-      allow read, write: if true;
-    }
-    match /apporteur_store/{docId} {
-      allow read, write: if true;
-    }
-    match /network_store/{docId} {
-      allow read, write: if true;
-    }
-    match /_camilleLocks/{lockId} {
-      allow read, write: if true;
+    // Accès client interdit — seul le serveur Railway (firebase-admin + compte de service) lit/écrit.
+    // Le frontend n'utilise pas Firestore directement (auth Google + API Railway uniquement).
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

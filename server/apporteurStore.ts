@@ -183,6 +183,17 @@ export async function loadApporteurStore(): Promise<ApporteurStore> {
   return store;
 }
 
+/** Mutation atomique + persistance (OTP contrat, etc.). */
+export async function persistApporteurStoreMutation(
+  mutate: (store: ApporteurStore) => boolean | void,
+): Promise<boolean> {
+  const store = await loadApporteurStore();
+  const changed = mutate(store);
+  if (changed === false) return false;
+  await persistStore(store);
+  return true;
+}
+
 async function persistStore(store: ApporteurStore) {
   saveStoreToFile(store);
   try {

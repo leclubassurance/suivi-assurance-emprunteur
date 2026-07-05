@@ -9,10 +9,13 @@ import {
   getDocs,
   deleteDoc,
 } from "firebase/firestore";
+import type { Firestore as AdminFirestore } from "firebase-admin/firestore";
+import admin from "firebase-admin";
 import fs from "fs";
 import path from "path";
 import { ensureDossierShape } from "./dossierModel";
 import { compactDossierForPersistence, stripUndefinedForFirestore } from "./dossierFirestoreCompact";
+import { loadServiceAccountCredentials } from "./serviceAccount";
 
 const DOSSIERS_COLLECTION = "dossiers";
 const APPORTEUR_STORE_COLLECTION = "apporteur_store";
@@ -21,7 +24,9 @@ const NETWORK_STORE_COLLECTION = "network_store";
 const NETWORK_STORE_DOC_ID = "main";
 
 let firebaseApp: FirebaseApp | null = null;
-let firestoreDb: Firestore | null = null;
+let clientFirestoreDb: Firestore | null = null;
+let adminFirestoreDb: AdminFirestore | null = null;
+let firestoreMode: "admin" | "client" | null = null;
 let initPromise: Promise<void> | null = null;
 let loadedProjectId: string | null = null;
 
@@ -33,6 +38,7 @@ export type FirebaseStatus = {
   collection: string;
   dossierCount: number | null;
   error: string | null;
+  firestoreMode?: "admin" | "client" | null;
 };
 
 function loadFirebaseConfig(): Record<string, string> | null {
@@ -59,20 +65,78 @@ function loadFirebaseConfig(): Record<string, string> | null {
   return firebaseConfig;
 }
 
+function resolveProjectId(config: Record<string, string> | null): string | null {
+  return (
+    config?.projectId ||
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.VITE_FIREBASE_PROJECT_ID ||
+    null
+  );
+}
+
+async function tryInitAdminFirestore(projectId: string): Promise<AdminFirestore | null> {
+  try {
+    const sa =
+      loadServiceAccountCredentials() ||
+      (() => {
+        const raw =
+          process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() ||
+          process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
+        if (!raw) return null;
+        try {
+          if (raw.startsWith("{")) return JSON.parse(raw);
+          return JSON.parse(Buffer.from(raw.replace(/\s/g, ""), "base64").toString("utf8"));
+        } catch {
+          return null;
+        }
+      })();
+    if (!sa) return null;
+
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert(sa as admin.ServiceAccount),
+        projectId,
+      });
+    }
+    const db = admin.firestore();
+    await db.collection(DOSSIERS_COLLECTION).limit(1).get();
+    console.log(`[Firebase] Admin SDK prêt — projet=${projectId} (bypass règles Firestore)`);
+    return db;
+  } catch (err: any) {
+    console.warn(
+      `[Firebase] Admin SDK indisponible (${err?.message || err}) — repli SDK client (règles ouvertes requises).`,
+    );
+    return null;
+  }
+}
+
+function initClientFirestore(config: Record<string, string>): Firestore {
+  firebaseApp = initializeApp(config);
+  return getFirestore(firebaseApp, config.firestoreDatabaseId || undefined);
+}
+
+function activeDb(): Firestore | AdminFirestore | null {
+  return adminFirestoreDb || clientFirestoreDb;
+}
+
 export function isFirebaseConfigured(): boolean {
   return loadFirebaseConfig() !== null;
 }
 
 export function isFirestoreReady(): boolean {
-  return Boolean(firestoreDb);
+  return Boolean(activeDb());
 }
 
 export function getFirestoreDb(): Firestore | null {
-  return firestoreDb;
+  return clientFirestoreDb;
 }
 
 export function getFirebaseProjectId(): string | null {
   return loadedProjectId;
+}
+
+export function getFirestoreMode(): "admin" | "client" | null {
+  return firestoreMode;
 }
 
 export async function initFirebaseSync(): Promise<void> {
@@ -92,18 +156,29 @@ export async function initFirebaseSync(): Promise<void> {
       return;
     }
 
-    firebaseApp = initializeApp(firebaseConfig);
-    firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || undefined);
-    loadedProjectId = firebaseConfig.projectId || null;
+    loadedProjectId = resolveProjectId(firebaseConfig);
+    if (!loadedProjectId) {
+      console.error("[Firebase] FIREBASE_PROJECT_ID manquant.");
+      return;
+    }
 
+    adminFirestoreDb = await tryInitAdminFirestore(loadedProjectId);
+    if (adminFirestoreDb) {
+      firestoreMode = "admin";
+      return;
+    }
+
+    clientFirestoreDb = initClientFirestore(firebaseConfig);
+    firestoreMode = "client";
     try {
-      const snap = await getDocs(collection(firestoreDb, DOSSIERS_COLLECTION));
+      const snap = await getDocs(collection(clientFirestoreDb, DOSSIERS_COLLECTION));
       console.log(
-        `[Firebase] Firestore prêt — projet=${loadedProjectId}, collection=${DOSSIERS_COLLECTION}, dossiers=${snap.size}`,
+        `[Firebase] SDK client prêt — projet=${loadedProjectId}, dossiers=${snap.size} (règles Firestore doivent autoriser l'accès).`,
       );
     } catch (err: any) {
       console.error("[Firebase] Connexion Firestore échouée:", err?.message || err);
-      firestoreDb = null;
+      clientFirestoreDb = null;
+      firestoreMode = null;
       throw err;
     }
   })();
@@ -113,7 +188,8 @@ export async function initFirebaseSync(): Promise<void> {
 
 export async function getFirebaseStatus(): Promise<FirebaseStatus> {
   await initFirebaseSync();
-  if (!firestoreDb) {
+  const db = activeDb();
+  if (!db) {
     return {
       configured: isFirebaseConfigured(),
       ready: false,
@@ -122,19 +198,24 @@ export async function getFirebaseStatus(): Promise<FirebaseStatus> {
       collection: DOSSIERS_COLLECTION,
       dossierCount: null,
       error: isFirebaseConfigured() ? "Firestore non initialisé" : "Variables Firebase absentes",
+      firestoreMode,
     };
   }
 
   try {
-    const snap = await getDocs(collection(firestoreDb, DOSSIERS_COLLECTION));
+    const snap = adminFirestoreDb
+      ? await adminFirestoreDb.collection(DOSSIERS_COLLECTION).get()
+      : await getDocs(collection(clientFirestoreDb!, DOSSIERS_COLLECTION));
+    const count = adminFirestoreDb ? snap.size : snap.size;
     return {
       configured: true,
       ready: true,
       projectId: loadedProjectId,
       databaseId: process.env.FIREBASE_DATABASE_ID || "(default)",
       collection: DOSSIERS_COLLECTION,
-      dossierCount: snap.size,
+      dossierCount: count,
       error: null,
+      firestoreMode,
     };
   } catch (err: any) {
     return {
@@ -145,37 +226,58 @@ export async function getFirebaseStatus(): Promise<FirebaseStatus> {
       collection: DOSSIERS_COLLECTION,
       dossierCount: null,
       error: err?.message || String(err),
+      firestoreMode,
     };
   }
 }
 
 export async function readAllDossiersFromFirestore(): Promise<ReturnType<typeof ensureDossierShape>[]> {
   await initFirebaseSync();
-  if (!firestoreDb) {
+  const db = activeDb();
+  if (!db) {
     throw new Error(
       "Firestore indisponible : configurez FIREBASE_PROJECT_ID et FIREBASE_API_KEY sur Railway.",
     );
   }
 
-  const snap = await getDocs(collection(firestoreDb, DOSSIERS_COLLECTION));
+  if (adminFirestoreDb) {
+    const snap = await adminFirestoreDb.collection(DOSSIERS_COLLECTION).get();
+    return snap.docs.map((d) => ensureDossierShape(d.data()));
+  }
+  const snap = await getDocs(collection(clientFirestoreDb!, DOSSIERS_COLLECTION));
   return snap.docs.map((d) => ensureDossierShape(d.data()));
 }
 
 export async function readDossierFromFirestore(id: string) {
   await initFirebaseSync();
-  if (!firestoreDb) return null;
-  const snap = await getDoc(doc(firestoreDb, DOSSIERS_COLLECTION, id));
+  const db = activeDb();
+  if (!db) return null;
+
+  if (adminFirestoreDb) {
+    const snap = await adminFirestoreDb.collection(DOSSIERS_COLLECTION).doc(id).get();
+    if (!snap.exists) return null;
+    return ensureDossierShape(snap.data());
+  }
+  const snap = await getDoc(doc(clientFirestoreDb!, DOSSIERS_COLLECTION, id));
   if (!snap.exists()) return null;
   return ensureDossierShape(snap.data());
 }
 
 export async function syncDossierToFirebase(dossier: unknown) {
   await initFirebaseSync();
-  if (!firestoreDb) return;
+  const db = activeDb();
+  if (!db) return;
   try {
     const shaped = ensureDossierShape(dossier);
     const cleanDossier = compactDossierForPersistence(shaped);
-    await setDoc(doc(firestoreDb, DOSSIERS_COLLECTION, cleanDossier.id as string), cleanDossier);
+    if (adminFirestoreDb) {
+      await adminFirestoreDb
+        .collection(DOSSIERS_COLLECTION)
+        .doc(String(cleanDossier.id))
+        .set(cleanDossier as Record<string, unknown>);
+    } else {
+      await setDoc(doc(clientFirestoreDb!, DOSSIERS_COLLECTION, cleanDossier.id as string), cleanDossier);
+    }
   } catch (err: any) {
     console.error("[Firebase] Error syncing dossier:", (dossier as any)?.id, err.message);
     throw err;
@@ -184,9 +286,14 @@ export async function syncDossierToFirebase(dossier: unknown) {
 
 export async function deleteDossierFromFirebase(id: string) {
   await initFirebaseSync();
-  if (!firestoreDb) return;
+  const db = activeDb();
+  if (!db) return;
   try {
-    await deleteDoc(doc(firestoreDb, DOSSIERS_COLLECTION, id));
+    if (adminFirestoreDb) {
+      await adminFirestoreDb.collection(DOSSIERS_COLLECTION).doc(id).delete();
+    } else {
+      await deleteDoc(doc(clientFirestoreDb!, DOSSIERS_COLLECTION, id));
+    }
   } catch (err: any) {
     console.error("[Firebase] Error deleting dossier:", id, err.message);
     throw err;
@@ -201,11 +308,23 @@ export type ApporteurStoreDoc = {
   updatedAt: string;
 };
 
-/** Stockage apporteurs — collection dédiée, séparée des dossiers clients. */
 export async function readApporteurStoreFromFirestore(): Promise<ApporteurStoreDoc | null> {
   await initFirebaseSync();
-  if (!firestoreDb) return null;
-  const snap = await getDoc(doc(firestoreDb, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID));
+  const db = activeDb();
+  if (!db) return null;
+
+  if (adminFirestoreDb) {
+    const snap = await adminFirestoreDb
+      .collection(APPORTEUR_STORE_COLLECTION)
+      .doc(APPORTEUR_STORE_DOC_ID)
+      .get();
+    if (!snap.exists) return null;
+    const data = snap.data() as ApporteurStoreDoc;
+    if (!Array.isArray(data?.apporteurs)) return null;
+    return data;
+  }
+
+  const snap = await getDoc(doc(clientFirestoreDb!, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID));
   if (!snap.exists()) return null;
   const data = snap.data() as ApporteurStoreDoc;
   if (!Array.isArray(data?.apporteurs)) return null;
@@ -214,13 +333,19 @@ export async function readApporteurStoreFromFirestore(): Promise<ApporteurStoreD
 
 export async function writeApporteurStoreToFirestore(store: ApporteurStoreDoc): Promise<void> {
   await initFirebaseSync();
-  if (!firestoreDb) {
+  const db = activeDb();
+  if (!db) {
     throw new Error("Firestore non initialisé — impossible d'écrire apporteur_store.");
   }
-  await setDoc(
-    doc(firestoreDb, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID),
-    stripUndefinedForFirestore(store),
-  );
+  const payload = stripUndefinedForFirestore(store);
+  if (adminFirestoreDb) {
+    await adminFirestoreDb
+      .collection(APPORTEUR_STORE_COLLECTION)
+      .doc(APPORTEUR_STORE_DOC_ID)
+      .set(payload);
+    return;
+  }
+  await setDoc(doc(clientFirestoreDb!, APPORTEUR_STORE_COLLECTION, APPORTEUR_STORE_DOC_ID), payload);
 }
 
 export type NetworkStoreDoc = {
@@ -232,8 +357,18 @@ export type NetworkStoreDoc = {
 
 export async function readNetworkStoreFromFirestore(): Promise<NetworkStoreDoc | null> {
   await initFirebaseSync();
-  if (!firestoreDb) return null;
-  const snap = await getDoc(doc(firestoreDb, NETWORK_STORE_COLLECTION, NETWORK_STORE_DOC_ID));
+  const db = activeDb();
+  if (!db) return null;
+
+  if (adminFirestoreDb) {
+    const snap = await adminFirestoreDb.collection(NETWORK_STORE_COLLECTION).doc(NETWORK_STORE_DOC_ID).get();
+    if (!snap.exists) return null;
+    const data = snap.data() as NetworkStoreDoc;
+    if (!Array.isArray(data?.members)) return null;
+    return data;
+  }
+
+  const snap = await getDoc(doc(clientFirestoreDb!, NETWORK_STORE_COLLECTION, NETWORK_STORE_DOC_ID));
   if (!snap.exists()) return null;
   const data = snap.data() as NetworkStoreDoc;
   if (!Array.isArray(data?.members)) return null;
@@ -242,13 +377,16 @@ export async function readNetworkStoreFromFirestore(): Promise<NetworkStoreDoc |
 
 export async function writeNetworkStoreToFirestore(store: NetworkStoreDoc): Promise<void> {
   await initFirebaseSync();
-  if (!firestoreDb) {
+  const db = activeDb();
+  if (!db) {
     throw new Error("Firestore non initialisé — impossible d'écrire network_store.");
   }
-  await setDoc(
-    doc(firestoreDb, NETWORK_STORE_COLLECTION, NETWORK_STORE_DOC_ID),
-    stripUndefinedForFirestore(store),
-  );
+  const payload = stripUndefinedForFirestore(store);
+  if (adminFirestoreDb) {
+    await adminFirestoreDb.collection(NETWORK_STORE_COLLECTION).doc(NETWORK_STORE_DOC_ID).set(payload);
+    return;
+  }
+  await setDoc(doc(clientFirestoreDb!, NETWORK_STORE_COLLECTION, NETWORK_STORE_DOC_ID), payload);
 }
 
 /** Import unique : data/db.json ou /tmp/data/db.json → Firestore (FIREBASE_IMPORT_LOCAL=true). */

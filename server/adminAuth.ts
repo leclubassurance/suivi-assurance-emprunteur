@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 
-const DEFAULT_ALLOWED = "assurance@leclubimmobilier.fr,remi@leclubimmobilier.fr";
+const DEFAULT_ALLOWED = "assurance@leclubimmobilier.fr";
 
 export function isAdminAuthRequired(): boolean {
   const override = String(process.env.ADMIN_AUTH_REQUIRED ?? "").toLowerCase();
