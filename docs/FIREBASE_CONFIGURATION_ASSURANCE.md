@@ -35,11 +35,20 @@ VITE_FIREBASE_APP_ID=...
 VITE_FIREBASE_STORAGE_BUCKET=votre-projet.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_API_URL=https://assurance-emprunteur.up.railway.app
+VITE_PUBLIC_SITE_URL=https://assurance.leclubimmofrancais.com
 ```
 
 ### Railway (backend API)
 
-Les **mêmes valeurs** (avec ou sans préfixe `VITE_`) :
+Les **mêmes valeurs** Firebase (avec ou sans préfixe `VITE_`), plus les URLs publiques du **frontend** :
+
+```
+PUBLIC_APP_URL=https://assurance.leclubimmofrancais.com
+CLIENT_FORM_PUBLIC_URL=https://assurance.leclubimmofrancais.com
+TELEGRAM_WEBHOOK_BASE_URL=https://assurance-emprunteur.up.railway.app
+```
+
+Les **mêmes valeurs Firebase** (avec ou sans préfixe `VITE_`) :
 
 ```
 FIREBASE_API_KEY=...
@@ -58,7 +67,15 @@ FIREBASE_DATABASE_ID=nom-de-la-base
 
 ## 4. Autoriser assurance@ dans Firebase Auth
 
-Dans **Authentication** → **Settings** → si vous restreignez les domaines, ajoutez `leclubimmobilier.fr`.
+Dans **Authentication** → **Settings** → **Authorized domains**, ajoutez :
+
+- `assurance.leclubimmofrancais.com` (production)
+- `leclubimmobilier.fr` (si restriction par domaine email)
+- `localhost` (dev local)
+
+Dans **Google Cloud Console** → **APIs & Services** → **Credentials** → client OAuth Web utilisé par Firebase : ajoutez **Authorized JavaScript origins** :
+
+- `https://assurance.leclubimmofrancais.com`
 
 L’app refuse tout compte Google autre que **assurance@leclubimmobilier.fr** à la connexion admin.
 

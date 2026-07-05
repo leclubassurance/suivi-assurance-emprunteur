@@ -40,21 +40,18 @@ function isChatIdAllowed(chatId: string): boolean {
   return getAllowedChatIds().some((a) => String(a).trim() === cid);
 }
 
-/** URL publique Railway (pas le frontend Vercel) pour le webhook Telegram. */
+/** URL publique de l'API Railway pour le webhook Telegram (pas le frontend Vercel). */
 export function resolveTelegramWebhookBaseUrl(): string {
   const explicit = String(process.env.TELEGRAM_WEBHOOK_BASE_URL || "").trim().replace(/\/$/, "");
   if (explicit) return explicit;
-
-  const publicApp = String(process.env.PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
-  if (publicApp && publicApp.includes("railway.app")) return publicApp;
 
   const railway = String(process.env.RAILWAY_PUBLIC_DOMAIN || "").trim();
   if (railway) {
     return railway.startsWith("http") ? railway.replace(/\/$/, "") : `https://${railway}`;
   }
 
-  const appUrl = String(process.env.APP_URL || "").trim().replace(/\/$/, "");
-  if (appUrl && !appUrl.includes("vercel.app")) return appUrl;
+  const apiUrl = String(process.env.VITE_API_URL || process.env.APP_URL || "").trim().replace(/\/$/, "");
+  if (apiUrl && apiUrl.includes("railway.app")) return apiUrl;
 
   return "";
 }

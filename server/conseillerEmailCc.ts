@@ -26,3 +26,12 @@ export async function appendConseillerCcForDossier(dossier: unknown, cc: string[
   const conseillerEmail = await resolveConseillerCcEmail(dossier);
   return mergeCcWithConseiller(cc, conseillerEmail);
 }
+
+/** Copie conseiller en CCI (invisible pour le client — évite « Répondre à tous »). */
+export async function appendConseillerBccForDossier(
+  dossier: unknown,
+  bcc: string[] = [],
+): Promise<string[]> {
+  const conseillerEmail = await resolveConseillerCcEmail(dossier);
+  return mergeCcWithConseiller(bcc, conseillerEmail);
+}

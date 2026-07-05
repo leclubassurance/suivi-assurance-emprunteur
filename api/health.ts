@@ -6,7 +6,7 @@ export default function handler(_req: unknown, res: { statusCode: number; setHea
     JSON.stringify({
       status: "ok",
       build: "vercel-serverless",
-      hint: "Backend API = Railway (assurance-emprunteur.up.railway.app/api/health)",
+      hint: "Backend API Railway — ex. https://assurance-emprunteur.up.railway.app/api/health",
     }),
   );
 }

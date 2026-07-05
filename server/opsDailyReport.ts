@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { Dossier } from "./dossierModel";
+import { ASSURANCE_PLATFORM_PRODUCTION_URL } from "../shared/platformUrls";
 import { computeDocumentChecklistForDossier } from "../shared/documentChecklist";
 import { getAdminChecklistOverrides } from "../shared/adminDocValidation";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
@@ -210,8 +211,9 @@ function clientName(d: Dossier): string {
 function adminBaseUrl(): string {
   return (
     process.env.PUBLIC_APP_URL ||
+    process.env.CLIENT_FORM_PUBLIC_URL ||
     process.env.APP_URL ||
-    "https://assurance-emprunteur.up.railway.app"
+    ASSURANCE_PLATFORM_PRODUCTION_URL
   ).replace(/\/$/, "");
 }
 

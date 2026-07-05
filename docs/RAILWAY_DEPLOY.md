@@ -1,6 +1,8 @@
 # Déploiement Railway — dépannage
 
-Le backend public est `https://assurance-emprunteur.up.railway.app`.  
+- **Frontend production** : `https://assurance.leclubimmofrancais.com` (Vercel)
+- **API backend** : `https://assurance-emprunteur.up.railway.app` (Railway)
+
 La source de vérité au runtime est **`npx tsx server.ts`** (pas `node dist/server.cjs`).
 
 ## Vérifier que Railway exécute le bon code

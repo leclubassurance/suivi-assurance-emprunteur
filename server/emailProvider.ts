@@ -6,6 +6,7 @@ export type SendEmailInput = {
   html: string;
   from?: string;
   cc?: string[];
+  bcc?: string[];
   attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
 };
 
@@ -46,6 +47,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       from,
       to: input.to,
       cc: (input.cc || []).filter(Boolean).join(", ") || undefined,
+      bcc: (input.bcc || []).filter(Boolean).join(", ") || undefined,
       subject: input.subject,
       html: input.html,
       attachments: (input.attachments || []).map((a) => ({

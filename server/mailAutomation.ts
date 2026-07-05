@@ -1201,16 +1201,17 @@ export async function sendEmailReplyWithGmailAPI(
   toEmail: string,
   subject: string,
   bodyText: string,
-  options?: { cc?: string[]; attachments?: GmailEmailAttachment[]; dossier?: unknown },
+  options?: { cc?: string[]; bcc?: string[]; attachments?: GmailEmailAttachment[]; dossier?: unknown },
 ) {
   const { auth } = await createGmailAuth(accessToken);
   const gmail = google.gmail({ version: 'v1', auth: auth as any });
 
   const isHtml = /<[a-z][\s\S]*>/i.test(bodyText);
   let cc = (options?.cc || []).filter(Boolean);
+  let bcc = (options?.bcc || []).filter(Boolean);
   if (options?.dossier) {
-    const { appendConseillerCcForDossier } = await import("./conseillerEmailCc");
-    cc = await appendConseillerCcForDossier(options.dossier, cc);
+    const { appendConseillerBccForDossier } = await import("./conseillerEmailCc");
+    bcc = await appendConseillerBccForDossier(options.dossier, bcc);
   }
   const attachments = (options?.attachments || []).filter((a) => a.content?.length);
 
@@ -1219,6 +1220,7 @@ export async function sendEmailReplyWithGmailAPI(
     const mailLines = [];
     mailLines.push(`To: ${toEmail}`);
     if (cc.length) mailLines.push(`Cc: ${cc.join(", ")}`);
+    if (bcc.length) mailLines.push(`Bcc: ${bcc.join(", ")}`);
     mailLines.push(`Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=`);
     mailLines.push('MIME-Version: 1.0');
     mailLines.push(`Content-Type: text/${isHtml ? 'html' : 'plain'}; charset="UTF-8"`);
@@ -1231,6 +1233,7 @@ export async function sendEmailReplyWithGmailAPI(
     const lines: string[] = [];
     lines.push(`To: ${toEmail}`);
     if (cc.length) lines.push(`Cc: ${cc.join(", ")}`);
+    if (bcc.length) lines.push(`Bcc: ${bcc.join(", ")}`);
     lines.push(`Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=`);
     lines.push('MIME-Version: 1.0');
     lines.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);

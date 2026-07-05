@@ -3,6 +3,8 @@
  * Données société alignées sur les mandats / actes LCIF (ex. représentant : Charles VICTOR).
  */
 
+import { resolveAssurancePublicSiteUrl } from "./platformUrls";
+
 export const LCIF_LEGAL = {
   brandName: "Le Club Immobilier Français",
   companyName: "LE CLUB IMMOBILIER FRANÇAIS",
@@ -54,11 +56,5 @@ export const LCIF_LEGAL = {
 } as const;
 
 export function getAssurancePlatformUrl(): string {
-  if (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_PUBLIC_SITE_URL) {
-    return String((import.meta as any).env.VITE_PUBLIC_SITE_URL).replace(/\/$/, "");
-  }
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin;
-  }
-  return "https://assurance-emprunteur.up.railway.app";
+  return resolveAssurancePublicSiteUrl();
 }

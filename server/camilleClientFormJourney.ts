@@ -4,6 +4,7 @@ import {
   getClientPortalAbsoluteUrl,
   resolvePublicAppBaseUrl,
 } from "./clientPortal";
+import { resolveAssurancePublicSiteUrl } from "../shared/platformUrls";
 import { isLeadDossier } from "../shared/leadDossierStatus";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 
@@ -12,15 +13,11 @@ export function resolveClientFormPublicUrl(): string {
   const explicit = String(process.env.CLIENT_FORM_PUBLIC_URL || "").trim().replace(/\/$/, "");
   if (explicit) return explicit;
 
-  const app = String(process.env.APP_URL || "").trim().replace(/\/$/, "");
-  if (app && !app.includes("vercel.app")) return app;
-  if (app) return app;
-
-  const vite = String(process.env.VITE_PUBLIC_SITE_URL || "").trim().replace(/\/$/, "");
-  if (vite) return vite;
+  const fromHelper = resolveAssurancePublicSiteUrl();
+  if (fromHelper.startsWith("http")) return fromHelper;
 
   const railway = resolvePublicAppBaseUrl();
-  return railway || "https://assurance-emprunteur.up.railway.app";
+  return railway || fromHelper;
 }
 
 export type CamilleClientLinks = {

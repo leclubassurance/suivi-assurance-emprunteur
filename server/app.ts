@@ -4,6 +4,7 @@ import multer from "multer";
 import fs from "fs";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import { resolveCorsOrigins } from "../shared/platformUrls";
 
 import {
   exportDossierToGoogleWorkspace,
@@ -75,7 +76,24 @@ export function createApp() {
   const app = express();
 
   app.set("trust proxy", 1);
-  app.use(cors());
+  const corsOrigins = resolveCorsOrigins();
+  app.use(
+    cors({
+      origin:
+        corsOrigins === true
+          ? true
+          : (origin, callback) => {
+              if (!origin) return callback(null, true);
+              const ok = corsOrigins.some(
+                (allowed) => allowed.toLowerCase() === origin.replace(/\/$/, "").toLowerCase(),
+              );
+              // Sous-domaines Vercel preview (déploiements PR)
+              const vercelPreview = /\.vercel\.app$/i.test(origin);
+              callback(null, ok || vercelPreview);
+            },
+      credentials: true,
+    }),
+  );
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -734,8 +752,7 @@ export function createApp() {
         : ((dossier.formData?.assures || []) as any[])
             .map((a: any) => String(a?.email || "").trim())
             .filter((e: string) => e && e.toLowerCase() !== String(toEmail).toLowerCase());
-    const { appendConseillerCcForDossier } = await import("./conseillerEmailCc");
-    const ccEmailsFinal = await appendConseillerCcForDossier(dossier, ccEmails);
+    const ccEmailsFinal = ccEmails;
 
     const googleToken = getBearerTokenFromRequest(req);
 
@@ -760,7 +777,9 @@ export function createApp() {
         });
       }
     } else {
-      const result = await sendEmail({ to: toEmail, cc: ccEmailsFinal, subject, html });
+      const { appendConseillerBccForDossier } = await import("./conseillerEmailCc");
+      const bccFinal = await appendConseillerBccForDossier(dossier);
+      const result = await sendEmail({ to: toEmail, cc: ccEmailsFinal, bcc: bccFinal, subject, html });
       if ("error" in result) {
         const error = (result as any).error;
         addEvent(dossier, {
