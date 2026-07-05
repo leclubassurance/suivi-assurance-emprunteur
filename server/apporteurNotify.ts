@@ -2,6 +2,7 @@ import crypto from "crypto";
 import type { Apporteur, Referral, ReferralStatus } from "../shared/apporteurTypes";
 import { APPORTEUR_TYPE_LABELS, REFERRAL_STATUS_LABELS } from "../shared/apporteurTypes";
 import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
+import { ASSURANCE_PLATFORM_PRODUCTION_URL } from "../shared/platformUrls";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
 import { sendEmail } from "./emailProvider";
 import { sendEmailReplyWithGmailAPI } from "./mailAutomation";
@@ -117,6 +118,64 @@ export function buildApporteurPortalInviteEmail(params: {
   </div>
 </div>`;
   return { subject: "Votre espace apporteur — Le Club Immobilier Français", html };
+}
+
+export function buildApporteurUpdatedLinksEmail(params: {
+  apporteur: Apporteur;
+  portalUrl: string;
+  referralLink: string;
+  siteUrl?: string;
+}): { subject: string; html: string } {
+  const siteUrl = String(params.siteUrl || ASSURANCE_PLATFORM_PRODUCTION_URL).replace(/\/$/, "");
+
+  const html = `
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
+  <div style="max-width:640px;margin:0 auto;background:#FFFFFF;border:1px solid #E5E7EB;">
+    <div style="background-color:#1E3A8A;padding:24px 20px;text-align:center;">
+      ${LCIF_EMAIL_LOGO_HEADER_IMG}
+    </div>
+    <div style="padding:24px 22px;">
+      <p style="font-size:16px;margin:0 0 14px 0;color:#111827;"><strong>Bonjour ${params.apporteur.contactName || params.apporteur.companyName},</strong></p>
+      <p style="font-size:14px;margin:0 0 12px 0;color:#374151;">
+        La plateforme assurance emprunteur Le Club Immobilier Français est accessible sur une
+        <strong>adresse officielle permanente</strong> :
+        <a href="${siteUrl}" style="color:#1E3A8A;font-weight:bold;">${siteUrl}</a>.
+      </p>
+      <p style="font-size:14px;margin:0 0 16px 0;color:#374151;">
+        Voici vos liens personnels à jour — vous pouvez les enregistrer et les partager dès maintenant.
+        Votre identifiant partenaire (<code>?ref=</code>) reste le même ; seule l'adresse du site a changé.
+      </p>
+      <p style="font-size:13px;margin:0 0 6px 0;color:#374151;font-weight:bold;">1. Espace partenaire (privé)</p>
+      <p style="margin:0 0 14px 0;word-break:break-all;font-size:13px;">
+        <a href="${params.portalUrl}" style="color:#1E3A8A;">${params.portalUrl}</a>
+      </p>
+      <p style="font-size:13px;margin:0 0 6px 0;color:#374151;font-weight:bold;">2. Lien client à transmettre</p>
+      <p style="margin:0 0 20px 0;word-break:break-all;font-size:13px;">
+        <a href="${params.referralLink}" style="color:#1E3A8A;">${params.referralLink}</a>
+      </p>
+      <p style="margin:0 0 20px 0;text-align:center;">
+        <a href="${params.portalUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:bold;font-size:15px;">
+          Ouvrir mon espace partenaire
+        </a>
+      </p>
+      <p style="font-size:13px;margin:0;color:#6B7280;">
+        Une question ? Répondez à ce mail ou écrivez-nous à
+        <a href="mailto:assurance@leclubimmobilier.fr" style="color:#1E3A8A;">assurance@leclubimmobilier.fr</a>.
+      </p>
+      <p style="font-size:14px;margin:18px 0 0 0;color:#111827;">Bien cordialement,<br/>
+        <strong>L'équipe Le Club Immobilier Français</strong>
+      </p>
+    </div>
+    <div style="background:#F8FAFC;padding:16px 22px;border-top:1px solid #E5E7EB;">
+      <p style="font-size:11px;margin:0;color:#9CA3AF;">Le Club Immobilier Français — ORIAS 24002253</p>
+    </div>
+  </div>
+</div>`;
+
+  return {
+    subject: "Vos liens partenaire à jour — Le Club Immobilier Français",
+    html,
+  };
 }
 
 export function buildApporteurContractSigningInviteEmail(params: {
@@ -381,4 +440,18 @@ export async function notifyReferredClientNewReferral(params: {
     params.referral.clientInviteSentAt = new Date().toISOString();
   }
   return sent;
+}
+
+export async function sendApporteurUpdatedLinksEmail(
+  apporteur: Apporteur,
+  portalBaseUrl?: string,
+): Promise<boolean> {
+  if (!apporteur.email?.includes("@") || !apporteur.portalToken || !apporteur.referralToken) {
+    return false;
+  }
+  const base = resolvePublicAppBaseUrl(portalBaseUrl);
+  const portalUrl = buildApporteurPortalUrl(base, apporteur.portalToken);
+  const referralLink = `${base.replace(/\/$/, "")}/?ref=${encodeURIComponent(apporteur.referralToken)}`;
+  const { subject, html } = buildApporteurUpdatedLinksEmail({ apporteur, portalUrl, referralLink, siteUrl: base });
+  return sendApporteurHtmlEmail(apporteur.email, subject, html);
 }

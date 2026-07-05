@@ -262,6 +262,20 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
     setSuccessMsg("Invitation espace apporteur envoyée par email.");
   };
 
+  const sendUpdatedLinksEmail = async (apporteurId: string) => {
+    setError(null);
+    setSuccessMsg(null);
+    const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}/send-updated-links-email`, {
+      method: "POST",
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Envoi impossible");
+      return;
+    }
+    setSuccessMsg("Email avec les liens personnels à jour envoyé au partenaire.");
+  };
+
   const sendContractSigningInvite = async (apporteurId: string) => {
     setError(null);
     setSuccessMsg(null);
@@ -652,6 +666,13 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                             className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 hover:underline"
                           >
                             <Copy className="w-3.5 h-3.5" /> Copier le lien
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => sendUpdatedLinksEmail(a.id)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 hover:underline"
+                          >
+                            <Mail className="w-3.5 h-3.5" /> Envoyer liens à jour
                           </button>
                           <span className="text-xs text-slate-400 inline-flex items-center gap-1">
                             <Link2 className="w-3.5 h-3.5" /> Attribution auto au dépôt formulaire

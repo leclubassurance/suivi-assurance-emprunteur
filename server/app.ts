@@ -1525,6 +1525,29 @@ export function createApp() {
     }
   });
 
+  app.post("/api/admin/apporteurs/:id/send-updated-links-email", async (req, res) => {
+    try {
+      const { findApporteurById } = await import("./apporteurStore");
+      const { sendApporteurUpdatedLinksEmail } = await import("./apporteurNotify");
+      const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const apporteur = await findApporteurById(req.params.id);
+      if (!apporteur) return res.status(404).json({ success: false, error: "Apporteur introuvable" });
+      const baseUrl = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      const sent = await sendApporteurUpdatedLinksEmail(apporteur, baseUrl);
+      if (!sent) {
+        return res.status(502).json({
+          success: false,
+          error: "Envoi email impossible (email, tokens ou config Gmail/SMTP manquants).",
+        });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/referrals", async (req, res) => {
     try {
       const { createReferral, syncReferralFromDossier } = await import("./apporteurStore");
