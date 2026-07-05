@@ -26,6 +26,7 @@ import PartnerContractWorkflow from "./PartnerContractWorkflow";
 import ConseillerPhaseBanner from "./ConseillerPhaseBanner";
 import ConseillerSubscriptionForm from "./ConseillerSubscriptionForm";
 import ConseillerReferralCommunications from "./ConseillerReferralCommunications";
+import ConseillerStudyValidation, { type StudyValidationPending } from "./ConseillerStudyValidation";
 import { CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
 import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
@@ -35,6 +36,7 @@ type PortalReferralTracking = {
   clientPortalUrl: string;
   statusLabel: string;
   statusDetail?: string;
+  plannedChangeDateLabel?: string;
   steps: { key: string; label: string; done: boolean; active: boolean }[];
   commission?: {
     feesCourtageEur: number;
@@ -52,6 +54,7 @@ type PortalReferralTracking = {
   conseillerSubscription?: ConseillerSubscriptionPackage | null;
   canSubmitSubscription?: boolean;
   operatingPhase?: ConseillerOperatingPhase;
+  studyValidationPending?: StudyValidationPending | null;
 };
 
 type PortalReferral = {
@@ -194,6 +197,10 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
   const [simSavings, setSimSavings] = useState(3600);
   const [simAssured, setSimAssured] = useState(1.5);
   const referralsRef = useRef<HTMLElement>(null);
+  const highlightDossierId = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("etude");
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -713,6 +720,14 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
                     <p className="text-[11px] text-slate-400 mt-2">
                       Mis à jour le {new Date(r.updatedAt).toLocaleDateString("fr-FR")}
                     </p>
+                    {r.tracking?.studyValidationPending ? (
+                      <ConseillerStudyValidation
+                        portalToken={token}
+                        validation={r.tracking.studyValidationPending}
+                        highlight={highlightDossierId === r.tracking.dossierId}
+                        onApproved={load}
+                      />
+                    ) : null}
                     {r.tracking ? <PartnerReferralTracking tracking={r.tracking} /> : null}
                     {isConseillerClub && r.tracking?.communications?.length ? (
                       <ConseillerReferralCommunications communications={r.tracking.communications} />

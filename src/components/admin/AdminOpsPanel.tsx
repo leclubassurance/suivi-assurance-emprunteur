@@ -1009,10 +1009,16 @@ export function AdminCamillePanel({
   const [manualCourtage, setManualCourtage] = useState("");
   const [manualCapital, setManualCapital] = useState("");
   const [studyKpi, setStudyKpi] = useState<any>((dossier as any).studyKpi ?? null);
+  const [changePlan, setChangePlan] = useState<any>((dossier as any).insuranceChangePlan ?? null);
+  const [manualChangeDate, setManualChangeDate] = useState("");
+  const [savingChangeDate, setSavingChangeDate] = useState(false);
 
   useEffect(() => {
     const kpi = (dossier as any).studyKpi ?? null;
+    const plan = (dossier as any).insuranceChangePlan ?? null;
     setStudyKpi(kpi);
+    setChangePlan(plan);
+    setManualChangeDate(plan?.plannedDate ? String(plan.plannedDate).slice(0, 10) : "");
     setManualGross(kpi?.grossSavingsEur != null ? String(kpi.grossSavingsEur) : "");
     setManualCourtage(kpi?.feesCourtageEur != null ? String(kpi.feesCourtageEur) : "");
     setManualCapital(kpi?.loanCapitalEur != null ? String(kpi.loanCapitalEur) : "");
@@ -1065,6 +1071,11 @@ export function AdminCamillePanel({
       }
       setStudyKpi(data.studyKpi);
       (dossier as any).studyKpi = data.studyKpi;
+      if (data.insuranceChangePlan) {
+        setChangePlan(data.insuranceChangePlan);
+        (dossier as any).insuranceChangePlan = data.insuranceChangePlan;
+        setManualChangeDate(String(data.insuranceChangePlan.plannedDate || "").slice(0, 10));
+      }
       showToast(
         `KPI mis à jour : ${data.studyKpi?.grossSavingsEur ?? 0} € économie brute`,
         "success",
@@ -1105,6 +1116,35 @@ export function AdminCamillePanel({
       showToast("Erreur réseau", "error");
     } finally {
       setSavingCourtageOnly(false);
+    }
+  };
+
+  const handleSaveChangeDate = async (clear = false) => {
+    setSavingChangeDate(true);
+    try {
+      const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/insurance-change-plan`, {
+        method: "PATCH",
+        headers: await authHeaders(),
+        body: JSON.stringify({ plannedDate: clear ? null : manualChangeDate || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Enregistrement impossible", "error");
+        return;
+      }
+      setChangePlan(data.insuranceChangePlan);
+      (dossier as any).insuranceChangePlan = data.insuranceChangePlan;
+      showToast(
+        clear || !data.insuranceChangePlan
+          ? "Date de changement retirée"
+          : "Date de changement enregistrée",
+        "success",
+      );
+      onDossierUpdated?.();
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setSavingChangeDate(false);
     }
   };
 
@@ -1367,6 +1407,52 @@ export function AdminCamillePanel({
             </button>
           </div>
         )}
+      </div>
+
+      <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-950">
+        <p className="font-black mb-1">Date prévue du changement d&apos;assurance</p>
+        <p className="text-[11px] text-blue-800 mb-3 leading-relaxed">
+          Extraite automatiquement du mail d&apos;étude (libellé « changement prévu ») ou saisie manuelle.
+          Visible sur la page suivi client et l&apos;espace apporteur.
+        </p>
+        {changePlan?.plannedDate ? (
+          <p className="text-[11px] mb-2">
+            Actuelle : <strong>{new Date(`${changePlan.plannedDate}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</strong>
+            {" · "}
+            {changePlan.source === "manual" ? "saisie manuelle" : "extraite du mail"}
+          </p>
+        ) : (
+          <p className="text-[11px] text-blue-700 mb-2">Aucune date enregistrée pour ce dossier.</p>
+        )}
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="block flex-1 min-w-[160px]">
+            <span className="text-[10px] font-bold">Date (AAAA-MM-JJ)</span>
+            <input
+              type="date"
+              value={manualChangeDate}
+              onChange={(e) => setManualChangeDate(e.target.value)}
+              className="mt-0.5 w-full rounded border border-blue-300 px-2 py-1.5 text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={savingChangeDate}
+            onClick={() => handleSaveChangeDate(false)}
+            className="text-[10px] font-bold px-3 py-2 rounded bg-blue-900 text-white hover:bg-blue-950 disabled:opacity-50"
+          >
+            {savingChangeDate ? "…" : "Enregistrer"}
+          </button>
+          {changePlan?.plannedDate ? (
+            <button
+              type="button"
+              disabled={savingChangeDate}
+              onClick={() => handleSaveChangeDate(true)}
+              className="text-[10px] font-bold px-3 py-2 rounded border border-blue-300 bg-white text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+            >
+              Effacer
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">

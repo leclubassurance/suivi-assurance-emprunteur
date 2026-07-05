@@ -185,6 +185,7 @@ Pièces à demander au client (selon phase) : ${
 Étude déjà envoyée au client (studySent) : ${studySent ? "OUI — ne jamais promettre une étude à venir" : "NON"}
 ${ctx.lastStudyOutbound?.date ? `Dernière étude envoyée : ${ctx.lastStudyOutbound.date.slice(0, 16)} — « ${ctx.lastStudyOutbound.subject.slice(0, 80)} »` : ""}
 ${ctx.studyKpiSummary ? `KPI étude (interne — ne pas reciter au client) : ${ctx.studyKpiSummary}` : ""}
+${ctx.plannedInsuranceChangeLabel ? `Date prévue du changement d'assurance (étude Charles — à mentionner si le client demande les délais) : ${ctx.plannedInsuranceChangeLabel}` : ""}
 Phase souscription : ${ctx.subscriptionPhaseLabel || "—"}
 Conduite phase : ${ctx.subscriptionGuidance || "—"}
 Client a accepté le changement d'assurance : ${clientAccepted ? "OUI — CNI/RIB autorisés si manquants" : "NON — interdiction absolue de demander CNI/RIB"}

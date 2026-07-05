@@ -16,6 +16,10 @@ import {
   SUBSCRIPTION_PHASE_OPTIONS,
   type SubscriptionPhase,
 } from "./subscriptionProgress";
+import {
+  formatInsuranceChangePlanLabel,
+  getInsuranceChangePlan,
+} from "./insuranceChangePlan";
 
 export { SUBSCRIPTION_PHASE_OPTIONS, type SubscriptionPhase, buildClientPortalSteps };
 
@@ -94,6 +98,10 @@ export function buildClientPortalView(dossier: Dossier) {
   const statusInfo = resolveClientPortalStatusView(dossier);
   const steps = buildClientPortalSteps(dossier);
   const subscriptionPhase = resolveEffectiveSubscriptionPhase(dossier);
+  const changePlan = getInsuranceChangePlan(dossier);
+  const plannedChangeDateLabel = changePlan
+    ? formatInsuranceChangePlanLabel(changePlan.plannedDate)
+    : undefined;
 
   const documents: {
     key: string;
@@ -156,6 +164,11 @@ export function buildClientPortalView(dossier: Dossier) {
       `Votre étude vous a été envoyée par email${lastStudy.date ? ` le ${new Date(lastStudy.date).toLocaleDateString("fr-FR")}` : ""}. Pensez à vérifier vos courriers indésirables.`,
     );
   }
+  if (plannedChangeDateLabel && (studySent || clientAccepted)) {
+    tips.push(
+      `Date prévue du changement d'assurance : ${plannedChangeDateLabel}. Cette date peut être ajustée selon l'avancement de votre souscription et les délais bancaires.`,
+    );
+  }
   if (studySent && !clientAccepted) {
     tips.push(
       "Pour lancer la substitution de votre assurance, répondez à notre email en indiquant que vous souhaitez activer le changement après lecture de l'étude.",
@@ -182,6 +195,8 @@ export function buildClientPortalView(dossier: Dossier) {
     subscriptionPhase: subscriptionPhase || undefined,
     subscriptionPhaseLabel:
       SUBSCRIPTION_PHASE_OPTIONS.find((o) => o.value === subscriptionPhase)?.label || undefined,
+    plannedChangeDate: changePlan?.plannedDate,
+    plannedChangeDateLabel,
     lastUpdateLabel: new Date(dossier.updatedAt || dossier.createdAt).toLocaleDateString("fr-FR", {
       day: "numeric",
       month: "long",

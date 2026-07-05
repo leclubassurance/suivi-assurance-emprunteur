@@ -14,6 +14,8 @@ export type ClientPortalData = {
   lastUpdateLabel: string;
   subscriptionPhase?: string;
   subscriptionPhaseLabel?: string;
+  plannedChangeDate?: string;
+  plannedChangeDateLabel?: string;
 };
 
 function docBadge(doc: ClientPortalData["documents"][0]) {
@@ -77,6 +79,11 @@ export function ClientPortalContent({
           <p className="text-[14px] text-white/80 mt-2 leading-relaxed font-medium">
             {data.status.description}
           </p>
+          {data.plannedChangeDateLabel ? (
+            <p className="text-[13px] text-blue-100 mt-3 font-semibold bg-white/10 rounded-xl px-3 py-2">
+              Changement d&apos;assurance prévu le {data.plannedChangeDateLabel}
+            </p>
+          ) : null}
           <div className="mt-5">
             <div className="flex justify-between text-[11px] font-bold text-white/50 mb-1.5">
               <span>Progression</span>

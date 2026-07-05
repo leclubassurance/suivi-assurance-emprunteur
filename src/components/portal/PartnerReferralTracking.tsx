@@ -16,6 +16,7 @@ type Tracking = {
   clientPortalUrl: string;
   statusLabel: string;
   statusDetail?: string;
+  plannedChangeDateLabel?: string;
   steps: Step[];
   commission?: Commission | null;
 };
@@ -37,6 +38,11 @@ export default function PartnerReferralTracking({ tracking }: { tracking: Tracki
           <p className="text-xs font-bold text-slate-800">{tracking.statusLabel}</p>
           {tracking.statusDetail ? (
             <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{tracking.statusDetail}</p>
+          ) : null}
+          {tracking.plannedChangeDateLabel ? (
+            <p className="text-[11px] text-indigo-800 font-bold mt-1.5 bg-indigo-50 rounded-lg px-2 py-1.5 border border-indigo-100">
+              Changement prévu le {tracking.plannedChangeDateLabel}
+            </p>
           ) : null}
         </div>
         {tracking.clientPortalUrl ? (

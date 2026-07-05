@@ -16,6 +16,14 @@ import {
   getClientPortalAbsoluteUrl,
 } from "./clientPortal";
 import { resolveClientPortalStatusView } from "./subscriptionProgress";
+import {
+  formatInsuranceChangePlanLabel,
+  getInsuranceChangePlan,
+} from "./insuranceChangePlan";
+import {
+  buildStudyValidationSummaryForPortal,
+  type StudyConseillerValidation,
+} from "./studyConseillerValidation";
 
 export type ConseillerPortalCommunication = {
   direction: "inbound" | "outbound";
@@ -120,6 +128,11 @@ export function enrichReferralForConseillerPortal(params: {
   studySent: boolean;
   operatingPhase: ConseillerOperatingPhase;
   canSubmitSubscription: boolean;
+  studyValidationPending: ReturnType<typeof buildStudyValidationSummaryForPortal> & {
+    dossierId: string;
+    subject: string;
+    submittedAt: string;
+  } | null;
 } {
   const { referral, dossier, publicBaseUrl, remuneration, operatingPhase, payoutSharePercent } = params;
   let token = String(dossier.clientPortal?.token || "");
@@ -148,11 +161,28 @@ export function enrichReferralForConseillerPortal(params: {
     clientAccepted &&
     (!sub?.submittedAt || sub.status === "pending");
 
+  const changePlan = getInsuranceChangePlan(dossier);
+
+  const studyValidationRaw = (dossier as Dossier & { studyConseillerValidation?: StudyConseillerValidation })
+    .studyConseillerValidation;
+  const studyValidationPending =
+    studyValidationRaw?.status === "pending"
+      ? {
+          dossierId: dossier.id,
+          subject: studyValidationRaw.subject,
+          submittedAt: studyValidationRaw.submittedAt,
+          ...buildStudyValidationSummaryForPortal(studyValidationRaw, remuneration),
+        }
+      : null;
+
   return {
     dossierId: dossier.id,
     clientPortalUrl: getClientPortalAbsoluteUrl(token, publicBaseUrl),
     statusLabel: statusView.label,
     statusDetail: statusView.description,
+    plannedChangeDateLabel: changePlan
+      ? formatInsuranceChangePlanLabel(changePlan.plannedDate)
+      : undefined,
     steps,
     commission,
     communications: mapCommunications(dossier),
@@ -161,5 +191,6 @@ export function enrichReferralForConseillerPortal(params: {
     studySent,
     operatingPhase,
     canSubmitSubscription,
+    studyValidationPending,
   };
 }

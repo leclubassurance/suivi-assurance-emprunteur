@@ -726,101 +726,37 @@ export function createApp() {
   app.post("/api/admin/dossiers/:id/send-email", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;
-    const { to, cc, subject, html, saveAsPlaybook } = (req.body || {}) as any;
+    const { to, subject, html, saveAsPlaybook, forceDirect } = (req.body || {}) as any;
     if (!subject || !html) return res.status(400).json({ error: "Missing subject or html" });
 
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    const toEmail = to || dossier.formData?.assures?.[0]?.email;
-    if (!toEmail) return res.status(400).json({ error: "Missing recipient email" });
-
-    const { validateStudyEmailRecipient } = await import("./studyEmailRecipient");
-    const recipientCheck = validateStudyEmailRecipient(dossier, String(subject || ""));
-    if (!recipientCheck.ok) {
+    const { dossierRequiresConseillerStudyValidation } = await import("./studyConseillerValidation");
+    if (!forceDirect && (await dossierRequiresConseillerStudyValidation(dossier))) {
       return res.status(400).json({
-        error: recipientCheck.error,
-        dossierId: dossier.id,
-        expectedPrenom: recipientCheck.clientPrenom,
-        toEmail: recipientCheck.toEmail,
+        error:
+          "Dossier conseiller LCIF : utilisez « Soumettre au conseiller » pour validation du courtage avant envoi au client.",
+        requiresConseillerValidation: true,
       });
     }
-    const ccEmails =
-      Array.isArray(cc) && cc.length
-        ? cc.map((e: any) => String(e || "").trim()).filter(Boolean)
-        : ((dossier.formData?.assures || []) as any[])
-            .map((a: any) => String(a?.email || "").trim())
-            .filter((e: string) => e && e.toLowerCase() !== String(toEmail).toLowerCase());
-    const ccEmailsFinal = ccEmails;
 
     const googleToken = getBearerTokenFromRequest(req);
-
-    let providerId: string | null = null;
-    let channel: "gmail" | "smtp" | "simulated" = "simulated";
-
-    if (googleToken) {
-      const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
-      const gmailResult = await sendEmailReplyWithGmailAPI(googleToken, toEmail, subject, html, { cc: ccEmailsFinal, dossier });
-      if (gmailResult.ok) {
-        providerId = gmailResult.messageId || null;
-        channel = "gmail";
-      } else {
-        addEvent(dossier, {
-          type: "EMAIL_FAILED",
-          actor: { kind: "ADMIN", label: "Admin" },
-          meta: { to: toEmail, subject, error: gmailResult.error, channel: "gmail" },
-        });
-        await writeDB(db, dossier);
-        return res.status(500).json({
-          error: `Échec Gmail : ${gmailResult.error}. Reconnectez-vous à Google (Déconnexion puis connexion).`,
-        });
-      }
-    } else {
-      const { appendConseillerBccForDossier } = await import("./conseillerEmailCc");
-      const bccFinal = await appendConseillerBccForDossier(dossier);
-      const result = await sendEmail({ to: toEmail, cc: ccEmailsFinal, bcc: bccFinal, subject, html });
-      if ("error" in result) {
-        const error = (result as any).error;
-        addEvent(dossier, {
-          type: "EMAIL_FAILED",
-          actor: { kind: "ADMIN", label: "Admin" },
-          meta: { to: toEmail, subject, error },
-        });
-        await writeDB(db, dossier);
-        return res.status(500).json({ error });
-      }
-      providerId = (result as any).providerId || null;
-      channel = providerId === "SIMULATED" ? "simulated" : "smtp";
-      if (channel === "simulated") {
-        return res.status(400).json({
-          error:
-            "Email non envoyé : connectez-vous avec Google dans l'admin (Gmail) ou configurez SMTP sur Railway.",
-        });
-      }
+    const { sendClientStudyEmail } = await import("./sendClientStudyEmail");
+    const sendResult = await sendClientStudyEmail({
+      dossier,
+      subject,
+      html,
+      to,
+      googleToken,
+      actorLabel: "Admin",
+      actorKind: "ADMIN",
+    });
+    if (!sendResult.ok) {
+      return res.status(sendResult.status || 500).json({ error: sendResult.error });
     }
 
-    const sentAt = new Date().toISOString();
-    if (!dossier.communications) dossier.communications = [];
-    dossier.communications.push({
-      id: `msg_out_${Date.now()}`,
-      direction: "outbound",
-      to: toEmail,
-      subject,
-      text: html,
-      html,
-      gmailId: providerId || undefined,
-      date: sentAt,
-    });
-
-    addEvent(dossier, {
-      type: "EMAIL_SENT",
-      actor: { kind: "ADMIN", label: "Admin" },
-      meta: { to: toEmail, subject, providerId, channel },
-      message: `Email envoyé au client (${channel}).`,
-    });
-    const { acknowledgeStaffOutboundToClient } = await import("./camilleStaffHandoff");
-    acknowledgeStaffOutboundToClient(dossier, { source: "admin_send_email", subject });
     if (saveAsPlaybook) {
       try {
         const { saveApprovedPlaybook, htmlToPlainForPlaybook } = await import("./camillePlaybooks");
@@ -847,41 +783,15 @@ export function createApp() {
         console.warn(`[Playbooks] Enregistrement après envoi admin: ${pbErr?.message || pbErr}`);
       }
     }
-    try {
-      const { applyStudyKpiBestAvailable } = await import("./studyEmailKpi");
-      const { applyStudySentStatusIfNeeded, hasStudyBeenSent } = await import("./dossierLifecycle");
-      applyStudyKpiBestAvailable(dossier, {
-        subject,
-        html,
-        text: html,
-        gmailId: providerId || `admin_send_${dossier.id}_${Date.now()}`,
-        date: sentAt,
-      });
-      // Envoi admin explicite : on aligne le statut même si figé manuellement auparavant.
-      if (hasStudyBeenSent(dossier)) {
-        dossier.status = "MAIL_ENVOYÉ";
-      } else {
-        applyStudySentStatusIfNeeded(dossier);
-      }
-    } catch (kpiErr: any) {
-      console.warn(`[KPI] Extraction étude à l'envoi admin: ${kpiErr?.message || kpiErr}`);
-    }
+
     try {
       await writeDB(db, dossier);
-      try {
-        const { syncReferralFromDossier } = await import("./apporteurStore");
-        const { syncNetworkReferralFromDossier } = await import("./networkStore");
-        await syncNetworkReferralFromDossier(dossier, "admin_send_email");
-        await syncReferralFromDossier(dossier, "admin_send_email");
-      } catch {
-        /* non bloquant */
-      }
     } catch (err: any) {
       console.error("[send-email] Persistance Firestore:", err?.message || err);
       return res.json({
         success: true,
-        providerId,
-        channel,
+        providerId: sendResult.providerId,
+        channel: sendResult.channel,
         simulated: false,
         warning:
           "Email envoyé via Gmail, mais l'historique n'a pas pu être enregistré (Firestore saturé). Réessayez dans 1 minute.",
@@ -889,9 +799,56 @@ export function createApp() {
     }
     return res.json({
       success: true,
-      providerId,
-      channel,
+      providerId: sendResult.providerId,
+      channel: sendResult.channel,
       simulated: false,
+    });
+  });
+
+  app.post("/api/admin/dossiers/:id/submit-study-to-conseiller", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id } = req.params;
+    const { subject, html } = (req.body || {}) as any;
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const {
+      submitStudyToConseiller,
+      resolvePublicBaseFromRequest,
+    } = await import("./studyConseillerValidation");
+    const result = await submitStudyToConseiller({
+      dossier,
+      subject: String(subject || ""),
+      html: String(html || ""),
+      submittedBy: String((req as any).adminEmail || "admin"),
+      publicBaseUrl: resolvePublicBaseFromRequest(req),
+    });
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    try {
+      await writeDB(db, dossier);
+    } catch (err: any) {
+      console.error("[submit-study-to-conseiller] Persistance:", err?.message || err);
+      return res.json({
+        success: true,
+        validation: result.validation,
+        warning: "Soumission enregistrée localement — persistance Firestore incomplète.",
+      });
+    }
+    return res.json({ success: true, validation: result.validation });
+  });
+
+  app.get("/api/admin/dossiers/:id/conseiller-study-flow", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { dossierRequiresConseillerStudyValidation } = await import("./studyConseillerValidation");
+    const requiresConseillerValidation = await dossierRequiresConseillerStudyValidation(dossier);
+    res.json({
+      requiresConseillerValidation,
+      validation: dossier.studyConseillerValidation || null,
     });
   });
 
@@ -2189,6 +2146,114 @@ export function createApp() {
   );
 
   app.post(
+    "/api/apporteur-portal/:token/study-validation/:dossierId/approve",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken, listReferrals } = await import("./apporteurStore");
+        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+        const { getRemunerationForApporteur } = await import("./apporteurStore");
+        const {
+          applyConseillerApprovedFees,
+          buildFinalStudyHtmlForSend,
+          validateFeesPerAssuredEur,
+        } = await import("./studyConseillerValidation");
+        const { sendClientStudyEmail } = await import("./sendClientStudyEmail");
+        const { hasStudyBeenSent } = await import("./dossierLifecycle");
+
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (!isConseillerImmoClubType(apporteur.type)) {
+          return res.status(403).json({ ok: false, error: "not_conseiller" });
+        }
+
+        const dossierId = String(req.params.dossierId || "").trim().toUpperCase();
+        const referrals = await listReferrals({ apporteurId: apporteur.id });
+        const ownsDossier = referrals.some((r) => r.dossierId === dossierId);
+        if (!ownsDossier) return res.status(403).json({ ok: false, error: "forbidden" });
+
+        const db = await readDBAsync();
+        const dossier = db.dossiers.find((d: any) => d.id === dossierId);
+        if (!dossier) return res.status(404).json({ ok: false, error: "dossier_not_found" });
+
+        const validation = dossier.studyConseillerValidation;
+        if (!validation || validation.status !== "pending") {
+          return res.status(400).json({
+            ok: false,
+            error: "no_pending_validation",
+            message: "Aucune étude en attente de validation pour ce dossier.",
+          });
+        }
+        if (hasStudyBeenSent(dossier)) {
+          return res.status(409).json({ ok: false, error: "study_already_sent" });
+        }
+
+        const feesPerAssuredEur = Number((req.body as any)?.feesPerAssuredEur);
+        const remuneration = getRemunerationForApporteur(apporteur);
+        const feeCheck = validateFeesPerAssuredEur(feesPerAssuredEur, remuneration);
+        if (!feeCheck.ok) return res.status(400).json({ ok: false, error: feeCheck.error });
+
+        const approved = applyConseillerApprovedFees(validation, feesPerAssuredEur, remuneration);
+        const total = approved.feesCourtageTotalEur ?? 0;
+        const { html: finalHtml, patched } = buildFinalStudyHtmlForSend(approved, total);
+        if (!patched) {
+          return res.status(400).json({
+            ok: false,
+            error: "patch_failed",
+            message: "Impossible de mettre à jour la ligne « Frais de courtage » dans l'étude.",
+          });
+        }
+
+        const sendResult = await sendClientStudyEmail({
+          dossier,
+          subject: approved.subject,
+          html: finalHtml,
+          googleToken: null,
+          actorLabel: "conseiller_study_validation",
+          actorKind: "SYSTEM",
+        });
+        if (!sendResult.ok) {
+          return res.status(sendResult.status || 500).json({ ok: false, error: sendResult.error });
+        }
+
+        const now = new Date().toISOString();
+        dossier.studyConseillerValidation = {
+          ...approved,
+          status: "approved",
+          approvedAt: now,
+          approvedBy: apporteur.email || apporteur.id,
+          sentAt: now,
+        };
+        if (dossier.studyDraft?.economySummary) {
+          dossier.studyDraft.economySummary.feesCourtageEur = total;
+        }
+        addEvent(dossier, {
+          type: "EMAIL_SENT",
+          actor: { kind: "APPORTEUR", label: apporteur.companyName || "Conseiller" },
+          message: `Étude validée et envoyée au client (courtage ${total} €).`,
+          meta: {
+            template: "STUDY_CONSEILLER_APPROVED",
+            feesPerAssuredEur,
+            feesCourtageTotalEur: total,
+            conseillerRetroEur: approved.conseillerRetroEur,
+          },
+        });
+        await writeDB(db, dossier);
+
+        res.json({
+          ok: true,
+          feesCourtageTotalEur: total,
+          conseillerRetroEur: approved.conseillerRetroEur,
+          channel: sendResult.channel,
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.post(
     "/api/apporteur-portal/:token/partner-recruits",
     apporteurPortalPostLimiter,
     express.json(),
@@ -3351,8 +3416,31 @@ export function createApp() {
     delete dossier.studyKpi;
     const { refreshStudyKpiFromCommunications } = await import("./studyEmailKpi");
     const ok = refreshStudyKpiFromCommunications(dossier);
-    if (ok) await writeDB(db, dossier);
-    res.json({ ok, studyKpi: dossier.studyKpi || null });
+    await writeDB(db, dossier);
+    res.json({ ok, studyKpi: dossier.studyKpi || null, insuranceChangePlan: dossier.insuranceChangePlan || null });
+  });
+
+  app.patch("/api/admin/dossiers/:id/insurance-change-plan", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const body = (req.body || {}) as { plannedDate?: string | null };
+    if (!("plannedDate" in body)) {
+      return res.status(400).json({ error: "plannedDate requis (AAAA-MM-JJ, ou null pour effacer)." });
+    }
+    try {
+      const { patchInsuranceChangePlan } = await import("./insuranceChangePlan");
+      const plan = patchInsuranceChangePlan(
+        dossier,
+        body.plannedDate,
+        String((req as any).adminEmail || "admin"),
+      );
+      await writeDB(db, dossier);
+      res.json({ ok: true, insuranceChangePlan: plan });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || String(err) });
+    }
   });
 
   app.patch("/api/admin/dossiers/:id/study-kpi", async (req, res) => {

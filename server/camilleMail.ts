@@ -16,6 +16,10 @@ import {
 import { buildCamilleFormJourneyPromptBlock } from "./camilleClientFormJourney";
 import { getLastStudyOutbound } from "./dossierLifecycle";
 import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
+import {
+  formatInsuranceChangePlanLabel,
+  getInsuranceChangePlan,
+} from "./insuranceChangePlan";
 
 function parisYmd(d: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -138,6 +142,10 @@ export function buildCamilleContextBlock(
   const lastStudy = getLastStudyOutbound(dossier);
   const studyKpiSummary = formatStudyKpiForAi(dossier);
   const dossierSituationBlock = buildCamilleDossierSituationBlock(dossier);
+  const changePlan = getInsuranceChangePlan(dossier);
+  const plannedInsuranceChangeLabel = changePlan
+    ? formatInsuranceChangePlanLabel(changePlan.plannedDate)
+    : undefined;
 
   return {
     checklist,
@@ -173,6 +181,7 @@ export function buildCamilleContextBlock(
     studyKpiSummary,
     lastStudyOutbound: lastStudy,
     dossierSituationBlock,
+    plannedInsuranceChangeLabel,
     formJourneyBlock: buildCamilleFormJourneyPromptBlock(dossier),
   };
 }

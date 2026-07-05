@@ -116,6 +116,24 @@ export interface Dossier {
       feesAssureurEur?: number;
     };
   };
+  /** Validation conseiller : courtage + envoi auto au client. */
+  studyConseillerValidation?: {
+    status: "pending" | "approved" | "cancelled";
+    submittedAt: string;
+    submittedBy?: string;
+    subject: string;
+    html: string;
+    grossSavingsEur?: number;
+    feesAssureurEur?: number;
+    assuredCount: number;
+    suggestedFeePerAssuredEur: number;
+    feesPerAssuredEur?: number;
+    feesCourtageTotalEur?: number;
+    conseillerRetroEur?: number;
+    approvedAt?: string;
+    approvedBy?: string;
+    sentAt?: string;
+  };
   /** KPI extraits du mail d'étude HTML (sync Gmail sortant). */
   studyKpi?: {
     grossSavingsEur: number;
@@ -128,6 +146,13 @@ export interface Dossier {
     gmailId: string;
     extractedAt: string;
     subject?: string;
+  };
+  /** Date prévue du changement d'assurance (extraite du mail d'étude ou saisie admin). */
+  insuranceChangePlan?: {
+    plannedDate: string;
+    source: "study_email" | "manual";
+    updatedAt: string;
+    updatedBy?: string;
   };
   clientPortal?: {
     token: string;
@@ -271,7 +296,9 @@ export function ensureDossierShape(d: any): Dossier {
     camilleEscalation: d.camilleEscalation,
     camilleStaffHandledUntil: d.camilleStaffHandledUntil,
     studyDraft: d.studyDraft,
+    studyConseillerValidation: d.studyConseillerValidation,
     studyKpi: d.studyKpi,
+    insuranceChangePlan: d.insuranceChangePlan,
     clientPortal: d.clientPortal,
     subscriptionProgress: d.subscriptionProgress,
     camilleTelegramStaff: d.camilleTelegramStaff,

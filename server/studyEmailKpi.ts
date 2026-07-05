@@ -1,5 +1,6 @@
 import { addEvent, type Dossier } from "./dossierModel";
 import { getLastStudyOutbound, isOutboundConfirmation } from "./dossierLifecycle";
+import { tryApplyInsuranceChangePlanFromStudyContent } from "./insuranceChangePlan";
 
 export type StudyKpiGrossSource = "draft" | "table" | "hero" | "text" | "subject" | "manual";
 
@@ -115,8 +116,10 @@ function extractGrossFromHeroHtml(rawHtml: string): number | null {
 function extractGrossFromStudyTableHtml(rawHtml: string): number | null {
   const html = decodeHtmlEntities(rawHtml);
   const patterns = [
+    /<td[^>]*>\s*[ÉE]conomie\s*<\/td>\s*<td[^>]*>\s*([^<]+)\s*<\/td>/i,
     /<td[^>]*>\s*[ÉE]conomie brute\s*<\/td>\s*<td[^>]*>\s*([^<]+)\s*<\/td>/i,
     /<td[^>]*>\s*ECONOMIE GENEREE\s*<\/td>\s*<td[^>]*>\s*([^<]+)\s*<\/td>/i,
+    /[ÉE]conomie potentielle[\s\S]{0,400}?font-size:\s*(?:2[4-9]|3[0-9])px[\s\S]{0,120}?>([^<]+)</i,
     /[ÉE]conomie brute[\s\S]{0,80}?<span[^>]*>([^<]*€[^<]*)</i,
   ];
   for (const re of patterns) {
@@ -155,6 +158,7 @@ function extractGrossFromTextBlob(blob: string): number | null {
 function extractFeesCourtageFromHtml(rawHtml: string, blob: string): number | null {
   const html = decodeHtmlEntities(rawHtml);
   const patterns = [
+    /Frais de courtage\s*:\s*<strong>([^<]+)<\/strong>/i,
     /Frais de courtage\s*:?\s*<\/span>\s*<span[^>]*>([^<]+)</i,
     /Frais de courtage[\s\S]{0,80}?<span[^>]*>([^<]+€[^<]*)</i,
     /Frais de courtage[\s\S]{0,120}?(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
@@ -417,11 +421,15 @@ export function applyStudyKpiFromGmailOutbound(
   const parsed = parseStudyEconomyFromEmailHtml(html || text, params.subject, loanCapitalEur);
   if (!parsed) return false;
 
-  return writeStudyKpi(dossier, parsed, {
+  const written = writeStudyKpi(dossier, parsed, {
     gmailId: params.gmailId,
     date: params.date,
     source: "gmail_outbound",
   });
+  if (written) {
+    tryApplyInsuranceChangePlanFromStudyContent(dossier, body);
+  }
+  return written;
 }
 
 /** KPI depuis le brouillon calculé (compute-economy) — source de vérité prioritaire. */
@@ -528,7 +536,7 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
     .filter((c: any) => c.direction === "outbound")
     .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
-  let best: { parsed: ParsedStudyKpi; gmailId: string; date: string } | null = null;
+  let best: { parsed: ParsedStudyKpi; gmailId: string; date: string; body: string } | null = null;
   let bestScore = -Infinity;
 
   for (const c of comms) {
@@ -545,6 +553,7 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
         parsed,
         gmailId: String(c.gmailId || c.id || ""),
         date: String(c.date || dossier.updatedAt),
+        body,
       };
     }
   }
@@ -555,7 +564,10 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
       date: best.date,
       source: "gmail_outbound",
     });
-    if (changed) return true;
+    if (changed) {
+      tryApplyInsuranceChangePlanFromStudyContent(dossier, best.body);
+      return true;
+    }
   }
 
   return applyStudyKpiFromStudyDraft(dossier);

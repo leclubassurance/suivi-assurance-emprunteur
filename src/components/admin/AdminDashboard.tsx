@@ -50,6 +50,15 @@ export default function AdminDashboard({
   const [economyStatus, setEconomyStatus] = useState<{ reliability?: string; reasons?: string[] } | null>(null);
   const [uploadDocCategory, setUploadDocCategory] = useState("auto");
   const [previewActive, setPreviewActive] = useState(false);
+  const [conseillerStudyFlow, setConseillerStudyFlow] = useState<{
+    requiresConseillerValidation: boolean;
+    validation: {
+      status: string;
+      submittedAt?: string;
+      approvedAt?: string;
+      feesCourtageTotalEur?: number;
+    } | null;
+  } | null>(null);
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
   const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers">("dossiers");
@@ -79,6 +88,29 @@ export default function AdminDashboard({
     setEmailHtml(draft?.html || "");
     setPreviewActive(false);
   }, [selectedDossier?.id, (selectedDossier as any)?.studyDraft?.computedAt]);
+
+  useEffect(() => {
+    if (!selectedDossier?.id) {
+      setConseillerStudyFlow(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await adminFetch(
+          `/api/admin/dossiers/${selectedDossier.id}/conseiller-study-flow`,
+          { headers: await authHeaders(false) },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) setConseillerStudyFlow(data);
+      } catch {
+        if (!cancelled) setConseillerStudyFlow(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDossier?.id, (selectedDossier as any)?.studyConseillerValidation?.status]);
 
   const loadDossiers = async () => {
     try {
@@ -734,6 +766,40 @@ export default function AdminDashboard({
         showToast(data.error || "Erreur d'envoi", "error");
       }
     } catch (e) {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
+  const handleSubmitStudyToConseiller = async () => {
+    if (!selectedDossier) return;
+    if (!emailSubject.trim()) {
+      showToast("Veuillez saisir l'objet du mail", "error");
+      return;
+    }
+    if (!emailHtml.trim()) {
+      showToast("Veuillez coller le HTML du mail", "error");
+      return;
+    }
+
+    try {
+      showToast("Soumission au conseiller...", "info");
+      const res = await adminFetch(
+        `/api/admin/dossiers/${selectedDossier.id}/submit-study-to-conseiller`,
+        {
+          method: "POST",
+          headers: await authHeaders(),
+          body: JSON.stringify({ subject: emailSubject, html: emailHtml }),
+        },
+      );
+      const errData = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast("Étude soumise au conseiller — il recevra un email pour valider le courtage", "success");
+        loadDossiers();
+        reloadMetrics();
+      } else {
+        showToast(errData.error || "Erreur de soumission", "error");
+      }
+    } catch {
       showToast("Erreur réseau", "error");
     }
   };
@@ -1872,6 +1938,31 @@ export default function AdminDashboard({
                     ) : null}
                   </div>
 
+                  {conseillerStudyFlow?.requiresConseillerValidation ? (
+                    <div className="mb-1 p-4 rounded-xl border border-indigo-200 bg-indigo-50 text-sm text-indigo-950">
+                      <p className="font-bold mb-1">Dossier conseiller LCIF</p>
+                      <p className="text-xs text-indigo-800 leading-relaxed">
+                        Collez votre étude HTML rédigée manuellement, puis soumettez-la au conseiller pour
+                        validation des frais de courtage. L&apos;envoi au client se fera automatiquement après
+                        validation.
+                      </p>
+                      {conseillerStudyFlow.validation?.status === "pending" ? (
+                        <p className="text-xs font-bold text-amber-800 mt-2">
+                          En attente de validation conseiller depuis le{" "}
+                          {new Date(conseillerStudyFlow.validation.submittedAt || "").toLocaleString("fr-FR")}
+                        </p>
+                      ) : null}
+                      {conseillerStudyFlow.validation?.status === "approved" ? (
+                        <p className="text-xs font-bold text-emerald-800 mt-2">
+                          Étude validée et envoyée
+                          {conseillerStudyFlow.validation.feesCourtageTotalEur != null
+                            ? ` (courtage ${conseillerStudyFlow.validation.feesCourtageTotalEur} €)`
+                            : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Objet du mail</label>
                     <input 
@@ -1908,14 +1999,28 @@ export default function AdminDashboard({
                       {previewActive ? "Masquer la prévisualisation" : "Prévisualiser"}
                     </button>
 
-                    <button 
-                      type="button"
-                      onClick={handleSendPastedEmail}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2 ml-auto"
-                    >
-                      <Send className="w-4 h-4"/>
-                      Envoyer au client ▶
-                    </button>
+                    {conseillerStudyFlow?.requiresConseillerValidation ? (
+                      <button
+                        type="button"
+                        onClick={handleSubmitStudyToConseiller}
+                        disabled={conseillerStudyFlow.validation?.status === "pending"}
+                        className="bg-[#1E3A8A] hover:bg-indigo-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2 ml-auto"
+                      >
+                        <Send className="w-4 h-4"/>
+                        {conseillerStudyFlow.validation?.status === "pending"
+                          ? "En attente du conseiller"
+                          : "Soumettre au conseiller"}
+                      </button>
+                    ) : (
+                      <button 
+                        type="button"
+                        onClick={handleSendPastedEmail}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2 ml-auto"
+                      >
+                        <Send className="w-4 h-4"/>
+                        Envoyer au client ▶
+                      </button>
+                    )}
                   </div>
 
                   {previewActive && (

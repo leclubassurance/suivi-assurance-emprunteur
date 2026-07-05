@@ -10,6 +10,10 @@ import {
   getClientPortalAbsoluteUrl,
 } from "./clientPortal";
 import { buildClientPortalSteps, resolveClientPortalStatusView } from "./subscriptionProgress";
+import {
+  formatInsuranceChangePlanLabel,
+  getInsuranceChangePlan,
+} from "./insuranceChangePlan";
 
 export type ApporteurReferralCommission = {
   feesCourtageEur: number;
@@ -23,6 +27,7 @@ export type ApporteurReferralTracking = {
   clientPortalUrl: string;
   statusLabel: string;
   statusDetail?: string;
+  plannedChangeDateLabel?: string;
   steps: { key: string; label: string; done: boolean; active: boolean }[];
   commission?: ApporteurReferralCommission | null;
 };
@@ -98,11 +103,16 @@ export async function enrichReferralsForApporteurPortal(
       active: !s.done && s.key === firstPending?.key,
     }));
 
+    const changePlan = getInsuranceChangePlan(dossier);
+
     base.tracking = {
       dossierId: dossier.id,
       clientPortalUrl: getClientPortalAbsoluteUrl(token, publicBaseUrl),
       statusLabel: statusView.label,
       statusDetail: statusView.description,
+      plannedChangeDateLabel: changePlan
+        ? formatInsuranceChangePlanLabel(changePlan.plannedDate)
+        : undefined,
       steps: mappedSteps,
       commission: remuneration
         ? (() => {
