@@ -166,15 +166,22 @@ export function enrichReferralForConseillerPortal(params: {
         }
       : null;
 
+  const studySent = hasStudyBeenSent(dossier);
+  const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
+
   const statusView = studyValidationRaw?.status === "pending"
     ? {
         label: "Étude en validation — courtage",
         description:
           "L'étude a été préparée par LCIF. Validez les frais de courtage pour déclencher l'envoi au client.",
       }
-    : resolveClientPortalStatusView(dossier);
-  const studySent = hasStudyBeenSent(dossier);
-  const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
+    : studySent && !clientAccepted
+      ? {
+          label: "Étude envoyée — décision en attente",
+          description:
+            "L'étude a été transmise au client. En attente de son accord pour activer le changement d'assurance.",
+        }
+      : resolveClientPortalStatusView(dossier);
   const steps = buildConseillerSubscriptionSteps(dossier, operatingPhase);
   const commission = (() => {
     const c = resolveDossierCommission(dossier, remuneration);

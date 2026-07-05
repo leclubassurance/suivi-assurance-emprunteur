@@ -84,14 +84,22 @@ export function resolveEffectiveSubscriptionPhase(dossier: Dossier): Subscriptio
   if (!hasStudyBeenSent(dossier)) return null;
 
   const manual = coerceSubscriptionPhase(dossier.subscriptionProgress?.phase);
+  const accepted = clientHasAcceptedInsuranceChange(dossier);
   if (manual) {
-    if (clientHasAcceptedInsuranceChange(dossier) && phaseRank(manual) < phaseRank("decision_received")) {
+    if (
+      manual === "decision_received" &&
+      dossier.subscriptionProgress?.updatedBy === "system" &&
+      !accepted
+    ) {
+      return "awaiting_decision";
+    }
+    if (accepted && phaseRank(manual) < phaseRank("decision_received")) {
       return "decision_received";
     }
     return manual;
   }
 
-  if (clientHasAcceptedInsuranceChange(dossier)) return "decision_received";
+  if (accepted) return "decision_received";
   return "awaiting_decision";
 }
 

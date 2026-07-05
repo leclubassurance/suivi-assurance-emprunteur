@@ -1718,6 +1718,9 @@ export function createApp() {
             const db = await readDB();
             const dossierById = new Map(db.dossiers.map((d: any) => [d.id, d]));
             const { enrichReferralForConseillerPortal } = await import("./conseillerPortalEnrich");
+            const { syncReferralFromDossier, inferReferralStatusFromDossier } = await import(
+              "./apporteurStore"
+            );
             const payoutSharePercent = remuneration.apporteurShareOfBrokerage;
             const out: any[] = [];
             for (const r of referrals) {
@@ -1735,6 +1738,9 @@ export function createApp() {
                 out.push(base);
                 continue;
               }
+              await syncReferralFromDossier(dossier, "portal_refresh");
+              const liveStatus = inferReferralStatusFromDossier(dossier);
+              if (liveStatus) base.status = liveStatus;
               base.tracking = enrichReferralForConseillerPortal({
                 referral: r,
                 dossier,

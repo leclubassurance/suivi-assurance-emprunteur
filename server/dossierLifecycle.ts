@@ -114,6 +114,40 @@ export function getLastStudyOutbound(dossier: Dossier): { subject: string; date:
   return null;
 }
 
+/** Horodatage du dernier envoi réel de l'étude au client (ms epoch). */
+export function getStudySentAtMs(dossier: Dossier): number | null {
+  const candidates: number[] = [];
+
+  if (dossier.studyConseillerValidation?.sentAt) {
+    candidates.push(new Date(dossier.studyConseillerValidation.sentAt).getTime());
+  }
+
+  const last = getLastStudyOutbound(dossier);
+  if (last?.date) candidates.push(new Date(last.date).getTime());
+
+  for (const c of dossier.communications || []) {
+    if (c.direction !== "outbound") continue;
+    const subject = String(c.subject || "");
+    if (isOutboundConfirmation(subject, c.text)) continue;
+    const isStudy =
+      STUDY_SUBJECT_RE.test(subject) ||
+      (/assurance emprunteur/i.test(subject) &&
+        /personnalisée|personnalisee|économies|economies/i.test(subject));
+    if (isStudy && c.date) candidates.push(new Date(c.date).getTime());
+  }
+
+  for (const e of dossier.eventLog || []) {
+    if (e.type !== "EMAIL_SENT") continue;
+    if (!isClientStudyOutboundEvent(e.meta, e.message)) continue;
+    const at = String((e as { at?: string; date?: string }).at || (e as { date?: string }).date || "");
+    if (at) candidates.push(new Date(at).getTime());
+  }
+
+  const valid = candidates.filter((t) => Number.isFinite(t) && t > 0);
+  if (!valid.length) return null;
+  return Math.max(...valid);
+}
+
 export function needsStatusStudySent(dossier: Dossier): boolean {
   return (
     hasStudyBeenSent(dossier) &&

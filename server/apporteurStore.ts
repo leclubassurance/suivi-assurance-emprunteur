@@ -663,7 +663,7 @@ export async function linkReferralToDossier(
   });
 }
 
-function inferReferralStatusFromDossier(dossier: Dossier): ReferralStatus | null {
+export function inferReferralStatusFromDossier(dossier: Dossier): ReferralStatus | null {
   const status = String(dossier.status || "").toUpperCase();
   if (status === "REFUSÉ" || status === "REFUSE") return "REFUSE";
   if (status === "CLOS" && !clientHasAcceptedInsuranceChange(dossier)) return "PERDU";
@@ -725,6 +725,23 @@ export async function syncReferralFromDossier(dossier: Dossier, actor = "system"
     const previousStatus = referral.status;
     referral.status = inferred;
     pushReferralEvent(referral, inferred, `Sync dossier ${dossier.id}`, actor);
+    referral.updatedAt = new Date().toISOString();
+    await persistStore(store);
+    await notifyAfterReferralChange(store, referral, previousStatus);
+  } else if (
+    inferred &&
+    referral.status === "SIGNE" &&
+    inferred === "ETUDE_ENVOYEE" &&
+    statusRank(inferred) < statusRank(referral.status)
+  ) {
+    const previousStatus = referral.status;
+    referral.status = inferred;
+    pushReferralEvent(
+      referral,
+      inferred,
+      `Sync dossier ${dossier.id} — statut corrigé (pas d'accord client post-étude)`,
+      actor,
+    );
     referral.updatedAt = new Date().toISOString();
     await persistStore(store);
     await notifyAfterReferralChange(store, referral, previousStatus);
