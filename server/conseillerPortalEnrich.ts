@@ -153,6 +153,19 @@ export function enrichReferralForConseillerPortal(params: {
   if (!token || token.length < 24) {
     token = ensureClientPortalToken(dossier);
   }
+
+  const studyValidationRaw = (dossier as Dossier & { studyConseillerValidation?: StudyConseillerValidation })
+    .studyConseillerValidation;
+  const studyValidationPending =
+    studyValidationRaw?.status === "pending"
+      ? {
+          dossierId: dossier.id,
+          subject: studyValidationRaw.subject,
+          submittedAt: studyValidationRaw.submittedAt,
+          ...buildStudyValidationSummaryForPortal(studyValidationRaw, remuneration),
+        }
+      : null;
+
   const statusView = studyValidationRaw?.status === "pending"
     ? {
         label: "Étude en validation — courtage",
@@ -182,18 +195,6 @@ export function enrichReferralForConseillerPortal(params: {
     (!sub?.submittedAt || sub.status === "pending");
 
   const changePlan = getInsuranceChangePlan(dossier);
-
-  const studyValidationRaw = (dossier as Dossier & { studyConseillerValidation?: StudyConseillerValidation })
-    .studyConseillerValidation;
-  const studyValidationPending =
-    studyValidationRaw?.status === "pending"
-      ? {
-          dossierId: dossier.id,
-          subject: studyValidationRaw.subject,
-          submittedAt: studyValidationRaw.submittedAt,
-          ...buildStudyValidationSummaryForPortal(studyValidationRaw, remuneration),
-        }
-      : null;
 
   return {
     dossierId: dossier.id,
