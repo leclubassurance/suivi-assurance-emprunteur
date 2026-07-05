@@ -74,23 +74,48 @@ function resolveProjectId(config: Record<string, string> | null): string | null 
   );
 }
 
+function loadFirebaseServiceAccountCredentials(): Record<string, unknown> | null {
+  const raw =
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() ||
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
+  if (raw) {
+    try {
+      const parsed = raw.startsWith("{")
+        ? JSON.parse(raw)
+        : JSON.parse(Buffer.from(raw.replace(/\s/g, ""), "base64").toString("utf8"));
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const driveSa = loadServiceAccountCredentials();
+  const firebaseProjectId =
+    process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "";
+  if (
+    driveSa &&
+    firebaseProjectId &&
+    String(driveSa.project_id || "") === firebaseProjectId
+  ) {
+    return driveSa;
+  }
+  return null;
+}
+
 async function tryInitAdminFirestore(projectId: string): Promise<AdminFirestore | null> {
   try {
-    const sa =
-      loadServiceAccountCredentials() ||
-      (() => {
-        const raw =
-          process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() ||
-          process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
-        if (!raw) return null;
-        try {
-          if (raw.startsWith("{")) return JSON.parse(raw);
-          return JSON.parse(Buffer.from(raw.replace(/\s/g, ""), "base64").toString("utf8"));
-        } catch {
-          return null;
-        }
-      })();
-    if (!sa) return null;
+    const sa = loadFirebaseServiceAccountCredentials();
+    if (!sa) {
+      console.warn(
+        "[Firebase] Admin SDK : ajoutez FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 (clé Firebase Console, pas le compte Drive).",
+      );
+      return null;
+    }
+
+    const saEmail = String(sa.client_email || "");
+    if (saEmail && !saEmail.includes("firebase-adminsdk") && saEmail !== loadServiceAccountCredentials()?.client_email) {
+      console.warn(`[Firebase] Admin SDK : compte ${saEmail} — préférez firebase-adminsdk@...`);
+    }
 
     if (!admin.apps.length) {
       admin.initializeApp({
@@ -100,7 +125,9 @@ async function tryInitAdminFirestore(projectId: string): Promise<AdminFirestore 
     }
     const db = admin.firestore();
     await db.collection(DOSSIERS_COLLECTION).limit(1).get();
-    console.log(`[Firebase] Admin SDK prêt — projet=${projectId} (bypass règles Firestore)`);
+    console.log(
+      `[Firebase] Admin SDK prêt — projet=${projectId}, compte=${saEmail || "?"} (bypass règles Firestore)`,
+    );
     return db;
   } catch (err: any) {
     console.warn(
@@ -166,6 +193,14 @@ export async function initFirebaseSync(): Promise<void> {
     if (adminFirestoreDb) {
       firestoreMode = "admin";
       return;
+    }
+
+    const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT);
+    if (onRailway || process.env.FIREBASE_REQUIRED === "true") {
+      console.error(
+        "[Firebase] CRITIQUE : Admin SDK requis sur Railway. Ajoutez FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 " +
+          "(Firebase Console → Comptes de service → Générer clé). Ne publiez pas de règles Firestore fermées sans cela.",
+      );
     }
 
     clientFirestoreDb = initClientFirestore(firebaseConfig);
