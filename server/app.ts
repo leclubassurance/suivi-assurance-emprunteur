@@ -2163,6 +2163,8 @@ export function createApp() {
         const { hasStudyBeenSent, isStudyPendingConseillerValidation } = await import(
           "./dossierLifecycle"
         );
+
+        const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
         if (!isConseillerImmoClubType(apporteur.type)) {
           return res.status(403).json({ ok: false, error: "not_conseiller" });
