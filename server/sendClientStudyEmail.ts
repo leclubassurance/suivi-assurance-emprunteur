@@ -1,11 +1,13 @@
 import type { Dossier } from "./dossierModel";
 import { addEvent } from "./dossierModel";
-import { sendEmail } from "./emailProvider";
+import { sendEmail, isEmailConfigured } from "./emailProvider";
 import { appendConseillerBccForDossier } from "./conseillerEmailCc";
 import { validateStudyEmailRecipient } from "./studyEmailRecipient";
 import { applyStudyKpiBestAvailable } from "./studyEmailKpi";
 import { applyStudySentStatusIfNeeded, hasStudyBeenSent } from "./dossierLifecycle";
 import { acknowledgeStaffOutboundToClient } from "./camilleStaffHandoff";
+import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
+import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
 
 export type SendClientStudyEmailResult =
   | { ok: true; providerId: string | null; channel: "gmail" | "smtp" | "simulated" }
@@ -36,28 +38,45 @@ export async function sendClientStudyEmail(params: {
   let providerId: string | null = null;
   let channel: "gmail" | "smtp" | "simulated" = "simulated";
   const googleToken = params.googleToken ?? null;
+  const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
 
-  if (googleToken) {
-    const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
-    const gmailResult = await sendEmailReplyWithGmailAPI(googleToken, toEmail, subject, html, {
+  const tryGmail = async (token: string | null) => {
+    const gmailResult = await sendEmailReplyWithGmailAPI(token, toEmail, subject, html, {
       cc: ccEmails,
       dossier,
     });
-    if (!gmailResult.ok) {
-      addEvent(dossier, {
-        type: "EMAIL_FAILED",
-        actor: { kind: params.actorKind || "ADMIN", label: params.actorLabel || "Admin" },
-        meta: { to: toEmail, subject, error: gmailResult.error, channel: "gmail" },
-      });
+    if (gmailResult.ok) {
+      providerId = gmailResult.messageId || null;
+      channel = "gmail";
+      return true;
+    }
+    addEvent(dossier, {
+      type: "EMAIL_FAILED",
+      actor: { kind: params.actorKind || "ADMIN", label: params.actorLabel || "Admin" },
+      meta: { to: toEmail, subject, error: gmailResult.error, channel: "gmail" },
+    });
+    return false;
+  };
+
+  if (googleToken) {
+    const sent = await tryGmail(googleToken);
+    if (!sent) {
       return {
         ok: false,
-        error: `Échec Gmail : ${gmailResult.error}. Reconnectez-vous à Google (Déconnexion puis connexion).`,
+        error: `Échec Gmail : reconnectez-vous à Google dans l'admin (Déconnexion puis connexion).`,
         status: 500,
       };
     }
-    providerId = gmailResult.messageId || null;
-    channel = "gmail";
-  } else {
+  } else if (hasServerOAuthRefreshToken() || canUseDomainWideDelegation()) {
+    const sent = await tryGmail(null);
+    if (!sent) {
+      return {
+        ok: false,
+        error: "Échec envoi Gmail serveur — vérifiez GOOGLE_OAUTH_REFRESH_TOKEN sur Railway.",
+        status: 500,
+      };
+    }
+  } else if (isEmailConfigured()) {
     const bccFinal = await appendConseillerBccForDossier(dossier);
     const result = await sendEmail({ to: toEmail, cc: ccEmails, bcc: bccFinal, subject, html });
     if ("error" in result) {
@@ -69,15 +88,23 @@ export async function sendClientStudyEmail(params: {
       return { ok: false, error: (result as any).error, status: 500 };
     }
     providerId = (result as any).providerId || null;
-    channel = providerId === "SIMULATED" ? "simulated" : "smtp";
-    if (channel === "simulated") {
-      return {
-        ok: false,
-        error:
-          "Email non envoyé : connectez-vous avec Google dans l'admin (Gmail) ou configurez SMTP sur Railway.",
-        status: 400,
-      };
-    }
+    channel = "smtp";
+  } else {
+    return {
+      ok: false,
+      error:
+        "Email non envoyé : configurez Gmail serveur (GOOGLE_OAUTH_REFRESH_TOKEN) ou SMTP sur Railway.",
+      status: 400,
+    };
+  }
+
+  if (channel === "simulated") {
+    return {
+      ok: false,
+      error:
+        "Email non envoyé : configurez Gmail serveur (GOOGLE_OAUTH_REFRESH_TOKEN) ou SMTP sur Railway.",
+      status: 400,
+    };
   }
 
   const sentAt = new Date().toISOString();
