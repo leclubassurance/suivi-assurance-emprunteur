@@ -73,7 +73,7 @@ export async function tryCamilleDocClarificationInsteadOfEscalation(
   if (!clientEmail) return { sent: false, skipReason: "no_email" };
 
   const { subject, html } = await generateCamilleDocumentFollowUpEmail(dossier, assessment);
-  const send = await sendEmailReplyWithGmailAPI(null, clientEmail, subject, html);
+  const send = await sendEmailReplyWithGmailAPI(null, clientEmail, subject, html, { dossier });
 
   if (!send?.ok) {
     return { sent: false, skipReason: send?.error || "send_failed" };

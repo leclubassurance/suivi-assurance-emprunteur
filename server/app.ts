@@ -734,6 +734,8 @@ export function createApp() {
         : ((dossier.formData?.assures || []) as any[])
             .map((a: any) => String(a?.email || "").trim())
             .filter((e: string) => e && e.toLowerCase() !== String(toEmail).toLowerCase());
+    const { appendConseillerCcForDossier } = await import("./conseillerEmailCc");
+    const ccEmailsFinal = await appendConseillerCcForDossier(dossier, ccEmails);
 
     const googleToken = getBearerTokenFromRequest(req);
 
@@ -742,7 +744,7 @@ export function createApp() {
 
     if (googleToken) {
       const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
-      const gmailResult = await sendEmailReplyWithGmailAPI(googleToken, toEmail, subject, html, { cc: ccEmails });
+      const gmailResult = await sendEmailReplyWithGmailAPI(googleToken, toEmail, subject, html, { cc: ccEmailsFinal, dossier });
       if (gmailResult.ok) {
         providerId = gmailResult.messageId || null;
         channel = "gmail";
@@ -758,7 +760,7 @@ export function createApp() {
         });
       }
     } else {
-      const result = await sendEmail({ to: [toEmail, ...ccEmails].join(","), subject, html });
+      const result = await sendEmail({ to: toEmail, cc: ccEmailsFinal, subject, html });
       if ("error" in result) {
         const error = (result as any).error;
         addEvent(dossier, {
@@ -847,18 +849,6 @@ export function createApp() {
     }
     try {
       await writeDB(db, dossier);
-      try {
-        const { maybeNotifyConseillerStudySent } = await import("./conseillerStudyNotify");
-        const notifyResult = await maybeNotifyConseillerStudySent(dossier, {
-          subject: String(subject || ""),
-          excerpt: String(html || "").replace(/<[^>]+>/g, " ").slice(0, 1500),
-        }).catch(() => ({ sent: false }));
-        if (notifyResult.sent) {
-          await writeDB(db, dossier);
-        }
-      } catch {
-        /* non bloquant */
-      }
       try {
         const { syncReferralFromDossier } = await import("./apporteurStore");
         const { syncNetworkReferralFromDossier } = await import("./networkStore");
@@ -3048,7 +3038,7 @@ export function createApp() {
     const toEmail = dossier.formData?.assures?.[0]?.email || "assurance@leclubimmobilier.fr";
     const mailContent = html || text;
 
-    const sendResult = await sendEmailReplyWithGmailAPI(accessToken, toEmail, subject, mailContent);
+    const sendResult = await sendEmailReplyWithGmailAPI(accessToken, toEmail, subject, mailContent, { dossier });
     if (sendResult?.ok) {
       if (!dossier.communications) dossier.communications = [];
       dossier.communications.push({

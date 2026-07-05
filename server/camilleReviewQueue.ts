@@ -751,6 +751,7 @@ export async function confirmAndSendReviewReply(
     review.clientEmail,
     review.emailSubject.startsWith("Re:") ? review.emailSubject : `Re: ${review.emailSubject}`,
     sendHtml,
+    { dossier },
   );
 
   if (!send.ok) {

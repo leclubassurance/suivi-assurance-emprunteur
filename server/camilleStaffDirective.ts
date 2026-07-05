@@ -186,7 +186,7 @@ ${text.slice(0, 4000)}
     const subject = `Votre dossier ${dossier.id} — Le Club Immobilier Français`;
     const html = wrapCamilleHtmlReply(clientMessage, prenom, nom, dossier);
     const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
-    const send = await sendEmailReplyWithGmailAPI(null, clientEmail, subject, html);
+    const send = await sendEmailReplyWithGmailAPI(null, clientEmail, subject, html, { dossier });
 
     if (!send?.ok) {
       return {

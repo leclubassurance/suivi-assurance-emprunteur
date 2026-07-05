@@ -300,7 +300,10 @@ export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
         : [];
 
       const { subject, html } = await generateCamilleDocumentFollowUpEmail(existing, fresh);
-      const sendResult = await sendEmailReplyWithGmailAPI(null, clientEmail, subject, html, { cc: ccEmails });
+      const sendResult = await sendEmailReplyWithGmailAPI(null, clientEmail, subject, html, {
+        cc: ccEmails,
+        dossier: existing,
+      });
 
       if (sendResult?.ok) {
         addEvent(existing, {

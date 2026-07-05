@@ -647,21 +647,6 @@ export async function syncGmailInbox(
         const prevStatus = dossier.status;
         if (applyStudySentStatusIfNeeded(dossier)) msgChanged = true;
         if (dossier.status !== prevStatus) msgChanged = true;
-        try {
-          const { hasStudyBeenSent } = await import("./dossierLifecycle");
-          if (hasStudyBeenSent(dossier)) {
-            const { maybeNotifyConseillerStudySent } = await import("./conseillerStudyNotify");
-            const notifyResult = await maybeNotifyConseillerStudySent(dossier, {
-              subject,
-              excerpt: String(text || html || "")
-                .replace(/<[^>]+>/g, " ")
-                .slice(0, 1500),
-            });
-            if (notifyResult.sent) msgChanged = true;
-          }
-        } catch (notifyErr: any) {
-          console.warn(`[Conseiller] Copie étude: ${notifyErr?.message || notifyErr}`);
-        }
       }
 
       if (isFromClient) {
@@ -845,6 +830,7 @@ export async function syncGmailInbox(
                 replyToEmail,
                 replySubject,
                 html,
+                { dossier },
               );
               if (sent.ok) {
                 finishInbound();
@@ -1013,6 +999,7 @@ export async function syncGmailInbox(
                 replyToEmail,
                 replySubject,
                 aiDecision.text,
+                { dossier },
               );
               if (!sendResult.ok) {
                 console.warn(
@@ -1214,13 +1201,17 @@ export async function sendEmailReplyWithGmailAPI(
   toEmail: string,
   subject: string,
   bodyText: string,
-  options?: { cc?: string[]; attachments?: GmailEmailAttachment[] },
+  options?: { cc?: string[]; attachments?: GmailEmailAttachment[]; dossier?: unknown },
 ) {
   const { auth } = await createGmailAuth(accessToken);
   const gmail = google.gmail({ version: 'v1', auth: auth as any });
 
   const isHtml = /<[a-z][\s\S]*>/i.test(bodyText);
-  const cc = (options?.cc || []).filter(Boolean);
+  let cc = (options?.cc || []).filter(Boolean);
+  if (options?.dossier) {
+    const { appendConseillerCcForDossier } = await import("./conseillerEmailCc");
+    cc = await appendConseillerCcForDossier(options.dossier, cc);
+  }
   const attachments = (options?.attachments || []).filter((a) => a.content?.length);
 
   let rawMessage: string;

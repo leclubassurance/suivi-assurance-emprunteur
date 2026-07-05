@@ -8,7 +8,7 @@ async function sendGmail(
   to: string,
   subject: string,
   body: string,
-  options?: { cc?: string[] },
+  options?: { cc?: string[]; dossier?: Dossier },
 ) {
   const { sendEmailReplyWithGmailAPI } = await import("./mailAutomation");
   return sendEmailReplyWithGmailAPI(accessToken, to, subject, body, options);
@@ -146,7 +146,7 @@ export async function handleCamilleEscalation(params: {
       nom,
       dossier,
     );
-    const clientSend = await sendGmail(accessToken, clientEmail, replySubject, clientHtml);
+    const clientSend = await sendGmail(accessToken, clientEmail, replySubject, clientHtml, { dossier });
     if (clientSend?.ok) {
       notifiedClient = true;
       addEvent(dossier, {

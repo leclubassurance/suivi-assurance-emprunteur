@@ -5,6 +5,7 @@ export type SendEmailInput = {
   subject: string;
   html: string;
   from?: string;
+  cc?: string[];
   attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
 };
 
@@ -44,6 +45,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     const info = await transporter.sendMail({
       from,
       to: input.to,
+      cc: (input.cc || []).filter(Boolean).join(", ") || undefined,
       subject: input.subject,
       html: input.html,
       attachments: (input.attachments || []).map((a) => ({

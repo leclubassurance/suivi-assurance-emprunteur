@@ -107,8 +107,10 @@ export async function sendDossierConfirmationEmail(
   };
 
   const adminToken = String(options?.adminAccessToken || "").trim();
+  const { appendConseillerCcForDossier } = await import("./conseillerEmailCc");
+  const ccFinal = await appendConseillerCcForDossier(dossier, ccEmails);
   if (adminToken) {
-    const sendResult = await sendEmailReplyWithGmailAPI(adminToken, toEmail, subject, html, { cc: ccEmails });
+    const sendResult = await sendEmailReplyWithGmailAPI(adminToken, toEmail, subject, html, { cc: ccFinal, dossier });
     return recordOutcome(Boolean(sendResult?.ok), "GMAIL_ADMIN", sendResult?.error);
   }
 
@@ -116,12 +118,12 @@ export async function sendDossierConfirmationEmail(
     const channel: ConfirmationSendChannel = hasServerOAuthRefreshToken()
       ? "GMAIL_REFRESH_TOKEN"
       : "GMAIL_DWD";
-    const sendResult = await sendEmailReplyWithGmailAPI(null, toEmail, subject, html, { cc: ccEmails });
+    const sendResult = await sendEmailReplyWithGmailAPI(null, toEmail, subject, html, { cc: ccFinal, dossier });
     return recordOutcome(Boolean(sendResult?.ok), channel, sendResult?.error);
   }
 
   if (isEmailConfigured()) {
-    const smtpResult = await sendEmail({ to: [toEmail, ...ccEmails].join(","), subject, html });
+    const smtpResult = await sendEmail({ to: toEmail, cc: ccFinal, subject, html });
     if (smtpResult.ok) {
       return recordOutcome(true, "SMTP");
     }

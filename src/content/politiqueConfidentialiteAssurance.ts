@@ -60,7 +60,7 @@ export const politiqueConfidentialiteAssurance: LegalDocument = {
         },
         {
           type: "p",
-          text: "Ce partenaire peut percevoir une rémunération du Club si vous décidez, de votre propre initiative, de poursuivre un changement d'assurance effectivement réalisé — sans surcoût pour vous. Cette information vous est rappelée lors de votre prise de contact.",
+          text: "Ce partenaire peut percevoir une rémunération du Club si vous décidez, de votre propre initiative, de poursuivre un changement d'assurance effectivement réalisé — sans surcoût pour vous. Cette information figure dans la présente politique de confidentialité (section 2 bis) et n'est pas répétée dans chaque email.",
         },
       ],
     },

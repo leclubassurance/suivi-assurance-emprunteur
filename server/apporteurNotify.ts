@@ -2,7 +2,6 @@ import crypto from "crypto";
 import type { Apporteur, Referral, ReferralStatus } from "../shared/apporteurTypes";
 import { APPORTEUR_TYPE_LABELS, REFERRAL_STATUS_LABELS } from "../shared/apporteurTypes";
 import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
-import { buildClientPartnerDisclosureHtml } from "../shared/apporteurCompliance";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
 import { sendEmail } from "./emailProvider";
 import { sendEmailReplyWithGmailAPI } from "./mailAutomation";
@@ -312,7 +311,6 @@ export function buildReferredClientInviteEmail(params: {
   const prenom = String(params.referral.contact.prenom || "").trim() || "Bonjour";
   const greeting = params.referral.contact.prenom ? `Bonjour ${params.referral.contact.prenom},` : "Bonjour,";
   const partnerName = String(params.apporteur.contactName || "").trim() || "votre contact";
-  const partnerDisclosure = buildClientPartnerDisclosureHtml(partnerName);
 
   const html = `
 <div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
@@ -325,9 +323,6 @@ export function buildReferredClientInviteEmail(params: {
       <p style="font-size:14px;margin:0 0 12px 0;color:#374151;">
         <strong>${partnerName}</strong> vous oriente vers le <strong>Club Immobilier Français</strong>
         pour une <strong>étude gratuite des économies</strong> sur votre assurance emprunteur.
-      </p>
-      <p style="font-size:12px;margin:0 0 14px 0;color:#6B7280;line-height:1.5;">
-        ${partnerDisclosure}
       </p>
       <p style="font-size:14px;margin:0 0 16px 0;color:#374151;">
         En quelques minutes, déposez votre dossier en ligne : nous analysons votre contrat actuel
@@ -351,6 +346,9 @@ export function buildReferredClientInviteEmail(params: {
     </div>
     <div style="background:#F8FAFC;padding:16px 22px;border-top:1px solid #E5E7EB;">
       <p style="font-size:11px;margin:0;color:#9CA3AF;">Le Club Immobilier Français — ORIAS 24002253</p>
+      <p style="font-size:10px;margin:8px 0 0 0;color:#CBD5E1;line-height:1.45;">
+        Informations sur le parcours recommandation partenaire : voir la politique de confidentialité (section 2 bis) sur notre site.
+      </p>
     </div>
   </div>
 </div>`;

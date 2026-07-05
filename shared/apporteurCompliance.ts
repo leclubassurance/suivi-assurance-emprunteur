@@ -1,9 +1,8 @@
 /** Textes conformité / transparence — apporteurs d'affaires LCIF. */
 
-/** Mention client (email LCIF) — lien commercial, formulation volontairement sobre. */
-export function buildClientPartnerDisclosureHtml(partnerDisplayName: string): string {
-  const name = String(partnerDisplayName || "votre contact").trim() || "votre contact";
-  return `Cette mise en relation a été initiée par <strong>${name}</strong>, partenaire commercial indépendant du Club. Il peut percevoir une rémunération si vous décidez, de votre propre initiative, de poursuivre un changement d'assurance — sans incidence sur les montants qui vous sont proposés.`;
+/** Mention client (email LCIF) — désormais dans la politique de confidentialité (section 2 bis), pas dans le corps des mails. */
+export function buildClientPartnerDisclosureHtml(_partnerDisplayName: string): string {
+  return "";
 }
 
 /** Barème courtage affiché dans l'étude lorsque le montant n'est pas encore chiffré. */

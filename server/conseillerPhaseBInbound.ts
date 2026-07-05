@@ -186,6 +186,7 @@ export async function handleConseillerPhaseBClientInbound(params: {
     params.clientEmail,
     params.replySubject,
     replyHtml,
+    { dossier: params.dossier },
   );
   if (!sent.ok) {
     return { ok: false, error: sent.error || "client_reply_failed", replyPlain };
