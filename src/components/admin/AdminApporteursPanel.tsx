@@ -29,6 +29,7 @@ import { computeReferralKpis } from "../../../shared/apporteurKpis";
 import KpiCard, { formatPercent } from "../portal/PartnerKpiGrid";
 import PartnerContractWorkflow from "../portal/PartnerContractWorkflow";
 import AdminApporteurLeaderboard from "./AdminApporteurLeaderboard";
+import AdminConseillerFormationsEditor from "./AdminConseillerFormationsEditor";
 import type { ApporteurLeaderboardRow } from "../../../shared/apporteurLeaderboard";
 import ApporteurProfileFormFields, {
   EMPTY_APPORTEUR_PROFILE_FORM,
@@ -415,6 +416,12 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
       {successMsg ? (
         <div className="mx-6 mt-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-sm px-4 py-3">
           {successMsg}
+        </div>
+      ) : null}
+
+      {segment === "conseiller_club" ? (
+        <div className="mx-6 mt-4">
+          <AdminConseillerFormationsEditor />
         </div>
       ) : null}
 

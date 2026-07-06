@@ -1520,6 +1520,30 @@ export function createApp() {
     }
   });
 
+  app.get("/api/admin/conseiller-formations", async (_req, res) => {
+    try {
+      const { loadConseillerFormations } = await import("./conseillerFormationsConfig");
+      const modules = await loadConseillerFormations();
+      res.json({ ok: true, modules });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.put("/api/admin/conseiller-formations", express.json(), async (req, res) => {
+    try {
+      const raw = (req.body || {}).modules;
+      if (!Array.isArray(raw)) {
+        return res.status(400).json({ ok: false, error: "modules[] requis." });
+      }
+      const { saveConseillerFormations } = await import("./conseillerFormationsConfig");
+      const modules = await saveConseillerFormations(raw);
+      res.json({ ok: true, modules });
+    } catch (err: any) {
+      res.status(400).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/referrals", async (req, res) => {
     try {
       const { createReferral, syncReferralFromDossier } = await import("./apporteurStore");
@@ -1702,6 +1726,29 @@ export function createApp() {
       res.json({ ok: result.ok });
     } catch {
       res.json({ ok: false });
+    }
+  });
+
+  app.get("/api/apporteur-portal/:token/formations", async (req, res) => {
+    try {
+      const { findApporteurByPortalToken } = await import("./apporteurStore");
+      const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+      const { loadConseillerFormations } = await import("./conseillerFormationsConfig");
+      const apporteur = await findApporteurByPortalToken(req.params.token);
+      if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+      if (!isConseillerImmoClubType(apporteur.type)) {
+        return res.status(403).json({ ok: false, error: "not_conseiller" });
+      }
+      if ((apporteur.contractStatus || "none") !== "signed") {
+        return res.status(403).json({ ok: false, error: "contract_required" });
+      }
+      const modules = (await loadConseillerFormations()).map((m) => ({
+        ...m,
+        available: m.embedUrl.startsWith("http"),
+      }));
+      res.json({ ok: true, modules });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
 

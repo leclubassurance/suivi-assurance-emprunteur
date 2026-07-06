@@ -27,6 +27,7 @@ import ConseillerPhaseBanner from "./ConseillerPhaseBanner";
 import ConseillerSubscriptionForm from "./ConseillerSubscriptionForm";
 import ConseillerReferralCommunications from "./ConseillerReferralCommunications";
 import ConseillerStudyValidation, { type StudyValidationPending } from "./ConseillerStudyValidation";
+import ConseillerFormationSection from "./ConseillerFormationSection";
 import { CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
 import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
@@ -406,6 +407,8 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
             autonomyThreshold={data.conseillerClub.autonomyThreshold}
           />
         ) : null}
+
+        {isConseillerClub ? <ConseillerFormationSection portalToken={token} /> : null}
 
         {data.contract?.signed ? (
           <section className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm">

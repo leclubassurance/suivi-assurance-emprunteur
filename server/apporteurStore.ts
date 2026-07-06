@@ -31,6 +31,8 @@ export type ApporteurStore = {
   apporteurs: Apporteur[];
   referrals: Referral[];
   partnerRecruits: PartnerRecruitRequest[];
+  /** Modules formation conseillers LCIF (titres, intros, URLs iframe Coassemble). */
+  conseillerFormations?: import("../shared/conseillerFormations").ConseillerFormationModule[];
   updatedAt: string;
 };
 
