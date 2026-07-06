@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Loader2, Mail, Shield } from "lucide-react";
 import { getApiUrl, setConseillerSessionToken } from "../../lib/utils";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
@@ -24,9 +24,12 @@ export default function ConseillerPortalLoginPage({
   const [maskedEmail, setMaskedEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(Boolean(loginToken));
+  const verifyStartedRef = useRef(false);
 
   useEffect(() => {
     if (!loginToken) return;
+    if (verifyStartedRef.current) return;
+    verifyStartedRef.current = true;
     let cancelled = false;
     (async () => {
       setVerifying(true);
@@ -38,9 +41,13 @@ export default function ConseillerPortalLoginPage({
         );
         const json = await res.json().catch(() => ({}));
         if (cancelled) return;
-        if (res.ok && json.ok) {
-          if (json.sessionToken) setConseillerSessionToken(String(json.sessionToken));
+        if (res.ok && json.ok && json.sessionToken) {
+          setConseillerSessionToken(String(json.sessionToken));
           onAuthenticated();
+          return;
+        }
+        if (res.ok && json.ok && !json.sessionToken) {
+          setError("Session non reçue — réessayez ou contactez assurance@leclubimmobilier.fr.");
           return;
         }
         setError(
