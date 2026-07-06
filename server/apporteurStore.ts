@@ -25,6 +25,7 @@ import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { applyReferralClickGeoToStats } from "../shared/referralGeo";
 import type { ReferralClickGeoSlice } from "../shared/referralGeo";
 import { generatePortalToken } from "./apporteurNotify";
+import { normalizeConseillerFormationParcours } from "../shared/conseillerFormations";
 
 export type ApporteurStore = {
   version: 1;
@@ -74,13 +75,17 @@ function emptyStore(): ApporteurStore {
 
 function normalizeStore(raw: unknown): ApporteurStore {
   const data = raw as ApporteurStore | null;
-  return {
+  const store: ApporteurStore = {
     version: 1,
     apporteurs: Array.isArray(data?.apporteurs) ? data.apporteurs : [],
     referrals: Array.isArray(data?.referrals) ? data.referrals : [],
     partnerRecruits: Array.isArray(data?.partnerRecruits) ? data.partnerRecruits : [],
     updatedAt: data?.updatedAt || new Date().toISOString(),
   };
+  if (data?.conseillerFormationParcours) {
+    store.conseillerFormationParcours = normalizeConseillerFormationParcours(data.conseillerFormationParcours);
+  }
+  return store;
 }
 
 function loadStoreFromFile(): ApporteurStore {

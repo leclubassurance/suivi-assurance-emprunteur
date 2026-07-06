@@ -340,6 +340,7 @@ export type ApporteurStoreDoc = {
   apporteurs: unknown[];
   referrals: unknown[];
   partnerRecruits?: unknown[];
+  conseillerFormationParcours?: unknown;
   updatedAt: string;
 };
 
