@@ -1522,9 +1522,9 @@ export function createApp() {
 
   app.get("/api/admin/conseiller-formations", async (_req, res) => {
     try {
-      const { loadConseillerFormations } = await import("./conseillerFormationsConfig");
-      const modules = await loadConseillerFormations();
-      res.json({ ok: true, modules });
+      const { loadConseillerFormationParcours } = await import("./conseillerFormationsConfig");
+      const parcours = await loadConseillerFormationParcours();
+      res.json({ ok: true, parcours });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
@@ -1532,13 +1532,14 @@ export function createApp() {
 
   app.put("/api/admin/conseiller-formations", express.json(), async (req, res) => {
     try {
-      const raw = (req.body || {}).modules;
-      if (!Array.isArray(raw)) {
-        return res.status(400).json({ ok: false, error: "modules[] requis." });
+      const body = req.body || {};
+      const raw = body.parcours || (Array.isArray(body.modules) ? body.modules[0] : null);
+      if (!raw || typeof raw !== "object") {
+        return res.status(400).json({ ok: false, error: "parcours requis." });
       }
-      const { saveConseillerFormations } = await import("./conseillerFormationsConfig");
-      const modules = await saveConseillerFormations(raw);
-      res.json({ ok: true, modules });
+      const { saveConseillerFormationParcours } = await import("./conseillerFormationsConfig");
+      const parcours = await saveConseillerFormationParcours(raw);
+      res.json({ ok: true, parcours });
     } catch (err: any) {
       res.status(400).json({ ok: false, error: err?.message || String(err) });
     }
@@ -1733,7 +1734,7 @@ export function createApp() {
     try {
       const { findApporteurByPortalToken } = await import("./apporteurStore");
       const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
-      const { loadConseillerFormations } = await import("./conseillerFormationsConfig");
+      const { loadConseillerFormationParcours } = await import("./conseillerFormationsConfig");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
       if (!isConseillerImmoClubType(apporteur.type)) {
@@ -1742,11 +1743,12 @@ export function createApp() {
       if ((apporteur.contractStatus || "none") !== "signed") {
         return res.status(403).json({ ok: false, error: "contract_required" });
       }
-      const modules = (await loadConseillerFormations()).map((m) => ({
-        ...m,
-        available: m.embedUrl.startsWith("http"),
-      }));
-      res.json({ ok: true, modules });
+      const parcoursRaw = await loadConseillerFormationParcours();
+      const parcours = {
+        ...parcoursRaw,
+        available: parcoursRaw.embedUrl.startsWith("http"),
+      };
+      res.json({ ok: true, parcours });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
     }

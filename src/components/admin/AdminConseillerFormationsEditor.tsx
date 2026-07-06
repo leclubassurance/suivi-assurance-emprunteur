@@ -1,22 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { GraduationCap, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { GraduationCap, Loader2, Save } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
-import type { ConseillerFormationModule } from "../../../shared/conseillerFormations";
-
-function emptyModule(order: number): ConseillerFormationModule {
-  return {
-    id: `formation-${Date.now().toString(36)}`,
-    order,
-    title: "",
-    description: "",
-    embedUrl: "",
-  };
-}
+import type { ConseillerFormationParcours } from "../../../shared/conseillerFormations";
 
 export default function AdminConseillerFormationsEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [modules, setModules] = useState<ConseillerFormationModule[]>([]);
+  const [parcours, setParcours] = useState<ConseillerFormationParcours>({
+    title: "",
+    description: "",
+    embedUrl: "",
+  });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +21,7 @@ export default function AdminConseillerFormationsEditor() {
       const res = await adminFetch("/api/admin/conseiller-formations");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Chargement impossible");
-      setModules(Array.isArray(data.modules) ? data.modules : []);
+      setParcours(data.parcours || data.modules?.[0] || { title: "", description: "", embedUrl: "" });
     } catch (e: any) {
       setError(e?.message || "Erreur");
     } finally {
@@ -39,41 +33,25 @@ export default function AdminConseillerFormationsEditor() {
     load();
   }, [load]);
 
-  const updateModule = (index: number, patch: Partial<ConseillerFormationModule>) => {
-    setModules((prev) => prev.map((m, i) => (i === index ? { ...m, ...patch } : m)));
-  };
-
-  const removeModule = (index: number) => {
-    setModules((prev) => prev.filter((_, i) => i !== index).map((m, i) => ({ ...m, order: i + 1 })));
-  };
-
-  const addModule = () => {
-    setModules((prev) => [...prev, emptyModule(prev.length + 1)]);
-  };
-
   const save = async () => {
     setSaving(true);
     setError(null);
     setMessage(null);
     try {
-      const payload = modules
-        .map((m, index) => ({
-          ...m,
-          order: index + 1,
-          title: m.title.trim(),
-          description: m.description.trim(),
-          embedUrl: m.embedUrl.trim(),
-        }))
-        .filter((m) => m.title);
+      const payload: ConseillerFormationParcours = {
+        title: parcours.title.trim(),
+        description: parcours.description.trim(),
+        embedUrl: parcours.embedUrl.trim(),
+      };
       const res = await adminFetch("/api/admin/conseiller-formations", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modules: payload }),
+        body: JSON.stringify({ parcours: payload }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Enregistrement impossible");
-      setModules(data.modules || payload);
-      setMessage("Formations enregistrées.");
+      setParcours(data.parcours || payload);
+      setMessage("Parcours enregistré.");
     } catch (e: any) {
       setError(e?.message || "Erreur");
     } finally {
@@ -84,7 +62,7 @@ export default function AdminConseillerFormationsEditor() {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-slate-500 py-6">
-        <Loader2 className="w-4 h-4 animate-spin" /> Chargement des formations…
+        <Loader2 className="w-4 h-4 animate-spin" /> Chargement…
       </div>
     );
   }
@@ -95,11 +73,11 @@ export default function AdminConseillerFormationsEditor() {
         <div>
           <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
             <GraduationCap className="w-5 h-5 text-indigo-800" />
-            Formations conseillers (Coassemble)
+            Parcours formation conseillers (Coassemble)
           </h2>
           <p className="text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
-            Titres et introductions affichés dans l&apos;espace conseiller. L&apos;accès aux contenus est
-            géré par Coassemble — collez l&apos;URL iframe de chaque module.
+            Un seul parcours Coassemble regroupant tous les modules. Collez l&apos;URL iframe du parcours
+            — Coassemble gère les modules et les accès.
           </p>
         </div>
         <button
@@ -116,60 +94,37 @@ export default function AdminConseillerFormationsEditor() {
       {message ? <p className="text-sm text-emerald-700 font-medium">{message}</p> : null}
       {error ? <p className="text-sm text-red-600 font-medium">{error}</p> : null}
 
-      <div className="space-y-4">
-        {modules.map((mod, index) => (
-          <div key={mod.id} className="rounded-xl border border-slate-200 p-4 bg-slate-50/50 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-black uppercase text-indigo-800">Module {index + 1}</span>
-              <button
-                type="button"
-                onClick={() => removeModule(index)}
-                className="text-slate-400 hover:text-red-600 p-1"
-                title="Supprimer"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Titre</label>
-              <input
-                value={mod.title}
-                onChange={(e) => updateModule(index, { title: e.target.value })}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                placeholder="Ex. Les fondamentaux de l'assurance emprunteur"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Introduction</label>
-              <textarea
-                value={mod.description}
-                onChange={(e) => updateModule(index, { description: e.target.value })}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[72px]"
-                placeholder="Quelques lignes pour expliquer l'objectif du module au conseiller…"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
-                URL iframe Coassemble
-              </label>
-              <input
-                value={mod.embedUrl}
-                onChange={(e) => updateModule(index, { embedUrl: e.target.value })}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
-                placeholder="https://…"
-              />
-            </div>
-          </div>
-        ))}
+      <div className="rounded-xl border border-slate-200 p-4 bg-slate-50/50 space-y-3">
+        <div>
+          <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Titre du parcours</label>
+          <input
+            value={parcours.title}
+            onChange={(e) => setParcours((p) => ({ ...p, title: e.target.value }))}
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            placeholder="Ex. Formation assurance emprunteur LCIF"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Introduction</label>
+          <textarea
+            value={parcours.description}
+            onChange={(e) => setParcours((p) => ({ ...p, description: e.target.value }))}
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[88px]"
+            placeholder="Quelques lignes pour présenter le parcours au conseiller…"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+            URL iframe du parcours Coassemble
+          </label>
+          <input
+            value={parcours.embedUrl}
+            onChange={(e) => setParcours((p) => ({ ...p, embedUrl: e.target.value }))}
+            className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
+            placeholder="https://…"
+          />
+        </div>
       </div>
-
-      <button
-        type="button"
-        onClick={addModule}
-        className="inline-flex items-center gap-2 text-sm font-bold text-indigo-800 hover:underline"
-      >
-        <Plus className="w-4 h-4" /> Ajouter un module
-      </button>
     </section>
   );
 }

@@ -1,49 +1,59 @@
 import type { ApporteurStore } from "./apporteurStore";
 import {
-  DEFAULT_CONSEILLER_FORMATIONS,
-  normalizeConseillerFormationModule,
-  sortConseillerFormations,
-  type ConseillerFormationModule,
+  DEFAULT_CONSEILLER_FORMATION_PARCOURS,
+  normalizeConseillerFormationParcours,
+  type ConseillerFormationParcours,
 } from "../shared/conseillerFormations";
 
-export type { ConseillerFormationModule };
+export type { ConseillerFormationParcours };
 
-export function getConseillerFormationsFromStore(store: ApporteurStore): ConseillerFormationModule[] {
-  const raw = (store as ApporteurStore & { conseillerFormations?: unknown }).conseillerFormations;
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return DEFAULT_CONSEILLER_FORMATIONS.map((m) => ({ ...m }));
-  }
-  const modules = raw
-    .map((item, index) => normalizeConseillerFormationModule(item, index))
-    .filter((m): m is ConseillerFormationModule => Boolean(m));
-  return sortConseillerFormations(modules);
+type LegacyModule = { title?: string; description?: string; embedUrl?: string };
+
+function migrateFromLegacyModules(raw: unknown): ConseillerFormationParcours | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const withEmbed = (raw as LegacyModule[]).find((m) => String(m.embedUrl || "").startsWith("http"));
+  const first = withEmbed || (raw as LegacyModule[])[0];
+  if (!first) return null;
+  return normalizeConseillerFormationParcours({
+    title: first.title || DEFAULT_CONSEILLER_FORMATION_PARCOURS.title,
+    description: first.description || DEFAULT_CONSEILLER_FORMATION_PARCOURS.description,
+    embedUrl: withEmbed?.embedUrl || first.embedUrl || "",
+  });
 }
 
-export async function loadConseillerFormations(): Promise<ConseillerFormationModule[]> {
+export function getConseillerFormationParcoursFromStore(store: ApporteurStore): ConseillerFormationParcours {
+  const extended = store as ApporteurStore & {
+    conseillerFormationParcours?: unknown;
+    conseillerFormations?: unknown;
+  };
+  if (extended.conseillerFormationParcours) {
+    return normalizeConseillerFormationParcours(extended.conseillerFormationParcours);
+  }
+  const migrated = migrateFromLegacyModules(extended.conseillerFormations);
+  if (migrated) return migrated;
+  return { ...DEFAULT_CONSEILLER_FORMATION_PARCOURS };
+}
+
+export async function loadConseillerFormationParcours(): Promise<ConseillerFormationParcours> {
   const { loadApporteurStore } = await import("./apporteurStore");
   const store = await loadApporteurStore();
-  return getConseillerFormationsFromStore(store);
+  return getConseillerFormationParcoursFromStore(store);
 }
 
-export async function saveConseillerFormations(
-  modules: ConseillerFormationModule[],
-): Promise<ConseillerFormationModule[]> {
-  const normalized = sortConseillerFormations(
-    modules
-      .map((item, index) => normalizeConseillerFormationModule(item, index))
-      .filter((m): m is ConseillerFormationModule => Boolean(m))
-      .map((m, index) => ({ ...m, order: index + 1 })),
-  );
+export async function saveConseillerFormationParcours(
+  parcours: ConseillerFormationParcours,
+): Promise<ConseillerFormationParcours> {
+  const normalized = normalizeConseillerFormationParcours(parcours);
   const { loadApporteurStore, persistApporteurStoreMutation } = await import("./apporteurStore");
   await loadApporteurStore();
   await persistApporteurStoreMutation((store) => {
-    (store as ApporteurStore & { conseillerFormations?: ConseillerFormationModule[] }).conseillerFormations =
-      normalized;
+    const extended = store as ApporteurStore & {
+      conseillerFormationParcours?: ConseillerFormationParcours;
+      conseillerFormations?: unknown;
+    };
+    extended.conseillerFormationParcours = normalized;
+    delete extended.conseillerFormations;
     return true;
   });
   return normalized;
-}
-
-export function newConseillerFormationId(): string {
-  return `formation-${Date.now().toString(36)}`;
 }
