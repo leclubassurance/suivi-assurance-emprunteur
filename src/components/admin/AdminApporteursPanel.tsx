@@ -15,6 +15,7 @@ import type { Apporteur, ApporteurType, PartnerRecruitRequest, PartnerRecruitSta
 import {
   CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
   countSignedClientReferrals,
+  isConseillerImmoClubType,
   resolveConseillerOperatingPhase,
   type AdminPartnersSegment,
 } from "../../../shared/conseillerImmoClub";
@@ -550,11 +551,15 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 const link = publicBaseUrl
                   ? `${publicBaseUrl.replace(/\/$/, "")}/?ref=${encodeURIComponent(a.referralToken)}`
                   : `/?ref=${a.referralToken}`;
-                const portalLink = a.portalToken
+                const portalLink = isConseillerImmoClubType(a.type)
                   ? publicBaseUrl
-                    ? `${publicBaseUrl.replace(/\/$/, "")}/apporteur/${a.portalToken}`
-                    : `/apporteur/${a.portalToken}`
-                  : "";
+                    ? `${publicBaseUrl.replace(/\/$/, "")}/conseiller`
+                    : "/conseiller"
+                  : a.portalToken
+                    ? publicBaseUrl
+                      ? `${publicBaseUrl.replace(/\/$/, "")}/apporteur/${a.portalToken}`
+                      : `/apporteur/${a.portalToken}`
+                    : "";
                 return (
                   <>
                     <h2 className="text-lg font-black text-slate-900 mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -642,7 +647,11 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                         </p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-black uppercase text-slate-400 mb-1">Espace apporteur (privé)</p>
+                        <p className="text-[11px] font-black uppercase text-slate-400 mb-1">
+                          {isConseillerImmoClubType(a.type)
+                            ? "Espace conseiller (connexion email)"
+                            : "Espace apporteur (privé)"}
+                        </p>
                         <div className="flex flex-wrap gap-2 items-center">
                           <code className="text-xs bg-indigo-50 text-indigo-900 px-2 py-1 rounded">{portalLink || "—"}</code>
                           {portalLink ? (

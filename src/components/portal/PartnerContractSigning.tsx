@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, FileSignature, Loader2, UserPen } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
+import { getApiUrl, apiFetch } from "../../lib/utils";
 import ApporteurProfileFormFields, {
   apporteurToProfileForm,
   type ApporteurProfileFormState,
@@ -28,10 +28,14 @@ type ContractPayload = {
 export default function PartnerContractSigning({
   portalToken,
   onSigned,
+  sessionAuth = false,
 }: {
   portalToken: string;
   onSigned: () => void;
+  sessionAuth?: boolean;
 }) {
+  const portalFetch = (path: string, init?: RequestInit) =>
+    sessionAuth ? apiFetch(path, init) : fetch(getApiUrl(path), init);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -51,7 +55,7 @@ export default function PartnerContractSigning({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract`));
+      const res = await portalFetch(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract`);
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) {
         throw new Error(json.error || "Impossible de charger le contrat.");
@@ -97,8 +101,8 @@ export default function PartnerContractSigning({
     setSavingProfile(true);
     setError(null);
     try {
-      const res = await fetch(
-        getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/profile`),
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/profile`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -123,8 +127,8 @@ export default function PartnerContractSigning({
       );
       setSignerName([profile.contactPrenom, profile.contactNom].filter(Boolean).join(" "));
       if (json.profileComplete) {
-        const contractRes = await fetch(
-          getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract`),
+        const contractRes = await portalFetch(
+          `/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract`,
         );
         const contractJson = await contractRes.json().catch(() => ({}));
         if (contractRes.ok && contractJson.ok) {
@@ -153,8 +157,8 @@ export default function PartnerContractSigning({
     setOtpSending(true);
     setError(null);
     try {
-      const res = await fetch(
-        getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract/otp`),
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract/otp`,
         { method: "POST" },
       );
       const json = await res.json().catch(() => ({}));
@@ -182,8 +186,8 @@ export default function PartnerContractSigning({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(
-        getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract/sign`),
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract/sign`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

@@ -1705,13 +1705,52 @@ export function createApp() {
     try {
       const token = String(req.query.token || "").trim();
       const { verifyConseillerPortalLogin } = await import("./conseillerPortalLogin");
-      const result = await verifyConseillerPortalLogin(token);
+      const result = await verifyConseillerPortalLogin(token, res);
       if (!result.ok) {
         return res.status(400).json({ ok: false, error: result.error });
       }
-      res.json({ ok: true, portalToken: result.portalToken });
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(400).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/conseiller-portal/me", async (req, res) => {
+    try {
+      const { resolveConseillerPortalSession, touchConseillerPortalSession } = await import(
+        "./conseillerPortalSession"
+      );
+      const apporteur = await resolveConseillerPortalSession(req);
+      if (!apporteur?.portalToken) {
+        return res.status(401).json({ ok: false, error: "session_required" });
+      }
+      void touchConseillerPortalSession(apporteur.id);
+      res.json({ ok: true, portalToken: apporteur.portalToken });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/conseiller-portal/logout", async (req, res) => {
+    try {
+      const { destroyConseillerPortalSession } = await import("./conseillerPortalSession");
+      await destroyConseillerPortalSession(req, res);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.use("/api/apporteur-portal/:token", async (req, res, next) => {
+    try {
+      const { findApporteurByPortalToken } = await import("./apporteurStore");
+      const { gateApporteurPortalForConseiller } = await import("./conseillerPortalSession");
+      const apporteur = await findApporteurByPortalToken(req.params.token);
+      const gated = await gateApporteurPortalForConseiller(req, res, apporteur);
+      if (!gated) return;
+      next();
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
 

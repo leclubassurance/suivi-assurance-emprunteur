@@ -60,3 +60,8 @@ export function getApiUrl(path: string): string {
 
   return cleanPath;
 }
+
+/** Fetch API avec cookie de session conseiller (cross-origin Railway). */
+export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(getApiUrl(path), { ...init, credentials: "include" });
+}

@@ -21,6 +21,7 @@ import ClientPortalPage from './components/portal/ClientPortalPage';
 import ClientPortalDemoPage from './components/portal/ClientPortalDemoPage';
 import ApporteurPortalPage from './components/portal/ApporteurPortalPage';
 import ConseillerPortalLoginPage from './components/portal/ConseillerPortalLoginPage';
+import ConseillerEspacePage from './components/portal/ConseillerEspacePage';
 import MentionsLegalesPage from './pages/MentionsLegalesPage';
 import PolitiqueConfidentialitePage from './pages/PolitiqueConfidentialitePage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
@@ -54,6 +55,7 @@ export default function App() {
   const [portalDemo, setPortalDemo] = useState(false);
   const [apporteurPortalToken, setApporteurPortalToken] = useState<string | null>(null);
   const [showConseillerLogin, setShowConseillerLogin] = useState(false);
+  const [showConseillerEspace, setShowConseillerEspace] = useState(false);
   const [conseillerLoginToken, setConseillerLoginToken] = useState<string | null>(null);
   const [adminPartnersView, setAdminPartnersView] = useState<'none' | 'apporteurs' | 'conseillers'>('none');
 
@@ -63,6 +65,7 @@ export default function App() {
     setPortalToken(null);
     setApporteurPortalToken(null);
     setShowConseillerLogin(false);
+    setShowConseillerEspace(false);
     setConseillerLoginToken(null);
     setAdminPartnersView('none');
     setCurrentStep(Step.LANDING);
@@ -106,14 +109,24 @@ export default function App() {
       }
       setPortalDemo(false);
       const conseillerConnexionMatch = path.match(/^\/conseiller\/connexion\/([a-f0-9]{32,128})$/i);
+      if (path === "/conseiller/espace") {
+        setShowConseillerEspace(true);
+        setShowConseillerLogin(false);
+        setConseillerLoginToken(null);
+        setApporteurPortalToken(null);
+        setPortalToken(null);
+        return;
+      }
       if (path === "/conseiller" || conseillerConnexionMatch) {
         setShowConseillerLogin(true);
+        setShowConseillerEspace(false);
         setConseillerLoginToken(conseillerConnexionMatch ? conseillerConnexionMatch[1] : null);
         setApporteurPortalToken(null);
         setPortalToken(null);
         return;
       }
       setShowConseillerLogin(false);
+      setShowConseillerEspace(false);
       setConseillerLoginToken(null);
       const apporteurMatch = path.match(/^\/(?:apporteur|reseau)\/([a-f0-9]{32,64})$/i);
       if (apporteurMatch) {
@@ -431,15 +444,31 @@ export default function App() {
     goToStep(Step.LANDING);
   };
 
+  const openConseillerLogin = () => {
+    setShowConseillerEspace(false);
+    setShowConseillerLogin(true);
+    setConseillerLoginToken(null);
+    setApporteurPortalToken(null);
+    window.history.pushState({}, '', '/conseiller');
+  };
+
+  if (showConseillerEspace) {
+    return (
+      <ConseillerEspacePage
+        onSessionExpired={openConseillerLogin}
+      />
+    );
+  }
+
   if (showConseillerLogin && !apporteurPortalToken) {
     return (
       <ConseillerPortalLoginPage
         loginToken={conseillerLoginToken}
-        onAuthenticated={(portalToken) => {
+        onAuthenticated={() => {
           setShowConseillerLogin(false);
           setConseillerLoginToken(null);
-          setApporteurPortalToken(portalToken);
-          window.history.replaceState({}, '', `/apporteur/${portalToken}`);
+          setShowConseillerEspace(true);
+          window.history.replaceState({}, '', `/conseiller/espace`);
         }}
       />
     );

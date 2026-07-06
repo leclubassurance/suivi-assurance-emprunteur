@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Loader2, Send } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
+import { getApiUrl, apiFetch } from "../../lib/utils";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
 import { CONSEILLER_SUBSCRIPTION_STATUS_LABELS } from "../../../shared/conseillerSubscription";
 
@@ -12,6 +12,7 @@ type Props = {
   existing?: ConseillerSubscriptionPackage | null;
   canSubmit: boolean;
   onSubmitted: () => void;
+  sessionAuth?: boolean;
 };
 
 export default function ConseillerSubscriptionForm({
@@ -20,7 +21,10 @@ export default function ConseillerSubscriptionForm({
   existing,
   canSubmit,
   onSubmitted,
+  sessionAuth = false,
 }: Props) {
+  const portalFetch = (path: string, init?: RequestInit) =>
+    sessionAuth ? apiFetch(path, init) : fetch(getApiUrl(path), init);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creditOfferRef, setCreditOfferRef] = useState(existing?.creditOfferRef || "");
@@ -64,10 +68,8 @@ export default function ConseillerSubscriptionForm({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(
-        getApiUrl(
-          `/api/apporteur-portal/${encodeURIComponent(portalToken)}/referrals/${encodeURIComponent(referralId)}/conseiller-subscription`,
-        ),
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/referrals/${encodeURIComponent(referralId)}/conseiller-subscription`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

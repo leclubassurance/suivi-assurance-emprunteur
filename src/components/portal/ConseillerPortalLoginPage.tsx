@@ -16,7 +16,7 @@ export default function ConseillerPortalLoginPage({
   onAuthenticated,
 }: {
   loginToken?: string | null;
-  onAuthenticated: (portalToken: string) => void;
+  onAuthenticated: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -34,11 +34,12 @@ export default function ConseillerPortalLoginPage({
       try {
         const res = await fetch(
           getApiUrl(`/api/public/conseiller-portal/login/verify?token=${encodeURIComponent(loginToken)}`),
+          { credentials: "include" },
         );
         const json = await res.json().catch(() => ({}));
         if (cancelled) return;
-        if (res.ok && json.ok && json.portalToken) {
-          onAuthenticated(String(json.portalToken));
+        if (res.ok && json.ok) {
+          onAuthenticated();
           return;
         }
         setError(

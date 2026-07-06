@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
+import { getApiUrl, apiFetch } from "../../lib/utils";
 
 export type StudyValidationPending = {
   dossierId: string;
@@ -33,12 +33,16 @@ export default function ConseillerStudyValidation({
   validation,
   highlight,
   onApproved,
+  sessionAuth = false,
 }: {
   portalToken: string;
   validation: StudyValidationPending;
   highlight?: boolean;
   onApproved: () => void | Promise<void>;
+  sessionAuth?: boolean;
 }) {
+  const portalFetch = (path: string, init?: RequestInit) =>
+    sessionAuth ? apiFetch(path, init) : fetch(getApiUrl(path), init);
   const [feesPerAssured, setFeesPerAssured] = useState(validation.feesPerAssuredEur);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,10 +60,8 @@ export default function ConseillerStudyValidation({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(
-        getApiUrl(
-          `/api/apporteur-portal/${encodeURIComponent(portalToken)}/study-validation/${encodeURIComponent(validation.dossierId)}/approve`,
-        ),
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/study-validation/${encodeURIComponent(validation.dossierId)}/approve`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

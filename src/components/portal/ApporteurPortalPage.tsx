@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Send, UserPlus, Users } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
+import { getApiUrl, apiFetch } from "../../lib/utils";
 import type { ReferralStatus, PartnerRecruitStatus } from "../../../shared/apporteurTypes";
 import {
   APPORTEUR_TYPE_LABELS,
@@ -173,7 +173,13 @@ const STATUS_COLORS: Record<ReferralStatus, string> = {
   PERDU: "bg-amber-50 text-amber-800",
 };
 
-export default function ApporteurPortalPage({ token }: { token: string }) {
+export default function ApporteurPortalPage({
+  token,
+  conseillerSession = false,
+}: {
+  token: string;
+  conseillerSession?: boolean;
+}) {
   const [data, setData] = useState<PortalData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -203,12 +209,22 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
     return new URLSearchParams(window.location.search).get("etude");
   }, []);
 
+  const fetchPortal = useCallback(
+    (path: string, init?: RequestInit) =>
+      conseillerSession ? apiFetch(path, init) : fetch(getApiUrl(path), init),
+    [conseillerSession],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(getApiUrl(`/api/apporteur-portal/${encodeURIComponent(token)}`));
+      const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}`);
       const json = await res.json().catch(() => ({}));
+      if (res.status === 401 && json.error === "session_required") {
+        window.location.href = "/conseiller";
+        return;
+      }
       if (!res.ok) throw new Error(json.error || "Lien invalide ou expiré.");
       setData(json);
       if (json.kpis?.conversionRate != null) {
@@ -227,7 +243,16 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, fetchPortal]);
+
+  const handleConseillerLogout = async () => {
+    try {
+      await apiFetch("/api/conseiller-portal/logout", { method: "POST" });
+    } catch {
+      /* ignore */
+    }
+    window.location.href = "/conseiller";
+  };
 
   useEffect(() => {
     load();
@@ -273,7 +298,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
     setSubmitting(true);
     setSubmitMsg(null);
     try {
-      const res = await fetch(getApiUrl(`/api/apporteur-portal/${encodeURIComponent(token)}/partner-recruits`), {
+      const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}/partner-recruits`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(partnerForm),
@@ -306,7 +331,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
     setSubmitting(true);
     setSubmitMsg(null);
     try {
-      const res = await fetch(getApiUrl(`/api/apporteur-portal/${encodeURIComponent(token)}/referrals`), {
+      const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}/referrals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contact: form }),
@@ -352,10 +377,22 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
     return (
       <div className="min-h-[100dvh] bg-[#f4f6fb]">
         <LcifPartnerHeader
+          subtitle={conseillerSession ? "Espace conseiller" : undefined}
           partnerName={data.apporteur.companyName}
           partnerContact={data.apporteur.contactName}
           partnerTypeLabel={typeLabel}
         />
+        {conseillerSession ? (
+          <div className="max-w-3xl mx-auto px-5 py-2 flex justify-end bg-[#f4f6fb]">
+            <button
+              type="button"
+              onClick={handleConseillerLogout}
+              className="text-xs font-bold text-slate-500 hover:text-indigo-800 underline"
+            >
+              Déconnexion
+            </button>
+          </div>
+        ) : null}
         <main className="max-w-3xl mx-auto px-5 py-8 space-y-6">
           {submitMsg ? (
             <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center font-medium">
@@ -363,7 +400,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
             </p>
           ) : null}
           <PartnerContractWorkflow contractStatus={data.contract?.status || "sent"} semiAutoPreview={false} />
-          <PartnerContractSigning portalToken={token} onSigned={() => load()} />
+          <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} onSigned={() => load()} />
           <p className="text-xs text-slate-500 text-center">
             Une question ?{" "}
             <a className="font-bold text-indigo-700 underline" href="mailto:assurance@leclubimmobilier.fr">
@@ -379,10 +416,22 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
   return (
     <div className="min-h-[100dvh] bg-[#f4f6fb]">
       <LcifPartnerHeader
+        subtitle={conseillerSession ? "Espace conseiller" : undefined}
         partnerName={data.apporteur.companyName}
         partnerContact={data.apporteur.contactName}
         partnerTypeLabel={typeLabel}
       />
+      {conseillerSession ? (
+        <div className="max-w-3xl mx-auto px-5 py-2 flex justify-end bg-[#f4f6fb]">
+          <button
+            type="button"
+            onClick={handleConseillerLogout}
+            className="text-xs font-bold text-slate-500 hover:text-indigo-800 underline"
+          >
+            Déconnexion
+          </button>
+        </div>
+      ) : null}
 
       <main className="max-w-3xl mx-auto px-5 py-8 space-y-6">
         {submitMsg ? (
@@ -408,7 +457,9 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
           />
         ) : null}
 
-        {isConseillerClub ? <ConseillerFormationSection portalToken={token} /> : null}
+        {isConseillerClub ? (
+          <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} />
+        ) : null}
 
         {data.contract?.signed ? (
           <section className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -726,6 +777,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
                     {r.tracking?.studyValidationPending ? (
                       <ConseillerStudyValidation
                         portalToken={token}
+                        sessionAuth={conseillerSession}
                         validation={r.tracking.studyValidationPending}
                         highlight={highlightDossierId === r.tracking.dossierId}
                         onApproved={load}
@@ -740,6 +792,7 @@ export default function ApporteurPortalPage({ token }: { token: string }) {
                     (r.tracking.canSubmitSubscription || r.tracking.conseillerSubscription?.submittedAt) ? (
                       <ConseillerSubscriptionForm
                         portalToken={token}
+                        sessionAuth={conseillerSession}
                         referralId={r.id}
                         existing={r.tracking.conseillerSubscription}
                         canSubmit={Boolean(r.tracking.canSubmitSubscription)}

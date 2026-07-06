@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { GraduationCap, Loader2, PlayCircle } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
+import { getApiUrl, apiFetch } from "../../lib/utils";
 import type { ConseillerFormationParcours } from "../../../shared/conseillerFormations";
 
 type ParcoursView = ConseillerFormationParcours & { available: boolean };
 
-export default function ConseillerFormationSection({ portalToken }: { portalToken: string }) {
+export default function ConseillerFormationSection({
+  portalToken,
+  sessionAuth = false,
+}: {
+  portalToken: string;
+  sessionAuth?: boolean;
+}) {
+  const portalFetch = (path: string, init?: RequestInit) =>
+    sessionAuth ? apiFetch(path, init) : fetch(getApiUrl(path), init);
   const [parcours, setParcours] = useState<ParcoursView | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -14,8 +22,8 @@ export default function ConseillerFormationSection({ portalToken }: { portalToke
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch(
-          getApiUrl(`/api/apporteur-portal/${encodeURIComponent(portalToken)}/formations`),
+        const res = await portalFetch(
+          `/api/apporteur-portal/${encodeURIComponent(portalToken)}/formations`,
         );
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;

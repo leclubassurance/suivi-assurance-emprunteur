@@ -61,6 +61,13 @@ export type Apporteur = {
     expiresAt: number;
     sentAt: number;
   };
+  /** Session cookie espace conseiller (7 jours, renouvelable). */
+  conseillerPortalSession?: {
+    hash: string;
+    expiresAt: number;
+    createdAt: number;
+    lastSeenAt: number;
+  };
   /** Preuve de signature électronique in-app. */
   contractSignature?: {
     version: string;
