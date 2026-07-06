@@ -20,6 +20,7 @@ import AdminApporteursPanel from './components/admin/AdminApporteursPanel';
 import ClientPortalPage from './components/portal/ClientPortalPage';
 import ClientPortalDemoPage from './components/portal/ClientPortalDemoPage';
 import ApporteurPortalPage from './components/portal/ApporteurPortalPage';
+import ConseillerPortalLoginPage from './components/portal/ConseillerPortalLoginPage';
 import MentionsLegalesPage from './pages/MentionsLegalesPage';
 import PolitiqueConfidentialitePage from './pages/PolitiqueConfidentialitePage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
@@ -52,6 +53,8 @@ export default function App() {
   const [portalToken, setPortalToken] = useState<string | null>(null);
   const [portalDemo, setPortalDemo] = useState(false);
   const [apporteurPortalToken, setApporteurPortalToken] = useState<string | null>(null);
+  const [showConseillerLogin, setShowConseillerLogin] = useState(false);
+  const [conseillerLoginToken, setConseillerLoginToken] = useState<string | null>(null);
   const [adminPartnersView, setAdminPartnersView] = useState<'none' | 'apporteurs' | 'conseillers'>('none');
 
   const goHome = () => {
@@ -59,6 +62,8 @@ export default function App() {
     setPortalDemo(false);
     setPortalToken(null);
     setApporteurPortalToken(null);
+    setShowConseillerLogin(false);
+    setConseillerLoginToken(null);
     setAdminPartnersView('none');
     setCurrentStep(Step.LANDING);
     window.history.pushState({}, '', '/');
@@ -100,6 +105,16 @@ export default function App() {
         return;
       }
       setPortalDemo(false);
+      const conseillerConnexionMatch = path.match(/^\/conseiller\/connexion\/([a-f0-9]{32,128})$/i);
+      if (path === "/conseiller" || conseillerConnexionMatch) {
+        setShowConseillerLogin(true);
+        setConseillerLoginToken(conseillerConnexionMatch ? conseillerConnexionMatch[1] : null);
+        setApporteurPortalToken(null);
+        setPortalToken(null);
+        return;
+      }
+      setShowConseillerLogin(false);
+      setConseillerLoginToken(null);
       const apporteurMatch = path.match(/^\/(?:apporteur|reseau)\/([a-f0-9]{32,64})$/i);
       if (apporteurMatch) {
         setApporteurPortalToken(apporteurMatch[1]);
@@ -415,6 +430,20 @@ export default function App() {
     setCurrentUser(null);
     goToStep(Step.LANDING);
   };
+
+  if (showConseillerLogin && !apporteurPortalToken) {
+    return (
+      <ConseillerPortalLoginPage
+        loginToken={conseillerLoginToken}
+        onAuthenticated={(portalToken) => {
+          setShowConseillerLogin(false);
+          setConseillerLoginToken(null);
+          setApporteurPortalToken(portalToken);
+          window.history.replaceState({}, '', `/apporteur/${portalToken}`);
+        }}
+      />
+    );
+  }
 
   if (apporteurPortalToken) {
     return <ApporteurPortalPage token={apporteurPortalToken} />;

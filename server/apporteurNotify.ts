@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import type { Apporteur, Referral, ReferralStatus } from "../shared/apporteurTypes";
 import { APPORTEUR_TYPE_LABELS, REFERRAL_STATUS_LABELS } from "../shared/apporteurTypes";
+import { isConseillerImmoClubType, CONSEILLER_AUTONOMY_SIGNED_THRESHOLD } from "../shared/conseillerImmoClub";
 import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
 import { ASSURANCE_PLATFORM_PRODUCTION_URL } from "../shared/platformUrls";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
@@ -178,10 +179,89 @@ export function buildApporteurUpdatedLinksEmail(params: {
   };
 }
 
+export function buildConseillerContractSigningInviteEmail(params: {
+  apporteur: Apporteur;
+  portalUrl: string;
+  conseillerLoginUrl?: string;
+}): { subject: string; html: string } {
+  const prenom =
+    String(params.apporteur.contactPrenom || params.apporteur.contactName || "").split(" ")[0] ||
+    "Conseiller";
+  const loginUrl = params.conseillerLoginUrl || params.portalUrl.replace(/\/apporteur\/.*$/, "/conseiller");
+
+  const html = `
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#F0F4FA;color:#1F2937;line-height:1.65;">
+  <div style="max-width:640px;margin:0 auto;background:#FFFFFF;border:1px solid #E5E7EB;overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#1E3A8A 0%,#1e40af 55%,#312e81 100%);padding:28px 24px;text-align:center;">
+      ${LCIF_EMAIL_LOGO_HEADER_IMG}
+      <p style="margin:14px 0 0 0;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.85);">
+        Programme conseillers immobiliers LCIF
+      </p>
+    </div>
+    <div style="padding:28px 26px;">
+      <p style="font-size:18px;margin:0 0 6px 0;color:#111827;font-weight:800;">Bonjour ${prenom},</p>
+      <p style="font-size:15px;margin:0 0 18px 0;color:#374151;">
+        Votre candidature est <strong style="color:#1E3A8A;">validée</strong>. Bienvenue dans le partenariat assurance emprunteur
+        du <strong>Club Immobilier Français</strong> — une offre pensée pour les conseillers qui veulent
+        <strong>protéger leurs clients</strong> tout en créant une <strong>nouvelle source de revenus</strong>.
+      </p>
+
+      <div style="background:linear-gradient(180deg,#EFF6FF 0%,#F8FAFC 100%);border:1px solid #BFDBFE;border-radius:12px;padding:18px 20px;margin:0 0 20px 0;">
+        <p style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#1E3A8A;margin:0 0 12px 0;">
+          Votre engagement, notre promesse
+        </p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:14px;color:#334155;">
+          <tr><td style="padding:0 0 10px 0;vertical-align:top;width:28px;">✓</td><td style="padding:0 0 10px 0;"><strong>70&nbsp;% des frais de courtage</strong> sur chaque dossier signé — parmi les meilleures conditions du marché pour un conseiller immo.</td></tr>
+          <tr><td style="padding:0 0 10px 0;vertical-align:top;">✓</td><td style="padding:0 0 10px 0;"><strong>Accompagnement LCIF en phase assistée</strong> : études, débriefs et relation client pris en charge avec vous.</td></tr>
+          <tr><td style="padding:0 0 10px 0;vertical-align:top;">✓</td><td style="padding:0 0 10px 0;"><strong>Autonomie progressive</strong> après ${CONSEILLER_AUTONOMY_SIGNED_THRESHOLD} dossiers signés — vous pilotez vos souscriptions en toute sérénité.</td></tr>
+          <tr><td style="padding:0;vertical-align:top;">✓</td><td style="padding:0;"><strong>Un lien client dédié</strong> à partager en 2 minutes — zéro paperasse, suivi en temps réel dans votre espace.</td></tr>
+        </table>
+      </div>
+
+      <p style="font-size:14px;margin:0 0 8px 0;color:#374151;font-weight:600;">Il ne reste qu'une étape :</p>
+      <p style="font-size:14px;margin:0 0 22px 0;color:#4B5563;">
+        Signez votre contrat partenaire en ligne (<strong>~2 minutes</strong>) pour débloquer votre espace,
+        votre lien de recommandation et le suivi de vos dossiers clients.
+      </p>
+
+      <p style="margin:0 0 10px 0;text-align:center;">
+        <a href="${params.portalUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;text-decoration:none;padding:16px 32px;border-radius:10px;font-weight:800;font-size:15px;box-shadow:0 4px 14px rgba(30,58,138,0.35);">
+          Signer mon contrat et rejoindre le programme
+        </a>
+      </p>
+      <p style="font-size:12px;margin:0 0 22px 0;text-align:center;color:#6B7280;">
+        Connexion future par email professionnel :
+        <a href="${loginUrl}" style="color:#1E3A8A;font-weight:bold;">${loginUrl}</a>
+      </p>
+
+      <p style="font-size:12px;margin:0;color:#9CA3AF;line-height:1.5;word-break:break-all;">
+        Lien direct signature : <a href="${params.portalUrl}" style="color:#1E3A8A;">${params.portalUrl}</a><br/>
+        Lien privé — ne pas partager publiquement.
+      </p>
+    </div>
+    <div style="background:#F8FAFC;padding:16px 22px;border-top:1px solid #E5E7EB;">
+      <p style="font-size:13px;margin:0 0 6px 0;color:#64748B;">À très vite dans votre espace conseiller,</p>
+      <p style="font-size:14px;margin:0;color:#111827;font-weight:700;">L'équipe Assurance Emprunteur — Le Club Immobilier Français</p>
+      <p style="font-size:11px;margin:12px 0 0 0;color:#9CA3AF;">ORIAS 24002253</p>
+    </div>
+  </div>
+</div>`;
+
+  return {
+    subject: `${prenom}, rejoignez le programme conseillers LCIF — signature de votre contrat`,
+    html,
+  };
+}
+
 export function buildApporteurContractSigningInviteEmail(params: {
   apporteur: Apporteur;
   portalUrl: string;
+  conseillerLoginUrl?: string;
 }): { subject: string; html: string } {
+  if (isConseillerImmoClubType(params.apporteur.type)) {
+    return buildConseillerContractSigningInviteEmail(params);
+  }
+
   const html = `
 <div style="margin:0;padding:0;font-family:Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
   <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #E5E7EB;">
@@ -304,7 +384,14 @@ export async function sendApporteurContractSigningInvite(
   if (!apporteur.portalToken || !apporteur.email) return false;
   const base = resolvePublicAppBaseUrl(portalBaseUrl);
   const portalUrl = buildApporteurPortalUrl(base, apporteur.portalToken);
-  const { subject, html } = buildApporteurContractSigningInviteEmail({ apporteur, portalUrl });
+  const conseillerLoginUrl = isConseillerImmoClubType(apporteur.type)
+    ? `${base.replace(/\/$/, "")}/conseiller`
+    : undefined;
+  const { subject, html } = buildApporteurContractSigningInviteEmail({
+    apporteur,
+    portalUrl,
+    conseillerLoginUrl,
+  });
   return sendApporteurHtmlEmail(apporteur.email, subject, html);
 }
 

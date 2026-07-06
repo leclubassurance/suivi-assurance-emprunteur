@@ -1642,6 +1642,53 @@ export function createApp() {
 
   const apporteurPortalPostLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20 });
   const refClickLimiter = rateLimit({ windowMs: 60 * 1000, max: 40 });
+  const conseillerLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 8 });
+
+  app.post(
+    "/api/public/conseiller-portal/login/request",
+    conseillerLoginLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const email = String((req.body || {}).email || "").trim();
+        const { requestConseillerPortalLogin } = await import("./conseillerPortalLogin");
+        const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+        const result = await requestConseillerPortalLogin({
+          email,
+          publicBaseUrl: resolvePublicAppBaseUrl(
+            String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+          ),
+        });
+        if (!result.ok) {
+          if (result.error === "cooldown") {
+            return res.status(429).json({
+              ok: false,
+              error: "cooldown",
+              cooldownSeconds: result.cooldownSeconds,
+            });
+          }
+          return res.status(500).json({ ok: false, error: result.error });
+        }
+        res.json({ ok: true, maskedEmail: result.maskedEmail });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.get("/api/public/conseiller-portal/login/verify", async (req, res) => {
+    try {
+      const token = String(req.query.token || "").trim();
+      const { verifyConseillerPortalLogin } = await import("./conseillerPortalLogin");
+      const result = await verifyConseillerPortalLogin(token);
+      if (!result.ok) {
+        return res.status(400).json({ ok: false, error: result.error });
+      }
+      res.json({ ok: true, portalToken: result.portalToken });
+    } catch (err: any) {
+      res.status(400).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
 
   app.post("/api/ref-click", refClickLimiter, express.json(), async (req, res) => {
     try {

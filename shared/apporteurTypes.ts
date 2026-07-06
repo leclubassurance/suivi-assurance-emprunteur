@@ -55,6 +55,12 @@ export type Apporteur = {
     attempts: number;
     sentAt: number;
   };
+  /** Lien magique connexion espace conseiller (email @leclubimmobilier.fr). */
+  portalLoginChallenge?: {
+    hash: string;
+    expiresAt: number;
+    sentAt: number;
+  };
   /** Preuve de signature électronique in-app. */
   contractSignature?: {
     version: string;
