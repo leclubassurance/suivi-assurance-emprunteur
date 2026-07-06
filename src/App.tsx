@@ -27,7 +27,7 @@ import PolitiqueConfidentialitePage from './pages/PolitiqueConfidentialitePage';
 import { validateCoordonnees, validateInfoPerso, validateProjet } from './lib/validation';
 import { AlertCircle } from 'lucide-react';
 import { showToast } from './lib/toast';
-import { getApiUrl, getRefClickUrl } from './lib/utils';
+import { getApiUrl, getRefClickUrl, clearConseillerSessionToken } from './lib/utils';
 import { buildClientPrivacyConsentPayload } from '../shared/privacyConsent';
 
 const STORAGE_KEY = 'insurance-form-draft';
@@ -445,6 +445,7 @@ export default function App() {
   };
 
   const openConseillerLogin = () => {
+    clearConseillerSessionToken();
     setShowConseillerEspace(false);
     setShowConseillerLogin(true);
     setConseillerLoginToken(null);

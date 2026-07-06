@@ -1709,7 +1709,7 @@ export function createApp() {
       if (!result.ok) {
         return res.status(400).json({ ok: false, error: result.error });
       }
-      res.json({ ok: true });
+      res.json({ ok: true, sessionToken: result.sessionToken });
     } catch (err: any) {
       res.status(400).json({ ok: false, error: err?.message || String(err) });
     }

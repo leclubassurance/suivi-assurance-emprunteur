@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Loader2, Mail, Shield } from "lucide-react";
-import { getApiUrl } from "../../lib/utils";
+import { getApiUrl, setConseillerSessionToken } from "../../lib/utils";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
 
 const ERROR_LABELS: Record<string, string> = {
@@ -39,6 +39,7 @@ export default function ConseillerPortalLoginPage({
         const json = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (res.ok && json.ok) {
+          if (json.sessionToken) setConseillerSessionToken(String(json.sessionToken));
           onAuthenticated();
           return;
         }

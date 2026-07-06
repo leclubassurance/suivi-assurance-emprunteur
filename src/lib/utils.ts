@@ -61,7 +61,39 @@ export function getApiUrl(path: string): string {
   return cleanPath;
 }
 
-/** Fetch API avec cookie de session conseiller (cross-origin Railway). */
+export const CONSEILLER_SESSION_STORAGE_KEY = "lcif_conseiller_sess";
+
+export function getConseillerSessionToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(CONSEILLER_SESSION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setConseillerSessionToken(token: string): void {
+  try {
+    localStorage.setItem(CONSEILLER_SESSION_STORAGE_KEY, token);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearConseillerSessionToken(): void {
+  try {
+    localStorage.removeItem(CONSEILLER_SESSION_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Fetch API avec session conseiller (Bearer + cookie si disponible). */
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(getApiUrl(path), { ...init, credentials: "include" });
+  const headers = new Headers(init?.headers);
+  const session = getConseillerSessionToken();
+  if (session && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${session}`);
+  }
+  return fetch(getApiUrl(path), { ...init, credentials: "include", headers });
 }

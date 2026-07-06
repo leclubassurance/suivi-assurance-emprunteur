@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { apiFetch } from "../../lib/utils";
+import { apiFetch, clearConseillerSessionToken } from "../../lib/utils";
 import ApporteurPortalPage from "./ApporteurPortalPage";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
 
@@ -19,6 +19,9 @@ export default function ConseillerEspacePage({ onSessionExpired }: { onSessionEx
         if (res.ok && data.ok && data.portalToken) {
           setPortalToken(String(data.portalToken));
           return;
+        }
+        if (res.status === 401) {
+          clearConseillerSessionToken();
         }
         onSessionExpired();
       } catch {

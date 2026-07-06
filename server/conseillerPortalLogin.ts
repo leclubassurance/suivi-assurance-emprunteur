@@ -160,7 +160,7 @@ export async function requestConseillerPortalLogin(params: {
 export async function verifyConseillerPortalLogin(
   loginToken: string,
   res?: import("express").Response,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; sessionToken: string } | { ok: false; error: string }> {
   const token = String(loginToken || "").trim();
   if (!token || token.length < 32) return { ok: false, error: "invalid_token" };
 
@@ -179,9 +179,10 @@ export async function verifyConseillerPortalLogin(
     await writeLoginChallenge(apporteur.id, null);
     if (res) {
       const { createConseillerPortalSession } = await import("./conseillerPortalSession");
-      await createConseillerPortalSession(apporteur.id, res);
+      const sessionToken = await createConseillerPortalSession(apporteur.id, res);
+      return { ok: true, sessionToken };
     }
-    return { ok: true };
+    return { ok: false, error: "no_response" };
   }
   return { ok: false, error: "invalid_or_expired" };
 }

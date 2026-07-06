@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Send, UserPlus, Users } from "lucide-react";
-import { getApiUrl, apiFetch } from "../../lib/utils";
+import { getApiUrl, apiFetch, clearConseillerSessionToken } from "../../lib/utils";
 import type { ReferralStatus, PartnerRecruitStatus } from "../../../shared/apporteurTypes";
 import {
   APPORTEUR_TYPE_LABELS,
@@ -222,6 +222,7 @@ export default function ApporteurPortalPage({
       const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}`);
       const json = await res.json().catch(() => ({}));
       if (res.status === 401 && json.error === "session_required") {
+        clearConseillerSessionToken();
         window.location.href = "/conseiller";
         return;
       }
@@ -251,6 +252,7 @@ export default function ApporteurPortalPage({
     } catch {
       /* ignore */
     }
+    clearConseillerSessionToken();
     window.location.href = "/conseiller";
   };
 
