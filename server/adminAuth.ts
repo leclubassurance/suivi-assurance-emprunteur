@@ -24,6 +24,12 @@ function getAllowedAdminEmails(): Set<string> {
   );
 }
 
+/** Email admin principal (destinataire des liens de consultation provisoires). */
+export function getPrimaryAdminEmail(): string {
+  const first = [...getAllowedAdminEmails()][0];
+  return first || DEFAULT_ALLOWED;
+}
+
 export function isPublicApiRoute(method: string, path: string): boolean {
   if (!path.startsWith("/api/")) return true;
   const m = method.toUpperCase();

@@ -323,6 +323,47 @@ async function sendApporteurHtmlEmail(
   }
 }
 
+/** Lien provisoire de consultation d'un espace conseiller, réservé à l'admin (envoyé sur la boîte admin). */
+export async function sendAdminPortalPreviewEmail(params: {
+  adminEmail: string;
+  apporteur: Apporteur;
+  previewUrl: string;
+  expiresAt: number;
+}): Promise<boolean> {
+  const { adminEmail, apporteur, previewUrl, expiresAt } = params;
+  const expiresLabel = new Date(expiresAt).toLocaleString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+  });
+  const typeLabel = APPORTEUR_TYPE_LABELS[apporteur.type] || "Conseiller";
+  const html = `
+<div style="margin:0;padding:0;font-family:Arial,sans-serif;background:#F8FAFC;color:#1F2937;line-height:1.6;">
+  <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #E5E7EB;">
+    <div style="background:#1E3A8A;padding:24px;text-align:center;">${LCIF_EMAIL_LOGO_HEADER_IMG}</div>
+    <div style="padding:24px 22px;">
+      <p style="font-size:16px;margin:0 0 12px 0;"><strong>Consultation d'un espace conseiller</strong></p>
+      <p style="font-size:14px;margin:0 0 16px 0;">
+        Lien provisoire pour consulter l'espace de
+        <strong>${apporteur.contactName || apporteur.companyName}</strong>
+        (${typeLabel} — ${apporteur.companyName}).
+      </p>
+      <p style="margin:0 0 16px 0;text-align:center;">
+        <a href="${previewUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:bold;font-size:15px;">
+          Consulter l'espace conseiller
+        </a>
+      </p>
+      <p style="font-size:13px;color:#B91C1C;margin:16px 0 0 0;">
+        Lien confidentiel réservé à l'administration LCIF — valable jusqu'à ${expiresLabel} (30 min). Ne pas transférer.
+      </p>
+      <p style="font-size:12px;color:#6B7280;margin:12px 0 0 0;word-break:break-all;">${previewUrl}</p>
+    </div>
+  </div>
+</div>`;
+  return sendApporteurHtmlEmail(adminEmail, `Consultation espace conseiller — ${apporteur.companyName}`, html);
+}
+
 export async function sendApporteurContractOtpEmail(email: string, code: string): Promise<boolean> {
   const { buildApporteurContractOtpEmailHtml } = await import("./apporteurContractOtp");
   return sendApporteurHtmlEmail(

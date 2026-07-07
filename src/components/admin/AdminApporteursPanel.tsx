@@ -208,12 +208,16 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
       const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}/portal-preview`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Ouverture impossible");
-      window.open(data.url, "_blank", "noopener,noreferrer");
-      setSuccessMsg(
-        data.isConseiller
-          ? "Espace conseiller ouvert — consultation avec votre session admin (le conseiller n'a pas accès à l'admin)."
-          : "Espace partenaire ouvert dans un nouvel onglet.",
-      );
+      if (data.url) window.open(data.url, "_blank", "noopener,noreferrer");
+      if (data.isConseiller) {
+        setSuccessMsg(
+          data.emailed
+            ? `Lien de consultation provisoire envoyé à ${data.adminEmail} (valable 30 min) et ouvert dans un nouvel onglet.`
+            : "Lien de consultation ouvert dans un nouvel onglet (valable 30 min).",
+        );
+      } else {
+        setSuccessMsg("Espace partenaire ouvert dans un nouvel onglet.");
+      }
     } catch (e: any) {
       setError(e?.message || "Erreur");
     }

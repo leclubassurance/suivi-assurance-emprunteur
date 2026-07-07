@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { getApiUrl, apiFetch } from "../../lib/utils";
-import { adminFetch } from "../../lib/adminApi";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
 import { CONSEILLER_SUBSCRIPTION_STATUS_LABELS } from "../../../shared/conseillerSubscription";
 
@@ -14,7 +13,7 @@ type Props = {
   canSubmit: boolean;
   onSubmitted: () => void;
   sessionAuth?: boolean;
-  adminView?: boolean;
+  previewToken?: string;
 };
 
 export default function ConseillerSubscriptionForm({
@@ -24,12 +23,18 @@ export default function ConseillerSubscriptionForm({
   canSubmit,
   onSubmitted,
   sessionAuth = false,
-  adminView = false,
+  previewToken,
 }: Props) {
+  const withPreview = (path: string) => {
+    if (!previewToken) return path;
+    const sep = path.includes("?") ? "&" : "?";
+    return `${path}${sep}lcif_preview=${encodeURIComponent(previewToken)}`;
+  };
   const portalFetch = (path: string, init?: RequestInit) => {
-    if (adminView) return adminFetch(path, init);
-    if (sessionAuth) return apiFetch(path, init);
-    return fetch(getApiUrl(path), init);
+    const full = withPreview(path);
+    if (previewToken) return fetch(getApiUrl(full), init);
+    if (sessionAuth) return apiFetch(full, init);
+    return fetch(getApiUrl(full), init);
   };
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -68,6 +68,12 @@ export type Apporteur = {
     createdAt: number;
     lastSeenAt: number;
   };
+  /** Jeton admin courte durée pour consulter l'espace conseiller via lien provisoire envoyé par email. */
+  adminPortalPreview?: {
+    hash: string;
+    expiresAt: number;
+    createdAt: number;
+  };
   /** Preuve de signature électronique in-app. */
   contractSignature?: {
     version: string;

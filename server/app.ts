@@ -1535,17 +1535,43 @@ export function createApp() {
         String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
       );
       const isConseiller = isConseillerImmoClubType(apporteur.type);
-      let url = `${baseUrl.replace(/\/$/, "")}/apporteur/${apporteur.portalToken}`;
-      if (isConseiller) {
-        url = `${url}?admin_view=1`;
+
+      if (!isConseiller) {
+        const url = `${baseUrl.replace(/\/$/, "")}/apporteur/${apporteur.portalToken}`;
+        return res.json({
+          success: true,
+          emailed: false,
+          url,
+          isConseiller: false,
+          note: "Ouverture directe de l'espace apporteur.",
+        });
       }
+
+      const { createAdminPortalPreview } = await import("./conseillerPortalSession");
+      const { sendAdminPortalPreviewEmail } = await import("./apporteurNotify");
+      const { getPrimaryAdminEmail } = await import("./adminAuth");
+      const adminEmail =
+        (req as unknown as { adminEmail?: string }).adminEmail || getPrimaryAdminEmail();
+      const preview = await createAdminPortalPreview(apporteur.id);
+      const url = `${baseUrl.replace(/\/$/, "")}/apporteur/${apporteur.portalToken}?lcif_preview=${encodeURIComponent(
+        preview.previewToken,
+      )}`;
+      const emailed = await sendAdminPortalPreviewEmail({
+        adminEmail,
+        apporteur,
+        previewUrl: url,
+        expiresAt: preview.expiresAt,
+      });
       res.json({
         success: true,
+        emailed,
         url,
-        isConseiller,
-        note: isConseiller
-          ? "Consultation avec votre session admin Google — le conseiller n'a aucun accès à l'administration."
-          : "Ouverture directe de l'espace apporteur.",
+        isConseiller: true,
+        adminEmail,
+        expiresAt: preview.expiresAt,
+        note: emailed
+          ? `Lien de consultation envoyé à ${adminEmail} (valable 30 min).`
+          : "Lien de consultation généré (envoi email indisponible — utilisez le lien retourné).",
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });

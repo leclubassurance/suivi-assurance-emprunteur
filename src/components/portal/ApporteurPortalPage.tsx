@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Send, UserPlus, Users } from "lucide-react";
 import { getApiUrl, apiFetch, clearConseillerSessionToken } from "../../lib/utils";
-import { adminFetch } from "../../lib/adminApi";
 import type { ReferralStatus, PartnerRecruitStatus } from "../../../shared/apporteurTypes";
 import {
   APPORTEUR_TYPE_LABELS,
@@ -237,20 +236,30 @@ export default function ApporteurPortalPage({
     return new URLSearchParams(window.location.search).get("etude");
   }, []);
 
-  const adminViewMode = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    return new URLSearchParams(window.location.search).get("admin_view") === "1";
+  const adminPreviewToken = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("lcif_preview");
   }, []);
 
-  const portalAuthMode = adminViewMode ? "admin" : conseillerSession ? "conseiller" : "token";
+  const adminViewMode = Boolean(adminPreviewToken);
+
+  const withPreviewQuery = useCallback(
+    (path: string) => {
+      if (!adminPreviewToken) return path;
+      const sep = path.includes("?") ? "&" : "?";
+      return `${path}${sep}lcif_preview=${encodeURIComponent(adminPreviewToken)}`;
+    },
+    [adminPreviewToken],
+  );
 
   const fetchPortal = useCallback(
     (path: string, init?: RequestInit) => {
-      if (portalAuthMode === "admin") return adminFetch(path, init);
-      if (portalAuthMode === "conseiller") return apiFetch(path, init);
-      return fetch(getApiUrl(path), { ...init, credentials: "include" });
+      const fullPath = withPreviewQuery(path);
+      if (adminPreviewToken) return fetch(getApiUrl(fullPath), { ...init, credentials: "include" });
+      if (conseillerSession) return apiFetch(fullPath, init);
+      return fetch(getApiUrl(fullPath), { ...init, credentials: "include" });
     },
-    [portalAuthMode],
+    [conseillerSession, adminPreviewToken, withPreviewQuery],
   );
 
   const load = useCallback(async () => {
@@ -262,7 +271,7 @@ export default function ApporteurPortalPage({
       if (res.status === 401 && json.error === "session_required") {
         if (adminViewMode) {
           setError(
-            "Connectez-vous à l'administration LCIF (compte Google autorisé) pour consulter cet espace conseiller.",
+            "Lien de consultation admin invalide ou expiré. Regénérez un lien depuis l'administration (bouton « Consulter l'espace »).",
           );
           return;
         }
@@ -288,7 +297,7 @@ export default function ApporteurPortalPage({
     } finally {
       setLoading(false);
     }
-  }, [token, fetchPortal]);
+  }, [token, fetchPortal, adminViewMode]);
 
   const handleConseillerLogout = async () => {
     try {
@@ -511,7 +520,7 @@ export default function ApporteurPortalPage({
           <PortalSection title="Signature du contrat partenaire" description="Débloquez votre espace après signature.">
             <PartnerContractWorkflow contractStatus={data.contract?.status || "sent"} semiAutoPreview={false} />
             <div className="mt-4">
-              <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} adminView={adminViewMode} onSigned={() => load()} />
+              <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} previewToken={adminPreviewToken || undefined} onSigned={() => load()} />
             </div>
           </PortalSection>
           <p className="text-xs text-slate-500 text-center">
@@ -587,7 +596,7 @@ export default function ApporteurPortalPage({
 
         {isConseillerClub ? (
           <div id="ap-formation" className="scroll-mt-28">
-            <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} adminView={adminViewMode} />
+            <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} previewToken={adminPreviewToken || undefined} />
           </div>
         ) : null}
 
@@ -942,7 +951,7 @@ export default function ApporteurPortalPage({
                           <ConseillerStudyValidation
                             portalToken={token}
                             sessionAuth={conseillerSession}
-                            adminView={adminViewMode}
+                            previewToken={adminPreviewToken || undefined}
                             validation={r.tracking.studyValidationPending}
                             highlight={highlightDossierId === r.tracking.dossierId}
                             onApproved={load}
@@ -958,7 +967,7 @@ export default function ApporteurPortalPage({
                           <ConseillerSubscriptionForm
                             portalToken={token}
                             sessionAuth={conseillerSession}
-                            adminView={adminViewMode}
+                            previewToken={adminPreviewToken || undefined}
                             referralId={r.id}
                             existing={r.tracking.conseillerSubscription}
                             canSubmit={Boolean(r.tracking.canSubmitSubscription)}

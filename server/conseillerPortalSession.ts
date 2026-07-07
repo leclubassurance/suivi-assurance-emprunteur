@@ -153,6 +153,52 @@ export async function destroyConseillerPortalSession(req: Request, res: Response
   clearSessionCookie(res);
 }
 
+function hashAdminPreviewToken(apporteurId: string, rawToken: string): string {
+  return crypto.createHash("sha256").update(`${apporteurId}:admin-preview:${rawToken.trim()}`).digest("hex");
+}
+
+function readAdminPreviewToken(req: Request): string | null {
+  const fromQuery = String(req.query.lcif_preview || "").trim();
+  return fromQuery || null;
+}
+
+/** Vérifie un jeton de prévisualisation admin (généré côté admin, envoyé par email au compte autorisé). */
+export function resolveAdminPortalPreview(req: Request, apporteur: Apporteur): boolean {
+  const raw = readAdminPreviewToken(req);
+  if (!raw) return false;
+  const preview = apporteur.adminPortalPreview;
+  if (!preview) return false;
+  if (Date.now() > preview.expiresAt) return false;
+  return preview.hash === hashAdminPreviewToken(apporteur.id, raw);
+}
+
+/** Génère un jeton de prévisualisation admin (30 min) stocké sur le partenaire. */
+export async function createAdminPortalPreview(apporteurId: string): Promise<{
+  previewToken: string;
+  portalToken: string;
+  expiresAt: number;
+}> {
+  const { loadApporteurStore, persistApporteurStoreMutation } = await import("./apporteurStore");
+  await loadApporteurStore();
+  const rawToken = crypto.randomBytes(24).toString("hex");
+  const now = Date.now();
+  const expiresAt = now + 30 * 60 * 1000;
+  let portalToken = "";
+  await persistApporteurStoreMutation((store) => {
+    const apporteur = store.apporteurs.find((a) => a.id === apporteurId);
+    if (!apporteur?.portalToken) return false;
+    portalToken = apporteur.portalToken;
+    apporteur.adminPortalPreview = {
+      hash: hashAdminPreviewToken(apporteurId, rawToken),
+      expiresAt,
+      createdAt: now,
+    };
+    return true;
+  });
+  if (!portalToken) throw new Error("Partenaire introuvable ou sans portail.");
+  return { previewToken: rawToken, portalToken, expiresAt };
+}
+
 export async function gateApporteurPortalForConseiller(
   req: Request,
   res: Response,
@@ -165,6 +211,7 @@ export async function gateApporteurPortalForConseiller(
   if (!isConseillerImmoClubType(apporteur.type)) return apporteur;
   const { resolveAdminEmailFromRequest } = await import("./adminAuth");
   if (await resolveAdminEmailFromRequest(req)) return apporteur;
+  if (resolveAdminPortalPreview(req, apporteur)) return apporteur;
   const sessionApporteur = await resolveConseillerPortalSession(req);
   if (!sessionApporteur || sessionApporteur.id !== apporteur.id) {
     res.status(401).json({ ok: false, error: "session_required" });
