@@ -8,7 +8,8 @@ import type {
   ReferralStatus,
 } from "../shared/networkTypes";
 import { REFERRAL_STATUS_ORDER } from "../shared/networkTypes";
-import { computeAdminNetworkKpis, computeReferralKpis } from "../shared/networkKpis";
+import { computeAdminNetworkKpis } from "../shared/networkKpis";
+import { computeReferralKpis } from "../shared/apporteurKpis";
 import { getNetworkRemunerationConfig } from "../shared/networkRemuneration";
 import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent } from "./dossierLifecycle";

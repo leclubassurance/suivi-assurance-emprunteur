@@ -78,14 +78,6 @@ export default function PartnerClientScript({ referralLink, partnerContactName, 
         >
           <Copy className="w-3.5 h-3.5" /> Copier le message
         </button>
-        <button
-          type="button"
-          onClick={() => onCopy(TRANSPARENCY_SCRIPT, "Phrase de transparence copiée !")}
-          className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50"
-          title={TRANSPARENCY_SCRIPT_HINT}
-        >
-          <Copy className="w-3.5 h-3.5" /> Copier uniquement la phrase
-        </button>
       </div>
     </section>
   );

@@ -238,6 +238,7 @@ export function createApp() {
       gitCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
       gitBranch: process.env.RAILWAY_GIT_BRANCH || null,
       dataStore: getDataStoreMode(),
+      adminAuthRequired: (await import("./adminAuth")).isAdminAuthRequired(),
       firebase,
       adminAuthEmail: "assurance@leclubimmobilier.fr",
       driveConfigVersion: DRIVE_CONFIG_VERSION,

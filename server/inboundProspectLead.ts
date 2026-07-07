@@ -6,9 +6,9 @@ import {
 } from "./inboundEmailClassifier";
 import {
   findLeadDossiersByEmail,
-  findNonLeadDossierByCorrespondenceEmail,
   normalizeClientEmail,
 } from "./leadDossierMerge";
+import { findNonLeadDossierByCorrespondenceEmail } from "./gmailAttachments";
 
 function extractPrenomFromFromRaw(fromRaw: string): string {
   const raw = String(fromRaw || "").trim();
