@@ -52,6 +52,8 @@ export type InboundEmailClassification = {
 const DEFAULT_INSURER_DOMAINS = [
   "kereis.fr",
   "kereis.com",
+  "kereisfrance.com",
+  "kereis-france.com",
   "cardif.fr",
   "bnpparibascardif.com",
   "iassure.fr",
@@ -89,8 +91,10 @@ export function isInsurerSender(email: string, fromRaw?: string): boolean {
     if (domain === d || domain.endsWith(`.${d}`)) return true;
   }
   const blob = `${fromRaw || ""} ${e}`.toLowerCase();
+  // Kereis peut apparaître collé (ex. kereisfrance) — match par préfixe.
+  if (/\bkereis/i.test(blob)) return true;
   if (
-    /\b(kereis|cardif|iassure|generali|axa|swiss\s*life|metlife|cnp|allianz|april|utwin|gan|groupama|malakoff|pro\s*btp)\b/i.test(
+    /\b(cardif|iassure|generali|axa|swiss\s*life|metlife|cnp|allianz|april|utwin|gan|groupama|malakoff|pro\s*btp)\b/i.test(
       blob,
     )
   ) {
