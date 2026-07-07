@@ -252,6 +252,28 @@ export default function ApporteurPortalPage({
   const [simAssured, setSimAssured] = useState(1.5);
   const referralsRef = useRef<HTMLElement>(null);
   const [activeAnchor, setActiveAnchor] = useState<string | null>(null);
+
+  // IntersectionObserver for sticky nav — kept before early returns to respect rules of hooks.
+  useEffect(() => {
+    const ids = [
+      "ap-hero", "ap-phase", "ap-formation", "ap-contract", "ap-benefits",
+      "ap-script", "ap-journey", "ap-earnings", "ap-recruit", "ap-team", "ap-referrals", "ap-guide",
+    ];
+    const els = ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
+    if (!els.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => (b.intersectionRatio || 0) - (a.intersectionRatio || 0));
+        if (visible[0]?.target?.id) setActiveAnchor(visible[0].target.id);
+      },
+      { root: null, threshold: [0.15, 0.3, 0.45, 0.6], rootMargin: "-88px 0px -60% 0px" },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  });
+
   const highlightDossierId = useMemo(() => {
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("etude");
@@ -443,29 +465,6 @@ export default function ApporteurPortalPage({
     { id: "ap-referrals", label: "Clients" },
     { id: "ap-guide", label: "Aide" },
   ];
-
-  useEffect(() => {
-    const ids = navItems.filter((i) => i.visible !== false).map((i) => i.id);
-    const els = ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
-    if (!els.length) return;
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => (b.intersectionRatio || 0) - (a.intersectionRatio || 0));
-        if (visible[0]?.target?.id) setActiveAnchor(visible[0].target.id);
-      },
-      {
-        root: null,
-        threshold: [0.15, 0.3, 0.45, 0.6],
-        rootMargin: "-88px 0px -60% 0px",
-      },
-    );
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConseillerClub, data.contract?.signed, data.downline?.length, data.partnerRecruits?.length]);
 
   if (!unlocked) {
     return (
