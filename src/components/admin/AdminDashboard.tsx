@@ -23,6 +23,8 @@ import {
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
+import { Button } from "../ui/Button";
+import { Tabs } from "../ui/Tabs";
 
 export default function AdminDashboard({
   user,
@@ -916,77 +918,69 @@ export default function AdminDashboard({
         onRefreshMetrics={reloadMetrics}
       />
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center">
-        <h1 className="text-xl font-bold flex items-center gap-4">
-          Espace conseiller — Assurance emprunteur
-          <button onClick={async () => {
-            try {
-              showToast("Exécution des relances...", "info");
-              const res = await adminFetch("/api/admin/run-scheduler", { method: "POST" });
-              const data = await res.json().catch(() => ({}));
-              if (res.ok) {
-                showToast(`Relances envoyées : ${data.sent || 0} · Échecs : ${data.failed || 0}`, "success");
-                loadDossiers();
-              } else {
-                showToast("Impossible de lancer les relances.", "error");
-              }
-            } catch {
-              showToast("Erreur réseau", "error");
-            }
-          }} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-2">
-            <CalendarClock className="w-3.5 h-3.5" />
-            Lancer les relances
-          </button>
-        </h1>
+        <div>
+          <h1 className="text-xl font-black text-slate-900 flex items-center gap-3">
+            Espace admin — Assurance emprunteur
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  showToast("Exécution des relances...", "info");
+                  const res = await adminFetch("/api/admin/run-scheduler", { method: "POST" });
+                  const data = await res.json().catch(() => ({}));
+                  if (res.ok) {
+                    showToast(`Relances envoyées : ${data.sent || 0} · Échecs : ${data.failed || 0}`, "success");
+                    loadDossiers();
+                  } else {
+                    showToast("Impossible de lancer les relances.", "error");
+                  }
+                } catch {
+                  showToast("Erreur réseau", "error");
+                }
+              }}
+              title="Lance manuellement les relances planifiées"
+            >
+              <CalendarClock className="w-3.5 h-3.5" />
+              Lancer les relances
+            </Button>
+          </h1>
+          <p className="text-xs text-slate-500 mt-1">
+            Dossiers · messages · documents · envoi d’étude
+          </p>
+        </div>
         <div className="flex items-center gap-4">
           {user.role === "ADMIN" && onOpenApporteurs ? (
-            <button
-              type="button"
-              onClick={onOpenApporteurs}
-              className="flex gap-2 text-slate-500 hover:text-indigo-700 transition-colors text-sm"
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={onOpenApporteurs}>
               <Users className="w-4 h-4" /> Apporteurs d&apos;affaires
-            </button>
+            </Button>
           ) : null}
           {user.role === "ADMIN" && onOpenConseillersClub ? (
-            <button
-              type="button"
-              onClick={onOpenConseillersClub}
-              className="flex gap-2 text-slate-500 hover:text-indigo-700 transition-colors text-sm"
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={onOpenConseillersClub}>
               <Building2 className="w-4 h-4" /> Conseillers du club
-            </button>
+            </Button>
           ) : null}
-          <button onClick={onLogout} className="flex gap-2 text-slate-500 hover:text-slate-900 transition-colors">
+          <Button type="button" variant="ghost" size="sm" onClick={onLogout}>
             <LogOut className="w-5 h-5"/> Déconnexion
-          </button>
+          </Button>
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <div className="w-1/3 max-w-sm bg-white border-r border-slate-200 flex flex-col">
-          <div className="flex border-b">
-            <button
-              type="button"
-              onClick={() => setSidebarMode("queue")}
-              className={`flex-1 py-2 text-xs font-black ${sidebarMode === "queue" ? "bg-amber-50 text-amber-900 border-b-2 border-amber-500" : "text-slate-500"}`}
-            >
-              À traiter
-            </button>
-            <button
-              type="button"
-              onClick={() => setSidebarMode("prospects")}
-              className={`flex-1 py-2 text-xs font-black ${sidebarMode === "prospects" ? "bg-amber-50 text-amber-900 border-b-2 border-amber-500" : "text-slate-500"}`}
-            >
-              Prospects{filteredProspects.length ? ` (${filteredProspects.length})` : ""}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSidebarMode("dossiers")}
-              className={`flex-1 py-2 text-xs font-black ${sidebarMode === "dossiers" ? "bg-indigo-50 text-indigo-900 border-b-2 border-indigo-500" : "text-slate-500"}`}
-            >
-              Dossiers
-            </button>
+          <div className="p-3 border-b border-slate-200/70">
+            <Tabs
+              value={sidebarMode}
+              onChange={setSidebarMode}
+              items={[
+                { key: "queue", label: "À traiter" },
+                { key: "prospects", label: "Prospects", count: filteredProspects.length || undefined },
+                { key: "dossiers", label: "Dossiers" },
+              ]}
+              className="w-full"
+            />
           </div>
           {user.role === "ADMIN" && (onOpenApporteurs || onOpenConseillersClub) ? (
             <p className="mx-3 mt-2 mb-1 text-[10px] text-slate-400 text-center flex flex-col gap-1">

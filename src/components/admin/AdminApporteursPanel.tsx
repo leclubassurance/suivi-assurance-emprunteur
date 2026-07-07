@@ -32,6 +32,8 @@ import PartnerContractWorkflow from "../portal/PartnerContractWorkflow";
 import AdminApporteurLeaderboard from "./AdminApporteurLeaderboard";
 import AdminConseillerFormationsEditor from "./AdminConseillerFormationsEditor";
 import type { ApporteurLeaderboardRow } from "../../../shared/apporteurLeaderboard";
+import { Badge } from "../ui/Badge";
+import { Button } from "../ui/Button";
 import ApporteurProfileFormFields, {
   EMPTY_APPORTEUR_PROFILE_FORM,
   type ApporteurProfileFormState,
@@ -115,6 +117,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
   const [partnerRecruits, setPartnerRecruits] = useState<PartnerRecruitRequest[]>([]);
   const [summary, setSummary] = useState<Record<string, number | string> | null>(null);
   const [selectedApporteurId, setSelectedApporteurId] = useState<string | "all">("all");
+  const [partnerQuery, setPartnerQuery] = useState("");
   const [showNewApporteur, setShowNewApporteur] = useState(false);
   const [showNewReferral, setShowNewReferral] = useState(false);
   const [newApporteur, setNewApporteur] = useState(() => emptyApporteurForm(segment));
@@ -160,6 +163,25 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
     for (const a of apporteurs) map.set(a.id, a);
     return map;
   }, [apporteurs]);
+
+  const filteredApporteurs = useMemo(() => {
+    const q = partnerQuery.trim().toLowerCase();
+    if (!q) return apporteurs;
+    return apporteurs.filter((a) => {
+      const hay = [
+        a.companyName,
+        a.contactName,
+        a.email,
+        a.phone,
+        a.referralToken,
+        a.portalToken,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [apporteurs, partnerQuery]);
 
   const globalKpis = useMemo(() => computeReferralKpis(referrals), [referrals]);
   const selectedKpis = useMemo(() => computeReferralKpis(filteredReferrals), [filteredReferrals]);
@@ -360,24 +382,20 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-[#1E3A8A] text-white px-6 py-5 flex flex-wrap justify-between items-center gap-4">
+      <header className="bg-white border-b border-slate-200/70 px-6 py-5 flex flex-wrap justify-between items-center gap-4">
         <div>
-          <button
-            type="button"
-            onClick={onBack}
-            className="text-sm text-indigo-200 hover:text-white mb-2"
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={onBack} className="-ml-2 mb-2">
             ← Retour au tableau de bord dossiers
-          </button>
+          </Button>
           <div className="flex items-center gap-4">
-            <img src={LCIF_LOGO_URL} alt="LCIF" className="h-10 w-auto brightness-0 invert hidden sm:block" />
+            <img src={LCIF_LOGO_URL} alt="LCIF" className="h-9 w-auto hidden sm:block" />
             <div>
-              <h1 className="text-xl font-black flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                {ui.title}
+              <h1 className="text-xl font-black flex items-center gap-2 text-slate-900">
+                <Users className="w-5 h-5 text-indigo-700" />
+                <span>{ui.title}</span>
               </h1>
               {summary ? (
-                <p className="text-xs text-indigo-200 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   {summary.activeApporteurs ?? summary.apporteurs} {ui.entitySingular}(s) actif(s) · {summary.openReferrals ?? summary.open} reco ouverte(s)
                 </p>
               ) : null}
@@ -385,37 +403,25 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
           </div>
         </div>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setShowNewApporteur(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white text-[#1E3A8A] text-sm font-bold hover:bg-indigo-50"
-          >
+          <Button type="button" onClick={() => setShowNewApporteur(true)}>
             <Plus className="w-4 h-4" /> {ui.newEntityLabel}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowNewReferral(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/30 bg-white/10 text-white text-sm font-bold hover:bg-white/20"
-          >
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setShowNewReferral(true)}>
             <UserPlus className="w-4 h-4" /> Recommandation
-          </button>
-          <button
-            type="button"
-            onClick={load}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-white/30 bg-white/10 text-white text-sm font-bold hover:bg-white/20"
-          >
+          </Button>
+          <Button type="button" variant="ghost" onClick={load} title="Rafraîchir">
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          </button>
+          </Button>
         </div>
       </header>
 
       {error ? (
-        <div className="mx-6 mt-4 rounded-lg bg-red-50 border border-red-100 text-red-800 text-sm px-4 py-3">
+        <div className="mx-6 mt-4 rounded-2xl bg-red-50 border border-red-100 text-red-800 text-sm px-4 py-3">
           {error}
         </div>
       ) : null}
       {successMsg ? (
-        <div className="mx-6 mt-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-sm px-4 py-3">
+        <div className="mx-6 mt-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-800 text-sm px-4 py-3">
           {successMsg}
         </div>
       ) : null}
@@ -499,19 +505,26 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
       ) : null}
 
       <div className="flex flex-1 overflow-hidden mt-2">
-        <aside className="w-80 max-w-[40%] bg-white border-r border-slate-200 overflow-y-auto">
-          <div className="p-3 border-b">
-            <button
+        <aside className="w-80 max-w-[44%] bg-white border-r border-slate-200 overflow-y-auto">
+          <div className="p-3 border-b space-y-2">
+            <input
+              value={partnerQuery}
+              onChange={(e) => setPartnerQuery(e.target.value)}
+              placeholder="Rechercher (nom, email, ref…)"
+              className="bento-input h-[40px] rounded-xl"
+            />
+            <Button
               type="button"
+              variant={selectedApporteurId === "all" ? "secondary" : "ghost"}
+              size="sm"
               onClick={() => setSelectedApporteurId("all")}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-bold ${
-                selectedApporteurId === "all" ? "bg-indigo-50 text-indigo-900" : "hover:bg-slate-50"
-              }`}
+              className="w-full justify-start"
             >
               {ui.allListLabel}
-            </button>
+              <span className="ml-auto text-xs text-white/80">{apporteurs.length}</span>
+            </Button>
           </div>
-          {apporteurs.map((a) => (
+          {filteredApporteurs.map((a) => (
             <button
               key={a.id}
               type="button"
@@ -524,7 +537,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
                 {a.companyName}
                 {!a.active ? (
-                  <span className="text-[10px] uppercase bg-slate-200 px-1.5 py-0.5 rounded">Inactif</span>
+                  <Badge variant="default">Inactif</Badge>
                 ) : null}
               </div>
               <div className="text-xs text-slate-500 mt-1">{a.contactName} · {resolveApporteurTypeLabel(a)}</div>
@@ -538,7 +551,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
               <p className="text-[10px] text-slate-400 mt-0.5">Lien basé sur le contact — plusieurs personnes d&apos;une même société ont chacun leur ref.</p>
             </button>
           ))}
-          {!loading && apporteurs.length === 0 ? (
+          {!loading && filteredApporteurs.length === 0 ? (
             <p className="p-4 text-sm text-slate-500">{ui.emptyListMessage}</p>
           ) : null}
         </aside>

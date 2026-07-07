@@ -148,13 +148,41 @@ function StickyAnchorNav({
   items,
   activeId,
   onJump,
+  variant = "bar",
 }: {
   items: StickyNavItem[];
   activeId: string | null;
   onJump: (id: string) => void;
+  variant?: "bar" | "panel";
 }) {
   const visible = items.filter((i) => i.visible !== false);
   if (visible.length <= 1) return null;
+  if (variant === "panel") {
+    return (
+      <nav>
+        <div className="grid gap-1">
+          {visible.map((i) => {
+            const active = activeId === i.id;
+            return (
+              <button
+                key={i.id}
+                type="button"
+                onClick={() => onJump(i.id)}
+                className={[
+                  "text-left w-full px-3 py-2 rounded-xl text-xs font-black transition-colors",
+                  active
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-700 hover:bg-slate-50 border border-slate-200",
+                ].join(" ")}
+              >
+                {i.label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    );
+  }
   return (
     <nav className="sticky top-2 z-20">
       <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur px-2 py-2 shadow-sm">
@@ -446,23 +474,23 @@ export default function ApporteurPortalPage({
   const unlocked = data.portalUnlocked !== false && data.contract?.signed !== false;
 
   const navItems: StickyNavItem[] = [
-    { id: "ap-hero", label: "Résumé" },
+    { id: "ap-hero", label: isConseillerClub ? "Mon espace" : "Résumé" },
     { id: "ap-phase", label: "Phase", visible: Boolean(isConseillerClub && data.conseillerClub) },
     { id: "ap-formation", label: "Formation", visible: Boolean(isConseillerClub) },
     { id: "ap-contract", label: "Contrat", visible: Boolean(data.contract?.signed) },
     { id: "ap-benefits", label: "Avantages" },
-    { id: "ap-script", label: "Message" },
+    { id: "ap-script", label: isConseillerClub ? "Message client" : "Message" },
     { id: "ap-journey", label: "Parcours" },
     { id: "ap-earnings", label: "Gains", visible: Boolean(!isConseillerClub) },
     { id: "ap-recruit", label: "Recruter", visible: Boolean(!isConseillerClub) },
     {
       id: "ap-team",
-      label: "Équipe",
+      label: "Mon réseau",
       visible: Boolean(
         !isConseillerClub && (((data.downline?.length ?? 0) > 0) || ((data.partnerRecruits?.length ?? 0) > 0)),
       ),
     },
-    { id: "ap-referrals", label: "Clients" },
+    { id: "ap-referrals", label: isConseillerClub ? "Mes dossiers" : "Clients" },
     { id: "ap-guide", label: "Aide" },
   ];
 
@@ -514,37 +542,56 @@ export default function ApporteurPortalPage({
         partnerContact={data.apporteur.contactName}
         partnerTypeLabel={typeLabel}
       />
-      {conseillerSession ? (
-        <div className="max-w-3xl mx-auto px-5 py-2 flex justify-end bg-[#f4f6fb]">
-          <button
-            type="button"
-            onClick={handleConseillerLogout}
-            className="text-xs font-bold text-slate-500 hover:text-indigo-800 underline"
-          >
-            Déconnexion
-          </button>
-        </div>
-      ) : null}
+      <main className="max-w-6xl mx-auto px-5 py-8">
+        <div className="grid lg:grid-cols-[260px_1fr] gap-6 items-start">
+          <aside className="hidden lg:block sticky top-28 space-y-4">
+            <div className="lcif-card p-3">
+              <p className="lcif-label px-2 pb-2">Navigation</p>
+              <StickyAnchorNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} variant="panel" />
+            </div>
+            {conseillerSession ? (
+              <button
+                type="button"
+                onClick={handleConseillerLogout}
+                className="w-full text-xs font-black text-slate-600 hover:text-slate-900 border border-slate-200 bg-white rounded-2xl px-4 py-3"
+              >
+                Déconnexion
+              </button>
+            ) : null}
+          </aside>
 
-      <main className="max-w-3xl mx-auto px-5 py-8 space-y-6">
-        <StickyAnchorNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} />
+          <div className="space-y-6">
+            <div className="lg:hidden">
+              <StickyAnchorNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} />
+            </div>
+            {conseillerSession ? (
+              <div className="lg:hidden flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleConseillerLogout}
+                  className="text-xs font-bold text-slate-500 hover:text-indigo-800 underline"
+                >
+                  Déconnexion
+                </button>
+              </div>
+            ) : null}
 
-        {submitMsg ? (
-          <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center font-medium">
-            {submitMsg}
-          </p>
-        ) : null}
+            {submitMsg ? (
+              <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center font-medium">
+                {submitMsg}
+              </p>
+            ) : null}
 
-        <div id="ap-hero" className="scroll-mt-28">
-          <PartnerHeroSection
-            apporteurType={data.apporteur.type}
-            referralLink={data.referralLink}
-            unlocked={unlocked}
-            referralStats={data.referralStats}
-            onCopyLink={() => copyText(data.referralLink, "Lien client copié !")}
-            onNewReferral={openNewReferral}
-          />
-        </div>
+            <div id="ap-hero" className="scroll-mt-28">
+              <PartnerHeroSection
+                apporteurType={data.apporteur.type}
+                referralLink={data.referralLink}
+                unlocked={unlocked}
+                referralStats={data.referralStats}
+                onCopyLink={() => copyText(data.referralLink, "Lien client copié !")}
+                onNewReferral={openNewReferral}
+              />
+            </div>
 
         {isConseillerClub && data.conseillerClub ? (
           <div id="ap-phase" className="scroll-mt-28">
@@ -562,11 +609,11 @@ export default function ApporteurPortalPage({
           </div>
         ) : null}
 
-        {data.contract?.signed ? (
-          <section
-            id="ap-contract"
-            className="scroll-mt-28 bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm"
-          >
+            {data.contract?.signed ? (
+              <section
+                id="ap-contract"
+                className="scroll-mt-28 bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm"
+              >
             <span className="text-slate-600">
               Contrat signé
               {data.contract.signedAt
@@ -581,8 +628,8 @@ export default function ApporteurPortalPage({
             >
               Télécharger le PDF
             </a>
-          </section>
-        ) : null}
+              </section>
+            ) : null}
 
         <div id="ap-benefits" className="scroll-mt-28">
           <PartnerBenefitCards
@@ -921,11 +968,14 @@ export default function ApporteurPortalPage({
           </div>
         </section>
 
-        <div id="ap-guide" className="scroll-mt-28">
-          <PartnerGuideSection />
+            <div id="ap-guide" className="scroll-mt-28">
+              <PartnerGuideSection />
+            </div>
+          </div>
         </div>
-
-        <LcifPartnerFooter />
+        <div className="mt-10">
+          <LcifPartnerFooter />
+        </div>
       </main>
     </div>
   );
