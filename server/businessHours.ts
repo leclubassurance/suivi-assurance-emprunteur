@@ -17,6 +17,17 @@ function parisHourMinute(now = new Date()): { hour: number; minute: number } {
   return { hour, minute };
 }
 
+/** Jour (0=dimanche…6=samedi) et heure (0-23) en fuseau Europe/Paris. */
+export function parisDayHour(now = new Date()): { day: number; hour: number } {
+  const weekdayShort = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+  }).format(now);
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const day = map[weekdayShort] ?? new Date(now).getDay();
+  return { day, hour: parisHourMinute(now).hour };
+}
+
 export function isRailwayEcoMode(): boolean {
   return envFlag("RAILWAY_ECO_MODE", "false");
 }

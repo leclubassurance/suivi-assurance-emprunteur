@@ -18,11 +18,19 @@ import {
   Library,
   Plus,
   Trash2,
+  Clock,
 } from "lucide-react";
 import { showToast } from "../../lib/toast";
+import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
 import { adminFetch } from "../../lib/adminApi";
 import type { Dossier } from "../../types";
+import {
+  CAMILLE_WEEKDAY_LABELS,
+  CAMILLE_WEEKDAY_ORDER,
+  normalizeCamilleSchedule,
+  type CamilleSchedule,
+} from "../../../shared/camilleSchedule";
 import AdminPortalPreviewModal from "./AdminPortalPreviewModal";
 import AdminSubscriptionProgressPanel from "./AdminSubscriptionProgressPanel";
 import AdminConseillerSubscriptionPanel from "./AdminConseillerSubscriptionPanel";
@@ -983,6 +991,170 @@ export function AdminCamilleKnowledgePanel() {
           className="text-[11px] font-bold px-3 py-2 rounded-lg border border-indigo-300 bg-white text-indigo-900 flex items-center gap-1.5 disabled:opacity-50"
         >
           <RefreshCw className="w-3.5 h-3.5" /> Synchroniser
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function AdminCamilleSchedulePanel() {
+  const [schedule, setSchedule] = useState<CamilleSchedule | null>(null);
+  const [openNow, setOpenNow] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await adminFetch("/api/admin/camille-schedule");
+      const data = await res.json();
+      if (data.ok) {
+        setSchedule(normalizeCamilleSchedule(data.schedule));
+        setOpenNow(Boolean(data.openNow));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const save = async (next: CamilleSchedule) => {
+    setBusy(true);
+    try {
+      const res = await adminFetch("/api/admin/camille-schedule", {
+        method: "PUT",
+        body: JSON.stringify({ schedule: next }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSchedule(normalizeCamilleSchedule(data.schedule));
+        setOpenNow(Boolean(data.openNow));
+        showToast("Horaires de Camille enregistrés.", "success");
+      } else {
+        showToast(data.error || "Échec de l'enregistrement.", "error");
+      }
+    } catch {
+      showToast("Erreur réseau.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!schedule) {
+    return (
+      <div className="bg-white border rounded-xl p-4">
+        <p className="text-sm text-slate-400">Chargement des horaires Camille…</p>
+      </div>
+    );
+  }
+
+  const toggleDay = (day: number) => {
+    const days = schedule.daysOfWeek.includes(day)
+      ? schedule.daysOfWeek.filter((d) => d !== day)
+      : [...schedule.daysOfWeek, day].sort((a, b) => a - b);
+    setSchedule({ ...schedule, daysOfWeek: days });
+  };
+
+  return (
+    <div className="bg-white border rounded-xl p-4 space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Clock className="w-4 h-4 text-indigo-700" />
+          <h3 className="text-sm font-black text-slate-900">Horaires de Camille</h3>
+        </div>
+        {openNow !== null && schedule.enabled ? (
+          <span
+            className={`text-[11px] font-bold px-2 py-1 rounded-full ${
+              openNow ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500"
+            }`}
+          >
+            {openNow ? "Active maintenant" : "En veille (hors horaires)"}
+          </span>
+        ) : null}
+      </div>
+
+      <p className="text-[11px] text-slate-500 leading-relaxed">
+        Contrôle quand Camille traite automatiquement les emails entrants (réponses IA / brouillons
+        Telegram). Hors de ces horaires, aucun traitement automatique. Fuseau : Europe/Paris.
+      </p>
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={schedule.enabled}
+          onChange={(e) => setSchedule({ ...schedule, enabled: e.target.checked })}
+          className="rounded border-slate-300"
+        />
+        <span className="text-xs font-bold text-slate-700">
+          {schedule.enabled ? "Camille activée" : "Camille en pause (aucun traitement auto)"}
+        </span>
+      </label>
+
+      <div className={schedule.enabled ? "" : "opacity-40 pointer-events-none"}>
+        <p className="text-[11px] font-black uppercase text-slate-400 mb-2">Jours actifs</p>
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {CAMILLE_WEEKDAY_ORDER.map((day) => (
+            <button
+              key={day}
+              type="button"
+              onClick={() => toggleDay(day)}
+              className={`text-[11px] font-bold px-2.5 py-1.5 rounded-lg border ${
+                schedule.daysOfWeek.includes(day)
+                  ? "bg-indigo-700 text-white border-indigo-700"
+                  : "bg-white text-slate-500 border-slate-200"
+              }`}
+            >
+              {CAMILLE_WEEKDAY_LABELS[day].slice(0, 3)}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <p className="text-[11px] font-black uppercase text-slate-400 mb-1">Début</p>
+            <select
+              value={schedule.startHour}
+              onChange={(e) => setSchedule({ ...schedule, startHour: Number(e.target.value) })}
+              className="text-xs font-bold border rounded-lg px-2 py-1.5 bg-slate-50"
+            >
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {h}h
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <p className="text-[11px] font-black uppercase text-slate-400 mb-1">Fin</p>
+            <select
+              value={schedule.endHour}
+              onChange={(e) => setSchedule({ ...schedule, endHour: Number(e.target.value) })}
+              className="text-xs font-bold border rounded-lg px-2 py-1.5 bg-slate-50"
+            >
+              {Array.from({ length: 24 }, (_, h) => h + 1).map((h) => (
+                <option key={h} value={h}>
+                  {h}h
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            {schedule.startHour === schedule.endHour
+              ? "24h/24 les jours actifs"
+              : `${schedule.startHour}h → ${schedule.endHour}h (Paris)`}
+          </p>
+        </div>
+      </div>
+
+      <div className="pt-1">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => save(schedule)}
+          className="text-[11px] font-bold px-3 py-2 rounded-lg bg-indigo-700 text-white flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <Clock className="w-3.5 h-3.5" /> Enregistrer les horaires
         </button>
       </div>
     </div>

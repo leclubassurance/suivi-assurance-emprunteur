@@ -15,6 +15,7 @@ import {
   AdminWorkQueuePanel,
   AdminCamillePanel,
   AdminCamilleKnowledgePanel,
+  AdminCamilleSchedulePanel,
   AdminCamillePlaybooksPanel,
   AdminOpsDailyReportPanel,
   AdminGeminiUsagePanel,
@@ -1120,6 +1121,7 @@ export default function AdminDashboard({
                     </h3>
                     <AdminOpsDailyReportPanel />
                     <AdminGeminiUsagePanel />
+                    <AdminCamilleSchedulePanel />
                     <AdminCamillePlaybooksPanel />
                     <AdminCamilleKnowledgePanel />
                     <AdminCamillePanel

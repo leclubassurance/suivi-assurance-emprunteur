@@ -13,6 +13,7 @@ import {
 } from "./businessHours";
 import { syncGmailInbox } from "./mailAutomation";
 import { processIncomingClientEmail } from "./aiAssistant";
+import { isCamilleScheduleOpenNow } from "./camilleScheduleConfig";
 import { canUseDomainWideDelegation } from "./googleDelegatedAuth";
 import { hasServerOAuthRefreshToken } from "./googleOAuthServer";
 import { sendEscalationReminderToRemi } from "./camilleEscalation";
@@ -218,9 +219,11 @@ export function startScheduler() {
   const gmailEnabled = ((process.env as any).GMAIL_AUTOSYNC_ENABLED || "true").toLowerCase() === "true";
   const gmailIntervalMs = getGmailAutosyncIntervalMs();
   if (gmailEnabled) {
-    setInterval(() => {
+    setInterval(async () => {
       if (gmailSyncInProgress) return;
       if (!isGmailAutosyncWindowOpen()) return;
+      // Horaires de fonctionnement Camille (contrôlés depuis l'admin).
+      if (!(await isCamilleScheduleOpenNow().catch(() => true))) return;
       if (!hasServerOAuthRefreshToken() && !canUseDomainWideDelegation()) return;
       gmailSyncInProgress = true;
       readDB()

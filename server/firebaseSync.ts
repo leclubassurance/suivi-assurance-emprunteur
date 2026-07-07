@@ -341,6 +341,7 @@ export type ApporteurStoreDoc = {
   referrals: unknown[];
   partnerRecruits?: unknown[];
   conseillerFormationParcours?: unknown;
+  camilleSchedule?: unknown;
   updatedAt: string;
 };
 

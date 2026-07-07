@@ -262,6 +262,8 @@ export function createApp() {
         playbookSeedVersion: (await import("./camillePlaybooks")).getPlaybookSeedVersion(),
         playbookCount: (await (await import("./camillePlaybooks")).listPlaybooks(500)).length,
         playbookSelfCheckOk: (await (await import("./camillePlaybooks")).runPlaybookSelfCheck()).ok,
+        schedule: await (await import("./camilleScheduleConfig")).loadCamilleSchedule(),
+        scheduleOpenNow: await (await import("./camilleScheduleConfig")).isCamilleScheduleOpenNow(),
       },
     });
   });
@@ -1576,6 +1578,34 @@ export function createApp() {
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/camille-schedule", async (_req, res) => {
+    try {
+      const { loadCamilleSchedule } = await import("./camilleScheduleConfig");
+      const { isWithinCamilleSchedule } = await import("../shared/camilleSchedule");
+      const { parisDayHour } = await import("./businessHours");
+      const schedule = await loadCamilleSchedule();
+      res.json({ ok: true, schedule, openNow: isWithinCamilleSchedule(schedule, parisDayHour()) });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.put("/api/admin/camille-schedule", express.json(), async (req, res) => {
+    try {
+      const raw = (req.body || {}).schedule ?? req.body;
+      if (!raw || typeof raw !== "object") {
+        return res.status(400).json({ ok: false, error: "schedule requis." });
+      }
+      const { saveCamilleSchedule } = await import("./camilleScheduleConfig");
+      const { isWithinCamilleSchedule } = await import("../shared/camilleSchedule");
+      const { parisDayHour } = await import("./businessHours");
+      const schedule = await saveCamilleSchedule(raw);
+      res.json({ ok: true, schedule, openNow: isWithinCamilleSchedule(schedule, parisDayHour()) });
+    } catch (err: any) {
+      res.status(400).json({ ok: false, error: err?.message || String(err) });
     }
   });
 

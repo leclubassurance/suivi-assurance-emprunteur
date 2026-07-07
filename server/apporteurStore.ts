@@ -26,6 +26,7 @@ import { applyReferralClickGeoToStats } from "../shared/referralGeo";
 import type { ReferralClickGeoSlice } from "../shared/referralGeo";
 import { generatePortalToken } from "./apporteurNotify";
 import { normalizeConseillerFormationParcours } from "../shared/conseillerFormations";
+import { normalizeCamilleSchedule } from "../shared/camilleSchedule";
 
 export type ApporteurStore = {
   version: 1;
@@ -34,6 +35,8 @@ export type ApporteurStore = {
   partnerRecruits: PartnerRecruitRequest[];
   /** Parcours formation conseillers LCIF (titre, intro, URL iframe Coassemble unique). */
   conseillerFormationParcours?: import("../shared/conseillerFormations").ConseillerFormationParcours;
+  /** Horaires de fonctionnement de Camille (contrôlés depuis l'admin). */
+  camilleSchedule?: import("../shared/camilleSchedule").CamilleSchedule;
   updatedAt: string;
 };
 
@@ -84,6 +87,9 @@ function normalizeStore(raw: unknown): ApporteurStore {
   };
   if (data?.conseillerFormationParcours) {
     store.conseillerFormationParcours = normalizeConseillerFormationParcours(data.conseillerFormationParcours);
+  }
+  if ((data as ApporteurStore | null)?.camilleSchedule) {
+    store.camilleSchedule = normalizeCamilleSchedule((data as ApporteurStore).camilleSchedule);
   }
   return store;
 }
