@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { GraduationCap, Loader2, PlayCircle } from "lucide-react";
 import { getApiUrl, apiFetch } from "../../lib/utils";
+import { adminFetch } from "../../lib/adminApi";
 import type { ConseillerFormationParcours } from "../../../shared/conseillerFormations";
 
 type ParcoursView = ConseillerFormationParcours & { available: boolean };
@@ -8,12 +9,17 @@ type ParcoursView = ConseillerFormationParcours & { available: boolean };
 export default function ConseillerFormationSection({
   portalToken,
   sessionAuth = false,
+  adminView = false,
 }: {
   portalToken: string;
   sessionAuth?: boolean;
+  adminView?: boolean;
 }) {
-  const portalFetch = (path: string, init?: RequestInit) =>
-    sessionAuth ? apiFetch(path, init) : fetch(getApiUrl(path), init);
+  const portalFetch = (path: string, init?: RequestInit) => {
+    if (adminView) return adminFetch(path, init);
+    if (sessionAuth) return apiFetch(path, init);
+    return fetch(getApiUrl(path), init);
+  };
   const [parcours, setParcours] = useState<ParcoursView | null>(null);
   const [loading, setLoading] = useState(true);
 

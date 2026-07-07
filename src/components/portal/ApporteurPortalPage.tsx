@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Send, UserPlus, Users } from "lucide-react";
 import { getApiUrl, apiFetch, clearConseillerSessionToken } from "../../lib/utils";
+import { adminFetch } from "../../lib/adminApi";
 import type { ReferralStatus, PartnerRecruitStatus } from "../../../shared/apporteurTypes";
 import {
   APPORTEUR_TYPE_LABELS,
@@ -236,10 +237,20 @@ export default function ApporteurPortalPage({
     return new URLSearchParams(window.location.search).get("etude");
   }, []);
 
+  const adminViewMode = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("admin_view") === "1";
+  }, []);
+
+  const portalAuthMode = adminViewMode ? "admin" : conseillerSession ? "conseiller" : "token";
+
   const fetchPortal = useCallback(
-    (path: string, init?: RequestInit) =>
-      conseillerSession ? apiFetch(path, init) : fetch(getApiUrl(path), init),
-    [conseillerSession],
+    (path: string, init?: RequestInit) => {
+      if (portalAuthMode === "admin") return adminFetch(path, init);
+      if (portalAuthMode === "conseiller") return apiFetch(path, init);
+      return fetch(getApiUrl(path), { ...init, credentials: "include" });
+    },
+    [portalAuthMode],
   );
 
   const load = useCallback(async () => {
@@ -249,6 +260,12 @@ export default function ApporteurPortalPage({
       const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}`);
       const json = await res.json().catch(() => ({}));
       if (res.status === 401 && json.error === "session_required") {
+        if (adminViewMode) {
+          setError(
+            "Connectez-vous à l'administration LCIF (compte Google autorisé) pour consulter cet espace conseiller.",
+          );
+          return;
+        }
         clearConseillerSessionToken();
         window.location.href = "/conseiller";
         return;
@@ -479,11 +496,11 @@ export default function ApporteurPortalPage({
     return (
       <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
         <LcifPartnerHeader
-          subtitle={conseillerSession ? "Espace conseiller" : "Espace partenaire"}
+          subtitle={adminViewMode ? "Consultation admin" : conseillerSession ? "Espace conseiller" : "Espace partenaire"}
           partnerName={data.apporteur.companyName}
           partnerContact={data.apporteur.contactName}
           partnerTypeLabel={typeLabel}
-          onLogout={conseillerSession ? handleConseillerLogout : undefined}
+          onLogout={conseillerSession && !adminViewMode ? handleConseillerLogout : undefined}
         />
         <main className="max-w-3xl mx-auto px-4 sm:px-5 py-8 space-y-6">
           {submitMsg ? (
@@ -494,7 +511,7 @@ export default function ApporteurPortalPage({
           <PortalSection title="Signature du contrat partenaire" description="Débloquez votre espace après signature.">
             <PartnerContractWorkflow contractStatus={data.contract?.status || "sent"} semiAutoPreview={false} />
             <div className="mt-4">
-              <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} onSigned={() => load()} />
+              <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} adminView={adminViewMode} onSigned={() => load()} />
             </div>
           </PortalSection>
           <p className="text-xs text-slate-500 text-center">
@@ -512,11 +529,11 @@ export default function ApporteurPortalPage({
   return (
     <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
       <LcifPartnerHeader
-        subtitle={conseillerSession ? "Espace conseiller" : "Espace partenaire"}
+        subtitle={adminViewMode ? "Consultation admin" : conseillerSession ? "Espace conseiller" : "Espace partenaire"}
         partnerName={data.apporteur.companyName}
         partnerContact={data.apporteur.contactName}
         partnerTypeLabel={typeLabel}
-        onLogout={conseillerSession ? handleConseillerLogout : undefined}
+        onLogout={conseillerSession && !adminViewMode ? handleConseillerLogout : undefined}
       />
       <div className="max-w-6xl mx-auto px-4 sm:px-5 py-6 pb-28 lg:pb-10">
         <div className="grid lg:grid-cols-[240px_1fr] gap-6 items-start">
@@ -528,6 +545,12 @@ export default function ApporteurPortalPage({
           </aside>
 
           <div className="space-y-6 min-w-0">
+            {adminViewMode ? (
+              <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-center">
+                Consultation admin — vous visualisez l&apos;espace du conseiller. Le partenaire n&apos;a aucun accès à
+                l&apos;administration.
+              </p>
+            ) : null}
             {submitMsg ? (
               <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center font-medium">
                 {submitMsg}
@@ -564,7 +587,7 @@ export default function ApporteurPortalPage({
 
         {isConseillerClub ? (
           <div id="ap-formation" className="scroll-mt-28">
-            <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} />
+            <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} adminView={adminViewMode} />
           </div>
         ) : null}
 
@@ -919,6 +942,7 @@ export default function ApporteurPortalPage({
                           <ConseillerStudyValidation
                             portalToken={token}
                             sessionAuth={conseillerSession}
+                            adminView={adminViewMode}
                             validation={r.tracking.studyValidationPending}
                             highlight={highlightDossierId === r.tracking.dossierId}
                             onApproved={load}
@@ -934,6 +958,7 @@ export default function ApporteurPortalPage({
                           <ConseillerSubscriptionForm
                             portalToken={token}
                             sessionAuth={conseillerSession}
+                            adminView={adminViewMode}
                             referralId={r.id}
                             existing={r.tracking.conseillerSubscription}
                             canSubmit={Boolean(r.tracking.canSubmitSubscription)}

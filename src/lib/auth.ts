@@ -54,6 +54,7 @@ let cachedAccessToken: string | null = null;
 // Memory storage to persist simulated/mock auth state if firebase is dummy
 let simulatedUser: any = null;
 const SIM_USER_KEY = "simulated_user_auth";
+const ADMIN_OAUTH_TOKEN_KEY = "lcif_admin_oauth_token";
 try {
   const stored = sessionStorage.getItem(SIM_USER_KEY);
   if (stored) {
@@ -112,6 +113,11 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       }
 
       cachedAccessToken = credential.accessToken;
+      try {
+        sessionStorage.setItem(ADMIN_OAUTH_TOKEN_KEY, cachedAccessToken);
+      } catch {
+        /* ignore */
+      }
       return { user: result.user, accessToken: cachedAccessToken };
     } catch (error: any) {
       console.error("Firebase Sign in error details:", {
@@ -140,6 +146,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     cachedAccessToken = mockToken;
     try {
       sessionStorage.setItem(SIM_USER_KEY, JSON.stringify({ user: mockUser, accessToken: mockToken }));
+      sessionStorage.setItem(ADMIN_OAUTH_TOKEN_KEY, mockToken);
     } catch (e) {}
     
     // Notify listeners
@@ -152,7 +159,17 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken;
+  if (cachedAccessToken) return cachedAccessToken;
+  try {
+    const stored = sessionStorage.getItem(ADMIN_OAUTH_TOKEN_KEY);
+    if (stored) {
+      cachedAccessToken = stored;
+      return stored;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
 };
 
 export const logout = async () => {
@@ -163,6 +180,7 @@ export const logout = async () => {
   cachedAccessToken = null;
   try {
     sessionStorage.removeItem(SIM_USER_KEY);
+    sessionStorage.removeItem(ADMIN_OAUTH_TOKEN_KEY);
   } catch (e) {}
   for (const listener of listeners) {
     try { listener(); } catch (e) {}

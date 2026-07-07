@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2,
   Copy,
+  ExternalLink,
   Link2,
   Mail,
   Plus,
@@ -197,6 +198,24 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
       await navigator.clipboard.writeText(text);
     } catch {
       /* ignore */
+    }
+  };
+
+  const openPortalAsAdmin = async (apporteurId: string) => {
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}/portal-preview`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ouverture impossible");
+      window.open(data.url, "_blank", "noopener,noreferrer");
+      setSuccessMsg(
+        data.isConseiller
+          ? "Espace conseiller ouvert — consultation avec votre session admin (le conseiller n'a pas accès à l'admin)."
+          : "Espace partenaire ouvert dans un nouvel onglet.",
+      );
+    } catch (e: any) {
+      setError(e?.message || "Erreur");
     }
   };
 
@@ -608,13 +627,19 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                   <>
                     <h2 className="text-lg font-black text-slate-900 mb-1 flex flex-wrap items-center justify-between gap-2">
                       <span>{a.companyName}</span>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteConfirmId(a.id)}
-                        className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800 border border-red-100 px-2 py-1 rounded-lg hover:bg-red-50"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Supprimer
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => openPortalAsAdmin(a.id)}>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Consulter l&apos;espace
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmId(a.id)}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-800 border border-red-100 px-2 py-1 rounded-lg hover:bg-red-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Supprimer
+                        </button>
+                      </div>
                     </h2>
                     <p className="text-sm text-slate-600 mb-3">
                       {a.contactName} — {a.email}
@@ -703,14 +728,23 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                       ) : (
                       <div className="space-y-4">
                       <div>
-                        <p className="text-[11px] font-black uppercase text-slate-400 mb-1">
+                        <p className="text-[11px] font-black uppercase text-slate-400 mb-2">
                           {isConseillerImmoClubType(a.type)
-                            ? "Espace conseiller (connexion email)"
+                            ? "Connexion conseiller (email)"
                             : "Espace apporteur (privé)"}
                         </p>
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <code className="text-xs bg-indigo-50 text-indigo-900 px-2 py-1 rounded">{portalLink || "—"}</code>
-                          {portalLink ? (
+                        <p className="text-xs text-slate-500 mb-3">
+                          {isConseillerImmoClubType(a.type)
+                            ? "Les conseillers se connectent par email. Utilisez « Consulter l'espace » (session admin requise) pour vérifier leur portail."
+                            : "Lien direct vers l'espace partenaire."}
+                        </p>
+                        <Button type="button" size="sm" onClick={() => openPortalAsAdmin(a.id)}>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Consulter l&apos;espace
+                        </Button>
+                        {portalLink ? (
+                          <div className="flex flex-wrap gap-2 items-center mt-3">
+                            <code className="text-xs bg-indigo-50 text-indigo-900 px-2 py-1 rounded">{portalLink}</code>
                             <button
                               type="button"
                               onClick={() => copyText(portalLink)}
@@ -718,15 +752,17 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                             >
                               <Copy className="w-3.5 h-3.5" /> Copier
                             </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => sendPortalInvite(a.id)}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 hover:underline"
-                          >
-                            <Mail className="w-3.5 h-3.5" /> Envoyer par email
-                          </button>
-                        </div>
+                            {!isConseillerImmoClubType(a.type) ? (
+                              <button
+                                type="button"
+                                onClick={() => sendPortalInvite(a.id)}
+                                className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 hover:underline"
+                              >
+                                <Mail className="w-3.5 h-3.5" /> Envoyer par email
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                       <div>
                         <p className="text-[11px] font-black uppercase text-slate-400 mb-1">Lien client (?ref=)</p>
@@ -808,6 +844,14 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                         <div className="text-[11px] text-indigo-700 font-bold mt-1">{apporteur.companyName}</div>
                       ) : null}
                     </div>
+                    {r.dossierId ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant="info">{REFERRAL_STATUS_LABELS[r.status]}</Badge>
+                        <span className="text-[10px] text-slate-400 text-right max-w-[140px]">
+                          Sync auto · {r.dossierId}
+                        </span>
+                      </div>
+                    ) : (
                     <select
                       value={r.status}
                       onChange={(e) => updateReferralStatus(r.id, e.target.value as ReferralStatus)}
@@ -819,6 +863,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                         </option>
                       ))}
                     </select>
+                    )}
                   </div>
                   {r.contact.notes ? (
                     <p className="text-xs text-slate-600 mb-2 whitespace-pre-wrap">{r.contact.notes}</p>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, FileSignature, Loader2, UserPen } from "lucide-react";
 import { getApiUrl, apiFetch } from "../../lib/utils";
+import { adminFetch } from "../../lib/adminApi";
 import ApporteurProfileFormFields, {
   apporteurToProfileForm,
   type ApporteurProfileFormState,
@@ -29,13 +30,18 @@ export default function PartnerContractSigning({
   portalToken,
   onSigned,
   sessionAuth = false,
+  adminView = false,
 }: {
   portalToken: string;
   onSigned: () => void;
   sessionAuth?: boolean;
+  adminView?: boolean;
 }) {
-  const portalFetch = (path: string, init?: RequestInit) =>
-    sessionAuth ? apiFetch(path, init) : fetch(getApiUrl(path), init);
+  const portalFetch = (path: string, init?: RequestInit) => {
+    if (adminView) return adminFetch(path, init);
+    if (sessionAuth) return apiFetch(path, init);
+    return fetch(getApiUrl(path), init);
+  };
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);

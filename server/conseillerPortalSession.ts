@@ -163,6 +163,8 @@ export async function gateApporteurPortalForConseiller(
     return null;
   }
   if (!isConseillerImmoClubType(apporteur.type)) return apporteur;
+  const { resolveAdminEmailFromRequest } = await import("./adminAuth");
+  if (await resolveAdminEmailFromRequest(req)) return apporteur;
   const sessionApporteur = await resolveConseillerPortalSession(req);
   if (!sessionApporteur || sessionApporteur.id !== apporteur.id) {
     res.status(401).json({ ok: false, error: "session_required" });

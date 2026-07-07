@@ -1356,8 +1356,9 @@ export function createApp() {
       const { parseAdminPartnersSegment } = await import("../shared/conseillerImmoClub");
       const apporteurId = String(req.query.apporteurId || "").trim() || undefined;
       const segment = parseAdminPartnersSegment(req.query.segment);
-      const { pruneReferralsWithMissingDossiers } = await import("./apporteurStore");
+      const { pruneReferralsWithMissingDossiers, syncAllReferralsFromDossiers } = await import("./apporteurStore");
       await pruneReferralsWithMissingDossiers();
+      await syncAllReferralsFromDossiers("admin_apporteurs_load");
       const [apporteurs, referrals, summary, partnerRecruits] = await Promise.all([
         listApporteurs(segment ? { segment } : undefined),
         listReferrals(apporteurId ? { apporteurId } : undefined),
@@ -1515,6 +1516,37 @@ export function createApp() {
         });
       }
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/apporteurs/:id/portal-preview", async (req, res) => {
+    try {
+      const { findApporteurById } = await import("./apporteurStore");
+      const { resolvePublicAppBaseUrl } = await import("./clientPortal");
+      const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+      const apporteur = await findApporteurById(req.params.id);
+      if (!apporteur) return res.status(404).json({ success: false, error: "Partenaire introuvable" });
+      if (!apporteur.portalToken) {
+        return res.status(400).json({ success: false, error: "Aucun portail configuré pour ce partenaire." });
+      }
+      const baseUrl = resolvePublicAppBaseUrl(
+        String(req.headers.origin || req.headers.referer || "").replace(/\/$/, ""),
+      );
+      const isConseiller = isConseillerImmoClubType(apporteur.type);
+      let url = `${baseUrl.replace(/\/$/, "")}/apporteur/${apporteur.portalToken}`;
+      if (isConseiller) {
+        url = `${url}?admin_view=1`;
+      }
+      res.json({
+        success: true,
+        url,
+        isConseiller,
+        note: isConseiller
+          ? "Consultation avec votre session admin Google — le conseiller n'a aucun accès à l'administration."
+          : "Ouverture directe de l'espace apporteur.",
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }

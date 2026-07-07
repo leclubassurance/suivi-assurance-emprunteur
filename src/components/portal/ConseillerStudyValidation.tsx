@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { getApiUrl, apiFetch } from "../../lib/utils";
+import { adminFetch } from "../../lib/adminApi";
 
 export type StudyValidationPending = {
   dossierId: string;
@@ -34,15 +35,20 @@ export default function ConseillerStudyValidation({
   highlight,
   onApproved,
   sessionAuth = false,
+  adminView = false,
 }: {
   portalToken: string;
   validation: StudyValidationPending;
   highlight?: boolean;
   onApproved: () => void | Promise<void>;
   sessionAuth?: boolean;
+  adminView?: boolean;
 }) {
-  const portalFetch = (path: string, init?: RequestInit) =>
-    sessionAuth ? apiFetch(path, init) : fetch(getApiUrl(path), init);
+  const portalFetch = (path: string, init?: RequestInit) => {
+    if (adminView) return adminFetch(path, init);
+    if (sessionAuth) return apiFetch(path, init);
+    return fetch(getApiUrl(path), init);
+  };
   const [feesPerAssured, setFeesPerAssured] = useState(validation.feesPerAssuredEur);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

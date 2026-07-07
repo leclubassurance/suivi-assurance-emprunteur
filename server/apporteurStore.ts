@@ -739,10 +739,24 @@ export async function syncReferralFromDossier(dossier: Dossier, actor = "system"
   if (!referral.dossierId) referral.dossierId = dossier.id;
   if (!attr.referralId) attr.referralId = referral.id;
 
-  if (inferred && statusRank(inferred) > statusRank(referral.status)) {
+  const linkedToDossier = Boolean(referral.dossierId);
+  const shouldSync =
+    inferred &&
+    (linkedToDossier
+      ? inferred !== referral.status
+      : statusRank(inferred) > statusRank(referral.status));
+
+  if (shouldSync && inferred) {
     const previousStatus = referral.status;
     referral.status = inferred;
-    pushReferralEvent(referral, inferred, `Sync dossier ${dossier.id}`, actor);
+    pushReferralEvent(
+      referral,
+      inferred,
+      linkedToDossier
+        ? `Sync auto dossier ${dossier.id}`
+        : `Sync dossier ${dossier.id}`,
+      actor,
+    );
     referral.updatedAt = new Date().toISOString();
     await persistStore(store);
     await notifyAfterReferralChange(store, referral, previousStatus);
@@ -883,6 +897,26 @@ export async function pruneReferralsWithMissingDossiers(): Promise<number> {
     return before - store.referrals.length;
   }
   return 0;
+}
+
+/** Resynchronise toutes les recommandations rattachées à un dossier LCIF. */
+export async function syncAllReferralsFromDossiers(actor = "admin_refresh"): Promise<number> {
+  const { readDB } = await import("./db");
+  const db = await readDB();
+  let synced = 0;
+  for (const dossier of db.dossiers) {
+    const storeBefore = await loadApporteurStore();
+    const linked = storeBefore.referrals.some(
+      (r) =>
+        r.dossierId === dossier.id ||
+        (dossier as any).apporteur?.referralId === r.id ||
+        (dossier as any).apporteur?.apporteurId === r.apporteurId,
+    );
+    if (!linked) continue;
+    await syncReferralFromDossier(dossier, actor);
+    synced += 1;
+  }
+  return synced;
 }
 
 export function listDirectDownlineApporteurs(store: ApporteurStore, sponsorId: string): Apporteur[] {

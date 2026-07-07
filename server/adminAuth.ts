@@ -41,7 +41,7 @@ export function isPublicApiRoute(method: string, path: string): boolean {
   return false;
 }
 
-async function verifyBearerToken(token: string): Promise<string | null> {
+export async function verifyAdminBearerToken(token: string): Promise<string | null> {
   const trimmed = String(token || "").trim();
   if (!trimmed) return null;
 
@@ -82,7 +82,7 @@ export async function adminAuthMiddleware(
     return;
   }
 
-  const email = await verifyBearerToken(authHeader.slice(7));
+  const email = await verifyAdminBearerToken(authHeader.slice(7));
   if (!email || !getAllowedAdminEmails().has(email)) {
     res.status(403).json({ error: "Accès admin refusé pour ce compte." });
     return;
@@ -90,4 +90,13 @@ export async function adminAuthMiddleware(
 
   (req as Request & { adminEmail?: string }).adminEmail = email;
   next();
+}
+
+/** Vérifie qu'une requête porte un jeton Google OAuth admin autorisé (jamais un token conseiller/apporteur). */
+export async function resolveAdminEmailFromRequest(req: Request): Promise<string | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const email = await verifyAdminBearerToken(authHeader.slice(7));
+  if (!email || !getAllowedAdminEmails().has(email)) return null;
+  return email;
 }

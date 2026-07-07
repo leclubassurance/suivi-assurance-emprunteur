@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { getApiUrl, apiFetch } from "../../lib/utils";
+import { adminFetch } from "../../lib/adminApi";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
 import { CONSEILLER_SUBSCRIPTION_STATUS_LABELS } from "../../../shared/conseillerSubscription";
 
@@ -13,6 +14,7 @@ type Props = {
   canSubmit: boolean;
   onSubmitted: () => void;
   sessionAuth?: boolean;
+  adminView?: boolean;
 };
 
 export default function ConseillerSubscriptionForm({
@@ -22,9 +24,13 @@ export default function ConseillerSubscriptionForm({
   canSubmit,
   onSubmitted,
   sessionAuth = false,
+  adminView = false,
 }: Props) {
-  const portalFetch = (path: string, init?: RequestInit) =>
-    sessionAuth ? apiFetch(path, init) : fetch(getApiUrl(path), init);
+  const portalFetch = (path: string, init?: RequestInit) => {
+    if (adminView) return adminFetch(path, init);
+    if (sessionAuth) return apiFetch(path, init);
+    return fetch(getApiUrl(path), init);
+  };
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creditOfferRef, setCreditOfferRef] = useState(existing?.creditOfferRef || "");
