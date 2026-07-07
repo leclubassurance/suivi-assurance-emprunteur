@@ -85,8 +85,8 @@ export default function AdminDossierBannerControls({
   const phaseDisabled = !view?.studySent;
 
   return (
-    <div className="flex items-start gap-3">
-      <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-3 w-full sm:w-auto">
+      <div className="flex flex-col items-start sm:items-end gap-1">
         <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-700">
           Phase souscription
         </span>
@@ -103,7 +103,7 @@ export default function AdminDossierBannerControls({
             setPhase(next);
             await savePhase(next);
           }}
-          className="bg-white border-2 border-indigo-200 text-sm rounded-lg px-3 py-2 font-bold cursor-pointer hover:border-indigo-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[220px]"
+          className="bg-white border-2 border-indigo-200 text-sm rounded-lg px-3 py-2 font-bold cursor-pointer hover:border-indigo-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto sm:min-w-[220px]"
         >
           {!view && <option value="">Chargement…</option>}
           {phaseDisabled && view && (
@@ -122,14 +122,14 @@ export default function AdminDossierBannerControls({
         )}
       </div>
 
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex flex-col items-start sm:items-end gap-1">
         <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
           Statut dossier
         </span>
         <select
           value={dossier.status}
           onChange={(e) => onStatusChange(dossier.id, e.target.value)}
-          className="bg-white border-2 border-slate-200 text-sm rounded-lg px-3 py-2 font-bold cursor-pointer hover:border-indigo-300 transition-colors min-w-[200px]"
+          className="bg-white border-2 border-slate-200 text-sm rounded-lg px-3 py-2 font-bold cursor-pointer hover:border-indigo-300 transition-colors w-full sm:w-auto sm:min-w-[200px]"
         >
           {CRM_STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -147,7 +147,7 @@ export default function AdminDossierBannerControls({
       <button
         type="button"
         onClick={() => onDelete(dossier.id)}
-        className="flex justify-center items-center bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 transition w-10 h-10 rounded-lg border border-red-200 mt-5"
+        className="flex justify-center items-center bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 transition w-10 h-10 rounded-lg border border-red-200 sm:mt-5 self-end sm:self-auto shrink-0"
         title="Supprimer définitivement"
       >
         <Trash2 className="w-4 h-4" />
