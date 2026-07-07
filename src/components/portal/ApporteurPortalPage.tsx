@@ -142,6 +142,53 @@ type PortalData = {
   } | null;
 };
 
+type StickyNavItem = { id: string; label: string; visible?: boolean };
+
+function StickyAnchorNav({
+  items,
+  activeId,
+  onJump,
+}: {
+  items: StickyNavItem[];
+  activeId: string | null;
+  onJump: (id: string) => void;
+}) {
+  const visible = items.filter((i) => i.visible !== false);
+  if (visible.length <= 1) return null;
+  return (
+    <nav className="sticky top-2 z-20">
+      <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur px-2 py-2 shadow-sm">
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+          {visible.map((i) => {
+            const active = activeId === i.id;
+            return (
+              <button
+                key={i.id}
+                type="button"
+                onClick={() => onJump(i.id)}
+                className={[
+                  "shrink-0 px-3 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-colors",
+                  active
+                    ? "bg-indigo-900 text-white"
+                    : "bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200",
+                ].join(" ")}
+              >
+                {i.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function scrollToAnchor(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 const FILLEUL_STATUS: Record<
   DownlineMember["activityLabel"],
   { label: string; className: string; hint: string }
@@ -204,6 +251,7 @@ export default function ApporteurPortalPage({
   const [simSavings, setSimSavings] = useState(3600);
   const [simAssured, setSimAssured] = useState(1.5);
   const referralsRef = useRef<HTMLElement>(null);
+  const [activeAnchor, setActiveAnchor] = useState<string | null>(null);
   const highlightDossierId = useMemo(() => {
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("etude");
@@ -375,6 +423,50 @@ export default function ApporteurPortalPage({
   const isConseillerClub = data.apporteur.type === CONSEILLER_IMMO_CLUB_TYPE;
   const unlocked = data.portalUnlocked !== false && data.contract?.signed !== false;
 
+  const navItems: StickyNavItem[] = [
+    { id: "ap-hero", label: "Résumé" },
+    { id: "ap-phase", label: "Phase", visible: Boolean(isConseillerClub && data.conseillerClub) },
+    { id: "ap-formation", label: "Formation", visible: Boolean(isConseillerClub) },
+    { id: "ap-contract", label: "Contrat", visible: Boolean(data.contract?.signed) },
+    { id: "ap-benefits", label: "Avantages" },
+    { id: "ap-script", label: "Message" },
+    { id: "ap-journey", label: "Parcours" },
+    { id: "ap-earnings", label: "Gains", visible: Boolean(!isConseillerClub) },
+    { id: "ap-recruit", label: "Recruter", visible: Boolean(!isConseillerClub) },
+    {
+      id: "ap-team",
+      label: "Équipe",
+      visible: Boolean(
+        !isConseillerClub && (((data.downline?.length ?? 0) > 0) || ((data.partnerRecruits?.length ?? 0) > 0)),
+      ),
+    },
+    { id: "ap-referrals", label: "Clients" },
+    { id: "ap-guide", label: "Aide" },
+  ];
+
+  useEffect(() => {
+    const ids = navItems.filter((i) => i.visible !== false).map((i) => i.id);
+    const els = ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
+    if (!els.length) return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => (b.intersectionRatio || 0) - (a.intersectionRatio || 0));
+        if (visible[0]?.target?.id) setActiveAnchor(visible[0].target.id);
+      },
+      {
+        root: null,
+        threshold: [0.15, 0.3, 0.45, 0.6],
+        rootMargin: "-88px 0px -60% 0px",
+      },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConseillerClub, data.contract?.signed, data.downline?.length, data.partnerRecruits?.length]);
+
   if (!unlocked) {
     return (
       <div className="min-h-[100dvh] bg-[#f4f6fb]">
@@ -436,35 +528,46 @@ export default function ApporteurPortalPage({
       ) : null}
 
       <main className="max-w-3xl mx-auto px-5 py-8 space-y-6">
+        <StickyAnchorNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} />
+
         {submitMsg ? (
           <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center font-medium">
             {submitMsg}
           </p>
         ) : null}
 
-        <PartnerHeroSection
-          apporteurType={data.apporteur.type}
-          referralLink={data.referralLink}
-          unlocked={unlocked}
-          referralStats={data.referralStats}
-          onCopyLink={() => copyText(data.referralLink, "Lien client copié !")}
-          onNewReferral={openNewReferral}
-        />
+        <div id="ap-hero" className="scroll-mt-28">
+          <PartnerHeroSection
+            apporteurType={data.apporteur.type}
+            referralLink={data.referralLink}
+            unlocked={unlocked}
+            referralStats={data.referralStats}
+            onCopyLink={() => copyText(data.referralLink, "Lien client copié !")}
+            onNewReferral={openNewReferral}
+          />
+        </div>
 
         {isConseillerClub && data.conseillerClub ? (
-          <ConseillerPhaseBanner
-            operatingPhase={data.conseillerClub.operatingPhase}
-            signedCount={data.conseillerClub.signedCount}
-            autonomyThreshold={data.conseillerClub.autonomyThreshold}
-          />
+          <div id="ap-phase" className="scroll-mt-28">
+            <ConseillerPhaseBanner
+              operatingPhase={data.conseillerClub.operatingPhase}
+              signedCount={data.conseillerClub.signedCount}
+              autonomyThreshold={data.conseillerClub.autonomyThreshold}
+            />
+          </div>
         ) : null}
 
         {isConseillerClub ? (
-          <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} />
+          <div id="ap-formation" className="scroll-mt-28">
+            <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} />
+          </div>
         ) : null}
 
         {data.contract?.signed ? (
-          <section className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+          <section
+            id="ap-contract"
+            className="scroll-mt-28 bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm"
+          >
             <span className="text-slate-600">
               Contrat signé
               {data.contract.signedAt
@@ -482,35 +585,43 @@ export default function ApporteurPortalPage({
           </section>
         ) : null}
 
-        <PartnerBenefitCards
-          payoutPerSignatureEur={payoutPerSignature}
-          payoutSharePercent={data.conseillerClub?.payoutSharePercent ?? data.remuneration.apporteurShareOfBrokerage}
-          isConseiller={isConseillerClub}
-        />
+        <div id="ap-benefits" className="scroll-mt-28">
+          <PartnerBenefitCards
+            payoutPerSignatureEur={payoutPerSignature}
+            payoutSharePercent={data.conseillerClub?.payoutSharePercent ?? data.remuneration.apporteurShareOfBrokerage}
+            isConseiller={isConseillerClub}
+          />
+        </div>
 
-        <PartnerClientScript
-          referralLink={data.referralLink}
-          partnerContactName={data.apporteur.contactName}
-          onCopy={copyText}
-        />
+        <div id="ap-script" className="scroll-mt-28">
+          <PartnerClientScript
+            referralLink={data.referralLink}
+            partnerContactName={data.apporteur.contactName}
+            onCopy={copyText}
+          />
+        </div>
 
-        <PartnerJourneyTimeline />
+        <div id="ap-journey" className="scroll-mt-28">
+          <PartnerJourneyTimeline />
+        </div>
 
         {!isConseillerClub ? (
-        <PartnerEarningsPanel
-          earnings={data.earnings}
-          remuneration={data.remuneration}
-          simDossiers={simDossiers}
-          simConversion={simConversion}
-          simSavings={simSavings}
-          simAssured={simAssured}
-          simulation={simulation}
-          payoutPerSignatureEur={payoutPerSignature}
-          onSimDossiers={setSimDossiers}
-          onSimConversion={setSimConversion}
-          onSimSavings={setSimSavings}
-          onSimAssured={setSimAssured}
-        />
+          <div id="ap-earnings" className="scroll-mt-28">
+            <PartnerEarningsPanel
+              earnings={data.earnings}
+              remuneration={data.remuneration}
+              simDossiers={simDossiers}
+              simConversion={simConversion}
+              simSavings={simSavings}
+              simAssured={simAssured}
+              simulation={simulation}
+              payoutPerSignatureEur={payoutPerSignature}
+              onSimDossiers={setSimDossiers}
+              onSimConversion={setSimConversion}
+              onSimSavings={setSimSavings}
+              onSimAssured={setSimAssured}
+            />
+          </div>
         ) : null}
 
         {!isConseillerClub && (data.earnings.personalEarnedEur != null || data.earnings.teamEarnedEur != null) ? (
@@ -550,7 +661,7 @@ export default function ApporteurPortalPage({
         ) : null}
 
         {!isConseillerClub ? (
-        <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <section id="ap-recruit" className="scroll-mt-28 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 flex items-center gap-2">
               <UserPlus className="w-4 h-4" /> Recommander un futur partenaire
@@ -612,7 +723,7 @@ export default function ApporteurPortalPage({
 
         {!isConseillerClub &&
         ((data.downline?.length ?? 0) > 0 || (data.partnerRecruits?.length ?? 0) > 0) ? (
-          <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <section id="ap-team" className="scroll-mt-28 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 flex items-center gap-2 mb-1">
               <Users className="w-4 h-4" /> Mon équipe (filleuls directs)
             </h2>
@@ -699,7 +810,7 @@ export default function ApporteurPortalPage({
           </section>
         ) : null}
 
-        <section ref={referralsRef} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <section id="ap-referrals" ref={referralsRef} className="scroll-mt-28 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 mb-1">
             {isConseillerClub ? "Mes clients orientés" : "Mes clients recommandés"}
           </h2>
@@ -811,7 +922,9 @@ export default function ApporteurPortalPage({
           </div>
         </section>
 
-        <PartnerGuideSection />
+        <div id="ap-guide" className="scroll-mt-28">
+          <PartnerGuideSection />
+        </div>
 
         <LcifPartnerFooter />
       </main>
