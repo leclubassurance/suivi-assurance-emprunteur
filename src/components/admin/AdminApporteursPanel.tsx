@@ -34,6 +34,7 @@ import AdminConseillerFormationsEditor from "./AdminConseillerFormationsEditor";
 import type { ApporteurLeaderboardRow } from "../../../shared/apporteurLeaderboard";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
+import { Tabs } from "../ui/Tabs";
 import ApporteurProfileFormFields, {
   EMPTY_APPORTEUR_PROFILE_FORM,
   type ApporteurProfileFormState,
@@ -128,6 +129,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [leaderboard, setLeaderboard] = useState<ApporteurLeaderboardRow[]>([]);
+  const [partnerDetailTab, setPartnerDetailTab] = useState<"contract" | "links">("contract");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,6 +154,10 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPartnerDetailTab("contract");
+  }, [selectedApporteurId]);
 
   const filteredReferrals = useMemo(() => {
     if (selectedApporteurId === "all") return referrals;
@@ -467,8 +473,33 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
       ) : null}
 
       <div className="mx-6 mt-4 space-y-3">
+        {summary ? (
+          <div className="lcif-card border-0 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white p-5 shadow-lg">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-300 mb-3">
+              Vue réseau — {ui.title}
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl bg-white/10 px-3 py-2.5">
+                <p className="text-2xl font-black">{Number(summary.apporteurs) || 0}</p>
+                <p className="text-[10px] font-bold uppercase text-indigo-200">{ui.entityPlural}</p>
+              </div>
+              <div className="rounded-xl bg-white/10 px-3 py-2.5">
+                <p className="text-2xl font-black">{Number(summary.activeApporteurs) || 0}</p>
+                <p className="text-[10px] font-bold uppercase text-indigo-200">Actifs</p>
+              </div>
+              <div className="rounded-xl bg-white/10 px-3 py-2.5">
+                <p className="text-2xl font-black">{globalKpis.open}</p>
+                <p className="text-[10px] font-bold uppercase text-indigo-200">Reco ouvertes</p>
+              </div>
+              <div className="rounded-xl bg-white/10 px-3 py-2.5">
+                <p className="text-2xl font-black">{globalKpis.signed}</p>
+                <p className="text-[10px] font-bold uppercase text-indigo-200">Signées</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
         <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-          {selectedApporteurId === "all" ? "Vue réseau" : `KPI — ${apporteurById.get(selectedApporteurId)?.companyName || ""}`}
+          {selectedApporteurId === "all" ? "Indicateurs détaillés" : `KPI — ${apporteurById.get(selectedApporteurId)?.companyName || ""}`}
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
           {(selectedApporteurId === "all" ? globalKpis : selectedKpis) && (
@@ -611,7 +642,17 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                         Parrain : {apporteurById.get(a.sponsorId)?.contactName || a.sponsorId}
                       </p>
                     ) : null}
+                    <Tabs
+                      value={partnerDetailTab}
+                      onChange={setPartnerDetailTab}
+                      className="mb-4"
+                      items={[
+                        { key: "contract", label: "Contrat" },
+                        { key: "links", label: "Liens & accès" },
+                      ]}
+                    />
                     <div className="space-y-4">
+                      {partnerDetailTab === "contract" ? (
                       <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/80">
                         <p className="text-[11px] font-black uppercase text-slate-400 mb-2">Contrat partenaire (signature en ligne)</p>
                         <PartnerContractWorkflow contractStatus={a.contractStatus || "none"} semiAutoPreview />
@@ -659,6 +700,8 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                           Le partenaire signe depuis son espace privé — le portail se débloque automatiquement.
                         </p>
                       </div>
+                      ) : (
+                      <div className="space-y-4">
                       <div>
                         <p className="text-[11px] font-black uppercase text-slate-400 mb-1">
                           {isConseillerImmoClubType(a.type)
@@ -735,6 +778,8 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                           );
                         })()}
                       </div>
+                      </div>
+                      )}
                     </div>
                   </>
                 );
@@ -751,10 +796,10 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
               const apporteur = apporteurById.get(r.apporteurId);
               const name = [r.contact.prenom, r.contact.nom].filter(Boolean).join(" ") || "Contact";
               return (
-                <div key={r.id} className="bg-white border rounded-xl p-4 shadow-sm">
+                <div key={r.id} className="lcif-card p-4 hover:border-indigo-100 transition-colors">
                   <div className="flex flex-wrap justify-between gap-2 mb-2">
                     <div>
-                      <div className="font-bold text-slate-900">{name}</div>
+                      <div className="font-black text-slate-900">{name}</div>
                       <div className="text-xs text-slate-500">
                         {r.contact.email || "—"}
                         {r.contact.phone ? ` · ${r.contact.phone}` : ""}

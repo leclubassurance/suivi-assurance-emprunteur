@@ -11,7 +11,6 @@ import type { ApporteurTeamKpis } from "../../../shared/apporteurKpis";
 import type { RemunerationConfig } from "../../../shared/apporteurRemuneration";
 import { computeApporteurPayoutEur, estimatePartnerEarnings } from "../../../shared/apporteurRemuneration";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
-import KpiCard from "./PartnerKpiGrid";
 import PartnerGuideSection from "./PartnerGuideSection";
 import PartnerReferralTracking from "./PartnerReferralTracking";
 import PartnerHeroSection from "./PartnerHeroSection";
@@ -31,6 +30,15 @@ import ConseillerFormationSection from "./ConseillerFormationSection";
 import { CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
 import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
+import {
+  PORTAL_NAV_ICONS,
+  PortalMobileNav,
+  PortalSidebarNav,
+  type PortalNavItem,
+} from "./layout/PortalNav";
+import PortalSection from "./layout/PortalSection";
+import { Button } from "../ui/Button";
+import { Badge } from "../ui/Badge";
 
 type PortalReferralTracking = {
   dossierId: string;
@@ -142,75 +150,6 @@ type PortalData = {
   } | null;
 };
 
-type StickyNavItem = { id: string; label: string; visible?: boolean };
-
-function StickyAnchorNav({
-  items,
-  activeId,
-  onJump,
-  variant = "bar",
-}: {
-  items: StickyNavItem[];
-  activeId: string | null;
-  onJump: (id: string) => void;
-  variant?: "bar" | "panel";
-}) {
-  const visible = items.filter((i) => i.visible !== false);
-  if (visible.length <= 1) return null;
-  if (variant === "panel") {
-    return (
-      <nav>
-        <div className="grid gap-1">
-          {visible.map((i) => {
-            const active = activeId === i.id;
-            return (
-              <button
-                key={i.id}
-                type="button"
-                onClick={() => onJump(i.id)}
-                className={[
-                  "text-left w-full px-3 py-2 rounded-xl text-xs font-black transition-colors",
-                  active
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-700 hover:bg-slate-50 border border-slate-200",
-                ].join(" ")}
-              >
-                {i.label}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-    );
-  }
-  return (
-    <nav className="sticky top-2 z-20">
-      <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur px-2 py-2 shadow-sm">
-        <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-          {visible.map((i) => {
-            const active = activeId === i.id;
-            return (
-              <button
-                key={i.id}
-                type="button"
-                onClick={() => onJump(i.id)}
-                className={[
-                  "shrink-0 px-3 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-colors",
-                  active
-                    ? "bg-indigo-900 text-white"
-                    : "bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200",
-                ].join(" ")}
-              >
-                {i.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </nav>
-  );
-}
-
 function scrollToAnchor(id: string) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -236,16 +175,6 @@ const FILLEUL_STATUS: Record<
     className: "bg-slate-100 text-slate-600 border-slate-200",
     hint: "Compte désactivé par LCIF",
   },
-};
-
-const STATUS_COLORS: Record<ReferralStatus, string> = {
-  NOUVEAU: "bg-slate-100 text-slate-700",
-  CONTACTE: "bg-blue-50 text-blue-800",
-  DOSSIER_OUVERT: "bg-indigo-50 text-indigo-800",
-  ETUDE_ENVOYEE: "bg-violet-50 text-violet-800",
-  SIGNE: "bg-emerald-50 text-emerald-800",
-  REFUSE: "bg-red-50 text-red-800",
-  PERDU: "bg-amber-50 text-amber-800",
 };
 
 export default function ApporteurPortalPage({
@@ -473,55 +402,101 @@ export default function ApporteurPortalPage({
   const isConseillerClub = data.apporteur.type === CONSEILLER_IMMO_CLUB_TYPE;
   const unlocked = data.portalUnlocked !== false && data.contract?.signed !== false;
 
-  const navItems: StickyNavItem[] = [
-    { id: "ap-hero", label: isConseillerClub ? "Mon espace" : "Résumé" },
-    { id: "ap-phase", label: "Phase", visible: Boolean(isConseillerClub && data.conseillerClub) },
-    { id: "ap-formation", label: "Formation", visible: Boolean(isConseillerClub) },
-    { id: "ap-contract", label: "Contrat", visible: Boolean(data.contract?.signed) },
-    { id: "ap-benefits", label: "Avantages" },
-    { id: "ap-script", label: isConseillerClub ? "Message client" : "Message" },
-    { id: "ap-journey", label: "Parcours" },
-    { id: "ap-earnings", label: "Gains", visible: Boolean(!isConseillerClub) },
-    { id: "ap-recruit", label: "Recruter", visible: Boolean(!isConseillerClub) },
+  const navItems: PortalNavItem[] = [
+    {
+      id: "ap-hero",
+      label: isConseillerClub ? "Mon espace" : "Tableau de bord",
+      shortLabel: "Accueil",
+      icon: PORTAL_NAV_ICONS.home,
+      mobilePrimary: true,
+    },
+    {
+      id: "ap-phase",
+      label: "Phase LCIF",
+      shortLabel: "Phase",
+      icon: PORTAL_NAV_ICONS.phase,
+      visible: Boolean(isConseillerClub && data.conseillerClub),
+      mobilePrimary: Boolean(isConseillerClub && data.conseillerClub),
+    },
+    {
+      id: "ap-formation",
+      label: "Formation",
+      shortLabel: "Formation",
+      icon: PORTAL_NAV_ICONS.formation,
+      visible: Boolean(isConseillerClub),
+      mobilePrimary: Boolean(isConseillerClub),
+    },
+    {
+      id: "ap-contract",
+      label: "Contrat",
+      icon: PORTAL_NAV_ICONS.contract,
+      visible: Boolean(data.contract?.signed),
+    },
+    { id: "ap-benefits", label: "Avantages", icon: PORTAL_NAV_ICONS.benefits },
+    {
+      id: "ap-script",
+      label: isConseillerClub ? "Message client" : "Message type",
+      shortLabel: "Message",
+      icon: PORTAL_NAV_ICONS.script,
+    },
+    { id: "ap-journey", label: "Parcours client", icon: PORTAL_NAV_ICONS.journey },
+    {
+      id: "ap-earnings",
+      label: "Gains & simulation",
+      shortLabel: "Gains",
+      icon: PORTAL_NAV_ICONS.earnings,
+      visible: Boolean(!isConseillerClub),
+      mobilePrimary: !isConseillerClub,
+    },
+    {
+      id: "ap-recruit",
+      label: "Recruter un partenaire",
+      shortLabel: "Recruter",
+      icon: PORTAL_NAV_ICONS.recruit,
+      visible: Boolean(!isConseillerClub),
+      mobilePrimary: !isConseillerClub,
+    },
     {
       id: "ap-team",
       label: "Mon réseau",
+      shortLabel: "Réseau",
+      icon: PORTAL_NAV_ICONS.team,
       visible: Boolean(
         !isConseillerClub && (((data.downline?.length ?? 0) > 0) || ((data.partnerRecruits?.length ?? 0) > 0)),
       ),
     },
-    { id: "ap-referrals", label: isConseillerClub ? "Mes dossiers" : "Clients" },
-    { id: "ap-guide", label: "Aide" },
+    {
+      id: "ap-referrals",
+      label: isConseillerClub ? "Mes dossiers clients" : "Mes clients",
+      shortLabel: isConseillerClub ? "Dossiers" : "Clients",
+      icon: PORTAL_NAV_ICONS.referrals,
+      mobilePrimary: true,
+    },
+    { id: "ap-guide", label: "Aide & FAQ", icon: PORTAL_NAV_ICONS.guide },
   ];
 
   if (!unlocked) {
     return (
-      <div className="min-h-[100dvh] bg-[#f4f6fb]">
+      <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
         <LcifPartnerHeader
-          subtitle={conseillerSession ? "Espace conseiller" : undefined}
+          subtitle={conseillerSession ? "Espace conseiller" : "Espace partenaire"}
           partnerName={data.apporteur.companyName}
           partnerContact={data.apporteur.contactName}
           partnerTypeLabel={typeLabel}
+          onLogout={conseillerSession ? handleConseillerLogout : undefined}
         />
-        {conseillerSession ? (
-          <div className="max-w-3xl mx-auto px-5 py-2 flex justify-end bg-[#f4f6fb]">
-            <button
-              type="button"
-              onClick={handleConseillerLogout}
-              className="text-xs font-bold text-slate-500 hover:text-indigo-800 underline"
-            >
-              Déconnexion
-            </button>
-          </div>
-        ) : null}
-        <main className="max-w-3xl mx-auto px-5 py-8 space-y-6">
+        <main className="max-w-3xl mx-auto px-4 sm:px-5 py-8 space-y-6">
           {submitMsg ? (
             <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center font-medium">
               {submitMsg}
             </p>
           ) : null}
-          <PartnerContractWorkflow contractStatus={data.contract?.status || "sent"} semiAutoPreview={false} />
-          <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} onSigned={() => load()} />
+          <PortalSection title="Signature du contrat partenaire" description="Débloquez votre espace après signature.">
+            <PartnerContractWorkflow contractStatus={data.contract?.status || "sent"} semiAutoPreview={false} />
+            <div className="mt-4">
+              <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} onSigned={() => load()} />
+            </div>
+          </PortalSection>
           <p className="text-xs text-slate-500 text-center">
             Une question ?{" "}
             <a className="font-bold text-indigo-700 underline" href="mailto:assurance@leclubimmobilier.fr">
@@ -535,61 +510,45 @@ export default function ApporteurPortalPage({
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#f4f6fb]">
+    <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
       <LcifPartnerHeader
-        subtitle={conseillerSession ? "Espace conseiller" : undefined}
+        subtitle={conseillerSession ? "Espace conseiller" : "Espace partenaire"}
         partnerName={data.apporteur.companyName}
         partnerContact={data.apporteur.contactName}
         partnerTypeLabel={typeLabel}
+        onLogout={conseillerSession ? handleConseillerLogout : undefined}
       />
-      <main className="max-w-6xl mx-auto px-5 py-8">
-        <div className="grid lg:grid-cols-[260px_1fr] gap-6 items-start">
-          <aside className="hidden lg:block sticky top-28 space-y-4">
+      <div className="max-w-6xl mx-auto px-4 sm:px-5 py-6 pb-28 lg:pb-10">
+        <div className="grid lg:grid-cols-[240px_1fr] gap-6 items-start">
+          <aside className="hidden lg:block sticky top-28">
             <div className="lcif-card p-3">
-              <p className="lcif-label px-2 pb-2">Navigation</p>
-              <StickyAnchorNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} variant="panel" />
+              <p className="lcif-label px-2 pb-2">Sections</p>
+              <PortalSidebarNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} />
             </div>
-            {conseillerSession ? (
-              <button
-                type="button"
-                onClick={handleConseillerLogout}
-                className="w-full text-xs font-black text-slate-600 hover:text-slate-900 border border-slate-200 bg-white rounded-2xl px-4 py-3"
-              >
-                Déconnexion
-              </button>
-            ) : null}
           </aside>
 
-          <div className="space-y-6">
-            <div className="lg:hidden">
-              <StickyAnchorNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} />
-            </div>
-            {conseillerSession ? (
-              <div className="lg:hidden flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleConseillerLogout}
-                  className="text-xs font-bold text-slate-500 hover:text-indigo-800 underline"
-                >
-                  Déconnexion
-                </button>
-              </div>
-            ) : null}
-
+          <div className="space-y-6 min-w-0">
             {submitMsg ? (
               <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center font-medium">
                 {submitMsg}
               </p>
             ) : null}
 
-            <div id="ap-hero" className="scroll-mt-28">
+            <div id="ap-hero" className="scroll-mt-24 lg:scroll-mt-28">
               <PartnerHeroSection
                 apporteurType={data.apporteur.type}
                 referralLink={data.referralLink}
                 unlocked={unlocked}
                 referralStats={data.referralStats}
+                kpis={{
+                  total: data.kpis.total,
+                  open: data.kpis.open,
+                  signed: data.kpis.signed,
+                  conversionRate: data.kpis.conversionRate,
+                }}
                 onCopyLink={() => copyText(data.referralLink, "Lien client copié !")}
                 onNewReferral={openNewReferral}
+                onGoReferrals={() => scrollToAnchor("ap-referrals")}
               />
             </div>
 
@@ -631,24 +590,42 @@ export default function ApporteurPortalPage({
               </section>
             ) : null}
 
-        <div id="ap-benefits" className="scroll-mt-28">
-          <PartnerBenefitCards
-            payoutPerSignatureEur={payoutPerSignature}
-            payoutSharePercent={data.conseillerClub?.payoutSharePercent ?? data.remuneration.apporteurShareOfBrokerage}
-            isConseiller={isConseillerClub}
-          />
+        <div id="ap-benefits" className="scroll-mt-24 lg:scroll-mt-28">
+          <PortalSection
+            icon={PORTAL_NAV_ICONS.benefits}
+            title="Pourquoi recommander LCIF ?"
+            description="Vos avantages en tant que partenaire."
+          >
+            <PartnerBenefitCards
+              payoutPerSignatureEur={payoutPerSignature}
+              payoutSharePercent={data.conseillerClub?.payoutSharePercent ?? data.remuneration.apporteurShareOfBrokerage}
+              isConseiller={isConseillerClub}
+            />
+          </PortalSection>
         </div>
 
-        <div id="ap-script" className="scroll-mt-28">
-          <PartnerClientScript
-            referralLink={data.referralLink}
-            partnerContactName={data.apporteur.contactName}
-            onCopy={copyText}
-          />
+        <div id="ap-script" className="scroll-mt-24 lg:scroll-mt-28">
+          <PortalSection
+            icon={PORTAL_NAV_ICONS.script}
+            title={isConseillerClub ? "Message à envoyer au client" : "Script client"}
+            description="Copiez un message prêt à l'emploi pour vos clients."
+          >
+            <PartnerClientScript
+              referralLink={data.referralLink}
+              partnerContactName={data.apporteur.contactName}
+              onCopy={copyText}
+            />
+          </PortalSection>
         </div>
 
-        <div id="ap-journey" className="scroll-mt-28">
-          <PartnerJourneyTimeline />
+        <div id="ap-journey" className="scroll-mt-24 lg:scroll-mt-28">
+          <PortalSection
+            icon={PORTAL_NAV_ICONS.journey}
+            title="Parcours client"
+            description="Les étapes vécues par vos clients recommandés."
+          >
+            <PartnerJourneyTimeline />
+          </PortalSection>
         </div>
 
         {!isConseillerClub ? (
@@ -856,127 +833,134 @@ export default function ApporteurPortalPage({
           </section>
         ) : null}
 
-        <section id="ap-referrals" ref={referralsRef} className="scroll-mt-28 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 mb-1">
-            {isConseillerClub ? "Mes clients orientés" : "Mes clients recommandés"}
-          </h2>
-          <p className="text-xs text-slate-400 mb-4">
-            {isConseillerClub
-              ? "Clients que vous avez orientés vers LCIF — suivi et étapes de souscription."
-              : "Personnes que vous avez orientées vers LCIF — suivi de vos propres recommandations."}
-          </p>
-          <div className="grid grid-cols-3 gap-3 mb-5">
-            <KpiCard label="Total" value={data.kpis.total} accent="indigo" />
-            <KpiCard label="En cours" value={data.kpis.open} accent="amber" sub="dossier ouvert ou étude" />
-            <KpiCard label="Signés" value={data.kpis.signed} accent="emerald" sub="contrats aboutis" />
-          </div>
-          <div className="flex justify-end mb-4">
-            {unlocked ? (
-              <button
-                type="button"
-                onClick={() => setShowForm((v) => !v)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-50"
-              >
-                <Plus className="w-3.5 h-3.5" /> Nouvelle reco
-              </button>
-            ) : null}
-          </div>
-
-          {showForm && unlocked ? (
-            <form onSubmit={submitReferral} className="border border-slate-100 rounded-xl p-4 mb-4 bg-slate-50/50 space-y-3">
-              <div className="grid sm:grid-cols-2 gap-3">
-                <Field label="Prénom" value={form.prenom} onChange={(v) => setForm((s) => ({ ...s, prenom: v }))} />
-                <Field label="Nom" value={form.nom} onChange={(v) => setForm((s) => ({ ...s, nom: v }))} />
-              </div>
-              <Field label="Email" value={form.email} onChange={(v) => setForm((s) => ({ ...s, email: v }))} type="email" />
-              <Field label="Téléphone" value={form.phone} onChange={(v) => setForm((s) => ({ ...s, phone: v }))} />
-              <label className="block text-xs font-bold text-slate-600">
-                Contexte (optionnel)
-                <textarea
-                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal min-h-[72px]"
-                  value={form.notes}
-                  onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full py-2.5 rounded-lg bg-[#1E3A8A] text-white font-bold text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Envoyer la recommandation
-              </button>
-            </form>
-          ) : null}
-
-          <div className="space-y-3">
-            {data.referrals.length === 0 ? (
-              <p className="text-sm text-slate-500 py-6 text-center">
-                Aucune recommandation pour le moment.
-                {unlocked ? " Copiez votre lien ou créez une première reco." : ""}
-              </p>
-            ) : (
-              data.referrals.map((r) => {
-                const name = [r.contact.prenom, r.contact.nom].filter(Boolean).join(" ") || "Contact";
-                return (
-                  <div key={r.id} className="border border-slate-100 rounded-xl p-4">
-                    <div className="flex flex-wrap justify-between gap-2 mb-1">
-                      <div className="font-bold text-slate-900">{name}</div>
-                      <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${STATUS_COLORS[r.status]}`}>
-                        {REFERRAL_STATUS_LABELS[r.status]}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {r.contact.email || "—"}
-                      {r.contact.phone ? ` · ${r.contact.phone}` : ""}
-                    </p>
-                    <p className="text-[11px] text-slate-400 mt-2">
-                      Mis à jour le {new Date(r.updatedAt).toLocaleDateString("fr-FR")}
-                    </p>
-                    {r.tracking?.studyValidationPending ? (
-                      <ConseillerStudyValidation
-                        portalToken={token}
-                        sessionAuth={conseillerSession}
-                        validation={r.tracking.studyValidationPending}
-                        highlight={highlightDossierId === r.tracking.dossierId}
-                        onApproved={load}
-                      />
-                    ) : null}
-                    {r.tracking ? <PartnerReferralTracking tracking={r.tracking} /> : null}
-                    {isConseillerClub && r.tracking?.communications?.length ? (
-                      <ConseillerReferralCommunications communications={r.tracking.communications} />
-                    ) : null}
-                    {isConseillerClub &&
-                    r.tracking &&
-                    (r.tracking.canSubmitSubscription || r.tracking.conseillerSubscription?.submittedAt) ? (
-                      <ConseillerSubscriptionForm
-                        portalToken={token}
-                        sessionAuth={conseillerSession}
-                        referralId={r.id}
-                        existing={r.tracking.conseillerSubscription}
-                        canSubmit={Boolean(r.tracking.canSubmitSubscription)}
-                        onSubmitted={async () => {
-                          setSubmitMsg("Formulaire transmis — LCIF va finaliser la souscription.");
-                          await load();
-                        }}
-                      />
-                    ) : null}
+        <PortalSection
+          ref={referralsRef}
+          id="ap-referrals"
+          icon={PORTAL_NAV_ICONS.referrals}
+            title={isConseillerClub ? "Mes dossiers clients" : "Mes clients recommandés"}
+            description={
+              isConseillerClub
+                ? "Suivi des clients orientés vers LCIF — étapes, validations et souscription."
+                : "Personnes orientées vers LCIF — suivi et commissions."
+            }
+            action={
+              unlocked ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowForm((v) => !v)}>
+                  <Plus className="w-3.5 h-3.5" />
+                  {showForm ? "Fermer" : "Nouvelle reco"}
+                </Button>
+              ) : null
+            }
+          >
+            <div className="space-y-4">
+              {showForm && unlocked ? (
+                <form onSubmit={submitReferral} className="border border-slate-200 rounded-2xl p-4 bg-slate-50/80 space-y-3">
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <Field label="Prénom" value={form.prenom} onChange={(v) => setForm((s) => ({ ...s, prenom: v }))} />
+                    <Field label="Nom" value={form.nom} onChange={(v) => setForm((s) => ({ ...s, nom: v }))} />
                   </div>
-                );
-              })
-            )}
-          </div>
-        </section>
+                  <Field label="Email" value={form.email} onChange={(v) => setForm((s) => ({ ...s, email: v }))} type="email" />
+                  <Field label="Téléphone" value={form.phone} onChange={(v) => setForm((s) => ({ ...s, phone: v }))} />
+                  <label className="block text-xs font-bold text-slate-600">
+                    Contexte (optionnel)
+                    <textarea
+                      className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-normal min-h-[72px] bento-input h-auto"
+                      value={form.notes}
+                      onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
+                    />
+                  </label>
+                  <Button type="submit" disabled={submitting} className="w-full">
+                    {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    Envoyer la recommandation
+                  </Button>
+                </form>
+              ) : null}
 
-            <div id="ap-guide" className="scroll-mt-28">
+              {data.referrals.length === 0 ? (
+                <div className="text-center py-10 px-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50">
+                  <p className="text-sm font-bold text-slate-700">Aucun dossier pour le moment</p>
+                  <p className="text-xs text-slate-500 mt-2 max-w-sm mx-auto">
+                    {unlocked
+                      ? "Copiez votre lien client ou créez une première recommandation depuis l'accueil."
+                      : "Votre espace s'activera après signature du contrat."}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {data.referrals.map((r) => {
+                    const name = [r.contact.prenom, r.contact.nom].filter(Boolean).join(" ") || "Contact";
+                    const statusVariant =
+                      r.status === "SIGNE"
+                        ? "success"
+                        : r.status === "REFUSE" || r.status === "PERDU"
+                          ? "danger"
+                          : r.status === "ETUDE_ENVOYEE"
+                            ? "info"
+                            : "warning";
+                    return (
+                      <article
+                        key={r.id}
+                        className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-indigo-100 transition-colors"
+                      >
+                        <div className="flex flex-wrap justify-between gap-2 mb-2">
+                          <div>
+                            <h3 className="font-black text-slate-900">{name}</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {r.contact.email || "—"}
+                              {r.contact.phone ? ` · ${r.contact.phone}` : ""}
+                            </p>
+                          </div>
+                          <Badge variant={statusVariant}>{REFERRAL_STATUS_LABELS[r.status]}</Badge>
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Mis à jour le {new Date(r.updatedAt).toLocaleDateString("fr-FR")}
+                        </p>
+                        {r.tracking?.studyValidationPending ? (
+                          <ConseillerStudyValidation
+                            portalToken={token}
+                            sessionAuth={conseillerSession}
+                            validation={r.tracking.studyValidationPending}
+                            highlight={highlightDossierId === r.tracking.dossierId}
+                            onApproved={load}
+                          />
+                        ) : null}
+                        {r.tracking ? <PartnerReferralTracking tracking={r.tracking} /> : null}
+                        {isConseillerClub && r.tracking?.communications?.length ? (
+                          <ConseillerReferralCommunications communications={r.tracking.communications} />
+                        ) : null}
+                        {isConseillerClub &&
+                        r.tracking &&
+                        (r.tracking.canSubmitSubscription || r.tracking.conseillerSubscription?.submittedAt) ? (
+                          <ConseillerSubscriptionForm
+                            portalToken={token}
+                            sessionAuth={conseillerSession}
+                            referralId={r.id}
+                            existing={r.tracking.conseillerSubscription}
+                            canSubmit={Boolean(r.tracking.canSubmitSubscription)}
+                            onSubmitted={async () => {
+                              setSubmitMsg("Formulaire transmis — LCIF va finaliser la souscription.");
+                              await load();
+                            }}
+                          />
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </PortalSection>
+
+            <div id="ap-guide" className="scroll-mt-24 lg:scroll-mt-28">
               <PartnerGuideSection />
             </div>
           </div>
         </div>
-        <div className="mt-10">
+        <div className="mt-8">
           <LcifPartnerFooter />
         </div>
-      </main>
+      </div>
+      <PortalMobileNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} />
     </div>
   );
 }

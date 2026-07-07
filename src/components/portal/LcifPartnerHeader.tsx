@@ -1,4 +1,5 @@
 import React from "react";
+import { LogOut } from "lucide-react";
 import { LCIF_LOGO_URL, LCIF_ORIAS } from "../../../shared/apporteurBrand";
 
 type Props = {
@@ -6,6 +7,7 @@ type Props = {
   partnerName: string;
   partnerContact: string;
   partnerTypeLabel: string;
+  onLogout?: () => void;
 };
 
 export default function LcifPartnerHeader({
@@ -13,34 +15,43 @@ export default function LcifPartnerHeader({
   partnerName,
   partnerContact,
   partnerTypeLabel,
+  onLogout,
 }: Props) {
   return (
-    <header className="bg-[#1E3A8A] text-white relative overflow-hidden">
-      <div
-        className="absolute inset-0 opacity-[0.07]"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 20% 50%, #fff 0%, transparent 50%), radial-gradient(circle at 80% 20%, #C9A227 0%, transparent 40%)",
-        }}
-      />
-      <div className="max-w-3xl mx-auto px-5 py-8 relative">
-        <div className="flex items-start justify-between gap-4 mb-6">
-          <img
-            src={LCIF_LOGO_URL}
-            alt="Le Club Immobilier Français"
-            className="h-12 w-auto max-w-[140px] object-contain brightness-0 invert"
-          />
-          <div className="text-right text-[10px] text-indigo-200 leading-snug">
-            <div className="font-bold uppercase tracking-wider">Partenariat</div>
-            <div>ORIAS {LCIF_ORIAS}</div>
+    <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur-md">
+      <div className="max-w-6xl mx-auto px-4 sm:px-5 py-3 sm:py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <img
+              src={LCIF_LOGO_URL}
+              alt="Le Club Immobilier Français"
+              className="h-9 w-auto max-w-[120px] object-contain shrink-0"
+            />
+            <div className="min-w-0 border-l border-slate-200 pl-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-700 truncate">
+                {subtitle}
+              </p>
+              <h1 className="text-base sm:text-lg font-black text-slate-900 truncate">{partnerName}</h1>
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            {onLogout ? (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-900 mb-1"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Déconnexion</span>
+              </button>
+            ) : null}
+            <p className="text-[10px] text-slate-400 hidden sm:block">ORIAS {LCIF_ORIAS}</p>
           </div>
         </div>
-        <p className="text-indigo-200 text-[11px] font-bold uppercase tracking-[0.2em] mb-2">{subtitle}</p>
-        <h1 className="text-2xl sm:text-3xl font-black tracking-tight">{partnerName}</h1>
-        <p className="text-indigo-100 text-sm mt-2">
-          Bonjour <span className="font-semibold text-white">{partnerContact}</span>
-          <span className="text-indigo-300 mx-2">·</span>
-          {partnerTypeLabel}
+        <p className="mt-2 text-sm text-slate-600">
+          Bonjour <span className="font-bold text-slate-900">{partnerContact}</span>
+          <span className="text-slate-300 mx-2">·</span>
+          <span className="text-slate-500">{partnerTypeLabel}</span>
         </p>
       </div>
     </header>
@@ -49,7 +60,7 @@ export default function LcifPartnerHeader({
 
 export function LcifPartnerFooter() {
   return (
-    <p className="text-center text-xs text-slate-400 pb-10 px-4 leading-relaxed">
+    <p className="text-center text-xs text-slate-400 pb-4 px-4 leading-relaxed">
       Le Club Immobilier Français — ORIAS {LCIF_ORIAS}
       <br />
       Vous recevez un email à chaque avancement de vos recommandations.
