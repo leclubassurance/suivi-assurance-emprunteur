@@ -1,12 +1,4 @@
 import { FormErrors, InsuranceFormData } from '../types';
-import { STATUT_PRO_OPTIONS } from '../constants';
-
-function resolveAssureProfession(assure: { statutPro?: string; profession?: string }): string {
-  if (assure.statutPro && assure.statutPro !== "autre") {
-    return STATUT_PRO_OPTIONS.find((o) => o.value === assure.statutPro)?.label || assure.profession || "";
-  }
-  return assure.profession || "";
-}
 
 export const validateProjet = (formData: InsuranceFormData): FormErrors => {
   const errors: FormErrors = {};
@@ -80,9 +72,9 @@ export const validateInfoPerso = (assures: any[]): FormErrors => {
       errors[`${prefix}statutPro`] = `Assuré ${idx + 1}: Le statut professionnel est obligatoire`;
     }
 
-    const profession = resolveAssureProfession(assure);
+    const profession = String(assure.profession || "").trim();
     if (!profession || profession.length < 2) {
-      errors[`${prefix}profession`] = `Assuré ${idx + 1}: La profession est obligatoire`;
+      errors[`${prefix}profession`] = `Assuré ${idx + 1}: Le métier exercé est obligatoire`;
     }
 
     if (assure.sportsRisque && assure.selectedSports.length > 10) {

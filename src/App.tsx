@@ -6,7 +6,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Step, InsuranceFormData, FormErrors, Dossier, UserInfo } from './types';
-import { INITIAL_FORM_DATA, CLIENT_PORTAL_URL_KEY, APPORTEUR_REF_SESSION_KEY } from './constants';
+import {
+  INITIAL_FORM_DATA,
+  CLIENT_PORTAL_URL_KEY,
+  APPORTEUR_REF_SESSION_KEY,
+  STATUT_PRO_OPTIONS,
+} from './constants';
 import LandingStep from './components/steps/LandingStep';
 import PreparationStep from './components/steps/PreparationStep';
 import ProjetStep from './components/steps/ProjetStep';
@@ -31,6 +36,19 @@ import { getApiUrl, getRefClickUrl, clearConseillerSessionToken } from './lib/ut
 import { buildClientPrivacyConsentPayload } from '../shared/privacyConsent';
 
 const STORAGE_KEY = 'insurance-form-draft';
+const STATUT_PRO_DRAFT_VALUES = new Set(
+  STATUT_PRO_OPTIONS.flatMap((option) => [option.value, option.label]),
+);
+
+function sanitizeAssuresDraft(assures: any[] = []) {
+  return assures.map((assure) => {
+    const profession = String(assure?.profession || "").trim();
+    return {
+      ...assure,
+      profession: STATUT_PRO_DRAFT_VALUES.has(profession) ? "" : profession,
+    };
+  });
+}
 
 export type LegalView = 'mentions' | 'privacy' | null;
 
@@ -184,7 +202,10 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed) {
-          setFormData(parsed);
+          setFormData({
+            ...parsed,
+            assures: sanitizeAssuresDraft(parsed.assures || []),
+          });
           // Don't restore step automatically to avoid getting stuck, or we could if we saved it.
         }
       } catch (e) {
@@ -200,7 +221,7 @@ export default function App() {
   // Save to LocalStorage on change
   useEffect(() => {
     // Strip personal info for RGPD
-    const assuresSanitized = formData.assures.map(a => ({
+    const assuresSanitized = sanitizeAssuresDraft(formData.assures).map(a => ({
       ...a,
       nom: '',
       prenom: '',
