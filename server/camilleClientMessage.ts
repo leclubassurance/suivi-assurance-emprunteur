@@ -126,6 +126,47 @@ export function inboundHasIdentityAttachments(names: string[]): boolean {
   return names.some(looksLikeIdentityAttachmentName);
 }
 
+const ROUTINE_SENSITIVE_RE =
+  /m[eé]dical|juridique|menace|avocat|tribunal|contentieux|€\s*\d|[eé]conom.*\d|combien.*(gagn|économ|co[uû]t)|r[eé]clamation|insatisfait|arnaque/i;
+
+/** Question procédurale simple : document oublié, comment l'ajouter / l'envoyer. */
+export function isForgottenDocumentProcedureQuestion(message: string): boolean {
+  const blob = String(message || "").toLowerCase();
+  if (ROUTINE_SENSITIVE_RE.test(blob)) return false;
+  const asksHow =
+    /oubli|oublie|manqu|pas (mis|ajout|envoy|joint)|comment (faire|ajouter|envoyer|deposer|transmettre|renvoyer)|puis-je (vous )?(envoyer|renvoyer|ajouter|transmettre)|envoyer (un |le |les )?document|piece (oubliee|manquante)|document manquant|rajouter|compl[eé]ter/i.test(
+      blob,
+    );
+  const docContext =
+    /document|piece|pj|pi[eè]ce|offre|tableau|rib|cni|pdf|fichier|joint|depot|deposer|transmi/i.test(
+      blob,
+    );
+  return asksHow && docContext;
+}
+
+export function buildForgottenDocumentProcedureReply(dossier: any): string {
+  const studySent = hasStudyBeenSent(dossier);
+  const agreed = clientHasAcceptedInsuranceChange(dossier);
+
+  const lines = [
+    `Merci pour votre message.`,
+    ``,
+    `Pas de souci : vous pouvez compléter votre dossier en répondant directement à ce mail en joignant le ou les document(s) manquant(s) en pièce jointe.`,
+    studySent
+      ? `Pour l'offre de prêt et le tableau d'amortissement, privilégiez les PDF complets téléchargés depuis votre espace bancaire.`
+      : `Pour l'offre de prêt et le tableau d'amortissement, privilégiez les PDF complets téléchargés depuis votre espace bancaire (pas de capture d'écran si possible).`,
+    agreed
+      ? `Si nous vous avons demandé des pièces d'identité ou un RIB pour la souscription, vous pouvez également les joindre à ce mail.`
+      : studySent
+        ? `À ce stade, nous n'avons pas besoin de pièce d'identité ni de RIB tant que vous n'avez pas confirmé votre accord pour activer le changement d'assurance.`
+        : `À ce stade, nous avons surtout besoin de l'offre de prêt et du tableau d'amortissement pour préparer votre étude — la pièce d'identité et le RIB ne sont demandés qu'après votre accord pour activer le changement.`,
+    ``,
+    `Si vous ne retrouvez plus le lien du formulaire en ligne, un simple retour de mail avec les pièces jointes suffit.`,
+    `Indiquez-nous si vous avez une difficulté à récupérer un document en particulier : nous vous indiquerons comment faire.`,
+  ];
+  return lines.join("\n");
+}
+
 export function clientMessageHasSubstantiveQuestions(message: string): boolean {
   const msg = String(message || "").trim();
   if (msg.length < 25) return false;

@@ -6,6 +6,7 @@ import type { CamilleAnalyzeResult, CamillePlanResult } from "./camilleReasoning
 export type CamilleActionKind =
   | "autonomous_reply"
   | "playbook"
+  | "routine_procedure"
   | "template_identity"
   | "template_complementary_docs"
   | "staff_directive"
@@ -41,6 +42,7 @@ export type CamilleTelegramActionDetails = {
 const ACTION_LABEL: Record<CamilleActionKind, string> = {
   autonomous_reply: "Réponse autonome (IA Phase 3)",
   playbook: "Réponse playbook validé",
+  routine_procedure: "Procédure document (réponse directe)",
   template_identity: "Accusé réception CNI/RIB",
   template_complementary_docs: "Accusé pièces complémentaires post-étude",
   staff_directive: "Mail client suite à votre consigne",
@@ -84,8 +86,15 @@ export function assessInterventionLevel(params: {
   if (params.actionKind === "staff_directive" || params.actionKind === "cooldown_ack") {
     return "none";
   }
-  if (params.actionKind === "doc_followup" || params.actionKind === "doc_clarify") {
+  if (
+    params.actionKind === "doc_followup" ||
+    params.actionKind === "doc_clarify" ||
+    params.actionKind === "playbook"
+  ) {
     return "watch";
+  }
+  if (params.actionKind === "routine_procedure") {
+    return "none";
   }
 
   const risks = (params.riskFlags || []).map((r) => r.toLowerCase());
@@ -93,7 +102,12 @@ export function assessInterventionLevel(params: {
     return "watch";
   }
   if (params.primaryTopic === "reclamation") return "watch";
-  if (params.confidence !== undefined && params.confidence < 6) return "watch";
+  const routineTopic =
+    params.primaryTopic === "documents" ||
+    params.primaryTopic === "question_generale" ||
+    params.primaryTopic === "formulaire" ||
+    params.primaryTopic === "remerciement";
+  if (params.confidence !== undefined && params.confidence < 6 && !routineTopic) return "watch";
   if (params.critiqueApproved === false) return "watch";
   if (
     params.primaryTopic === "substitution" &&

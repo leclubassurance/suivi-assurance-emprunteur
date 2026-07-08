@@ -5,11 +5,62 @@ import {
   KEREIS_PARTNER_INSURERS,
 } from "../shared/kereisPartners";
 import {
+  isForgottenDocumentProcedureQuestion,
   messagePromisesFutureStudy,
   messageRequestsMissingIdentityDocs,
   messageRequestsMissingLoanDocs,
 } from "./camilleClientMessage";
 import type { CamilleReasoningDecision } from "./camilleReasoningPipeline";
+
+const ROUTINE_DOC_QUESTION_RE =
+  /oubli|oublie|manqu|pas (mis|ajout|envoy|joint)|comment (faire|ajouter|envoyer|deposer|transmettre|renvoyer)|puis-je (vous )?(envoyer|renvoyer|ajouter)|envoyer (un |le |les )?document|piece (oubliee|manquante)|document manquant|rajouter|compl[eé]ter|lien formulaire|acces (au )?formulaire|deposer (mes |les )?documents/i;
+
+const ROUTINE_SENSITIVE_BLOCK_RE =
+  /m[eé]dical|juridique|menace|avocat|tribunal|contentieux|€\s*\d|[eé]conom.*\d|combien.*(gagn|économ|co[uû]t)|r[eé]clamation agressive|insatisfait|arnaque|humain|vrai conseiller/i;
+
+const ROUTINE_DOC_CONTEXT_RE =
+  /document|piece|pj|pi[eè]ce|offre|tableau|rib|cni|pdf|fichier|joint|depot|deposer|transmi|formulaire/i;
+
+/** Questions procédurales à faible risque — Camille peut répondre seule. */
+export function isRoutineAutonomousClientQuestion(message: string): boolean {
+  const blob = String(message || "").toLowerCase();
+  if (ROUTINE_SENSITIVE_BLOCK_RE.test(blob)) return false;
+  if (isForgottenDocumentProcedureQuestion(message)) return true;
+  if (!ROUTINE_DOC_CONTEXT_RE.test(blob)) return false;
+  return ROUTINE_DOC_QUESTION_RE.test(blob);
+}
+
+export function isRoutinePipelineTopic(topic?: string): boolean {
+  const t = String(topic || "").toLowerCase();
+  return (
+    t === "documents" ||
+    t === "question_generale" ||
+    t === "remerciement" ||
+    t === "formulaire" ||
+    t === "relance_etude" ||
+    t === "kereis"
+  );
+}
+
+export function getRoutineMinAutoSendConfidence(): number {
+  const n = Number(process.env.CAMILLE_ROUTINE_MIN_SEND_CONFIDENCE ?? "5");
+  return Number.isFinite(n) ? Math.min(10, Math.max(0, n)) : 5;
+}
+
+export function isRoutineAutonomousSendAllowed(params: {
+  confidence?: number;
+  clientMessage?: string;
+  primaryTopic?: string;
+  critiqueApproved?: boolean;
+}): boolean {
+  if (params.critiqueApproved === false) return false;
+  const routine =
+    isRoutineAutonomousClientQuestion(params.clientMessage || "") ||
+    isRoutinePipelineTopic(params.primaryTopic);
+  if (!routine) return false;
+  const min = getRoutineMinAutoSendConfidence();
+  return params.confidence !== undefined && params.confidence >= min;
+}
 
 /** Mode prod : brouillon Telegram obligatoire avant envoi des réponses IA libres. */
 export function isCamilleProductionSafeMode(): boolean {
@@ -30,6 +81,7 @@ export function getClientReviewConfidence(): number {
 export type ClientReplyValidationKind =
   | "autonomous_reply"
   | "playbook"
+  | "routine_procedure"
   | "template_identity"
   | "template_complementary_docs"
   | "doc_clarify"
@@ -41,6 +93,7 @@ export type ClientReplyValidationKind =
 export function isPreApprovedClientReplyKind(kind: ClientReplyValidationKind): boolean {
   return (
     kind === "playbook" ||
+    kind === "routine_procedure" ||
     kind === "template_identity" ||
     kind === "template_complementary_docs" ||
     kind === "cooldown_ack" ||
@@ -77,12 +130,38 @@ export function extractPipelineConfidence(decision: {
   return typeof c === "number" && Number.isFinite(c) ? c : undefined;
 }
 
-export function shouldForceClientReviewByConfidence(confidence?: number): boolean {
+export function shouldForceClientReviewByConfidence(
+  confidence?: number,
+  context?: { clientMessage?: string; primaryTopic?: string },
+): boolean {
+  if (
+    isRoutineAutonomousSendAllowed({
+      confidence,
+      clientMessage: context?.clientMessage,
+      primaryTopic: context?.primaryTopic,
+      critiqueApproved: true,
+    })
+  ) {
+    return false;
+  }
   if (confidence === undefined) return isCamilleProductionSafeMode();
   return confidence < getClientReviewConfidence();
 }
 
-export function shouldBlockClientAutoSendByConfidence(confidence?: number): boolean {
+export function shouldBlockClientAutoSendByConfidence(
+  confidence?: number,
+  context?: { clientMessage?: string; primaryTopic?: string },
+): boolean {
+  if (
+    isRoutineAutonomousSendAllowed({
+      confidence,
+      clientMessage: context?.clientMessage,
+      primaryTopic: context?.primaryTopic,
+      critiqueApproved: true,
+    })
+  ) {
+    return false;
+  }
   if (confidence === undefined) return isCamilleProductionSafeMode();
   return confidence < getClientMinAutoSendConfidence();
 }

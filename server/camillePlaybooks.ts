@@ -37,7 +37,7 @@ const STORE_CACHE_MS = 15_000;
 let cachedStore: PlaybookStore | null = null;
 let cachedAt = 0;
 
-const PLAYBOOK_SEED_VERSION = "2026-05-29-client-v5";
+const PLAYBOOK_SEED_VERSION = "2026-07-08-client-v6";
 
 const DEFAULT_SEED_PLAYBOOKS: Array<Omit<CamillePlaybook, "id" | "approvedAt" | "useCount">> = [
   {
@@ -351,6 +351,16 @@ const DEFAULT_SEED_PLAYBOOKS: Array<Omit<CamillePlaybook, "id" | "approvedAt" | 
     clientMessagePattern: "pas recu confirmation mail charles accuse reception formulaire",
     approvedReplyPlain:
       "Merci pour votre message.\n\nSi vous avez bien validé le formulaire, un email de confirmation vous est normalement envoyé sous peu — pensez à vérifier vos courriers indésirables.\n\nVotre dossier est pris en charge : nous revenons vers vous par email dès que l'analyse avance ou si nous avons besoin d'une précision.",
+  },
+  {
+    tags: ["pre-etude", "post-etude", "documents-pret", "question-client"],
+    situationSummary: "Client a oublié un document ou demande comment l'ajouter / l'envoyer.",
+    staffGuidance:
+      "Répondre par mail avec PJ. PDF banque pour offre/tableau. CNI/RIB seulement si accord client. Pas d'intervention équipe.",
+    clientMessagePattern:
+      "oublie document piece manquante comment ajouter envoyer deposer transmettre renvoyer pj",
+    approvedReplyPlain:
+      "Merci pour votre message.\n\nPas de souci : vous pouvez compléter votre dossier en répondant directement à ce mail en joignant le ou les document(s) manquant(s) en pièce jointe.\n\nPour l'offre de prêt et le tableau d'amortissement, privilégiez les PDF complets téléchargés depuis votre espace bancaire.\n\nSi vous ne retrouvez plus le lien du formulaire en ligne, un simple retour de mail avec les pièces jointes suffit.\n\nIndiquez-nous si vous avez une difficulté à récupérer un document en particulier : nous vous indiquerons comment faire.",
   },
   {
     tags: ["pre-etude", "remerciement"],
@@ -861,6 +871,11 @@ export function getPlaybookAutoReplyMinScore(): number {
   return Number.isFinite(n) && n > 0 ? n : 9;
 }
 
+export function getRoutinePlaybookAutoReplyMinScore(): number {
+  const n = Number(process.env.CAMILLE_ROUTINE_PLAYBOOK_AUTO_SCORE || "7");
+  return Number.isFinite(n) && n > 0 ? n : 7;
+}
+
 /** Envoi direct d'un texte playbook sans repasser par l'IA (défaut: false — playbooks = inspiration seulement). */
 export function isPlaybookAutoSendEnabled(): boolean {
   const raw = String(process.env.CAMILLE_PLAYBOOK_AUTO_SEND ?? "false").toLowerCase();
@@ -874,11 +889,13 @@ export function getPlaybookSeedVersion(): string {
 export async function selectPlaybookMatch(
   dossier: any,
   clientMessage: string,
+  options?: { minScore?: number },
 ): Promise<{ plain: string; playbook: CamillePlaybook; score: number } | null> {
   const msg = String(clientMessage || "").trim();
   if (msg.length < 3) return null;
   if (isClientChiffrageQuestion(msg) || MULTI_CONTRAT_RE.test(msg)) return null;
 
+  const minScore = options?.minScore ?? getPlaybookAutoReplyMinScore();
   const store = await loadPlaybookStore();
   const tags = extractSituationTags(dossier, msg);
   const matches = store.playbooks
@@ -890,7 +907,7 @@ export async function selectPlaybookMatch(
     .sort((a, b) => b.score - a.score)
     .slice(0, 1);
   const top = matches[0];
-  if (!top || top.score < getPlaybookAutoReplyMinScore()) return null;
+  if (!top || top.score < minScore) return null;
   const plain = personalizePlaybookReply(top.playbook.approvedReplyPlain, dossier?.id);
   return { plain, playbook: top.playbook, score: top.score };
 }
@@ -900,6 +917,19 @@ export async function tryPlaybookAutoReply(
   clientMessage: string,
 ): Promise<{ plain: string; playbook: CamillePlaybook } | null> {
   const hit = await selectPlaybookMatch(dossier, clientMessage);
+  if (!hit) return null;
+  await incrementPlaybookUse(hit.playbook.id);
+  return { plain: hit.plain, playbook: hit.playbook };
+}
+
+/** Playbook auto-réponse avec seuil abaissé pour questions procédurales routinières. */
+export async function tryRoutinePlaybookAutoReply(
+  dossier: any,
+  clientMessage: string,
+): Promise<{ plain: string; playbook: CamillePlaybook } | null> {
+  const hit = await selectPlaybookMatch(dossier, clientMessage, {
+    minScore: getRoutinePlaybookAutoReplyMinScore(),
+  });
   if (!hit) return null;
   await incrementPlaybookUse(hit.playbook.id);
   return { plain: hit.plain, playbook: hit.playbook };

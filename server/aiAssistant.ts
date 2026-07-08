@@ -9,6 +9,8 @@ import {
   buildPostStudyComplementaryDocsMessage,
   inboundHasIdentityAttachments,
   buildPostStudyIdentityAttachmentsReply,
+  isForgottenDocumentProcedureQuestion,
+  buildForgottenDocumentProcedureReply,
 } from "./camilleClientMessage";
 import { generateContentWithRetry } from "./geminiClient";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
@@ -47,6 +49,8 @@ import {
   buildClientSafetyReviewQuestion,
   extractPipelineConfidence,
   isHighConfidenceAutoSendAllowed,
+  isRoutineAutonomousClientQuestion,
+  isRoutineAutonomousSendAllowed,
   isUnsafeClientLlmReply,
   shouldBlockClientAutoSendByConfidence,
   shouldForceClientReviewByConfidence,
@@ -151,9 +155,32 @@ export async function processIncomingClientEmail(
       }
     }
 
-    const { tryPlaybookAutoReply, isPlaybookAutoSendEnabled } = await import("./camillePlaybooks");
-    if (isPlaybookAutoSendEnabled()) {
-      const playbookHit = await tryPlaybookAutoReply(dossier, clientMessageForAi);
+    const { tryPlaybookAutoReply, tryRoutinePlaybookAutoReply, isPlaybookAutoSendEnabled } =
+      await import("./camillePlaybooks");
+
+    if (isForgottenDocumentProcedureQuestion(clientMessageForAi)) {
+      const plain = buildForgottenDocumentProcedureReply(dossier);
+      console.log(`[AI] Réponse procédure document oublié pour ${dossier.id}`);
+      const telegramAction = buildTelegramActionFromReply({
+        dossier,
+        clientMessage: clientMessageForAi,
+        replyPlain: plain,
+        emailSubject: options?.emailSubject,
+        actionKind: "routine_procedure",
+        attachmentNames,
+      });
+      return {
+        status: "replied",
+        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+        replyPlain: plain,
+        telegramAction,
+      };
+    }
+
+    if (isPlaybookAutoSendEnabled() || isRoutineAutonomousClientQuestion(clientMessageForAi)) {
+      const playbookHit = isRoutineAutonomousClientQuestion(clientMessageForAi)
+        ? await tryRoutinePlaybookAutoReply(dossier, clientMessageForAi)
+        : await tryPlaybookAutoReply(dossier, clientMessageForAi);
       if (playbookHit) {
         const plain = playbookHit.plain;
         console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
@@ -288,7 +315,7 @@ export async function processIncomingClientEmail(
 
     const useReasoningPipeline = isCamilleReasoningEnabled();
 
-    const decision = useReasoningPipeline
+    let decision = useReasoningPipeline
       ? await runCamilleReasoningPipeline({
           knowledgeBlock,
           playbooksBlock: playbooksBlock || "Aucun playbook similaire validé par l'équipe.",
@@ -325,6 +352,49 @@ export async function processIncomingClientEmail(
       critiqueApproved:
         "pipeline" in decision ? decision.pipeline?.critique?.approved : undefined,
     };
+
+    if (decision.action === "REVIEW") {
+      const question = String(decision.questionForStaff || decision.reasonForEscalation || "").trim();
+      const draftPlain = String(decision.messageToClient || "").trim();
+      const routineQuestion = isRoutineAutonomousClientQuestion(clientMessageForAi);
+
+      if (routineQuestion && draftPlain.length >= 20) {
+        const draftSafety = isUnsafeClientLlmReply(draftPlain, dossier, {
+          clientMessage: clientMessageForAi,
+        });
+        if (!draftSafety.unsafe) {
+          console.log(`[AI] REVIEW → envoi autonome (question routinière) pour ${dossier.id}`);
+          decision = {
+            ...decision,
+            action: "REPLY",
+            messageToClient: draftPlain,
+          };
+        }
+      }
+
+      if (decision.action === "REVIEW" && routineQuestion) {
+        const routineHit = await tryRoutinePlaybookAutoReply(dossier, clientMessageForAi);
+        if (routineHit) {
+          const plain = routineHit.plain;
+          console.log(`[AI] REVIEW → playbook routinier ${routineHit.playbook.id} pour ${dossier.id}`);
+          const telegramAction = buildTelegramActionFromReply({
+            dossier,
+            clientMessage: clientMessageForAi,
+            replyPlain: plain,
+            emailSubject: options?.emailSubject,
+            actionKind: "playbook",
+            attachmentNames,
+            playbookId: routineHit.playbook.id,
+          });
+          return {
+            status: "replied",
+            text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
+            replyPlain: plain,
+            telegramAction,
+          };
+        }
+      }
+    }
 
     if (decision.action === "REVIEW") {
       const question = String(decision.questionForStaff || decision.reasonForEscalation || "").trim();
@@ -458,20 +528,30 @@ export async function processIncomingClientEmail(
       }
       const pipeline = "pipeline" in decision ? decision.pipeline : undefined;
       const confidence = extractPipelineConfidence({ pipeline });
-      const safety = isUnsafeClientLlmReply(text, dossier, {
+      const safetyContext = {
         clientMessage: clientMessageForAi,
-      });
+        primaryTopic: pipeline?.analyze?.primaryTopic,
+      };
+      const safety = isUnsafeClientLlmReply(text, dossier, safetyContext);
       const critiqueApproved = pipeline?.critique?.approved === true;
 
       const actionKind: ClientReplyValidationKind = "autonomous_reply";
       const html = wrapCamilleHtmlReply(text, prenom, nom, dossier);
       const canTrustedAutoSend =
-        !safety.unsafe && critiqueApproved && isHighConfidenceAutoSendAllowed(confidence);
+        !safety.unsafe &&
+        critiqueApproved &&
+        (isHighConfidenceAutoSendAllowed(confidence) ||
+          isRoutineAutonomousSendAllowed({
+            confidence,
+            clientMessage: clientMessageForAi,
+            primaryTopic: pipeline?.analyze?.primaryTopic,
+            critiqueApproved,
+          }));
       const needsSafetyReview =
         !canTrustedAutoSend &&
         (safety.unsafe ||
-          shouldForceClientReviewByConfidence(confidence) ||
-          shouldBlockClientAutoSendByConfidence(confidence) ||
+          shouldForceClientReviewByConfidence(confidence, safetyContext) ||
+          shouldBlockClientAutoSendByConfidence(confidence, safetyContext) ||
           (pipeline?.critique && !critiqueApproved));
 
       if (isCamilleReviewEnabled() && needsSafetyReview) {
