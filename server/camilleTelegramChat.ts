@@ -1,7 +1,7 @@
 import { readDB } from "./db";
 import type { Dossier } from "./dossierModel";
 import { extractLcifId, resolveDossierFromBorrowerText } from "./dossierTextMatch";
-import { computeDocumentChecklist } from "../shared/documentChecklist";
+import { computeDocumentChecklistForDossier } from "../shared/documentChecklist";
 import { buildCamilleContextBlock } from "./camilleMail";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { generateContentWithRetry } from "./geminiClient";
@@ -172,7 +172,7 @@ function dossierHeader(d: Dossier) {
 }
 
 export function buildDossierDetailBlock(d: Dossier): string {
-  const checklist = computeDocumentChecklist(d.formData?.documents || []);
+  const checklist = computeDocumentChecklistForDossier(d);
   const ctx = buildCamilleContextBlock(d);
   const docProb = assessCertainLoanDocProblems(d);
   const esc = d.camilleEscalation as any;

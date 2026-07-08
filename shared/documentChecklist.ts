@@ -114,12 +114,27 @@ function enrichPostStudyIdentitySlots(enriched: any[]): any[] {
   if (stillNeedsRib && afterCni.length > 0) {
     const pick =
       afterCni.find((d) => classifyFileName(d.name || "") === "rib") ||
-      afterCni.find((d) => !isImageLike(d)) ||
-      afterCni[0];
+      afterCni.find((d) => {
+        const n = docName(d);
+        return (
+          !isImageLike(d) &&
+          (n.includes("rib") ||
+            n.includes("iban") ||
+            n.includes("releve") ||
+            n.includes("bancaire") ||
+            n.includes("coordonnees"))
+        );
+      }) ||
+      null;
     if (pick) assignCategory(pick, "rib");
   }
 
   return enriched;
+}
+
+function isOutboundConfirmationComm(c: { subject?: string; text?: string }): boolean {
+  const blob = `${c.subject || ""} ${String(c.text || "").slice(0, 400)}`;
+  return /confirmation de réception|accusé de réception|nous avons bien reçu/i.test(blob);
 }
 
 function isStudyLikelySent(dossier: { status?: string; studyKpi?: { extractedAt?: string }; communications?: any[] }): boolean {
@@ -128,6 +143,7 @@ function isStudyLikelySent(dossier: { status?: string; studyKpi?: { extractedAt?
   if (["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(st)) return true;
   for (const c of dossier?.communications || []) {
     if (c?.direction !== "outbound") continue;
+    if (isOutboundConfirmationComm(c)) continue;
     const blob = `${c.subject || ""} ${c.text || ""}`.toLowerCase();
     if (
       /charles victor|club immobilier/.test(blob) &&
