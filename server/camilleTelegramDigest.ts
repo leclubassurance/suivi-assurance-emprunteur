@@ -1,5 +1,6 @@
 import type { Dossier } from "./dossierModel";
 import { buildDossierDetailBlock } from "./camilleTelegramChat";
+import { buildCamilleContextBlock } from "./camilleMail";
 import { generateContentWithRetry } from "./geminiClient";
 import {
   sendTelegramMessage,
@@ -19,6 +20,7 @@ import {
 } from "./camilleTelegramActionNotify";
 import { isLeadDossier } from "./leadDossierMerge";
 import { extractNewClientMessageText } from "./emailQuoteStrip";
+import { computeDocumentChecklistForDossier } from "../shared/documentChecklist";
 
 export type DossierNewsKind =
   | "new_dossier"
@@ -71,6 +73,39 @@ Règles :
 - Pas de nom d'assureur
 `;
 
+function formatNewDossierNewsHtml(
+  dossier: Dossier,
+  details: { extra?: string },
+  clientName: string,
+): string {
+  const checklist = computeDocumentChecklistForDossier(dossier);
+  const missing = checklist.filter((c) => !c.ok).map((c) => c.label);
+  const ctx = buildCamilleContextBlock(dossier);
+  const ribItem = checklist.find((c) => c.key === "rib");
+  const ribSuspicious =
+    ribItem?.ok &&
+    (ribItem.files || []).some(
+      (f) => f.status !== "ok" || !/rib|iban|relev/i.test(String(f.name || "")),
+    );
+
+  const lines = [
+    `<b>⚠️ À SURVEILLER</b>`,
+    `<b>${escapeTelegramHtml(dossier.id)}</b> — ${escapeTelegramHtml(clientName)} — Nouveau dossier créé`,
+    `<i>Phase ${escapeTelegramHtml(ctx.subscriptionPhaseLabel || "—")} — étude ${ctx.studySent ? "envoyée" : "non"} — accord ${ctx.clientAcceptedInsurance ? "oui" : "non"}</i>`,
+    ``,
+    missing.length
+      ? `<b>Pièces à compléter :</b> ${escapeTelegramHtml(missing.join(", "))}`
+      : `<i>Checklist complète à la création.</i>`,
+    ribSuspicious
+      ? `<i>⚠️ RIB signalé OK mais fichier suspect — vérifiez dans l'admin (reclasser ou supprimer).</i>`
+      : "",
+    details.extra ? `<i>${escapeTelegramHtml(details.extra.slice(0, 200))}</i>` : "",
+    ``,
+    `<b>➡️ Pour vous :</b> <i>Camille gère les relances documents automatiquement. Pas d'intervention immédiate — surveillez le fil si le client écrit.</i>`,
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
 async function buildNewsMessage(
   dossier: Dossier,
   kind: DossierNewsKind,
@@ -82,6 +117,13 @@ async function buildNewsMessage(
     camilleAction?: CamilleTelegramActionDetails;
   },
 ): Promise<string> {
+  const a = dossier.formData?.assures?.[0];
+  const clientName = [a?.prenom, a?.nom].filter(Boolean).join(" ") || "Client";
+
+  if (kind === "new_dossier") {
+    return formatNewDossierNewsHtml(dossier, details, clientName);
+  }
+
   if (
     (kind === "camille_replied" || kind === "doc_followup") &&
     details.camilleAction
@@ -102,8 +144,6 @@ async function buildNewsMessage(
       .filter(Boolean)
       .join("\n");
   }
-  const a = dossier.formData?.assures?.[0];
-  const clientName = [a?.prenom, a?.nom].filter(Boolean).join(" ") || "Client";
   const facts = [
     `Type : ${KIND_LABEL[kind]}`,
     `Client : ${clientName}`,

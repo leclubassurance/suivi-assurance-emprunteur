@@ -3983,6 +3983,61 @@ export function createApp() {
     }
   });
 
+  app.delete("/api/admin/dossiers/:id/documents/:docId", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const { id, docId } = req.params;
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      if (!Array.isArray(dossier.formData?.documents)) dossier.formData.documents = [];
+      const docs = dossier.formData.documents;
+      const docIndex = docs.findIndex(
+        (d: any) => String(d.id) === docId || String(d.name) === docId,
+      );
+      if (docIndex < 0) return res.status(404).json({ error: "Document introuvable" });
+
+      const doc = docs[docIndex];
+      const removedCategory = String(doc.category || "").toLowerCase();
+      docs.splice(docIndex, 1);
+
+      const localPath = String(doc.localPath || "").trim();
+      if (localPath && fs.existsSync(localPath)) {
+        try {
+          fs.unlinkSync(localPath);
+        } catch {
+          // best-effort
+        }
+      }
+
+      const { setAdminChecklistOverride } = await import("./adminChecklistValidation");
+      if (removedCategory === "rib" || removedCategory === "cni") {
+        setAdminChecklistOverride(dossier, removedCategory, null, { author: "admin" });
+      }
+
+      const { reanalyzeDossierLoanDocuments } = await import("./reanalyzeLoanDocuments");
+      await reanalyzeDossierLoanDocuments(dossier, UPLOADS_DIR);
+
+      dossier.updatedAt = new Date().toISOString();
+      addEvent(dossier, {
+        type: "NOTE_ADDED",
+        actor: { kind: "ADMIN", label: "Rémi" },
+        message: `Document supprimé du dossier : « ${doc.name} »`,
+      });
+      await writeDB(db, dossier);
+
+      const { computeDocumentChecklistForDossier } = await import("../shared/documentChecklist");
+      res.json({
+        success: true,
+        removed: { id: doc.id, name: doc.name, category: doc.category },
+        checklist: computeDocumentChecklistForDossier(dossier),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/dossiers/:id/reanalyze-documents", async (req, res) => {
     await ensureBackgroundServicesStarted();
     try {

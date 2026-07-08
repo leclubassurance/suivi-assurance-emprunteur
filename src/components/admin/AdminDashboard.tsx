@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Dossier, UserInfo } from "../../types";
-import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload, Users, Building2, Menu, X } from "lucide-react";
+import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload, Users, Building2, Menu, X, Trash2 } from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
@@ -448,6 +448,34 @@ export default function AdminDashboard({
         return;
       }
       showToast(`Type mis à jour : ${category}`, "success");
+      loadDossiers();
+    } catch {
+      showToast("Erreur réseau", "error");
+    }
+  };
+
+  const handleDeleteDocument = async (doc: { id?: string; name?: string }) => {
+    if (!selectedDossier) return;
+    const docId = String(doc.id || doc.name || "");
+    if (!docId) return;
+    if (
+      !window.confirm(
+        `Supprimer « ${doc.name || docId} » du dossier ?\n\nLe fichier sera retiré de la checklist (action irréversible côté admin).`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await adminFetch(
+        `/api/admin/dossiers/${selectedDossier.id}/documents/${encodeURIComponent(docId)}`,
+        { method: "DELETE" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Impossible de supprimer le document", "error");
+        return;
+      }
+      showToast("Document supprimé.", "success");
       loadDossiers();
     } catch {
       showToast("Erreur réseau", "error");
@@ -1950,6 +1978,7 @@ export default function AdminDashboard({
                               )}
                             </div>
                           </div>
+                          <div className="flex items-center gap-2 shrink-0">
                           {doc.driveLink ? (
                             <a
                               href={doc.driveLink}
@@ -1968,6 +1997,15 @@ export default function AdminDashboard({
                               <Download className="w-4 h-4" />
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDocument(doc)}
+                            className="bg-white border border-red-200 text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                            title="Supprimer du dossier"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          </div>
                         </div>
                       ))
                     ) : (
