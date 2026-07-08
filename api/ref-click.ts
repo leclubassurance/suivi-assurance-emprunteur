@@ -1,44 +1,37 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { geoFromVercelHeaders, type ReferralClickGeoSlice } from "../shared/referralGeo";
 
-type Req = {
-  method?: string;
-  headers: Record<string, string | string[] | undefined>;
-  body?: string | Record<string, unknown>;
-};
+const DEFAULT_RAILWAY_API = "https://assurance-emprunteur.up.railway.app";
 
-type Res = {
-  statusCode: number;
-  setHeader: (key: string, value: string) => void;
-  end: (body?: string) => void;
-};
-
-function parseBody(req: Req): Record<string, unknown> {
+function parseBody(req: VercelRequest): Record<string, unknown> {
   if (!req.body) return {};
-  if (typeof req.body === "object") return req.body;
+  if (typeof req.body === "object") return req.body as Record<string, unknown>;
   try {
-    return JSON.parse(req.body) as Record<string, unknown>;
+    return JSON.parse(String(req.body)) as Record<string, unknown>;
   } catch {
     return {};
   }
 }
 
 function railwayApiBase(): string {
-  const raw = String(process.env.VITE_API_URL || process.env.RAILWAY_API_URL || "").trim();
+  const raw = String(
+    process.env.VITE_API_URL || process.env.RAILWAY_API_URL || DEFAULT_RAILWAY_API,
+  ).trim();
   return raw.replace(/\/$/, "");
 }
 
 /** Ville + pays uniquement (région IP trop imprécise, stack 100 % gratuite Vercel MaxMind). */
-function geoForFreeStack(headers: Record<string, string | string[] | undefined>): ReferralClickGeoSlice {
-  const { countryCode, city } = geoFromVercelHeaders(headers);
+function geoForFreeStack(headers: VercelRequest["headers"]): ReferralClickGeoSlice {
+  const { countryCode, city } = geoFromVercelHeaders(
+    headers as Record<string, string | string[] | undefined>,
+  );
   return { countryCode, city };
 }
 
 /** Proxy Vercel → Railway avec géo edge gratuite (MaxMind via en-têtes Vercel). */
-export default async function handler(req: Req, res: Res) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
-    res.statusCode = 405;
-    res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ ok: false, error: "method_not_allowed" }));
+    res.status(405).json({ ok: false, error: "method_not_allowed" });
     return;
   }
 
@@ -46,21 +39,12 @@ export default async function handler(req: Req, res: Res) {
   const ref = String(body.ref || "").trim();
   const sessionId = String(body.sessionId || "").trim();
   if (!ref) {
-    res.statusCode = 400;
-    res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ ok: false, error: "missing_ref" }));
+    res.status(400).json({ ok: false, error: "missing_ref" });
     return;
   }
 
   const geo = geoForFreeStack(req.headers);
   const apiBase = railwayApiBase();
-
-  if (!apiBase.startsWith("http")) {
-    res.statusCode = 503;
-    res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ ok: false, error: "api_not_configured" }));
-    return;
-  }
 
   const proxySecret = String(process.env.REF_CLICK_PROXY_SECRET || "").trim();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -73,12 +57,8 @@ export default async function handler(req: Req, res: Res) {
       body: JSON.stringify({ ref, sessionId, geo }),
     });
     const payload = await upstream.json().catch(() => ({ ok: false }));
-    res.statusCode = upstream.ok ? 200 : upstream.status;
-    res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify(payload));
+    res.status(upstream.ok ? 200 : upstream.status).json(payload);
   } catch {
-    res.statusCode = 502;
-    res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ ok: false, error: "upstream_failed" }));
+    res.status(502).json({ ok: false, error: "upstream_failed" });
   }
 }

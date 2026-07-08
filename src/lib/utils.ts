@@ -11,20 +11,10 @@ export function generateId() {
 }
 
 /**
- * Clics lien ?ref= : en prod Vercel, passe par /api/ref-click (fonction edge MaxMind)
- * au lieu d'appeler Railway directement (geoip-lite moins précis).
+ * Enregistrement des clics lien ?ref= — appelle toujours l'API Railway (CORS autorisé).
+ * Le proxy Vercel /api/ref-click reste disponible en secours mais n'est plus utilisé par défaut.
  */
 export function getRefClickUrl(): string {
-  const apiBase = import.meta.env.VITE_API_URL as string | undefined;
-  if (import.meta.env.PROD && apiBase?.startsWith("http") && typeof window !== "undefined") {
-    try {
-      if (new URL(apiBase).host !== window.location.host) {
-        return "/api/ref-click";
-      }
-    } catch {
-      /* ignore */
-    }
-  }
   return getApiUrl("/api/ref-click");
 }
 
