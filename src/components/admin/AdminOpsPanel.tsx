@@ -1172,6 +1172,7 @@ export function AdminCamillePanel({
   const [audit, setAudit] = useState<any[]>([]);
   const [showPortalPreview, setShowPortalPreview] = useState(false);
   const [resumingCamille, setResumingCamille] = useState(false);
+  const [confirmingDraft, setConfirmingDraft] = useState(false);
   const [savingPlaybook, setSavingPlaybook] = useState(false);
   const [refreshingKpi, setRefreshingKpi] = useState(false);
   const [savingManualKpi, setSavingManualKpi] = useState(false);
@@ -1424,6 +1425,44 @@ export function AdminCamillePanel({
       showToast("Erreur réseau", "error");
     } finally {
       setResumingCamille(false);
+    }
+  };
+
+  const pendingDraft = (dossier as any).camillePendingReview as
+    | { status?: string; proposedClientPlain?: string; reason?: string }
+    | undefined;
+
+  const handleConfirmDraft = async (action: "send" | "cancel") => {
+    if (
+      action === "cancel" &&
+      !window.confirm("Annuler ce brouillon ? Aucun mail ne sera envoyé au client.")
+    ) {
+      return;
+    }
+    setConfirmingDraft(true);
+    try {
+      const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/camille-confirm-draft`, {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.message || data.error || "Action impossible", "error");
+        return;
+      }
+      showToast(
+        action === "send"
+          ? data.summary || "Mail client envoyé."
+          : "Brouillon annulé.",
+        "success",
+      );
+      await reloadCamilleContext();
+      onDossierUpdated?.();
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setConfirmingDraft(false);
     }
   };
 
@@ -1691,6 +1730,37 @@ export function AdminCamillePanel({
             Mode équipe actif jusqu&apos;au {String(ctx.camilleStaffUntil).slice(0, 16).replace("T", " ")} — les
             réponses auto peuvent être suspendues. Utilisez « Réactiver Camille ».
           </p>
+        )}
+        {pendingDraft?.status === "awaiting_confirm" && (
+          <div className="text-[11px] text-indigo-950 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-3 mb-2 space-y-2">
+            <p className="font-bold">Brouillon Camille en attente — pas encore envoyé au client</p>
+            {pendingDraft.proposedClientPlain && (
+              <p className="text-indigo-900 whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
+                {String(pendingDraft.proposedClientPlain).slice(0, 600)}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                disabled={confirmingDraft}
+                onClick={() => handleConfirmDraft("send")}
+                className="text-[10px] font-black uppercase px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {confirmingDraft ? "…" : "Envoyer au client"}
+              </button>
+              <button
+                type="button"
+                disabled={confirmingDraft}
+                onClick={() => handleConfirmDraft("cancel")}
+                className="text-[10px] font-bold px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+            </div>
+            <p className="text-[10px] text-indigo-700">
+              Vous pouvez aussi répondre <b>OK ENVOIE</b> au mail [Camille] ou sur Telegram (bouton 📤).
+            </p>
+          </div>
         )}
         {ctx.subscriptionPhaseLabel && (
           <p className="text-[11px] font-bold text-violet-900 bg-white/60 rounded-lg px-3 py-2 mb-2 border border-violet-200">

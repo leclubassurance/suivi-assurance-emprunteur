@@ -3554,6 +3554,47 @@ export function createApp() {
     res.json(buildCamilleAdminContext(dossier));
   });
 
+  app.post("/api/admin/dossiers/:id/camille-confirm-draft", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    try {
+      const { id } = req.params;
+      const action = String((req.body as any)?.action || "send").toLowerCase();
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      const {
+        getPendingReview,
+        confirmAndSendReviewReply,
+        cancelPendingReview,
+      } = await import("./camilleReviewQueue");
+      const review = getPendingReview(dossier);
+      if (!review || review.status !== "awaiting_confirm") {
+        return res.status(400).json({
+          error: "no_pending_draft",
+          message: "Aucun brouillon Camille en attente de validation sur ce dossier.",
+        });
+      }
+
+      if (action === "cancel") {
+        await cancelPendingReview(dossier, "Brouillon annulé depuis l'admin.");
+        dossier.updatedAt = new Date().toISOString();
+        await writeDB(db, dossier);
+        return res.json({ success: true, action: "cancelled" });
+      }
+
+      const result = await confirmAndSendReviewReply(dossier, "admin");
+      dossier.updatedAt = new Date().toISOString();
+      await writeDB(db, dossier);
+      if (!result.ok) {
+        return res.status(500).json({ success: false, error: result.summary });
+      }
+      return res.json({ success: true, action: "sent", summary: result.summary });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/admin/dossiers/:id/camille-resume", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;

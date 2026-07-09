@@ -115,9 +115,7 @@ async function notifyReviewDraftToStaff(params: {
     if (!mail.ok) lastError = mail.error;
   }
 
-  const { getCamilleReviewChannel } = await import("./camilleReviewEmail");
-  const ch = getCamilleReviewChannel();
-  if (ch !== "email" && isTelegramEnabled()) {
+  if (isTelegramEnabled()) {
     const { getAllowedChatIdsForNotify } = await import("./telegramCamille");
     const chatIds = getAllowedChatIdsForNotify();
     const body =
@@ -947,6 +945,15 @@ export async function tryHandleCamilleReviewStaffReply(
 
   let dossier =
     findDossierWithReviewReply(db.dossiers, chatId, replyToMessageId) || null;
+
+  if (!dossier && looksLikeReviewSendConfirmation(text)) {
+    const { extractLcifId } = await import("./dossierTextMatch");
+    const { findDossierWithPendingReviewByLcif } = await import("./camilleReviewEmail");
+    const lcif = extractLcifId(text);
+    if (lcif) {
+      dossier = findDossierWithPendingReviewByLcif(db.dossiers, lcif);
+    }
+  }
 
   if (!dossier && looksLikeReviewSendConfirmation(text)) {
     dossier = findDossierWithAwaitingConfirmReview(db.dossiers, chatId);

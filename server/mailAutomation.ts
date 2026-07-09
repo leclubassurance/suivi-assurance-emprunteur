@@ -973,6 +973,8 @@ export async function syncGmailInbox(
                     "Brouillon client par email — aucun mail envoyé tant que vous n'avez pas validé (répondez OK ENVOIE).",
                   meta: { gmailId: msgMeta.id, reviewId: queued.reviewId },
                 });
+                const { writeDB } = await import("./db");
+                await writeDB(db, dossier);
                 continue;
               }
               const { createCamilleReviewRequest } = await import("./camilleReviewQueue");

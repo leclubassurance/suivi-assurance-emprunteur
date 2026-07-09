@@ -255,8 +255,9 @@ export async function syncCamilleReviewStaffEmailReplies(
   },
 ): Promise<number> {
   const staffEmail = getStaffReviewEmail();
-  // Only staff INBOX replies — never scan SENT (outbound [Camille] drafts contain "OK ENVOIE").
+  // Réponses équipe aux mails [Camille] — toute boîte @leclubimmobilier.fr (pas seulement CAMILLE_STAFF_REVIEW_EMAIL).
   const queries = [
+    `subject:"${REVIEW_SUBJECT_PREFIX}" from:@leclubimmobilier.fr -in:sent newer_than:90d`,
     `subject:"${REVIEW_SUBJECT_PREFIX}" from:${staffEmail} -in:sent newer_than:90d`,
   ];
 
