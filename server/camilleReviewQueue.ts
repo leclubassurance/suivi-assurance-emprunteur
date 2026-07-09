@@ -883,9 +883,6 @@ export async function tryHandleCamilleReviewStaffEmailReply(
 ): Promise<boolean> {
   if (!text.trim()) return false;
 
-  const { isCamilleReviewSystemEmailBody } = await import("./camilleReviewEmail");
-  if (isCamilleReviewSystemEmailBody(text)) return false;
-
   const {
     looksLikeReviewSendConfirmation,
     looksLikeReviewCancel,

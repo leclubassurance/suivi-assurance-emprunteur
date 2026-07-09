@@ -312,11 +312,6 @@ export async function syncCamilleReviewStaffEmailReplies(
 
       const { text } = decodeEmailBodies(payload);
       const instruction = extractStaffInstructionFromEmail(text);
-      if (isCamilleReviewSystemEmailBody(instruction || text)) {
-        helpers.markProcessed(dossier, msgMeta.id);
-        processedIds.add(msgMeta.id);
-        continue;
-      }
       const msgDate = new Date(Number(msgRes.data.internalDate || Date.now())).toISOString();
 
       helpers.upsertCommunication(dossier, {

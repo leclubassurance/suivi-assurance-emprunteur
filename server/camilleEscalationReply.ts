@@ -17,6 +17,7 @@ export function extractStaffInstructionFromEmail(text: string): string {
   const cutPatterns = [
     /\nOn .+ wrote:\n/i,
     /\nLe .{5,120} a écrit\s*:\n/i,
+    /\n\*?camille\s*[—-]\s*(brouillon|question|votre consigne)\b/i,
     /\n-{2,}\s*Message d'origine/i,
     /\nDe\s*:\s*.+\nEnvoyé\s*:\s*/i,
     /\n_{5,}\n/,
