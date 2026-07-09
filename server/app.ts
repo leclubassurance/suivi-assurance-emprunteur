@@ -1820,6 +1820,46 @@ export function createApp() {
     }
   });
 
+  app.get("/api/conseiller-portal/ranking", async (req, res) => {
+    try {
+      const { resolveConseillerPortalSession, touchConseillerPortalSession } = await import(
+        "./conseillerPortalSession"
+      );
+      const me = await resolveConseillerPortalSession(req);
+      if (!me) {
+        return res.status(401).json({ ok: false, error: "session_required" });
+      }
+      void touchConseillerPortalSession(me.id);
+
+      const { loadApporteurStore } = await import("./apporteurStore");
+      const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+      const store = await loadApporteurStore();
+      const conseillers = (store.apporteurs || [])
+        .filter((a) => a.active && isConseillerImmoClubType(a.type))
+        .map((a) => ({ id: a.id, contactName: a.contactName, companyName: a.companyName }));
+
+      const counts = new Map<string, number>();
+      for (const r of store.referrals || []) {
+        counts.set(r.apporteurId, (counts.get(r.apporteurId) || 0) + 1);
+      }
+
+      const rows = conseillers
+        .map((c) => ({
+          apporteurId: c.id,
+          contactName: c.contactName,
+          companyName: c.companyName,
+          recommandations: counts.get(c.id) || 0,
+        }))
+        .sort((a, b) => b.recommandations - a.recommandations || a.contactName.localeCompare(b.contactName, "fr"));
+
+      const ranked = rows.map((r, i) => ({ ...r, rank: i + 1 }));
+      const meRow = ranked.find((r) => r.apporteurId === me.id) || null;
+      res.json({ ok: true, me: meRow, leaderboard: ranked.slice(0, 30) });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   app.post("/api/conseiller-portal/logout", async (req, res) => {
     try {
       const { destroyConseillerPortalSession } = await import("./conseillerPortalSession");

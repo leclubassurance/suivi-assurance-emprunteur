@@ -150,6 +150,14 @@ type PortalData = {
   } | null;
 };
 
+type ConseillerRankingRow = {
+  rank: number;
+  apporteurId: string;
+  contactName: string;
+  companyName: string;
+  recommandations: number;
+};
+
 function scrollToAnchor(id: string) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -185,6 +193,10 @@ export default function ApporteurPortalPage({
   conseillerSession?: boolean;
 }) {
   const [data, setData] = useState<PortalData | null>(null);
+  const [ranking, setRanking] = useState<{
+    me: ConseillerRankingRow | null;
+    leaderboard: ConseillerRankingRow[];
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -213,7 +225,7 @@ export default function ApporteurPortalPage({
   // IntersectionObserver for sticky nav — kept before early returns to respect rules of hooks.
   useEffect(() => {
     const ids = [
-      "ap-hero", "ap-phase", "ap-formation", "ap-contract", "ap-benefits",
+      "ap-hero", "ap-phase", "ap-formation", "ap-ranking", "ap-contract", "ap-benefits",
       "ap-script", "ap-journey", "ap-earnings", "ap-recruit", "ap-team", "ap-referrals", "ap-guide",
     ];
     const els = ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
@@ -281,6 +293,21 @@ export default function ApporteurPortalPage({
       }
       if (!res.ok) throw new Error(json.error || "Lien invalide ou expiré.");
       setData(json);
+      if (conseillerSession && json?.apporteur?.type === CONSEILLER_IMMO_CLUB_TYPE) {
+        try {
+          const rr = await apiFetch("/api/conseiller-portal/ranking");
+          const rj = await rr.json().catch(() => ({}));
+          if (rr.ok && rj.ok) {
+            setRanking({ me: rj.me || null, leaderboard: rj.leaderboard || [] });
+          } else {
+            setRanking(null);
+          }
+        } catch {
+          setRanking(null);
+        }
+      } else {
+        setRanking(null);
+      }
       if (json.kpis?.conversionRate != null) {
         setSimConversion(Math.round(json.kpis.conversionRate * 100));
       } else if (json.remuneration?.defaultConversionRate) {
@@ -453,6 +480,14 @@ export default function ApporteurPortalPage({
       mobilePrimary: Boolean(isConseillerClub),
     },
     {
+      id: "ap-ranking",
+      label: "Classement",
+      shortLabel: "Classement",
+      icon: PORTAL_NAV_ICONS.team,
+      visible: Boolean(isConseillerClub),
+      mobilePrimary: Boolean(isConseillerClub),
+    },
+    {
       id: "ap-contract",
       label: "Contrat",
       icon: PORTAL_NAV_ICONS.contract,
@@ -597,6 +632,59 @@ export default function ApporteurPortalPage({
         {isConseillerClub ? (
           <div id="ap-formation" className="scroll-mt-28">
             <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} previewToken={adminPreviewToken || undefined} />
+          </div>
+        ) : null}
+
+        {isConseillerClub ? (
+          <div id="ap-ranking" className="scroll-mt-28">
+            <PortalSection
+              icon={PORTAL_NAV_ICONS.team}
+              title="Classement conseillers"
+              description="Classement basé uniquement sur le nombre de recommandations effectuées."
+            >
+              {ranking?.me ? (
+                <div className="grid md:grid-cols-3 gap-3 mb-4">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-[11px] font-black uppercase text-slate-500">Votre rang</p>
+                    <p className="text-2xl font-black text-slate-900 mt-1">#{ranking.me.rank}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-[11px] font-black uppercase text-slate-500">Vos recommandations</p>
+                    <p className="text-2xl font-black text-slate-900 mt-1">{ranking.me.recommandations}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-[11px] font-black uppercase text-slate-500">Règle</p>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Uniquement le volume de recommandations (pas d'autres métriques).
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-4">
+                  Classement indisponible pour le moment.
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                  <p className="text-sm font-bold text-slate-800">Top conseillers</p>
+                  <p className="text-[11px] text-slate-500">Recommandations</p>
+                </div>
+                <ul className="divide-y divide-slate-100">
+                  {(ranking?.leaderboard || []).slice(0, 12).map((r) => (
+                    <li key={r.apporteurId} className="px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-900 truncate">
+                          #{r.rank} — {r.contactName}
+                        </p>
+                        <p className="text-[11px] text-slate-500 truncate">{r.companyName}</p>
+                      </div>
+                      <span className="shrink-0 text-sm font-black text-indigo-700">{r.recommandations}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </PortalSection>
           </div>
         ) : null}
 
