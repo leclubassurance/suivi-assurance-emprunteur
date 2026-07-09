@@ -69,7 +69,7 @@ export default function PartnerContractWorkflow({
       </ol>
       {!signed ? (
         <p className="mt-4 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
-          Votre lien client et l&apos;envoi de recommandations seront disponibles dès signature du contrat.
+          Votre lien client et l&apos;envoi de nouveaux clients seront disponibles dès signature du contrat.
           Contact : <a className="font-bold underline" href="mailto:assurance@leclubimmobilier.fr">assurance@leclubimmobilier.fr</a>
         </p>
       ) : null}

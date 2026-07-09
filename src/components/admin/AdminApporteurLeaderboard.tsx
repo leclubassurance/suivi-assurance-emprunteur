@@ -11,7 +11,7 @@ const METRICS: { key: ApporteurLeaderboardMetric; label: string }[] = [
   { key: "signed", label: "Dossiers signés" },
   { key: "earned", label: "CA généré (€)" },
   { key: "clicks", label: "Visites lien" },
-  { key: "referrals", label: "Recommandations" },
+  { key: "referrals", label: "Dossiers clients" },
 ];
 
 export default function AdminApporteurLeaderboard({ rows, onSelectApporteur }: Props) {

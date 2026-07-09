@@ -828,7 +828,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
           ) : null}
 
           <h3 className="text-sm font-black uppercase tracking-wide text-slate-500 mb-3">
-            Recommandations ({filteredReferrals.length})
+            Dossiers clients ({filteredReferrals.length})
           </h3>
 
           <div className="space-y-3">
@@ -974,7 +974,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
         <Modal title="Supprimer définitivement ?" onClose={() => setDeleteConfirmId(null)}>
           <p className="text-sm text-slate-600 mb-4">
             L&apos;apporteur <strong>{apporteurById.get(deleteConfirmId)?.contactName}</strong> sera supprimé avec
-            ses recommandations. Les filleuls seront détachés (sans parrain). Cette action est irréversible.
+            ses dossiers clients. Les filleuls seront détachés (sans parrain). Cette action est irréversible.
           </p>
           <div className="flex gap-2">
             <button

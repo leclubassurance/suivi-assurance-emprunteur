@@ -110,11 +110,11 @@ export function buildApporteurPortalInviteEmail(params: {
     <div style="padding:24px 22px;">
       <p style="font-size:16px;margin:0 0 12px 0;"><strong>Bonjour ${params.apporteur.contactName},</strong></p>
       <p style="font-size:14px;margin:0 0 16px 0;">Votre espace apporteur Le Club Immobilier Français est prêt.</p>
-      <p style="font-size:14px;margin:0 0 8px 0;"><strong>1. Suivre vos recommandations</strong></p>
+      <p style="font-size:14px;margin:0 0 8px 0;"><strong>1. Suivre vos dossiers clients</strong></p>
       <p style="margin:0 0 16px 0;"><a href="${params.portalUrl}" style="color:#1E3A8A;font-weight:bold;">${params.portalUrl}</a></p>
       <p style="font-size:14px;margin:0 0 8px 0;"><strong>2. Lien à partager à vos clients</strong> (formulaire en ligne)</p>
       <p style="margin:0 0 16px 0;"><a href="${params.referralLink}" style="color:#1E3A8A;">${params.referralLink}</a></p>
-      <p style="font-size:13px;color:#6B7280;">Conservez ce lien privé — il donne accès à vos recommandations uniquement.</p>
+      <p style="font-size:13px;color:#6B7280;">Conservez ce lien privé — il donne accès uniquement aux dossiers clients que vous nous transmettez.</p>
     </div>
   </div>
 </div>`;

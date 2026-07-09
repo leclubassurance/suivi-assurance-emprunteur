@@ -70,7 +70,7 @@ export function LcifPartnerFooter() {
     <p className="text-center text-xs text-slate-400 pb-4 px-4 leading-relaxed">
       Le Club Immobilier Français — ORIAS {LCIF_ORIAS}
       <br />
-      Vous recevez un email à chaque avancement de vos recommandations.
+      Vous recevez un email à chaque avancement des clients que vous nous transmettez.
     </p>
   );
 }

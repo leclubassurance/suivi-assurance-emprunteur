@@ -632,7 +632,7 @@ export default function ApporteurPortalPage({
             <PortalSection
               icon={PORTAL_NAV_ICONS.team}
               title="Classement conseillers"
-              description="Classement basé uniquement sur le nombre de recommandations effectuées."
+              description="Classement basé uniquement sur le nombre de clients transmis."
             >
               <div className="grid md:grid-cols-3 gap-3 mb-4">
                 <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -642,7 +642,7 @@ export default function ApporteurPortalPage({
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <p className="text-[11px] font-black uppercase text-slate-500">Vos recommandations</p>
+                  <p className="text-[11px] font-black uppercase text-slate-500">Vos clients transmis</p>
                   <p className="text-2xl font-black text-slate-900 mt-1">
                     {ranking?.me?.recommandations ?? 0}
                   </p>
@@ -650,7 +650,7 @@ export default function ApporteurPortalPage({
                 <div className="rounded-2xl border border-slate-200 bg-white p-4">
                   <p className="text-[11px] font-black uppercase text-slate-500">Règle</p>
                   <p className="text-xs text-slate-600 mt-1">
-                    Uniquement le volume de recommandations (pas d'autres métriques).
+                    Uniquement le volume de clients transmis (pas d'autres métriques).
                   </p>
                 </div>
               </div>
@@ -659,7 +659,7 @@ export default function ApporteurPortalPage({
                 <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                     <p className="text-sm font-bold text-slate-800">Top conseillers</p>
-                    <p className="text-[11px] text-slate-500">Recommandations</p>
+                    <p className="text-[11px] text-slate-500">Clients transmis</p>
                   </div>
                   <ul className="divide-y divide-slate-100">
                     {(ranking?.leaderboard || []).slice(0, 12).map((r) => (

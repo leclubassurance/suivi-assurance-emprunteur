@@ -124,9 +124,9 @@ export const RGPD_REGISTER_ENTRIES: RgpdRegisterRow[] = [
   {
     treatmentName: "Espace partenaire apporteur d'affaires",
     purpose:
-      "Gestion des partenaires commerciaux : contrat, lien de recommandation, suivi des recommandations et rémunérations",
+      "Gestion des partenaires commerciaux : contrat, lien client, suivi des dossiers clients transmis et rémunérations",
     dataCategories:
-      "Identité partenaire, coordonnées, SIRET/SIREN, statut contrat, jetons d'accès portail, historique recommandations, statistiques de clics sur lien client",
+      "Identité partenaire, coordonnées, SIRET/SIREN, statut contrat, jetons d'accès portail, historique des dossiers clients transmis, statistiques de clics sur lien client",
     dataSubjects: "Apporteurs d'affaires / partenaires commerciaux",
     recipients: "Équipe LCIF habilitée ; partenaire (ses propres données via espace sécurisé)",
     transfersOutsideEu: "Selon hébergeur applicatif — CCT si hors UE",

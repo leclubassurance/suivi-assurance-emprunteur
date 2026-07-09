@@ -136,7 +136,7 @@ Les partenaires exerçant une activité immobilière, de transaction ou de conse
       heading: "4. Obligations de la Société",
       body: `${CLUB} s'engage à :
 — instruire les dossiers transmis dans des conditions professionnelles conformes à son statut d'intermédiaire ORIAS ;
-— tenir le Partenaire informé, via l'espace partenaire, de l'avancement des recommandations ;
+— tenir le Partenaire informé, via l'espace partenaire, de l'avancement des dossiers clients transmis ;
 — calculer les rémunérations dues conformément au barème en vigueur et au présent Contrat ;
 — traiter les données personnelles conformément à la réglementation et à l'article 12 du présent Contrat ;
 — ne pas modifier unilatéralement les conditions de rémunération rétroactivement sur les dossiers déjà signés et conformes au moment de la signature client.`,

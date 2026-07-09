@@ -309,7 +309,7 @@ export default function PartnerContractSigning({
           </button>
         </div>
         <p className="text-xs text-indigo-100">
-          Dernière étape avant d&apos;accéder à votre lien client et à vos recommandations.
+          Dernière étape avant d&apos;accéder à votre lien client et au suivi de vos dossiers clients.
         </p>
       </div>
 

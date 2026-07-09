@@ -32,7 +32,7 @@ export const APPORTEUR_GUIDE_SECTIONS: { title: string; paragraphs: string[] }[]
   {
     title: "Ce que fait Le Club Immobilier Français pour le client",
     paragraphs: [
-      "Réception des documents → analyse du contrat actuel et du marché → envoi d'une étude personnalisée par email → si le client valide, préparation du dossier pour la banque → souscription du nouveau contrat → résiliation de l'ancien. Vous suivez chaque étape dans la liste de vos recommandations, avec le lien de suivi client dès qu'un dossier est ouvert.",
+      "Réception des documents → analyse du contrat actuel et du marché → envoi d'une étude personnalisée par email → si le client valide, préparation du dossier pour la banque → souscription du nouveau contrat → résiliation de l'ancien. Vous suivez chaque étape dans la liste de vos dossiers clients, avec le lien de suivi client dès qu'un dossier est ouvert.",
       "La banque peut vérifier l'équivalence des garanties ; elle ne peut pas refuser un changement conforme. Le Club Immobilier Français prépare le dossier en ce sens. L'étude est gratuite ; des frais de courtage ne s'appliquent qu'en cas de changement effectif, selon le contrat d'adhésion du client.",
     ],
   },
