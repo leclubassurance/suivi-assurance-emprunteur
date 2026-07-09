@@ -193,7 +193,6 @@ export function isCamilleReviewSystemEmailBody(text: string): boolean {
 }
 
 export function isStaffReviewEmailReply(labelIds: string[], senderEmail: string): boolean {
-  if ((labelIds || []).includes("SENT")) return false;
   if (!isStaffMailbox(senderEmail)) return false;
   const gmailUser = String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
   if (senderEmail.toLowerCase() === gmailUser) return false;
@@ -207,7 +206,6 @@ export function isCamilleReviewStaffInbound(
 ): boolean {
   if (!String(subject || "").includes(REVIEW_SUBJECT_PREFIX)) return false;
   if (!isStaffMailbox(senderEmail)) return false;
-  if ((opts?.labelIds || []).includes("SENT")) return false;
   const gmailUser = String(process.env.GMAIL_USER || "assurance@leclubimmobilier.fr").toLowerCase();
   if (senderEmail.toLowerCase() === gmailUser) return false;
   return Boolean(extractLcifFromReviewEmailSubject(subject));
@@ -257,8 +255,8 @@ export async function syncCamilleReviewStaffEmailReplies(
   const staffEmail = getStaffReviewEmail();
   // Réponses équipe aux mails [Camille] — toute boîte @leclubimmobilier.fr (pas seulement CAMILLE_STAFF_REVIEW_EMAIL).
   const queries = [
-    `subject:"${REVIEW_SUBJECT_PREFIX}" from:@leclubimmobilier.fr -in:sent newer_than:90d`,
-    `subject:"${REVIEW_SUBJECT_PREFIX}" from:${staffEmail} -in:sent newer_than:90d`,
+    `subject:"${REVIEW_SUBJECT_PREFIX}" from:@leclubimmobilier.fr newer_than:90d`,
+    `subject:"${REVIEW_SUBJECT_PREFIX}" from:${staffEmail} newer_than:90d`,
   ];
 
   let handled = 0;
