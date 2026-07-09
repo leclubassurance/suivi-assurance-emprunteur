@@ -148,6 +148,10 @@ type PortalData = {
     autonomyThreshold: number;
     payoutSharePercent: number;
   } | null;
+  conseillerRanking?: {
+    me: ConseillerRankingRow | null;
+    leaderboard: ConseillerRankingRow[];
+  } | null;
 };
 
 type ConseillerRankingRow = {
@@ -293,21 +297,9 @@ export default function ApporteurPortalPage({
       }
       if (!res.ok) throw new Error(json.error || "Lien invalide ou expiré.");
       setData(json);
-      if (conseillerSession && json?.apporteur?.type === CONSEILLER_IMMO_CLUB_TYPE) {
-        try {
-          const rr = await apiFetch("/api/conseiller-portal/ranking");
-          const rj = await rr.json().catch(() => ({}));
-          if (rr.ok && rj.ok) {
-            setRanking({ me: rj.me || null, leaderboard: rj.leaderboard || [] });
-          } else {
-            setRanking(null);
-          }
-        } catch {
-          setRanking(null);
-        }
-      } else {
-        setRanking(null);
-      }
+      if (json?.apporteur?.type === CONSEILLER_IMMO_CLUB_TYPE) {
+        setRanking(json?.conseillerRanking || null);
+      } else setRanking(null);
       if (json.kpis?.conversionRate != null) {
         setSimConversion(Math.round(json.kpis.conversionRate * 100));
       } else if (json.remuneration?.defaultConversionRate) {
@@ -642,48 +634,54 @@ export default function ApporteurPortalPage({
               title="Classement conseillers"
               description="Classement basé uniquement sur le nombre de recommandations effectuées."
             >
-              {ranking?.me ? (
-                <div className="grid md:grid-cols-3 gap-3 mb-4">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-[11px] font-black uppercase text-slate-500">Votre rang</p>
-                    <p className="text-2xl font-black text-slate-900 mt-1">#{ranking.me.rank}</p>
+              <div className="grid md:grid-cols-3 gap-3 mb-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-black uppercase text-slate-500">Votre rang</p>
+                  <p className="text-2xl font-black text-slate-900 mt-1">
+                    {ranking?.me?.rank ? `#${ranking.me.rank}` : "—"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-black uppercase text-slate-500">Vos recommandations</p>
+                  <p className="text-2xl font-black text-slate-900 mt-1">
+                    {ranking?.me?.recommandations ?? 0}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-black uppercase text-slate-500">Règle</p>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Uniquement le volume de recommandations (pas d'autres métriques).
+                  </p>
+                </div>
+              </div>
+
+              {(ranking?.leaderboard || []).length ? (
+                <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                    <p className="text-sm font-bold text-slate-800">Top conseillers</p>
+                    <p className="text-[11px] text-slate-500">Recommandations</p>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-[11px] font-black uppercase text-slate-500">Vos recommandations</p>
-                    <p className="text-2xl font-black text-slate-900 mt-1">{ranking.me.recommandations}</p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-[11px] font-black uppercase text-slate-500">Règle</p>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Uniquement le volume de recommandations (pas d'autres métriques).
-                    </p>
-                  </div>
+                  <ul className="divide-y divide-slate-100">
+                    {(ranking?.leaderboard || []).slice(0, 12).map((r) => (
+                      <li key={r.apporteurId} className="px-4 py-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-900 truncate">
+                            #{r.rank} — {r.contactName}
+                          </p>
+                          <p className="text-[11px] text-slate-500 truncate">{r.companyName}</p>
+                        </div>
+                        <span className="shrink-0 text-sm font-black text-indigo-700">{r.recommandations}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : (
-                <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-4">
-                  Classement indisponible pour le moment.
+                <div className="grid md:grid-cols-3 gap-3 mb-4">
+                  <div className="md:col-span-3 text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                    Pas encore de classement (aucun conseiller enregistré) — tout le monde est à 0.
+                  </div>
                 </div>
               )}
-
-              <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                  <p className="text-sm font-bold text-slate-800">Top conseillers</p>
-                  <p className="text-[11px] text-slate-500">Recommandations</p>
-                </div>
-                <ul className="divide-y divide-slate-100">
-                  {(ranking?.leaderboard || []).slice(0, 12).map((r) => (
-                    <li key={r.apporteurId} className="px-4 py-3 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900 truncate">
-                          #{r.rank} — {r.contactName}
-                        </p>
-                        <p className="text-[11px] text-slate-500 truncate">{r.companyName}</p>
-                      </div>
-                      <span className="shrink-0 text-sm font-black text-indigo-700">{r.recommandations}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
             </PortalSection>
           </div>
         ) : null}

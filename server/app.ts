@@ -2038,6 +2038,35 @@ export function createApp() {
             return out;
           })()
         : await enrichReferralsForApporteurPortal(referrals, publicBaseUrl, remuneration);
+
+      const conseillerRanking = isConseillerClub
+        ? (() => {
+            const conseillers = (store.apporteurs || [])
+              .filter((a) => a.active && isConseillerImmoClubType(a.type))
+              .map((a) => ({ id: a.id, contactName: a.contactName, companyName: a.companyName }));
+            const counts = new Map<string, number>();
+            for (const r of store.referrals || []) {
+              counts.set(r.apporteurId, (counts.get(r.apporteurId) || 0) + 1);
+            }
+            const rows = conseillers
+              .map((c) => ({
+                apporteurId: c.id,
+                contactName: c.contactName,
+                companyName: c.companyName,
+                recommandations: counts.get(c.id) || 0,
+              }))
+              .sort(
+                (a, b) =>
+                  b.recommandations - a.recommandations ||
+                  a.contactName.localeCompare(b.contactName, "fr"),
+              )
+              .map((r, i) => ({ ...r, rank: i + 1 }));
+            return {
+              me: rows.find((r) => r.apporteurId === apporteur.id) || null,
+              leaderboard: rows.slice(0, 30),
+            };
+          })()
+        : null;
       res.json({
         ok: true,
         apporteur: {
@@ -2092,6 +2121,7 @@ export function createApp() {
               payoutSharePercent: remuneration.apporteurShareOfBrokerage,
             }
           : null,
+        conseillerRanking,
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
