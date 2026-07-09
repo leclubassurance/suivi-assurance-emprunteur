@@ -11,7 +11,7 @@ import {
 import { countAssuredFromDossier } from "../shared/apporteurCommissionFromDossier";
 import { parseEuroToken } from "./studyEmailKpi";
 import { hasBrokerageFeeLine, patchStudyHtmlBrokerageFee } from "./studyHtmlPatch";
-import { sendEmail } from "./emailProvider";
+import { sendApporteurHtmlEmail } from "./apporteurNotify";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
 
 export type StudyConseillerValidation = {
@@ -245,8 +245,8 @@ export async function notifyConseillerStudyPending(params: {
     <p style="font-size:12px;color:#64748b">Le Club Immobilier Français</p>
   </div>`;
 
-  const result = await sendEmail({ to: apporteur.email, subject, html });
-  if (!result.ok) return { sent: false, reason: "error" in result ? result.error : "send_failed" };
+  const sent = await sendApporteurHtmlEmail(apporteur.email, subject, html);
+  if (!sent) return { sent: false, reason: "send_failed" };
   return { sent: true };
 }
 
@@ -276,8 +276,8 @@ export async function notifyAdminStudyCourtageApproved(params: {
     </ul>
     <p>Mettez à jour la ligne « Frais de courtage » dans votre HTML et envoyez l'étude depuis l'admin.</p>
   </div>`;
-  const result = await sendEmail({ to: notifyTo, subject, html });
-  return { sent: result.ok };
+  const sent = await sendApporteurHtmlEmail(notifyTo, subject, html);
+  return { sent };
 }
 
 export async function submitStudyToConseiller(params: {

@@ -287,7 +287,7 @@ export function buildApporteurContractSigningInviteEmail(params: {
   return { subject: "Signez votre contrat partenaire — Le Club Immobilier Français", html };
 }
 
-async function sendApporteurHtmlEmail(
+export async function sendApporteurHtmlEmail(
   to: string,
   subject: string,
   html: string,
