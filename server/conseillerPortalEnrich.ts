@@ -22,6 +22,7 @@ import {
 } from "./insuranceChangePlan";
 import {
   buildStudyValidationSummaryForPortal,
+  resolveStudyGrossSavingsFallback,
   type StudyConseillerValidation,
 } from "./studyConseillerValidation";
 
@@ -172,13 +173,20 @@ export function enrichReferralForConseillerPortal(params: {
     .studyConseillerValidation;
   const studyValidationPending =
     studyValidationRaw?.status === "pending"
-      ? {
-          dossierId: dossier.id,
-          subject: studyValidationRaw.subject,
-          submittedAt: studyValidationRaw.submittedAt,
-          debriefNote: studyValidationRaw.debriefNote,
-          ...buildStudyValidationSummaryForPortal(studyValidationRaw, remuneration),
-        }
+      ? (() => {
+          const effectiveValidation = {
+            ...studyValidationRaw,
+            grossSavingsEur:
+              studyValidationRaw.grossSavingsEur ?? resolveStudyGrossSavingsFallback(dossier) ?? undefined,
+          };
+          return {
+            dossierId: dossier.id,
+            subject: effectiveValidation.subject,
+            submittedAt: effectiveValidation.submittedAt,
+            debriefNote: effectiveValidation.debriefNote,
+            ...buildStudyValidationSummaryForPortal(effectiveValidation, remuneration),
+          };
+        })()
       : null;
 
   const studySent = hasStudyBeenSent(dossier);

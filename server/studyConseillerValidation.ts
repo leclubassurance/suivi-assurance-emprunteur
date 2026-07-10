@@ -64,6 +64,19 @@ function firstAmountAfter(labelRe: RegExp, blob: string, windowChars = 140): num
   return amt ? parseEuroToken(amt[1]) : null;
 }
 
+function positiveNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function resolveStudyGrossSavingsFallback(dossier: Dossier): number | null {
+  return (
+    positiveNumber(dossier.studyDraft?.economySummary?.grossSavingsEur) ??
+    positiveNumber((dossier as any).studyKpi?.grossSavingsEur) ??
+    null
+  );
+}
+
 /** Extraction légère depuis HTML manuel (sans exiger objet « étude »). */
 export function extractStudyValidationContext(
   html: string,
@@ -99,6 +112,9 @@ export function extractStudyValidationContext(
       firstAmountAfter(/[ée]conomie potentielle/i, blob, 80) ??
       firstAmountAfter(/[ée]conomie brute/i, blob, 80) ??
       firstAmountAfter(/[ée]conomie\s+g[ée]n[ée]r[ée]e/i, blob, 80);
+  }
+  if (gross == null) {
+    gross = resolveStudyGrossSavingsFallback(dossier);
   }
 
   const feesAssureur =
