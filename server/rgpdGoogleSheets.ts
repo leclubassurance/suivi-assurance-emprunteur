@@ -14,6 +14,7 @@ import {
   type RgpdRegisterRow,
 } from "../shared/rgpdRegisterEntries";
 import type { PrivacyConsentRecord } from "./privacyConsent";
+import type { Dossier } from "./dossierModel";
 
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const DRIVE_READONLY = "https://www.googleapis.com/auth/drive.readonly";
@@ -322,10 +323,20 @@ async function ensureConsentHeaderRow(
   });
 }
 
+function enrichConsentSourceUrl(consent: PrivacyConsentRecord, referralToken?: string): string {
+  const base = String(consent.sourceUrl || "").trim();
+  const ref = String(referralToken || "").trim().toLowerCase();
+  if (!ref) return base.slice(0, 500);
+  const suffix = `ref=${ref}`;
+  if (base.includes(suffix)) return base.slice(0, 500);
+  const combined = base ? `${base} (${suffix})` : suffix;
+  return combined.slice(0, 500);
+}
+
 export async function appendPrivacyConsentToSheet(
   dossierId: string,
   consent: PrivacyConsentRecord,
-  client?: { email?: string; name?: string },
+  client?: { email?: string; name?: string; referralToken?: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const spreadsheetId = getRgpdSpreadsheetId();
   if (!spreadsheetId) {
@@ -355,7 +366,7 @@ export async function appendPrivacyConsentToSheet(
       consent.labelText,
       consent.ip || "",
       (consent.userAgent || "").slice(0, 500),
-      (consent.sourceUrl || "").slice(0, 500),
+      enrichConsentSourceUrl(consent, client?.referralToken),
     ];
 
     await sheets.spreadsheets.values.append({
@@ -370,6 +381,92 @@ export async function appendPrivacyConsentToSheet(
   } catch (err) {
     return { ok: false, error: formatGoogleApiError(err) };
   }
+}
+
+export async function logDossierPrivacyConsentToSheet(
+  dossier: Pick<Dossier, "id" | "privacyConsent" | "formData">,
+  consent: PrivacyConsentRecord,
+  opts?: { referralToken?: string },
+): Promise<{ ok: boolean; error?: string; sheetsLoggedAt?: string }> {
+  const assure = dossier.formData?.assures?.[0] || {};
+  const sheetRes = await appendPrivacyConsentToSheet(dossier.id, consent, {
+    email: assure.email,
+    name: [assure.prenom, assure.nom].filter(Boolean).join(" ").trim(),
+    referralToken: opts?.referralToken,
+  });
+  if (!sheetRes.ok) return sheetRes;
+  return { ok: true, sheetsLoggedAt: new Date().toISOString() };
+}
+
+/** Rattrapage : dossiers avec consentement en base mais pas encore écrits dans Sheets. */
+export async function syncRgpdConsentsToSheet(
+  dossiers: Dossier[],
+  opts?: { force?: boolean },
+): Promise<{
+  ok: boolean;
+  spreadsheetId?: string;
+  synced: number;
+  skipped: number;
+  failed: number;
+  syncedIds: string[];
+  errors: string[];
+  error?: string;
+}> {
+  const spreadsheetId = getRgpdSpreadsheetId();
+  if (!spreadsheetId) {
+    return {
+      ok: false,
+      synced: 0,
+      skipped: 0,
+      failed: 0,
+      syncedIds: [],
+      errors: [],
+      error: "RGPD_GOOGLE_SPREADSHEET_ID non configuré",
+    };
+  }
+
+  let synced = 0;
+  let skipped = 0;
+  let failed = 0;
+  const syncedIds: string[] = [];
+  const errors: string[] = [];
+
+  for (const dossier of dossiers) {
+    const consent = dossier.privacyConsent;
+    if (!consent?.acceptedAt) {
+      skipped += 1;
+      continue;
+    }
+    if (consent.sheetsLoggedAt && !opts?.force) {
+      skipped += 1;
+      continue;
+    }
+
+    const refToken =
+      String((dossier.formData as any)?.apporteurRefToken || "").trim() ||
+      String((dossier as any)?.apporteur?.referralToken || "").trim() ||
+      undefined;
+
+    const res = await logDossierPrivacyConsentToSheet(dossier, consent, { referralToken: refToken });
+    if (res.ok && res.sheetsLoggedAt) {
+      dossier.privacyConsent = { ...consent, sheetsLoggedAt: res.sheetsLoggedAt };
+      synced += 1;
+      syncedIds.push(dossier.id);
+    } else {
+      failed += 1;
+      if (res.error) errors.push(`${dossier.id}: ${res.error}`);
+    }
+  }
+
+  return {
+    ok: failed === 0,
+    spreadsheetId,
+    synced,
+    skipped,
+    failed,
+    syncedIds,
+    errors: errors.slice(0, 20),
+  };
 }
 
 let registerSyncStarted = false;

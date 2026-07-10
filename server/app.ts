@@ -287,6 +287,8 @@ export function createApp() {
 
       const { privacyConsent: _clientConsent, ...formDataWithoutConsent } = formData || {};
       const mergedFormData = { ...formDataWithoutConsent, documents };
+      const apporteurRefToken = String(mergedFormData.apporteurRefToken || "").trim() || undefined;
+      if (apporteurRefToken) mergedFormData.apporteurRefToken = apporteurRefToken;
       const clientEmail = mergedFormData.assures?.[0]?.email;
 
       const {
@@ -450,16 +452,19 @@ export function createApp() {
       }
 
       const primaryAssure = newDossier.formData?.assures?.[0] || {};
-      try {
-        const { appendPrivacyConsentToSheet } = await import("./rgpdGoogleSheets");
-        const sheetRes = await appendPrivacyConsentToSheet(newDossier.id, privacyConsentRecord, {
-          email: primaryAssure.email,
-          name: [primaryAssure.prenom, primaryAssure.nom].filter(Boolean).join(" ").trim(),
+      const logConsentToSheet = async () => {
+        const { logDossierPrivacyConsentToSheet } = await import("./rgpdGoogleSheets");
+        return logDossierPrivacyConsentToSheet(newDossier, privacyConsentRecord, {
+          referralToken: apporteurRefToken,
         });
-        if (sheetRes.ok) {
+      };
+
+      try {
+        const sheetRes = await logConsentToSheet();
+        if (sheetRes.ok && sheetRes.sheetsLoggedAt) {
           newDossier.privacyConsent = {
             ...privacyConsentRecord,
-            sheetsLoggedAt: new Date().toISOString(),
+            sheetsLoggedAt: sheetRes.sheetsLoggedAt,
           };
         } else {
           appendLog(`[RGPD] Journal Sheets (${newDossier.id}): ${sheetRes.error}`);
@@ -469,7 +474,7 @@ export function createApp() {
       }
 
       try {
-        const refToken = String(mergedFormData.apporteurRefToken || "").trim();
+        const refToken = apporteurRefToken || "";
         if (refToken) {
           const { attachNetworkToNewDossier, syncNetworkReferralFromDossier } = await import("./networkStore");
           const { attachApporteurToNewDossier, syncReferralFromDossier } = await import("./apporteurStore");
@@ -486,6 +491,22 @@ export function createApp() {
 
       await writeDB(db, newDossier);
       appendLog(`Succès d'écriture du dossier ${newDossier.id} dans la base de données.`);
+
+      if (!newDossier.privacyConsent?.sheetsLoggedAt) {
+        try {
+          const retryRes = await logConsentToSheet();
+          if (retryRes.ok && retryRes.sheetsLoggedAt) {
+            newDossier.privacyConsent = {
+              ...privacyConsentRecord,
+              sheetsLoggedAt: retryRes.sheetsLoggedAt,
+            };
+            await writeDB(db, newDossier);
+            appendLog(`[RGPD] Journal Sheets rattrapé (${newDossier.id}).`);
+          }
+        } catch (retryErr: any) {
+          appendLog(`[RGPD] Retry journal Sheets (${newDossier.id}): ${retryErr?.message || retryErr}`);
+        }
+      }
 
       void import("./telegramNotify")
         .then(({ notifyTelegramNewDossier }) =>
@@ -3017,6 +3038,33 @@ export function createApp() {
     const diag = await diagnoseRgpdSpreadsheet();
     res.json({ success: true, ...diag });
   });
+
+  const rgpdSyncConsentsHandler = async (req: express.Request, res: express.Response) => {
+    try {
+      const { syncRgpdConsentsToSheet, getRgpdSpreadsheetId } = await import("./rgpdGoogleSheets");
+      const db = await readDBAsync();
+      const force = String((req.body as any)?.force || req.query.force || "").toLowerCase() === "true";
+      const result = await syncRgpdConsentsToSheet(db.dossiers as any[], { force });
+      for (const dossierId of result.syncedIds) {
+        const dossier = db.dossiers.find((d: any) => d.id === dossierId);
+        if (dossier) await writeDB(db, dossier);
+      }
+      if (!result.ok && !result.synced) {
+        return res.status(result.error?.includes("non configuré") ? 400 : 502).json({ success: false, ...result });
+      }
+      const spreadsheetId = getRgpdSpreadsheetId();
+      res.json({
+        success: true,
+        spreadsheetId,
+        url: spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : undefined,
+        ...result,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  };
+  app.get("/api/admin/rgpd/sync-consents", rgpdSyncConsentsHandler);
+  app.post("/api/admin/rgpd/sync-consents", express.json(), rgpdSyncConsentsHandler);
 
   const rgpdSyncRegisterHandler = async (_req: express.Request, res: express.Response) => {
     try {
