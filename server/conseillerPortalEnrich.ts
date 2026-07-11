@@ -22,6 +22,7 @@ import {
 } from "./insuranceChangePlan";
 import {
   buildStudyValidationSummaryForPortal,
+  resolveGrossSavingsForStudyValidation,
   type StudyConseillerValidation,
 } from "./studyConseillerValidation";
 
@@ -177,7 +178,17 @@ export function enrichReferralForConseillerPortal(params: {
           subject: studyValidationRaw.subject,
           submittedAt: studyValidationRaw.submittedAt,
           debriefNote: studyValidationRaw.debriefNote,
-          ...buildStudyValidationSummaryForPortal(studyValidationRaw, remuneration, dossier),
+          ...buildStudyValidationSummaryForPortal(
+            {
+              ...studyValidationRaw,
+              grossSavingsEur:
+                studyValidationRaw.grossSavingsEur ??
+                resolveGrossSavingsForStudyValidation(dossier, studyValidationRaw) ??
+                undefined,
+            },
+            remuneration,
+            dossier,
+          ),
         }
       : null;
 

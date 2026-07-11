@@ -84,6 +84,12 @@ export function resolveGrossSavingsForStudyValidation(
   return null;
 }
 
+/** @deprecated Alias — préférer resolveGrossSavingsForStudyValidation */
+export function resolveStudyGrossSavingsFallback(dossier: Dossier): number | null {
+  return resolveGrossSavingsForStudyValidation(dossier);
+}
+
+
 /** Extraction légère depuis HTML manuel (sans exiger objet « étude »). */
 export function extractStudyValidationContext(
   html: string,
@@ -97,6 +103,7 @@ export function extractStudyValidationContext(
   const gross =
     extractGrossSavingsFromStudyContent(raw, subject) ??
     resolveGrossSavingsForStudyValidation(dossier, { html: raw, subject });
+
 
   const feesAssureur =
     firstAmountAfter(/frais de dossier de la nouvelle assurance/i, blob) ??
