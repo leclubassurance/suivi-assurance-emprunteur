@@ -177,7 +177,7 @@ export function enrichReferralForConseillerPortal(params: {
           subject: studyValidationRaw.subject,
           submittedAt: studyValidationRaw.submittedAt,
           debriefNote: studyValidationRaw.debriefNote,
-          ...buildStudyValidationSummaryForPortal(studyValidationRaw, remuneration),
+          ...buildStudyValidationSummaryForPortal(studyValidationRaw, remuneration, dossier),
         }
       : null;
 

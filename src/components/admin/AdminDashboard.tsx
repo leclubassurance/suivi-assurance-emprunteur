@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Dossier, UserInfo } from "../../types";
 import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload, Users, Building2, Menu, X, Trash2 } from "lucide-react";
 import { showToast } from "../../lib/toast";
@@ -24,6 +24,7 @@ import {
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
+import { resolveStudyEmailHtmlForSend } from "../../../shared/studyEmailForSend";
 import { Button } from "../ui/Button";
 import { Tabs } from "../ui/Tabs";
 
@@ -87,17 +88,40 @@ export default function AdminDashboard({
   const isStaleLegacyDriveError = (err?: string) =>
     Boolean(err?.includes(LEGACY_DRIVE_PARENT_ID));
 
+  const studyConseillerValidation =
+    (selectedDossier as Dossier & { studyConseillerValidation?: { status?: string; html?: string; feesCourtageTotalEur?: number } })
+      ?.studyConseillerValidation ?? conseillerStudyFlow?.validation ?? null;
+
+  const studyEmailHtmlResolved = useMemo(
+    () =>
+      resolveStudyEmailHtmlForSend({
+        draftHtml: emailHtml,
+        validation: studyConseillerValidation,
+      }),
+    [emailHtml, studyConseillerValidation],
+  );
+
   useEffect(() => {
     if (!selectedDossier) return;
     const clientName = selectedDossier.formData?.assures?.[0]?.prenom || "Client";
     const draft = (selectedDossier as Dossier & { studyDraft?: { subject?: string; html?: string } })
       .studyDraft;
+    const validation = (selectedDossier as Dossier & {
+      studyConseillerValidation?: { status?: string; html?: string; feesCourtageTotalEur?: number };
+    }).studyConseillerValidation;
     setEmailSubject(
       draft?.subject || `${clientName}, votre étude personnalisée - Assurance Emprunteur`,
     );
-    setEmailHtml(draft?.html || "");
+    const baseHtml = draft?.html || validation?.html || "";
+    setEmailHtml(resolveStudyEmailHtmlForSend({ draftHtml: baseHtml, validation }));
     setPreviewActive(false);
-  }, [selectedDossier?.id, (selectedDossier as any)?.studyDraft?.computedAt]);
+  }, [
+    selectedDossier?.id,
+    (selectedDossier as any)?.studyDraft?.computedAt,
+    (selectedDossier as any)?.studyConseillerValidation?.approvedAt,
+    (selectedDossier as any)?.studyConseillerValidation?.feesCourtageTotalEur,
+    (selectedDossier as any)?.studyConseillerValidation?.status,
+  ]);
 
   useEffect(() => {
     if (!selectedDossier?.id) {
@@ -804,7 +828,11 @@ export default function AdminDashboard({
       const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/send-email`, {
         method: "POST",
         headers: await authHeaders(),
-        body: JSON.stringify({ subject: replySubject, html: replyBody }),
+        body: JSON.stringify({
+          subject: replySubject,
+          html: replyBody,
+          emailKind: "message",
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -870,7 +898,7 @@ export default function AdminDashboard({
       showToast("Veuillez saisir l'objet du mail", "error");
       return;
     }
-    if (!emailHtml.trim()) {
+    if (!studyEmailHtmlResolved.trim()) {
       showToast("Veuillez coller le HTML du mail", "error");
       return;
     }
@@ -880,7 +908,11 @@ export default function AdminDashboard({
       const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/send-email`, {
         method: "POST",
         headers: await authHeaders(),
-        body: JSON.stringify({ subject: emailSubject, html: emailHtml }),
+        body: JSON.stringify({
+          subject: emailSubject,
+          html: studyEmailHtmlResolved,
+          emailKind: "study",
+        }),
       });
       const errData = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -1731,6 +1763,11 @@ export default function AdminDashboard({
                     </div>
 
                     <div className="border-t pt-6 space-y-4">
+                      <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2 leading-relaxed">
+                        Message libre : envoyé <strong>exactement</strong> tel que saisi ci-dessous (sans
+                        réinjecter l&apos;étude ni les frais de courtage). Utilisez l&apos;onglet{" "}
+                        <strong>Envoi mail</strong> pour l&apos;étude économique.
+                      </p>
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Sujet du mail</label>
                         <input 
@@ -2106,8 +2143,8 @@ export default function AdminDashboard({
                       <p className="font-bold mb-1">Dossier conseiller LCIF</p>
                       <p className="text-xs text-indigo-800 leading-relaxed">
                         Collez votre étude HTML, ajoutez un débrief optionnel, puis soumettez au conseiller
-                        pour validation du courtage. Après validation, mettez à jour la ligne courtage dans le
-                        HTML et envoyez manuellement au client.
+                        pour validation du courtage. Après validation, les frais retenus sont appliqués
+                        automatiquement dans l&apos;aperçu et à l&apos;envoi.
                       </p>
                       {conseillerStudyFlow.validation?.status === "pending" ? (
                         <p className="text-xs font-bold text-amber-800 mt-2">
@@ -2126,7 +2163,7 @@ export default function AdminDashboard({
                               ? ` (${conseillerStudyFlow.validation.feesCourtageTotalEur} € total)`
                               : ""}
                           {" — "}
-                          vous pouvez envoyer l&apos;étude au client.
+                          appliqués automatiquement dans le HTML. Vous pouvez envoyer l&apos;étude au client.
                         </p>
                       ) : null}
                       {conseillerStudyFlow.studySent ? (
@@ -2238,6 +2275,17 @@ export default function AdminDashboard({
                     )}
                   </div>
 
+                  {studyConseillerValidation?.status === "approved" &&
+                  studyConseillerValidation.feesCourtageTotalEur != null ? (
+                    <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 leading-relaxed">
+                      Frais de courtage validés par le conseiller :{" "}
+                      <strong>
+                        {studyConseillerValidation.feesCourtageTotalEur.toLocaleString("fr-FR")} €
+                      </strong>{" "}
+                      — l&apos;aperçu ci-dessous correspond exactement au mail qui sera envoyé.
+                    </p>
+                  ) : null}
+
                   {previewActive && (
                     <div className="mt-4 border border-slate-200 rounded-2xl overflow-hidden flex flex-col">
                       <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 text-xs font-semibold text-slate-500 flex items-center gap-2">
@@ -2247,7 +2295,7 @@ export default function AdminDashboard({
                       <iframe 
                         className="w-full bg-white border-0"
                         style={{ height: "450px" }}
-                        srcDoc={emailHtml}
+                        srcDoc={studyEmailHtmlResolved}
                         title="Prévisualisation du Mail Client"
                       />
                     </div>

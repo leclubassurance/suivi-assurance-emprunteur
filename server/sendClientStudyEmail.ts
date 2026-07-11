@@ -13,6 +13,8 @@ export type SendClientStudyEmailResult =
   | { ok: true; providerId: string | null; channel: "gmail" | "smtp" | "simulated" }
   | { ok: false; error: string; status?: number };
 
+export type ClientEmailKind = "study" | "message";
+
 export async function sendClientStudyEmail(params: {
   dossier: Dossier;
   subject: string;
@@ -21,8 +23,11 @@ export async function sendClientStudyEmail(params: {
   googleToken?: string | null;
   actorLabel?: string;
   actorKind?: "ADMIN" | "SYSTEM";
+  /** study = étude économique (KPI, statut, courtage). message = texte libre tel quel. */
+  emailKind?: ClientEmailKind;
 }): Promise<SendClientStudyEmailResult> {
   const { dossier, subject, html } = params;
+  const emailKind: ClientEmailKind = params.emailKind === "message" ? "message" : "study";
   const toEmail = String(params.to || dossier.formData?.assures?.[0]?.email || "").trim();
   if (!toEmail) return { ok: false, error: "Missing recipient email", status: 400 };
 
@@ -123,48 +128,53 @@ export async function sendClientStudyEmail(params: {
   addEvent(dossier, {
     type: "EMAIL_SENT",
     actor: { kind: params.actorKind || "ADMIN", label: params.actorLabel || "Admin" },
-    meta: { to: toEmail, subject, providerId, channel },
-    message: `Email envoyé au client (${channel}).`,
+    meta: { to: toEmail, subject, providerId, channel, emailKind },
+    message:
+      emailKind === "message"
+        ? `Message libre envoyé au client (${channel}).`
+        : `Étude envoyée au client (${channel}).`,
   });
   acknowledgeStaffOutboundToClient(dossier, {
     source: params.actorLabel || "admin_send_email",
     subject,
   });
 
-  try {
-    applyStudyKpiBestAvailable(dossier, {
-      subject,
-      html,
-      text: html,
-      gmailId: providerId || `study_send_${dossier.id}_${Date.now()}`,
-      date: sentAt,
-    });
-    if (hasStudyBeenSent(dossier)) {
-      dossier.status = "MAIL_ENVOYÉ";
-    } else {
-      applyStudySentStatusIfNeeded(dossier);
+  if (emailKind === "study") {
+    try {
+      applyStudyKpiBestAvailable(dossier, {
+        subject,
+        html,
+        text: html,
+        gmailId: providerId || `study_send_${dossier.id}_${Date.now()}`,
+        date: sentAt,
+      });
+      if (hasStudyBeenSent(dossier)) {
+        dossier.status = "MAIL_ENVOYÉ";
+      } else {
+        applyStudySentStatusIfNeeded(dossier);
+      }
+    } catch (kpiErr: any) {
+      console.warn(`[KPI] Extraction étude à l'envoi: ${kpiErr?.message || kpiErr}`);
     }
-  } catch (kpiErr: any) {
-    console.warn(`[KPI] Extraction étude à l'envoi: ${kpiErr?.message || kpiErr}`);
-  }
 
-  try {
-    const { syncReferralFromDossier } = await import("./apporteurStore");
-    const { syncNetworkReferralFromDossier } = await import("./networkStore");
-    await syncNetworkReferralFromDossier(dossier, params.actorLabel || "send_study");
-    await syncReferralFromDossier(dossier, params.actorLabel || "send_study");
-  } catch {
-    /* non bloquant */
-  }
+    try {
+      const { syncReferralFromDossier } = await import("./apporteurStore");
+      const { syncNetworkReferralFromDossier } = await import("./networkStore");
+      await syncNetworkReferralFromDossier(dossier, params.actorLabel || "send_study");
+      await syncReferralFromDossier(dossier, params.actorLabel || "send_study");
+    } catch {
+      /* non bloquant */
+    }
 
-  try {
-    const { maybeNotifyConseillerStudySent } = await import("./conseillerStudyNotify");
-    await maybeNotifyConseillerStudySent(dossier, {
-      subject,
-      excerpt: html.replace(/<[^>]+>/g, " ").slice(0, 1200),
-    });
-  } catch {
-    /* non bloquant */
+    try {
+      const { maybeNotifyConseillerStudySent } = await import("./conseillerStudyNotify");
+      await maybeNotifyConseillerStudySent(dossier, {
+        subject,
+        excerpt: html.replace(/<[^>]+>/g, " ").slice(0, 1200),
+      });
+    } catch {
+      /* non bloquant */
+    }
   }
 
   return { ok: true, providerId, channel };

@@ -92,6 +92,21 @@ export function extractGrossFromStudySubject(subject: string): number | null {
   return m?.[1] ? parseEuroToken(m[1]) : null;
 }
 
+/** Extraction partagée (étude admin → validation conseiller, KPI, etc.). */
+export function extractGrossSavingsFromStudyContent(html: string, subject = ""): number | null {
+  const rawHtml = String(html || "");
+  const blob = stripHtml(rawHtml || subject);
+  if (/déjà bien optimisée|deja bien optimisee|pas.*amélioration économique/i.test(blob)) {
+    return 0;
+  }
+  return (
+    extractGrossFromStudyTableHtml(rawHtml) ??
+    extractGrossFromHeroHtml(rawHtml) ??
+    extractGrossFromTextBlob(blob) ??
+    extractGrossFromStudySubject(subject)
+  );
+}
+
 /** Montant affiché en grand — uniquement si libellé « économie brute » à proximité. */
 function extractGrossFromHeroHtml(rawHtml: string): number | null {
   const html = decodeHtmlEntities(rawHtml);

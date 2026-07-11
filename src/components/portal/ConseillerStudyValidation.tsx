@@ -133,14 +133,19 @@ export default function ConseillerStudyValidation({
         </p>
       ) : null}
       <div className="grid sm:grid-cols-2 gap-2 text-xs mb-3">
-        {validation.grossSavingsEur != null ? (
-          <div className="bg-white/80 rounded-lg px-3 py-2 border border-indigo-100">
-            <span className="text-slate-500">Économie estimée</span>
-            <p className="font-black text-indigo-900">
-              {Math.round(validation.grossSavingsEur).toLocaleString("fr-FR")} €
+        <div className="bg-white/80 rounded-lg px-3 py-2 border border-indigo-100">
+          <span className="text-slate-500">Économie brute estimée</span>
+          <p className="font-black text-indigo-900">
+            {validation.grossSavingsEur != null
+              ? `${Math.round(validation.grossSavingsEur).toLocaleString("fr-FR")} €`
+              : "—"}
+          </p>
+          {validation.grossSavingsEur == null ? (
+            <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+              Montant non détecté dans l&apos;étude — contactez LCIF si besoin.
             </p>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
         <div className="bg-white/80 rounded-lg px-3 py-2 border border-indigo-100">
           <span className="text-slate-500">Assurés</span>
           <p className="font-black text-indigo-900">{validation.assuredCount}</p>

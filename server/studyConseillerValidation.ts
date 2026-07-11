@@ -9,8 +9,9 @@ import {
   type RemunerationConfig,
 } from "../shared/apporteurRemuneration";
 import { countAssuredFromDossier } from "../shared/apporteurCommissionFromDossier";
-import { parseEuroToken } from "./studyEmailKpi";
-import { hasBrokerageFeeLine, patchStudyHtmlBrokerageFee } from "./studyHtmlPatch";
+import { extractGrossSavingsFromStudyContent, parseEuroToken } from "./studyEmailKpi";
+import { resolveStudyEmailHtmlForSend } from "../shared/studyEmailForSend";
+import { hasBrokerageFeeLine } from "./studyHtmlPatch";
 import { sendApporteurHtmlEmail } from "./apporteurNotify";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
 
@@ -64,42 +65,38 @@ function firstAmountAfter(labelRe: RegExp, blob: string, windowChars = 140): num
   return amt ? parseEuroToken(amt[1]) : null;
 }
 
+export function resolveGrossSavingsForStudyValidation(
+  dossier: Dossier,
+  validation?: Pick<StudyConseillerValidation, "grossSavingsEur" | "html" | "subject">,
+): number | null {
+  if (validation?.grossSavingsEur != null && Number.isFinite(validation.grossSavingsEur)) {
+    return validation.grossSavingsEur;
+  }
+  const fromKpi = dossier.studyKpi?.grossSavingsEur;
+  if (fromKpi != null && Number.isFinite(fromKpi)) return fromKpi;
+  const fromDraft = dossier.studyDraft?.economySummary?.grossSavingsEur;
+  if (fromDraft != null && Number.isFinite(fromDraft)) return fromDraft;
+  const html = validation?.html || dossier.studyDraft?.html || "";
+  const subject = validation?.subject || dossier.studyDraft?.subject || "";
+  if (html || subject) {
+    return extractGrossSavingsFromStudyContent(String(html), String(subject));
+  }
+  return null;
+}
+
 /** Extraction légère depuis HTML manuel (sans exiger objet « étude »). */
 export function extractStudyValidationContext(
   html: string,
   dossier: Dossier,
+  subject = "",
 ): StudyValidationContext {
   const raw = decodeHtmlEntities(String(html || ""));
   const blob = stripHtml(raw);
   const assuredCount = countAssuredFromDossier(dossier, 1);
 
-  let gross: number | null = null;
-  const tablePatterns = [
-    /<td[^>]*>\s*[ÉE]conomie\s*<\/td>\s*<td[^>]*>\s*([^<]+)\s*<\/td>/i,
-    /<td[^>]*>\s*[ÉE]conomie brute\s*<\/td>\s*<td[^>]*>\s*([^<]+)\s*<\/td>/i,
-  ];
-  for (const re of tablePatterns) {
-    const m = raw.match(re);
-    if (m?.[1]) {
-      const n = parseEuroToken(m[1]);
-      if (n != null && n > 0) {
-        gross = n;
-        break;
-      }
-    }
-  }
-  if (gross == null) {
-    const hero = raw.match(
-      /[ÉE]conomie potentielle[\s\S]{0,400}?font-size:\s*(?:2[4-9]|3[0-9])px[\s\S]{0,120}?>([^<]+)</i,
-    );
-    if (hero?.[1]) gross = parseEuroToken(hero[1]);
-  }
-  if (gross == null) {
-    gross =
-      firstAmountAfter(/[ée]conomie potentielle/i, blob, 80) ??
-      firstAmountAfter(/[ée]conomie brute/i, blob, 80) ??
-      firstAmountAfter(/[ée]conomie\s+g[ée]n[ée]r[ée]e/i, blob, 80);
-  }
+  const gross =
+    extractGrossSavingsFromStudyContent(raw, subject) ??
+    resolveGrossSavingsForStudyValidation(dossier, { html: raw, subject });
 
   const feesAssureur =
     firstAmountAfter(/frais de dossier de la nouvelle assurance/i, blob) ??
@@ -187,13 +184,17 @@ export function validateFeesPerAssuredEur(
 export function buildStudyValidationSummaryForPortal(
   validation: StudyConseillerValidation,
   config: RemunerationConfig,
+  dossier?: Dossier,
 ) {
   const feesPerAssured =
     validation.feesPerAssuredEur ?? validation.suggestedFeePerAssuredEur;
   const total = feesPerAssured * validation.assuredCount;
   const retro = Math.round(total * config.apporteurShareOfBrokerage);
+  const grossSavingsEur = dossier
+    ? resolveGrossSavingsForStudyValidation(dossier, validation)
+    : validation.grossSavingsEur ?? null;
   return {
-    grossSavingsEur: validation.grossSavingsEur ?? null,
+    grossSavingsEur,
     feesAssureurEur: validation.feesAssureurEur ?? null,
     assuredCount: validation.assuredCount,
     feesPerAssuredEur: feesPerAssured,
@@ -274,7 +275,7 @@ export async function notifyAdminStudyCourtageApproved(params: {
       ${validation.grossSavingsEur != null ? `<li>Économie affichée : <strong>${Math.round(validation.grossSavingsEur).toLocaleString("fr-FR")} €</strong></li>` : ""}
       <li>Rétro conseiller (70 %) : <strong>${validation.conseillerRetroEur ?? 0} €</strong></li>
     </ul>
-    <p>Mettez à jour la ligne « Frais de courtage » dans votre HTML et envoyez l'étude depuis l'admin.</p>
+    <p>Les frais de courtage validés seront appliqués automatiquement à l&apos;aperçu admin et à l&apos;envoi client.</p>
   </div>`;
   const sent = await sendApporteurHtmlEmail(notifyTo, subject, html);
   return { sent };
@@ -318,7 +319,12 @@ export async function submitStudyToConseiller(params: {
     return { ok: false, error: "validation_already_approved" };
   }
 
-  const ctx = extractStudyValidationContext(trimmedHtml, dossier);
+  const ctx = extractStudyValidationContext(trimmedHtml, dossier, trimmedSubject);
+  const resolvedGross = resolveGrossSavingsForStudyValidation(dossier, {
+    grossSavingsEur: ctx.grossSavingsEur ?? undefined,
+    html: trimmedHtml,
+    subject: trimmedSubject,
+  });
   const now = new Date().toISOString();
   const validation: StudyConseillerValidation = {
     status: "pending",
@@ -326,7 +332,7 @@ export async function submitStudyToConseiller(params: {
     submittedBy,
     subject: trimmedSubject,
     html: trimmedHtml,
-    grossSavingsEur: ctx.grossSavingsEur ?? undefined,
+    grossSavingsEur: resolvedGross ?? undefined,
     feesAssureurEur: ctx.feesAssureurEur ?? undefined,
     assuredCount: ctx.assuredCount,
     suggestedFeePerAssuredEur: ctx.suggestedFeePerAssuredEur,
@@ -343,9 +349,9 @@ export async function submitStudyToConseiller(params: {
     subject: trimmedSubject,
     html: trimmedHtml,
     economySummary:
-      ctx.grossSavingsEur != null
+      resolvedGross != null
         ? {
-            grossSavingsEur: Math.round(ctx.grossSavingsEur),
+            grossSavingsEur: Math.round(resolvedGross),
             feesCourtageEur: 0,
             feesAssureurEur: ctx.feesAssureurEur ?? undefined,
           }
@@ -358,7 +364,7 @@ export async function submitStudyToConseiller(params: {
     message: "Débrief soumis au conseiller pour validation du courtage.",
     meta: {
       template: "STUDY_CONSEILLER_SUBMIT",
-      grossSavingsEur: ctx.grossSavingsEur,
+      grossSavingsEur: resolvedGross,
       assuredCount: ctx.assuredCount,
     },
   });
@@ -449,9 +455,14 @@ export function applyConseillerApprovedFees(
 
 export function buildFinalStudyHtmlForSend(
   validation: StudyConseillerValidation,
-  feesCourtageTotalEur: number,
-): { html: string; patched: boolean } {
-  return patchStudyHtmlBrokerageFee(validation.html, feesCourtageTotalEur);
+  draftHtml?: string | null,
+): { html: string } {
+  return {
+    html: resolveStudyEmailHtmlForSend({
+      draftHtml: draftHtml ?? validation.html,
+      validation,
+    }),
+  };
 }
 
 export function resolvePublicBaseFromRequest(req: { headers: Record<string, unknown> }): string {

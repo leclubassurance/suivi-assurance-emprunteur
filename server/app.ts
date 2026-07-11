@@ -750,8 +750,10 @@ export function createApp() {
   app.post("/api/admin/dossiers/:id/send-email", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;
-    const { to, subject, html, saveAsPlaybook, forceDirect } = (req.body || {}) as any;
+    const { to, subject, html, saveAsPlaybook, forceDirect, emailKind: rawEmailKind } =
+      (req.body || {}) as any;
     if (!subject || !html) return res.status(400).json({ error: "Missing subject or html" });
+    const emailKind = rawEmailKind === "message" ? "message" : "study";
 
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === id);
@@ -759,19 +761,21 @@ export function createApp() {
 
     const { getConseillerStudySendGate } = await import("./studyConseillerValidation");
     const gate = await getConseillerStudySendGate(dossier);
-    if (!forceDirect && gate.blocked) {
+    if (emailKind === "study" && !forceDirect && gate.blocked) {
       return res.status(400).json({
         error: gate.reason,
         requiresConseillerValidation: true,
       });
     }
 
-    let finalHtml = String(html);
-    const validation = dossier.studyConseillerValidation;
-    if (validation?.status === "approved" && validation.feesCourtageTotalEur != null) {
-      const { buildFinalStudyHtmlForSend } = await import("./studyConseillerValidation");
-      const patched = buildFinalStudyHtmlForSend(validation, validation.feesCourtageTotalEur);
-      finalHtml = patched.html;
+    const htmlInput = String(html);
+    let finalHtml = htmlInput;
+    if (emailKind === "study") {
+      const { resolveStudyEmailHtmlForSend } = await import("../shared/studyEmailForSend");
+      finalHtml = resolveStudyEmailHtmlForSend({
+        draftHtml: htmlInput,
+        validation: dossier.studyConseillerValidation,
+      });
     }
 
     const googleToken = getBearerTokenFromRequest(req);
@@ -784,6 +788,7 @@ export function createApp() {
       googleToken,
       actorLabel: "Admin",
       actorKind: "ADMIN",
+      emailKind,
     });
     if (!sendResult.ok) {
       return res.status(sendResult.status || 500).json({ error: sendResult.error });
@@ -881,13 +886,17 @@ export function createApp() {
       "./studyConseillerValidation"
     );
     const { hasStudyBeenSent } = await import("./dossierLifecycle");
+    const { resolveStudyEmailHtmlForSend } = await import("../shared/studyEmailForSend");
     const requiresConseillerValidation = await dossierRequiresConseillerStudyValidation(dossier);
     const gate = await getConseillerStudySendGate(dossier);
+    const validation = dossier.studyConseillerValidation || null;
+    const draftHtml = dossier.studyDraft?.html || validation?.html || "";
     res.json({
       requiresConseillerValidation,
       canAdminSendStudy: !gate.blocked,
       studySent: hasStudyBeenSent(dossier),
-      validation: dossier.studyConseillerValidation || null,
+      validation,
+      htmlForSend: resolveStudyEmailHtmlForSend({ draftHtml, validation }),
     });
   });
 
