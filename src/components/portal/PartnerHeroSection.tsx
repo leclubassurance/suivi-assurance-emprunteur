@@ -3,6 +3,7 @@ import { Copy, Link2, Plus, Users } from "lucide-react";
 import type { ApporteurType } from "../../../shared/apporteurTypes";
 import { getHeroCopy } from "../../../shared/apporteurPortalContent";
 import KpiCard, { formatPercent } from "./PartnerKpiGrid";
+import ConseillerCommunicationDriveSection from "./ConseillerCommunicationDriveSection";
 
 type Props = {
   apporteurType: ApporteurType | string;
@@ -102,6 +103,8 @@ export default function PartnerHeroSection({
               <p className="text-xs text-slate-500 mt-1">Suivi, étapes et commissions</p>
             </button>
           ) : null}
+
+          {isConseiller ? <ConseillerCommunicationDriveSection variant="card" /> : null}
         </div>
       ) : (
         <div className="lcif-card p-4 border-amber-200 bg-amber-50">

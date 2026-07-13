@@ -27,6 +27,7 @@ import ConseillerSubscriptionForm from "./ConseillerSubscriptionForm";
 import ConseillerReferralCommunications from "./ConseillerReferralCommunications";
 import ConseillerStudyValidation, { type StudyValidationPending } from "./ConseillerStudyValidation";
 import ConseillerFormationSection from "./ConseillerFormationSection";
+import ConseillerCommunicationDriveSection from "./ConseillerCommunicationDriveSection";
 import { CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
 import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
@@ -472,6 +473,13 @@ export default function ApporteurPortalPage({
       mobilePrimary: Boolean(isConseillerClub),
     },
     {
+      id: "ap-communication",
+      label: "Kit communication",
+      shortLabel: "Com'",
+      icon: PORTAL_NAV_ICONS.communication,
+      visible: Boolean(isConseillerClub),
+    },
+    {
       id: "ap-ranking",
       label: "Classement",
       shortLabel: "Classement",
@@ -624,6 +632,12 @@ export default function ApporteurPortalPage({
         {isConseillerClub ? (
           <div id="ap-formation" className="scroll-mt-28">
             <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} previewToken={adminPreviewToken || undefined} />
+          </div>
+        ) : null}
+
+        {isConseillerClub ? (
+          <div id="ap-communication" className="scroll-mt-28">
+            <ConseillerCommunicationDriveSection />
           </div>
         ) : null}
 

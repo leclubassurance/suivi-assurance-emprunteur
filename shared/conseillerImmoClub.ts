@@ -11,6 +11,10 @@ export const CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC = 390;
 /** Franchise cotisation plateforme (inclus dans le contrat). */
 export const CONSEILLER_PLATFORM_FEE_WAIVER_UNTIL = "2026-12-31";
 
+/** Kit communication conseillers (réseaux sociaux, visuels, modèles). */
+export const CONSEILLER_COMMUNICATION_DRIVE_URL =
+  "https://drive.google.com/drive/folders/1MNz_To7CuVc7CV9LNv88bKZn8jdkkCWx";
+
 export type ConseillerOperatingPhase = "assisted" | "autonomous";
 
 export function isConseillerImmoClubType(type: unknown): boolean {
