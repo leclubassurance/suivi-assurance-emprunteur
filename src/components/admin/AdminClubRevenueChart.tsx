@@ -8,6 +8,11 @@ function formatEur(n: number): string {
   return `${Math.round(n).toLocaleString("fr-FR")} €`;
 }
 
+function formatCompact(n: number): string {
+  if (n >= 1000) return `${Math.round(n / 100) / 10}k`;
+  return String(Math.round(n));
+}
+
 type Props = {
   className?: string;
 };
@@ -15,7 +20,7 @@ type Props = {
 export default function AdminClubRevenueChart({ className = "" }: Props) {
   const [forecast, setForecast] = useState<ClubRevenueForecast | null>(null);
   const [loading, setLoading] = useState(true);
-  const [monthsPast, setMonthsPast] = useState(6);
+  const [monthsPast, setMonthsPast] = useState(3);
   const [monthsFuture, setMonthsFuture] = useState(6);
 
   const load = useCallback(async () => {
@@ -37,57 +42,46 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
     load();
   }, [load]);
 
+  const currentMonthKey = toMonthKeyFromDate(new Date());
+
   const chart = useMemo(() => {
     if (!forecast?.months?.length) return null;
     const months = forecast.months;
     const maxVal = Math.max(
-      1,
+      100,
       ...months.map((m) =>
         Math.max(
-          m.totalNetClubEur + m.projectedTotalEur,
-          m.monthlyPremiumEur + m.projectedMonthlyPremiumEur,
+          m.totalNetClubEur,
+          m.projectedCourtageGrossEur,
+          m.monthlyCommissionEur + m.projectedMonthlyCommissionEur,
         ),
       ),
     );
-    const w = 720;
-    const h = 220;
-    const padL = 48;
-    const padR = 12;
-    const padT = 16;
-    const padB = 36;
+
+    const barSlotW = 56;
+    const w = Math.max(480, months.length * barSlotW + 56);
+    const h = 260;
+    const padL = 44;
+    const padR = 8;
+    const padT = 20;
+    const padB = 52;
     const innerW = w - padL - padR;
     const innerH = h - padT - padB;
-    const barGap = 6;
-    const barW = Math.max(8, (innerW - barGap * (months.length - 1)) / months.length);
+    const barW = Math.min(40, Math.max(22, barSlotW - 10));
 
     const y = (v: number) => padT + innerH - (v / maxVal) * innerH;
 
     const bars = months.map((m, i) => {
-      const x = padL + i * (barW + barGap);
+      const x = padL + i * (innerW / months.length) + (innerW / months.length - barW) / 2;
       const realizedH = (m.totalNetClubEur / maxVal) * innerH;
-      const projectedH = (m.projectedTotalEur / maxVal) * innerH;
-      const premiumY = y(m.monthlyPremiumEur + m.projectedMonthlyPremiumEur);
-      const isFuture =
-        i > months.findIndex((mo) => mo.monthKey === toMonthKeyFromDate(new Date()));
-      return {
-        m,
-        x,
-        realizedH,
-        projectedH,
-        premiumY,
-        isFuture,
-      };
+      const projectedCourtageH = (m.projectedCourtageGrossEur / maxVal) * innerH;
+      const mrrH = (m.projectedMonthlyCommissionEur / maxVal) * innerH;
+      const isCurrent = m.monthKey === currentMonthKey;
+      return { m, x, realizedH, projectedCourtageH, mrrH, isCurrent };
     });
 
-    const premiumPath = bars
-      .map((b, i) => {
-        const cx = b.x + barW / 2;
-        return `${i === 0 ? "M" : "L"} ${cx} ${b.premiumY}`;
-      })
-      .join(" ");
-
-    return { w, h, maxVal, bars, premiumPath, padL, padT, innerH };
-  }, [forecast]);
+    return { w, h, maxVal, bars, padL, padT, innerH, barW };
+  }, [forecast, currentMonthKey]);
 
   if (loading && !forecast) {
     return (
@@ -100,12 +94,16 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
   if (!forecast || !chart) {
     return (
       <div className={`bg-slate-900 text-white px-4 py-6 ${className}`}>
-        <p className="text-xs text-white/50">Aucune donnée pour le graphique (renseignez prime / courtage sur les dossiers).</p>
+        <p className="text-xs text-white/50">
+          Aucune donnée — envoyez une étude économie au client ou lancez « compute-economy » sur les dossiers.
+        </p>
       </div>
     );
   }
 
   const { summary } = forecast;
+  const pipelineRows =
+    summary.contributions?.filter((c) => c.segment === "pipeline" && c.courtageGrossEur > 0) ?? [];
 
   return (
     <div className={`bg-slate-900 text-white px-4 py-4 border-t border-white/10 ${className}`}>
@@ -116,9 +114,8 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
             Rémunération club — mensuel & projection
           </p>
           <p className="text-[11px] text-white/60 mt-1 max-w-2xl">
-            Barres pleines : net LCIF réalisé (courtage ponctuel + commission linéaire). Barres hachurées : projection
-            (courtage brut + MRR) si les {summary.pipelineDossiers} dossier(s) en cours aboutissent. Courbe orange :
-            primes clients / mois.
+            Vert : net LCIF encaissé. Violet : courtage pipeline (ponctuel à la signature). Bleu clair : MRR
+            commission projetée. Données relues depuis les mails d&apos;étude à chaque actualisation.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -127,9 +124,9 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
             onChange={(e) => setMonthsPast(Number(e.target.value))}
             className="text-[10px] rounded-md border border-white/20 bg-white/10 px-2 py-1"
           >
-            {[3, 6, 12].map((n) => (
+            {[0, 3, 6].map((n) => (
               <option key={n} value={n} className="text-slate-900">
-                {n} mois passés
+                {n === 0 ? "Aucun passé" : `${n} mois passés`}
               </option>
             ))}
           </select>
@@ -180,10 +177,12 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto pb-1">
         <svg
           viewBox={`0 0 ${chart.w} ${chart.h}`}
-          className="w-full min-w-[520px] max-h-[260px]"
+          width={chart.w}
+          height={chart.h}
+          className="block"
           role="img"
           aria-label="Graphique rémunération club mensuelle"
         >
@@ -192,51 +191,91 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
             const val = Math.round(chart.maxVal * t);
             return (
               <g key={t}>
-                <line x1={chart.padL} y1={y} x2={chart.w - 12} y2={y} stroke="rgba(255,255,255,0.08)" />
-                <text x={4} y={y + 4} fill="rgba(255,255,255,0.35)" fontSize="9">
-                  {val >= 1000 ? `${Math.round(val / 1000)}k` : val}
+                <line x1={chart.padL} y1={y} x2={chart.w - 8} y2={y} stroke="rgba(255,255,255,0.1)" />
+                <text x={4} y={y + 4} fill="rgba(255,255,255,0.45)" fontSize="10">
+                  {formatCompact(val)}
                 </text>
               </g>
             );
           })}
 
-          {chart.bars.map(({ m, x, realizedH, projectedH, premiumY }) => (
-            <g key={m.monthKey}>
-              <rect
-                x={x}
-                y={chart.padT + chart.innerH - realizedH - projectedH}
-                width={chart.barW * 0.42}
-                height={Math.max(0, realizedH)}
-                rx={2}
-                fill="#34d399"
-                opacity={0.9}
-              />
-              <rect
-                x={x + chart.barW * 0.48}
-                y={chart.padT + chart.innerH - projectedH}
-                width={chart.barW * 0.42}
-                height={Math.max(0, projectedH)}
-                rx={2}
-                fill="none"
-                stroke="#818cf8"
-                strokeWidth={2}
-                strokeDasharray="4 3"
-                opacity={0.95}
-              />
-              <circle cx={x + chart.barW / 2} cy={premiumY} r={3} fill="#fbbf24" />
-              <text
-                x={x + chart.barW / 2}
-                y={chart.h - 8}
-                textAnchor="middle"
-                fill="rgba(255,255,255,0.45)"
-                fontSize="8"
-              >
-                {m.label}
-              </text>
-            </g>
-          ))}
-
-          <path d={chart.premiumPath} fill="none" stroke="#fbbf24" strokeWidth={1.5} opacity={0.7} />
+          {chart.bars.map(({ m, x, realizedH, projectedCourtageH, mrrH, isCurrent }) => {
+            const baseY = chart.padT + chart.innerH;
+            const courtageTop = baseY - projectedCourtageH - mrrH - realizedH;
+            return (
+              <g key={m.monthKey}>
+                {isCurrent ? (
+                  <rect
+                    x={x - 4}
+                    y={chart.padT}
+                    width={chart.barW + 8}
+                    height={chart.innerH}
+                    fill="rgba(255,255,255,0.04)"
+                    rx={4}
+                  />
+                ) : null}
+                <rect
+                  x={x}
+                  y={baseY - realizedH}
+                  width={chart.barW}
+                  height={Math.max(0, realizedH)}
+                  rx={3}
+                  fill="#34d399"
+                />
+                <rect
+                  x={x}
+                  y={baseY - projectedCourtageH - mrrH - realizedH}
+                  width={chart.barW}
+                  height={Math.max(2, projectedCourtageH)}
+                  rx={3}
+                  fill="#8b5cf6"
+                  opacity={0.85}
+                />
+                <rect
+                  x={x + 4}
+                  y={baseY - mrrH - realizedH}
+                  width={Math.max(4, chart.barW - 8)}
+                  height={Math.max(0, mrrH)}
+                  rx={2}
+                  fill="#6366f1"
+                  opacity={0.55}
+                />
+                {projectedCourtageH > 14 ? (
+                  <text
+                    x={x + chart.barW / 2}
+                    y={courtageTop + 12}
+                    textAnchor="middle"
+                    fill="#fff"
+                    fontSize="9"
+                    fontWeight="bold"
+                  >
+                    {formatCompact(m.projectedCourtageGrossEur)}
+                  </text>
+                ) : null}
+                <text
+                  x={x + chart.barW / 2}
+                  y={chart.h - 28}
+                  textAnchor="middle"
+                  fill={isCurrent ? "#c4b5fd" : "rgba(255,255,255,0.55)"}
+                  fontSize="10"
+                  fontWeight={isCurrent ? "bold" : "normal"}
+                >
+                  {m.label}
+                </text>
+                {isCurrent ? (
+                  <text
+                    x={x + chart.barW / 2}
+                    y={chart.h - 14}
+                    textAnchor="middle"
+                    fill="#a78bfa"
+                    fontSize="8"
+                  >
+                    en cours
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
         </svg>
       </div>
 
@@ -245,12 +284,32 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
           <span className="inline-block w-3 h-3 rounded-sm bg-emerald-400" /> Net club réalisé
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-sm border-2 border-indigo-400 border-dashed" /> Projection pipeline
+          <span className="inline-block w-3 h-3 rounded-sm bg-violet-500" /> Courtage pipeline (ponctuel)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-2 h-2 rounded-full bg-amber-400" /> Primes clients / mois
+          <span className="inline-block w-3 h-3 rounded-sm bg-indigo-400 opacity-70" /> MRR projeté
         </span>
       </div>
+
+      {pipelineRows.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px]">
+          <p className="font-bold text-white/60 uppercase mb-1.5">Détail pipeline (courtage brut)</p>
+          <ul className="space-y-0.5 text-white/75">
+            {pipelineRows.map((r) => (
+              <li key={r.id}>
+                <span className="font-mono text-violet-300">{r.id}</span>
+                {" · "}
+                {formatEur(r.courtageGrossEur)} brut
+                {r.monthlyCommissionEur > 0
+                  ? ` · ${formatEur(r.monthlyCommissionEur)}/mois commission`
+                  : ""}
+                {" · "}
+                mois {r.startMonthKey}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

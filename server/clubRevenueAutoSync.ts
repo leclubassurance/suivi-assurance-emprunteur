@@ -1,19 +1,16 @@
 import type { Dossier } from "./dossierModel";
-import { syncClubRevenueKpiFromStudy } from "./clubRevenueKpi";
+import { materializeStudyEconomics } from "./materializeStudyEconomics";
 
-/** Rejoue l'extraction KPI + sync club revenue (en mémoire). */
+/** Rejoue l'extraction depuis le mail d'étude et met à jour studyKpi + clubRevenueKpi. */
 export function enrichDossierClubEconomics(dossier: Dossier): boolean {
-  const { refreshStudyKpiFromCommunications } = require("./studyEmailKpi") as typeof import("./studyEmailKpi");
-  let changed = refreshStudyKpiFromCommunications(dossier);
-  if (syncClubRevenueKpiFromStudy(dossier)) changed = true;
-  return changed;
+  return materializeStudyEconomics(dossier);
 }
 
 /** Backfill tous les dossiers avant calcul forecast / metrics. */
 export function backfillClubEconomicsForDossiers(dossiers: Dossier[]): string[] {
   const dirty: string[] = [];
   for (const d of dossiers) {
-    if (enrichDossierClubEconomics(d)) dirty.push(d.id);
+    if (materializeStudyEconomics(d)) dirty.push(d.id);
   }
   return dirty;
 }

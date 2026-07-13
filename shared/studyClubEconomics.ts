@@ -1,3 +1,5 @@
+import { parseLcifStudyEmailEconomics } from "./studyEconomicsParse";
+
 function parseEuroToken(raw: string): number | null {
   const s = String(raw || "")
     .replace(/\u00a0/g, " ")
@@ -113,14 +115,14 @@ export function resolveAnnualPremiumEur(dossier: StudyEconomicsSlice): number {
     return Math.round(Number(fromKpi));
   }
 
+  const html = lastStudyOutboundHtml(dossier) || String(dossier.studyDraft?.html || "");
+  const fromParser = html ? parseLcifStudyEmailEconomics(html)?.annualPremiumEur : null;
+  if (fromParser != null && fromParser > 0) return fromParser;
+
   const monthly = resolveFirstYearMonthlyPremium(dossier);
   if (monthly != null && monthly > 0) {
     return Math.round(monthly * 12);
   }
-
-  const html = lastStudyOutboundHtml(dossier) || String(dossier.studyDraft?.html || "");
-  const fromHtml = extractAnnualPremiumFromStudyHtml(html);
-  if (fromHtml != null && fromHtml > 0) return fromHtml;
 
   return 0;
 }

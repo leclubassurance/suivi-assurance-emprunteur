@@ -941,10 +941,8 @@ export function createApp() {
           }
         : undefined,
     };
-    const { applyStudyKpiFromStudyDraft } = await import("./studyEmailKpi");
-    const { syncClubRevenueKpiFromStudy } = await import("./clubRevenueKpi");
-    applyStudyKpiFromStudyDraft(dossier);
-    syncClubRevenueKpiFromStudy(dossier);
+    const { materializeStudyEconomics } = await import("./materializeStudyEconomics");
+    materializeStudyEconomics(dossier);
     addEvent(dossier, {
       type: "NOTE_ADDED",
       actor: { kind: "SYSTEM" },
@@ -3862,9 +3860,9 @@ export function createApp() {
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     delete dossier.studyKpi;
     const { refreshStudyKpiFromCommunications } = await import("./studyEmailKpi");
-    const { syncClubRevenueKpiFromStudy } = await import("./clubRevenueKpi");
     const ok = refreshStudyKpiFromCommunications(dossier);
-    syncClubRevenueKpiFromStudy(dossier);
+    const { materializeStudyEconomics } = await import("./materializeStudyEconomics");
+    materializeStudyEconomics(dossier);
     await writeDB(db, dossier);
     res.json({
       ok,

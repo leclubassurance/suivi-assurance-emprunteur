@@ -148,6 +148,8 @@ export async function sendClientStudyEmail(params: {
         gmailId: providerId || `study_send_${dossier.id}_${Date.now()}`,
         date: sentAt,
       });
+      const { materializeStudyEconomics } = await import("./materializeStudyEconomics");
+      materializeStudyEconomics(dossier);
       if (hasStudyBeenSent(dossier)) {
         dossier.status = "MAIL_ENVOYÉ";
       } else {

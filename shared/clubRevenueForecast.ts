@@ -32,6 +32,15 @@ export type ClubRevenueForecastSummary = {
   projectedPipelineCourtageNetEur: number;
   signedDossiers: number;
   pipelineDossiers: number;
+  /** Détail par dossier pour contrôle (pipeline + signés). */
+  contributions?: Array<{
+    id: string;
+    segment: "signed" | "pipeline";
+    courtageGrossEur: number;
+    courtageNetEur: number;
+    monthlyCommissionEur: number;
+    startMonthKey: string;
+  }>;
 };
 
 export type ClubRevenueForecast = {
@@ -196,6 +205,14 @@ export function buildClubRevenueForecastFromContributions(
     projectedPipelineCourtageNetEur,
     signedDossiers: signedCount,
     pipelineDossiers: pipelineCount,
+    contributions: contributions.map((c) => ({
+      id: c.id,
+      segment: c.segment,
+      courtageGrossEur: c.courtageGrossEur,
+      courtageNetEur: c.courtageNetEur,
+      monthlyCommissionEur: c.monthlyCommissionEur,
+      startMonthKey: clampMonthKeyToRange(c.startMonthKey, monthKeys),
+    })),
   };
 
   return {
