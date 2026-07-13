@@ -1,25 +1,17 @@
 import type { Dossier } from "./dossierModel";
-import { getInsuranceChangePlan, type InsuranceChangePlan } from "./insuranceChangePlan";
+import { getInsuranceChangePlan } from "./insuranceChangePlan";
 import type { StudyKpiRecord } from "./studyEmailKpi";
 
-function planTimestamp(plan: InsuranceChangePlan | null | undefined): number {
-  if (!plan?.updatedAt) return 0;
-  const t = new Date(plan.updatedAt).getTime();
-  return Number.isFinite(t) ? t : 0;
-}
-
-/** Empêche une synchro Gmail / metrics d'écraser des saisies admin plus récentes. */
+/** Empêche une synchro Gmail / metrics d'écraser des saisies admin — jamais l'inverse. */
 export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier): Dossier {
   const existingPlan = getInsuranceChangePlan(existing);
   const incomingPlan = getInsuranceChangePlan(incoming);
 
-  if (existingPlan?.source === "manual") {
-    const incomingIsManual = incomingPlan?.source === "manual";
-    const keepExisting =
-      !incomingIsManual || planTimestamp(existingPlan) >= planTimestamp(incomingPlan);
-    if (keepExisting) {
-      (incoming as any).insuranceChangePlan = existingPlan;
-    }
+  // Saisie admin explicite : toujours prioritaire sur une date extraite du mail.
+  if (incomingPlan?.source === "manual") {
+    // keep incoming
+  } else if (existingPlan?.source === "manual") {
+    (incoming as any).insuranceChangePlan = existingPlan;
   }
 
   const existingKpi = existing.studyKpi as StudyKpiRecord | undefined;

@@ -67,40 +67,32 @@ export function extractPlannedChangeDateFromStudyContent(htmlOrText: string): st
   const blob = normalizeBlob(htmlOrText);
   if (!blob) return null;
 
-  const changeContext =
-    /changement|substitution|prise\s+d['']effet|effectif|activation|mise\s+en\s+place/i.test(blob);
+  const explicitChangeLine =
+    /date\s+(?:de\s+)?changement\s+pr[ée]vu[e]?|changement\s+pr[ée]vu[e]?\s*(?:le|pour|à partir du|:)|date\s+pr[ée]vue\s+(?:du\s+)?changement|(?:effectif|à partir)\s+(?:le|du)\s+(?:le\s+)?\d/i;
 
   const patterns: RegExp[] = [
     /date\s+(?:de\s+)?changement\s+pr[ée]vu[e]?\s*(?:le|:)?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/i,
     /changement\s+pr[ée]vu[e]?\s*(?:le|pour|à partir du|:)\s*(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+(\d{4})/i,
+    /date\s+pr[ée]vue\s+(?:du\s+)?changement\s*(?:le|:)?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/i,
     /(?:effectif|à partir)\s+(?:le|du)\s*(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+(\d{4})/i,
     /(?:effectif|à partir)\s+(?:le|du)\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/i,
-    /date\s+pr[ée]vue\s+(?:du\s+)?changement\s*(?:le|:)?\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/i,
-    /(\d{4})-(\d{2})-(\d{2})/,
   ];
 
   for (const re of patterns) {
     const m = blob.match(re);
     if (!m) continue;
     let iso: string | null = null;
-    if (re.source.startsWith("(\\d{4})")) {
-      iso = toIsoDate(Number(m[1]), Number(m[2]), Number(m[3]));
-    } else if (m[2] && Number.isNaN(Number(m[2]))) {
+    if (m[2] && Number.isNaN(Number(m[2]))) {
       iso = parseFrenchLongDate(m);
     } else {
       iso = parseNumericDate(m[1], m[2], m[3]);
     }
-    if (iso) {
-      if (!changeContext && !/date\s+(?:de\s+)?changement|changement\s+pr[ée]vu/i.test(m[0])) {
-        continue;
-      }
-      return iso;
-    }
+    if (iso) return iso;
   }
 
-  if (changeContext) {
+  if (explicitChangeLine.test(blob)) {
     const loose = blob.match(
-      /(?:changement|substitution)[\s\S]{0,100}?(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/i,
+      /(?:date\s+(?:de\s+)?changement|changement\s+pr[ée]vu|substitution)[\s\S]{0,120}?(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/i,
     );
     if (loose) return parseNumericDate(loose[1], loose[2], loose[3]);
   }

@@ -1313,9 +1313,9 @@ export default function AdminDashboard({
                     <AdminCamilleKnowledgePanel />
                     <AdminCamillePanel
                       dossier={selectedDossier}
-                      onDossierUpdated={() => {
+                      onDossierUpdated={(opts) => {
                         loadDossiers();
-                        reloadMetrics();
+                        if (!opts?.skipMetrics) reloadMetrics();
                       }}
                     />
                     <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">

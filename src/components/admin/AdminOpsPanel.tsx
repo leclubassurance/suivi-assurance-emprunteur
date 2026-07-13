@@ -1205,7 +1205,7 @@ export function AdminCamillePanel({
   onDossierUpdated,
 }: {
   dossier: Dossier;
-  onDossierUpdated?: () => void;
+  onDossierUpdated?: (opts?: { skipMetrics?: boolean }) => void;
 }) {
   const [ctx, setCtx] = useState<any>(null);
   const [audit, setAudit] = useState<any[]>([]);
@@ -1409,13 +1409,16 @@ export function AdminCamillePanel({
       }
       setChangePlan(data.insuranceChangePlan);
       (dossier as any).insuranceChangePlan = data.insuranceChangePlan;
+      if (data.insuranceChangePlan?.plannedDate) {
+        setManualChangeDate(String(data.insuranceChangePlan.plannedDate).slice(0, 10));
+      }
       showToast(
         clear || !data.insuranceChangePlan
           ? "Date de changement retirée"
-          : "Date de changement enregistrée",
+          : `Date enregistrée : ${new Date(`${data.insuranceChangePlan.plannedDate}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} (saisie manuelle)`,
         "success",
       );
-      onDossierUpdated?.();
+      onDossierUpdated?.({ skipMetrics: true });
     } catch {
       showToast("Erreur réseau", "error");
     } finally {
