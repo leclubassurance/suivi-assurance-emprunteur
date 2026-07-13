@@ -1639,6 +1639,30 @@ export function createApp() {
     }
   });
 
+  app.get("/api/admin/kereis-mia-settings", async (_req, res) => {
+    try {
+      const { loadKereisMiaSettings } = await import("./kereisMiaConfig");
+      const settings = await loadKereisMiaSettings();
+      res.json({ ok: true, settings });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.put("/api/admin/kereis-mia-settings", express.json(), async (req, res) => {
+    try {
+      const raw = (req.body || {}).settings ?? req.body;
+      if (!raw || typeof raw !== "object") {
+        return res.status(400).json({ ok: false, error: "settings requis." });
+      }
+      const { saveKereisMiaSettings } = await import("./kereisMiaConfig");
+      const settings = await saveKereisMiaSettings(raw);
+      res.json({ ok: true, settings });
+    } catch (err: any) {
+      res.status(400).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   app.get("/api/admin/conseiller-formations", async (_req, res) => {
     try {
       const { loadConseillerFormationParcours } = await import("./conseillerFormationsConfig");
@@ -3574,6 +3598,12 @@ export function createApp() {
     const rawDays = Number(req.query.days || 7);
     const periodDays = rawDays >= 3650 ? 3650 : Math.min(365, Math.max(1, rawDays));
     const { computeActivityMetrics, filterMetricsDossiers } = await import("./activityMetrics");
+    const { loadApporteurStore } = await import("./apporteurStore");
+    const { resolveRemunerationTier } = await import("../shared/apporteurRemuneration");
+    const { getKereisMiaSettingsFromStore } = await import("./kereisMiaConfig");
+    const apporteurStore = await loadApporteurStore();
+    const kereisSettings = getKereisMiaSettingsFromStore(apporteurStore);
+    const apporteurById = new Map(apporteurStore.apporteurs.map((a) => [a.id, a]));
     const scoped = filterMetricsDossiers(db.dossiers);
     let kpiBackfilled = 0;
     const dirtyKpiIds: string[] = [];
@@ -3602,9 +3632,38 @@ export function createApp() {
       await writeDirtyDossiers(db, dirtyKpiIds);
     }
     res.json({
-      ...computeActivityMetrics(db.dossiers, periodDays),
+      ...computeActivityMetrics(db.dossiers, periodDays, {
+        resolveApporteurTier: (apporteurId) =>
+          resolveRemunerationTier(apporteurById.get(apporteurId)?.type),
+        kereisSettings,
+      }),
       kpiBackfilled,
     });
+  });
+
+  app.get("/api/admin/club-revenue-forecast", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const rawPast = Number(req.query.monthsPast ?? 6);
+    const rawFuture = Number(req.query.monthsFuture ?? 6);
+    const monthsPast = Number.isFinite(rawPast) ? Math.min(24, Math.max(0, Math.round(rawPast))) : 6;
+    const monthsFuture = Number.isFinite(rawFuture) ? Math.min(24, Math.max(1, Math.round(rawFuture))) : 6;
+    const { loadApporteurStore } = await import("./apporteurStore");
+    const { getKereisMiaSettingsFromStore } = await import("./kereisMiaConfig");
+    const { buildClubRevenueForecast } = await import("./clubRevenueForecast");
+    const { resolveRemunerationTier } = await import("../shared/apporteurRemuneration");
+    const store = await loadApporteurStore();
+    const apporteurById = new Map(store.apporteurs.map((a) => [a.id, a]));
+    const forecast = buildClubRevenueForecast({
+      dossiers: db.dossiers,
+      referrals: store.referrals,
+      kereisSettings: getKereisMiaSettingsFromStore(store),
+      monthsPast,
+      monthsFuture,
+      resolveApporteurTier: (apporteurId) =>
+        resolveRemunerationTier(apporteurById.get(apporteurId)?.type),
+    });
+    res.json({ ok: true, forecast });
   });
 
   app.get("/api/admin/gemini-usage", async (req, res) => {
@@ -3841,6 +3900,98 @@ export function createApp() {
     });
     await writeDB(db, dossier);
     res.json({ ok: true, studyKpi });
+  });
+
+  app.get("/api/admin/dossiers/:id/club-revenue", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { loadApporteurStore } = await import("./apporteurStore");
+    const { computeClubRevenueBreakdown } = await import("../shared/kereisMiaRemuneration");
+    const { resolveRemunerationTier } = await import("../shared/apporteurRemuneration");
+    const { getKereisMiaSettingsFromStore } = await import("./kereisMiaConfig");
+    const store = await loadApporteurStore();
+    const kereisSettings = getKereisMiaSettingsFromStore(store);
+    const apporteurId = dossier.apporteur?.apporteurId;
+    const apporteur = apporteurId ? store.apporteurs.find((a) => a.id === apporteurId) : undefined;
+    const breakdown = computeClubRevenueBreakdown(dossier, {
+      apporteurTier: apporteur ? resolveRemunerationTier(apporteur.type) : undefined,
+      kereisSettings,
+    });
+    res.json({
+      clubRevenueKpi: dossier.clubRevenueKpi ?? null,
+      breakdown,
+      kereisSettings,
+      apporteurLabel: apporteur
+        ? `${apporteur.contactPrenom || ""} ${apporteur.contactNom || apporteur.companyName || ""}`.trim()
+        : null,
+    });
+  });
+
+  app.patch("/api/admin/dossiers/:id/club-revenue-kpi", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const body = (req.body || {}) as {
+      productLine?: string;
+      insurer?: string;
+      annualPremiumEur?: number;
+      linearCommissionPercent?: number;
+      kereisCommissionOverrideEur?: number | null;
+      feesCourtageOverrideEur?: number | null;
+      paymentStatus?: string;
+      signedAt?: string | null;
+      notes?: string;
+      source?: string;
+    };
+    const hasField =
+      body.productLine != null ||
+      body.insurer != null ||
+      body.annualPremiumEur != null ||
+      body.linearCommissionPercent != null ||
+      body.kereisCommissionOverrideEur !== undefined ||
+      body.feesCourtageOverrideEur !== undefined ||
+      body.paymentStatus != null ||
+      body.signedAt !== undefined ||
+      body.notes != null ||
+      body.source != null;
+    if (!hasField) {
+      return res.status(400).json({
+        error:
+          "Au moins un champ requis : annualPremiumEur, linearCommissionPercent, insurer, paymentStatus, etc.",
+      });
+    }
+    const { patchClubRevenueKpi } = await import("./clubRevenueKpi");
+    const { computeClubRevenueBreakdown } = await import("../shared/kereisMiaRemuneration");
+    const { loadApporteurStore } = await import("./apporteurStore");
+    const { resolveRemunerationTier } = await import("../shared/apporteurRemuneration");
+    const { getKereisMiaSettingsFromStore } = await import("./kereisMiaConfig");
+    const clubRevenueKpi = patchClubRevenueKpi(dossier, {
+      productLine: body.productLine as any,
+      insurer: body.insurer,
+      annualPremiumEur:
+        body.annualPremiumEur != null ? Number(body.annualPremiumEur) : undefined,
+      linearCommissionPercent:
+        body.linearCommissionPercent != null ? Number(body.linearCommissionPercent) : undefined,
+      kereisCommissionOverrideEur: body.kereisCommissionOverrideEur,
+      feesCourtageOverrideEur: body.feesCourtageOverrideEur,
+      paymentStatus: body.paymentStatus as any,
+      signedAt: body.signedAt,
+      notes: body.notes,
+      source: body.source as any,
+    });
+    await writeDB(db, dossier);
+    const store = await loadApporteurStore();
+    const kereisSettings = getKereisMiaSettingsFromStore(store);
+    const apporteurId = dossier.apporteur?.apporteurId;
+    const apporteur = apporteurId ? store.apporteurs.find((a) => a.id === apporteurId) : undefined;
+    const breakdown = computeClubRevenueBreakdown(dossier, {
+      apporteurTier: apporteur ? resolveRemunerationTier(apporteur.type) : undefined,
+      kereisSettings,
+    });
+    res.json({ ok: true, clubRevenueKpi, breakdown, kereisSettings });
   });
 
   app.get("/api/admin/dossiers/:id/ai-audit", async (req, res) => {

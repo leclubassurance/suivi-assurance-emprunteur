@@ -27,6 +27,7 @@ import type { ReferralClickGeoSlice } from "../shared/referralGeo";
 import { generatePortalToken } from "./apporteurNotify";
 import { normalizeConseillerFormationParcours } from "../shared/conseillerFormations";
 import { normalizeCamilleSchedule } from "../shared/camilleSchedule";
+import { normalizeKereisMiaSettings } from "../shared/kereisMiaRemuneration";
 
 export type ApporteurStore = {
   version: 1;
@@ -37,6 +38,8 @@ export type ApporteurStore = {
   conseillerFormationParcours?: import("../shared/conseillerFormations").ConseillerFormationParcours;
   /** Horaires de fonctionnement de Camille (contrôlés depuis l'admin). */
   camilleSchedule?: import("../shared/camilleSchedule").CamilleSchedule;
+  /** Taux commission linéaire Kereis par défaut (%). */
+  kereisMiaSettings?: import("../shared/kereisMiaRemuneration").KereisMiaSettings;
   updatedAt: string;
 };
 
@@ -90,6 +93,9 @@ function normalizeStore(raw: unknown): ApporteurStore {
   }
   if ((data as ApporteurStore | null)?.camilleSchedule) {
     store.camilleSchedule = normalizeCamilleSchedule((data as ApporteurStore).camilleSchedule);
+  }
+  if ((data as ApporteurStore | null)?.kereisMiaSettings) {
+    store.kereisMiaSettings = normalizeKereisMiaSettings((data as ApporteurStore).kereisMiaSettings);
   }
   return store;
 }

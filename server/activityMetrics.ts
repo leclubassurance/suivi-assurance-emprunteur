@@ -4,6 +4,11 @@ import { isLeadDossier } from "./leadDossierMerge";
 import { assessCertainLoanDocProblems } from "./loanDocCertainty";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import {
+  computeClubRevenueBreakdown,
+  formatClubRevenueEur,
+} from "../shared/kereisMiaRemuneration";
+import type { KereisMiaSettings } from "../shared/kereisMiaRemuneration";
+import {
   formatEurKpi,
   getLoanCapitalFromDossier,
   getStudyKpiActivityDate,
@@ -38,12 +43,29 @@ export type ActivityMetrics = {
   periodMontantPretsAccompagnesLabel: string;
   periodGainsFraisCourtageEur: number;
   periodGainsFraisCourtageLabel: string;
+  totalClubGrossEur: number;
+  totalClubGrossLabel: string;
+  totalClubNetEur: number;
+  totalClubNetLabel: string;
+  periodClubGrossEur: number;
+  periodClubGrossLabel: string;
+  periodClubNetEur: number;
+  periodClubNetLabel: string;
+  dossiersWithClubRevenue: number;
+  dossiersWithClubRevenueInPeriod: number;
   kpiHelp: {
     economies: string;
     prets: string;
     courtage: string;
+    clubGross: string;
+    clubNet: string;
     periodLabel: string;
   };
+};
+
+export type ActivityMetricsOptions = {
+  resolveApporteurTier?: (apporteurId: string) => import("../shared/apporteurRemuneration").ApporteurRemunerationTier | undefined;
+  kereisSettings?: KereisMiaSettings;
 };
 
 /** Dossiers pris en compte dans le bandeau admin (hors meta Camille et prospects pré-formulaire). */
@@ -72,7 +94,26 @@ function accumulateStudyKpi(
   totals.courtage += Number(kpi.feesCourtageEur) || 0;
 }
 
-export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): ActivityMetrics {
+function accumulateClubRevenue(
+  dossier: Dossier,
+  totals: { gross: number; net: number },
+  options?: ActivityMetricsOptions,
+) {
+  const apporteurId = dossier.apporteur?.apporteurId;
+  const tier = apporteurId ? options?.resolveApporteurTier?.(apporteurId) : undefined;
+  const breakdown = computeClubRevenueBreakdown(dossier, {
+    apporteurTier: tier,
+    kereisSettings: options?.kereisSettings,
+  });
+  if (breakdown.clubGrossEur > 0) totals.gross += breakdown.clubGrossEur;
+  totals.net += breakdown.clubNetEur;
+}
+
+export function computeActivityMetrics(
+  dossiers: Dossier[],
+  periodDays = 7,
+  options?: ActivityMetricsOptions,
+): ActivityMetrics {
   const scoped = filterMetricsDossiers(dossiers);
   const cutoff = Date.now() - periodDays * 24 * 3600 * 1000;
 
@@ -86,9 +127,11 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
   let certainDocProblemCount = 0;
   let studiesWithKpi = 0;
   let studiesWithKpiInPeriod = 0;
+  let dossiersWithClubRevenue = 0;
+  let dossiersWithClubRevenueInPeriod = 0;
 
-  const cumul = { economies: 0, prets: 0, courtage: 0 };
-  const period = { economies: 0, prets: 0, courtage: 0 };
+  const cumul = { economies: 0, prets: 0, courtage: 0, clubGross: 0, clubNet: 0 };
+  const period = { economies: 0, prets: 0, courtage: 0, clubGross: 0, clubNet: 0 };
   const firstOutboundDays: number[] = [];
 
   for (const d of scoped) {
@@ -123,6 +166,18 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
       if (activityTs >= cutoff) {
         studiesWithKpiInPeriod += 1;
         accumulateStudyKpi(kpi, d, period);
+      }
+    }
+
+    if (hasUsableStudyKpi(kpi) || d.clubRevenueKpi?.updatedAt) {
+      dossiersWithClubRevenue += 1;
+      accumulateClubRevenue(d, cumul, options);
+      const clubActivityTs = d.clubRevenueKpi?.updatedAt
+        ? new Date(d.clubRevenueKpi.updatedAt).getTime()
+        : getStudyKpiActivityDate(d);
+      if (clubActivityTs >= cutoff) {
+        dossiersWithClubRevenueInPeriod += 1;
+        accumulateClubRevenue(d, period, options);
       }
     }
 
@@ -171,11 +226,23 @@ export function computeActivityMetrics(dossiers: Dossier[], periodDays = 7): Act
     periodMontantPretsAccompagnesLabel: formatEurKpi(period.prets),
     periodGainsFraisCourtageEur: Math.round(period.courtage),
     periodGainsFraisCourtageLabel: formatEurKpi(period.courtage),
+    totalClubGrossEur: Math.round(cumul.clubGross),
+    totalClubGrossLabel: formatClubRevenueEur(cumul.clubGross),
+    totalClubNetEur: Math.round(cumul.clubNet),
+    totalClubNetLabel: formatClubRevenueEur(cumul.clubNet),
+    periodClubGrossEur: Math.round(period.clubGross),
+    periodClubGrossLabel: formatClubRevenueEur(period.clubGross),
+    periodClubNetEur: Math.round(period.clubNet),
+    periodClubNetLabel: formatClubRevenueEur(period.clubNet),
+    dossiersWithClubRevenue,
+    dossiersWithClubRevenueInPeriod,
     kpiHelp: {
       periodLabel,
       economies: `Cumul : somme des économies brutes des ${studiesWithKpi} dossier(s) avec étude enregistrée. Sur la période (${periodLabel}) : ${studiesWithKpiInPeriod} étude(s) — ${formatEurKpi(period.economies)}. Ce n'est pas le chiffre d'affaires encaissé.`,
       prets: `Cumul des capitaux restants dus (formulaire ou KPI) pour les dossiers avec étude. Période : ${formatEurKpi(period.prets)}.`,
       courtage: `Cumul des frais de courtage LCIF lus dans les mails d'étude ou saisis manuellement. Période : ${formatEurKpi(period.courtage)}.`,
+      clubGross: `Brut club = courtage (= frais distribution) + commission linéaire Kereis. ${dossiersWithClubRevenue} dossier(s) — période : ${formatClubRevenueEur(period.clubGross)}.`,
+      clubNet: `Net club = courtage après rétro (70 % conseiller / 50 % apporteur) + commission Kereis. Période : ${formatClubRevenueEur(period.clubNet)}.`,
     },
   };
 }

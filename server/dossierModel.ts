@@ -134,6 +134,20 @@ export interface Dossier {
     approvedAt?: string;
     approvedBy?: string;
   };
+  /** Rémunération club (contrat MIA Kereis) — saisie admin / bordereau. */
+  clubRevenueKpi?: {
+    productLine?: "emprunteur" | "prevoyance_tns" | "ipmi";
+    insurer?: string;
+    annualPremiumEur?: number;
+    linearCommissionPercent?: number;
+    kereisCommissionOverrideEur?: number;
+    feesCourtageOverrideEur?: number;
+    paymentStatus?: "pending" | "partial" | "received";
+    signedAt?: string;
+    notes?: string;
+    source?: "manual" | "bordereau" | "estimated";
+    updatedAt?: string;
+  };
   /** KPI extraits du mail d'étude HTML (sync Gmail sortant). */
   studyKpi?: {
     grossSavingsEur: number;

@@ -21,6 +21,7 @@ import {
   AdminGeminiUsagePanel,
   useAdminOpsData,
 } from "./AdminOpsPanel";
+import AdminClubRevenueChart from "./AdminClubRevenueChart";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
@@ -980,6 +981,7 @@ export default function AdminDashboard({
         onReanalyzeAll={handleReanalyzeAllDocuments}
         onRefreshMetrics={reloadMetrics}
       />
+      <AdminClubRevenueChart />
       <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <button
