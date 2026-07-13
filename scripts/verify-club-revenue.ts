@@ -57,6 +57,17 @@ assert(b.partnerPayoutEur === 504, "rétro conseiller 504 (70%)");
 assert(b.clubCourtageNetEur === 216, "reste courtage club 216");
 assert(b.clubNetEur === 396, "net club 396 (216 + 180)");
 
+const dossierValidationOnly: Dossier = {
+  ...dossier,
+  id: "LCIF-VAL",
+  studyKpi: {
+    ...dossier.studyKpi!,
+    feesCourtageEur: 0,
+  },
+};
+const bVal = computeClubRevenueBreakdown(dossierValidationOnly);
+assert(bVal.feesCourtageEur === 720, "courtage depuis validation si KPI étude à 0");
+
 const metrics = computeActivityMetrics([dossier], 3650);
 assert(metrics.totalClubGrossEur === 900, "metrics brut club 900");
 assert(metrics.totalClubNetEur === 396, "metrics net club 396");

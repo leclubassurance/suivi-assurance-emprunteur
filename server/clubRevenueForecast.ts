@@ -3,6 +3,7 @@ import type { Referral, ReferralStatus } from "../shared/apporteurTypes";
 import { filterMetricsDossiers } from "./activityMetrics";
 import {
   computeClubRevenueBreakdown,
+  resolveFeesCourtageEur,
   type KereisMiaSettings,
 } from "../shared/kereisMiaRemuneration";
 import {
@@ -15,7 +16,7 @@ import {
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
-import { resolveRemunerationTier, type ApporteurRemunerationTier } from "../shared/apporteurRemuneration";
+import type { ApporteurRemunerationTier } from "../shared/apporteurRemuneration";
 
 const CLOSED: ReferralStatus[] = ["REFUSE", "PERDU"];
 
@@ -33,7 +34,10 @@ function isDossierSigned(dossier: Dossier, referral?: Referral): boolean {
 function isDossierPipeline(dossier: Dossier, referral?: Referral): boolean {
   if (isDossierSigned(dossier, referral)) return false;
   if (referral && CLOSED.includes(referral.status)) return false;
-  if (!hasStudyBeenSent(dossier) && !dossier.studyKpi?.feesCourtageEur) return false;
+
+  if (resolveFeesCourtageEur(dossier) > 0) return true;
+
+  if (!hasStudyBeenSent(dossier) && !dossier.studyKpi?.extractedAt) return false;
 
   const phase = resolveEffectiveSubscriptionPhase(dossier);
   if (phase === "adhesion_space_sent" || phase === "decision_received") return true;
@@ -42,7 +46,7 @@ function isDossierPipeline(dossier: Dossier, referral?: Referral): boolean {
       return hasStudyBeenSent(dossier) || Boolean(dossier.studyKpi?.extractedAt);
     }
   }
-  return hasStudyBeenSent(dossier) && Boolean(dossier.studyKpi?.feesCourtageEur);
+  return hasStudyBeenSent(dossier);
 }
 
 function resolveSignedMonthKey(dossier: Dossier, referral?: Referral): string {
@@ -77,7 +81,8 @@ function resolveProjectedMonthKey(dossier: Dossier, now = new Date()): string {
   if (planned) {
     const k = toMonthKey(planned);
     const plannedDate = new Date(planned.includes("T") ? planned : `${planned}T12:00:00`);
-    if (k && plannedDate.getTime() >= new Date(now.getFullYear(), now.getMonth(), 1).getTime()) {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    if (k && plannedDate.getTime() >= monthStart.getTime()) {
       return k;
     }
   }
@@ -85,12 +90,9 @@ function resolveProjectedMonthKey(dossier: Dossier, now = new Date()): string {
 }
 
 function hasForecastEconomics(dossier: Dossier): boolean {
+  if (resolveFeesCourtageEur(dossier) > 0) return true;
   const b = computeClubRevenueBreakdown(dossier);
-  return (
-    b.feesCourtageEur > 0 ||
-    b.monthlyLinearCommissionEur > 0 ||
-    b.annualPremiumEur > 0
-  );
+  return b.monthlyLinearCommissionEur > 0 || b.annualPremiumEur > 0;
 }
 
 export function buildClubRevenueForecast(params: {
@@ -111,14 +113,25 @@ export function buildClubRevenueForecast(params: {
   const scoped = filterMetricsDossiers(params.dossiers);
 
   for (const dossier of scoped) {
-    if (!hasForecastEconomics(dossier)) continue;
-
     const referral = referralByDossier.get(dossier.id);
+    const signed = isDossierSigned(dossier, referral);
+    const pipeline = isDossierPipeline(dossier, referral);
+    if (!signed && !pipeline) continue;
+    if (!hasForecastEconomics(dossier) && !pipeline) continue;
+
     const apporteurId = dossier.apporteur?.apporteurId;
     const breakdown = computeClubRevenueBreakdown(dossier, {
       apporteurTier: apporteurId ? params.resolveApporteurTier?.(apporteurId) : undefined,
       kereisSettings: params.kereisSettings,
     });
+
+    if (
+      breakdown.feesCourtageEur <= 0 &&
+      breakdown.monthlyLinearCommissionEur <= 0 &&
+      breakdown.annualPremiumEur <= 0
+    ) {
+      continue;
+    }
 
     const monthlyPremiumEur =
       breakdown.annualPremiumEur > 0
@@ -127,18 +140,19 @@ export function buildClubRevenueForecast(params: {
 
     const base = {
       id: dossier.id,
+      courtageGrossEur: breakdown.feesCourtageEur,
       courtageNetEur: breakdown.clubCourtageNetEur,
       monthlyCommissionEur: breakdown.monthlyLinearCommissionEur,
       monthlyPremiumEur,
     };
 
-    if (isDossierSigned(dossier, referral)) {
+    if (signed) {
       contributions.push({
         ...base,
         segment: "signed",
         startMonthKey: resolveSignedMonthKey(dossier, referral),
       });
-    } else if (isDossierPipeline(dossier, referral)) {
+    } else {
       contributions.push({
         ...base,
         segment: "pipeline",

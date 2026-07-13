@@ -6,6 +6,7 @@ import { computeDocumentChecklist } from "../shared/documentChecklist";
 import {
   computeClubRevenueBreakdown,
   formatClubRevenueEur,
+  resolveFeesCourtageEur,
 } from "../shared/kereisMiaRemuneration";
 import type { KereisMiaSettings } from "../shared/kereisMiaRemuneration";
 import {
@@ -91,12 +92,12 @@ function accumulateStudyKpi(
   const loan =
     Number(kpi.loanCapitalEur) > 0 ? Number(kpi.loanCapitalEur) : getLoanCapitalFromDossier(dossier);
   if (loan > 0) totals.prets += loan;
-  totals.courtage += Number(kpi.feesCourtageEur) || 0;
+  totals.courtage += resolveFeesCourtageEur(dossier);
 }
 
 function accumulateClubRevenue(
   dossier: Dossier,
-  totals: { gross: number; net: number },
+  totals: { clubGross: number; clubNet: number },
   options?: ActivityMetricsOptions,
 ) {
   const apporteurId = dossier.apporteur?.apporteurId;
@@ -105,8 +106,8 @@ function accumulateClubRevenue(
     apporteurTier: tier,
     kereisSettings: options?.kereisSettings,
   });
-  if (breakdown.clubGrossEur > 0) totals.gross += breakdown.clubGrossEur;
-  totals.net += breakdown.clubNetEur;
+  totals.clubGross += breakdown.clubGrossEur;
+  totals.clubNet += breakdown.clubNetEur;
 }
 
 export function computeActivityMetrics(

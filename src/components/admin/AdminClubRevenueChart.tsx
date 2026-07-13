@@ -115,7 +115,8 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
           </p>
           <p className="text-[11px] text-white/60 mt-1 max-w-2xl">
             Barres pleines : net LCIF réalisé (courtage ponctuel + commission linéaire). Barres hachurées : projection
-            si les {summary.pipelineDossiers} dossier(s) en signature aboutissent. Courbe orange : primes clients / mois.
+            (courtage brut + MRR) si les {summary.pipelineDossiers} dossier(s) en cours aboutissent. Courbe orange :
+            primes clients / mois.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -152,7 +153,7 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-[11px]">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3 text-[11px]">
         <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
           <p className="text-white/50 text-[10px] uppercase font-bold">MRR commission</p>
           <p className="font-black text-emerald-300">{formatEur(summary.currentMrrCommissionEur)}/mois</p>
@@ -160,6 +161,10 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
         <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
           <p className="text-white/50 text-[10px] uppercase font-bold">Primes / mois</p>
           <p className="font-black text-amber-300">{formatEur(summary.currentMonthlyPremiumEur)}/mois</p>
+        </div>
+        <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
+          <p className="text-white/50 text-[10px] uppercase font-bold">Courtage pipeline</p>
+          <p className="font-black text-violet-300">{formatEur(summary.projectedPipelineCourtageGrossEur)}</p>
         </div>
         <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
           <p className="text-white/50 text-[10px] uppercase font-bold">MRR si pipeline signé</p>

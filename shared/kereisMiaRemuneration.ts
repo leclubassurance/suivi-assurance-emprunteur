@@ -89,12 +89,17 @@ export const KEREIS_MIA_CONTRACT = {
 export function resolveFeesCourtageEur(dossier: DossierClubRevenueSlice): number {
   const override = dossier.clubRevenueKpi?.feesCourtageOverrideEur;
   if (override != null && Number(override) > 0) return roundEur(override);
-  return roundEur(
-    dossier.studyKpi?.feesCourtageEur ??
-      dossier.studyConseillerValidation?.feesCourtageTotalEur ??
-      dossier.studyDraft?.economySummary?.feesCourtageEur ??
-      0,
-  );
+
+  const candidates = [
+    dossier.studyKpi?.feesCourtageEur,
+    dossier.studyConseillerValidation?.feesCourtageTotalEur,
+    dossier.studyDraft?.economySummary?.feesCourtageEur,
+  ];
+  for (const raw of candidates) {
+    const n = roundEur(raw ?? 0);
+    if (n > 0) return n;
+  }
+  return 0;
 }
 
 export type DossierClubRevenueSlice = DossierEconomicsSlice & {
