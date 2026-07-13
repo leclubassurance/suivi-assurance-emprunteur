@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TrendingUp, RefreshCw } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
-import type { ClubRevenueForecast } from "../../../shared/clubRevenueForecast";
-import { toMonthKeyFromDate } from "../../../shared/clubRevenueForecast";
+import type { ClubRevenueForecast, ClubRevenueSegment } from "../../../shared/clubRevenueForecast";
+import { monthPointTotalNetClub, toMonthKeyFromDate } from "../../../shared/clubRevenueForecast";
 
 function formatEur(n: number): string {
   return `${Math.round(n).toLocaleString("fr-FR")} €`;
@@ -13,9 +13,76 @@ function formatCompact(n: number): string {
   return String(Math.round(n));
 }
 
+const SEGMENT_META: Record<
+  ClubRevenueSegment,
+  { label: string; short: string; fill: string; stroke?: string; dash?: string }
+> = {
+  settled: {
+    label: "Traité — réalisé",
+    short: "Traité",
+    fill: "#34d399",
+  },
+  signed: {
+    label: "Signé — commission future quasi assurée",
+    short: "Signé",
+    fill: "#38bdf8",
+  },
+  pipeline: {
+    label: "En signature — théorique",
+    short: "Théorique",
+    fill: "#a78bfa",
+    stroke: "#c4b5fd",
+    dash: "4 3",
+  },
+};
+
 type Props = {
   className?: string;
 };
+
+type BarLayer = {
+  key: string;
+  height: number;
+  amount: number;
+  label: string;
+  fill: string;
+  stroke?: string;
+  dash?: string;
+  opacity?: number;
+};
+
+function buildBarLayers(m: ClubRevenueForecast["months"][number]): BarLayer[] {
+  const layers: BarLayer[] = [];
+
+  const push = (
+    key: string,
+    amount: number,
+    kind: "courtage" | "commission",
+    segment: ClubRevenueSegment,
+  ) => {
+    if (amount <= 0) return;
+    const meta = SEGMENT_META[segment];
+    layers.push({
+      key,
+      height: 0,
+      amount,
+      label: kind === "courtage" ? `Courtage net ${formatCompact(amount)}` : `Récurrent ${formatCompact(amount)}`,
+      fill: meta.fill,
+      stroke: meta.stroke,
+      dash: meta.dash,
+      opacity: segment === "pipeline" ? 0.75 : 1,
+    });
+  };
+
+  push("settled-commission", m.settledMonthlyCommissionEur, "commission", "settled");
+  push("signed-commission", m.signedMonthlyCommissionEur, "commission", "signed");
+  push("pipeline-commission", m.pipelineMonthlyCommissionEur, "commission", "pipeline");
+  push("settled-courtage", m.settledCourtageNetEur, "courtage", "settled");
+  push("signed-courtage", m.signedCourtageNetEur, "courtage", "signed");
+  push("pipeline-courtage", m.pipelineCourtageNetEur, "courtage", "pipeline");
+
+  return layers;
+}
 
 export default function AdminClubRevenueChart({ className = "" }: Props) {
   const [forecast, setForecast] = useState<ClubRevenueForecast | null>(null);
@@ -47,37 +114,28 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
   const chart = useMemo(() => {
     if (!forecast?.months?.length) return null;
     const months = forecast.months;
-    const maxVal = Math.max(
-      100,
-      ...months.map((m) =>
-        Math.max(
-          m.totalNetClubEur,
-          m.projectedCourtageGrossEur,
-          m.monthlyCommissionEur + m.projectedMonthlyCommissionEur,
-        ),
-      ),
-    );
+    const maxVal = Math.max(100, ...months.map((m) => monthPointTotalNetClub(m)));
 
-    const barSlotW = 56;
-    const w = Math.max(480, months.length * barSlotW + 56);
-    const h = 260;
+    const barSlotW = 64;
+    const w = Math.max(520, months.length * barSlotW + 56);
+    const h = 300;
     const padL = 44;
     const padR = 8;
-    const padT = 20;
-    const padB = 52;
+    const padT = 24;
+    const padB = 56;
     const innerW = w - padL - padR;
     const innerH = h - padT - padB;
-    const barW = Math.min(40, Math.max(22, barSlotW - 10));
-
-    const y = (v: number) => padT + innerH - (v / maxVal) * innerH;
+    const barW = Math.min(44, Math.max(24, barSlotW - 12));
 
     const bars = months.map((m, i) => {
       const x = padL + i * (innerW / months.length) + (innerW / months.length - barW) / 2;
-      const realizedH = (m.totalNetClubEur / maxVal) * innerH;
-      const projectedCourtageH = (m.projectedCourtageGrossEur / maxVal) * innerH;
-      const mrrH = (m.projectedMonthlyCommissionEur / maxVal) * innerH;
+      const layers = buildBarLayers(m).map((layer) => ({
+        ...layer,
+        height: (layer.amount / maxVal) * innerH,
+      }));
+      const total = monthPointTotalNetClub(m);
       const isCurrent = m.monthKey === currentMonthKey;
-      return { m, x, realizedH, projectedCourtageH, mrrH, isCurrent };
+      return { m, x, layers, total, isCurrent };
     });
 
     return { w, h, maxVal, bars, padL, padT, innerH, barW };
@@ -102,8 +160,10 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
   }
 
   const { summary } = forecast;
-  const pipelineRows =
-    summary.contributions?.filter((c) => c.segment === "pipeline" && c.courtageGrossEur > 0) ?? [];
+  const contributions = summary.contributions ?? [];
+
+  const segmentRows = (segment: ClubRevenueSegment) =>
+    contributions.filter((c) => c.segment === segment && (c.courtageNetEur > 0 || c.monthlyCommissionEur > 0));
 
   return (
     <div className={`bg-slate-900 text-white px-4 py-4 border-t border-white/10 ${className}`}>
@@ -111,11 +171,12 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
         <div>
           <p className="text-[10px] uppercase font-bold text-white/50 tracking-wide flex items-center gap-1.5">
             <TrendingUp className="w-3.5 h-3.5" />
-            Rémunération club — mensuel & projection
+            Rémunération club — part LCIF sur courtage & commission récurrente
           </p>
-          <p className="text-[11px] text-white/60 mt-1 max-w-2xl">
-            Vert : net LCIF encaissé. Violet : courtage pipeline (ponctuel à la signature). Bleu clair : MRR
-            commission projetée. Données relues depuis les mails d&apos;étude à chaque actualisation.
+          <p className="text-[11px] text-white/60 mt-1 max-w-3xl">
+            Uniquement la part club : courtage net (frais de distribution − rétro partenaire) et commission
+            linéaire Kereis mensuelle. Vert = traités · Bleu = signés en cours · Violet = théorique (en
+            signature).
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -152,27 +213,33 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3 text-[11px]">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-3 text-[11px]">
         <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
-          <p className="text-white/50 text-[10px] uppercase font-bold">MRR commission</p>
-          <p className="font-black text-emerald-300">{formatEur(summary.currentMrrCommissionEur)}/mois</p>
+          <p className="text-white/50 text-[10px] uppercase font-bold">Récurrent traités</p>
+          <p className="font-black text-emerald-300">{formatEur(summary.settledMrrCommissionEur)}/mois</p>
         </div>
         <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
-          <p className="text-white/50 text-[10px] uppercase font-bold">Primes / mois</p>
-          <p className="font-black text-amber-300">{formatEur(summary.currentMonthlyPremiumEur)}/mois</p>
+          <p className="text-white/50 text-[10px] uppercase font-bold">Récurrent signés</p>
+          <p className="font-black text-sky-300">{formatEur(summary.signedMrrCommissionEur)}/mois</p>
         </div>
         <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
-          <p className="text-white/50 text-[10px] uppercase font-bold">Courtage pipeline</p>
-          <p className="font-black text-violet-300">{formatEur(summary.projectedPipelineCourtageGrossEur)}</p>
+          <p className="text-white/50 text-[10px] uppercase font-bold">Récurrent théorique</p>
+          <p className="font-black text-violet-300">{formatEur(summary.pipelineMrrCommissionEur)}/mois</p>
         </div>
         <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
-          <p className="text-white/50 text-[10px] uppercase font-bold">MRR si pipeline signé</p>
-          <p className="font-black text-indigo-300">{formatEur(summary.projectedMrrCommissionEur)}/mois</p>
+          <p className="text-white/50 text-[10px] uppercase font-bold">Courtage net traités</p>
+          <p className="font-black text-emerald-200">{formatEur(summary.settledCourtageNetEur)}</p>
         </div>
         <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
-          <p className="text-white/50 text-[10px] uppercase font-bold">Dossiers</p>
-          <p className="font-black">
-            {summary.signedDossiers} signés · {summary.pipelineDossiers} en cours
+          <p className="text-white/50 text-[10px] uppercase font-bold">Courtage net signés</p>
+          <p className="font-black text-sky-200">{formatEur(summary.signedCourtageNetEur)}</p>
+        </div>
+        <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2">
+          <p className="text-white/50 text-[10px] uppercase font-bold">Courtage net théorique</p>
+          <p className="font-black text-violet-200">{formatEur(summary.pipelineCourtageNetEur)}</p>
+          <p className="text-[9px] text-white/45 mt-0.5">
+            {summary.settledDossiers} traités · {summary.signedDossiers} signés · {summary.pipelineDossiers}{" "}
+            en cours
           </p>
         </div>
       </div>
@@ -199,9 +266,9 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
             );
           })}
 
-          {chart.bars.map(({ m, x, realizedH, projectedCourtageH, mrrH, isCurrent }) => {
+          {chart.bars.map(({ m, x, layers, total, isCurrent }) => {
             const baseY = chart.padT + chart.innerH;
-            const courtageTop = baseY - projectedCourtageH - mrrH - realizedH;
+            let cursorY = baseY;
             return (
               <g key={m.monthKey}>
                 {isCurrent ? (
@@ -214,42 +281,61 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
                     rx={4}
                   />
                 ) : null}
-                <rect
-                  x={x}
-                  y={baseY - realizedH}
-                  width={chart.barW}
-                  height={Math.max(0, realizedH)}
-                  rx={3}
-                  fill="#34d399"
-                />
-                <rect
-                  x={x}
-                  y={baseY - projectedCourtageH - mrrH - realizedH}
-                  width={chart.barW}
-                  height={Math.max(2, projectedCourtageH)}
-                  rx={3}
-                  fill="#8b5cf6"
-                  opacity={0.85}
-                />
-                <rect
-                  x={x + 4}
-                  y={baseY - mrrH - realizedH}
-                  width={Math.max(4, chart.barW - 8)}
-                  height={Math.max(0, mrrH)}
-                  rx={2}
-                  fill="#6366f1"
-                  opacity={0.55}
-                />
-                {projectedCourtageH > 14 ? (
+                {layers.map((layer) => {
+                  cursorY -= layer.height;
+                  const y = cursorY;
+                  const h = Math.max(layer.key.includes("courtage") ? 3 : 0, layer.height);
+                  return (
+                    <g key={layer.key}>
+                      {layer.dash ? (
+                        <rect
+                          x={x}
+                          y={y}
+                          width={chart.barW}
+                          height={h}
+                          rx={3}
+                          fill={layer.fill}
+                          opacity={layer.opacity}
+                          stroke={layer.stroke}
+                          strokeWidth={1}
+                          strokeDasharray={layer.dash}
+                        />
+                      ) : (
+                        <rect
+                          x={x}
+                          y={y}
+                          width={chart.barW}
+                          height={h}
+                          rx={3}
+                          fill={layer.fill}
+                          opacity={layer.opacity}
+                        />
+                      )}
+                      {h >= 16 ? (
+                        <text
+                          x={x + chart.barW / 2}
+                          y={y + Math.min(h - 4, 12)}
+                          textAnchor="middle"
+                          fill="#fff"
+                          fontSize="8"
+                          fontWeight="bold"
+                        >
+                          {formatCompact(layer.amount)}
+                        </text>
+                      ) : null}
+                    </g>
+                  );
+                })}
+                {total > 0 ? (
                   <text
                     x={x + chart.barW / 2}
-                    y={courtageTop + 12}
+                    y={chart.padT + 12}
                     textAnchor="middle"
-                    fill="#fff"
+                    fill="rgba(255,255,255,0.85)"
                     fontSize="9"
                     fontWeight="bold"
                   >
-                    {formatCompact(m.projectedCourtageGrossEur)}
+                    {formatCompact(total)}
                   </text>
                 ) : null}
                 <text
@@ -263,13 +349,7 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
                   {m.label}
                 </text>
                 {isCurrent ? (
-                  <text
-                    x={x + chart.barW / 2}
-                    y={chart.h - 14}
-                    textAnchor="middle"
-                    fill="#a78bfa"
-                    fontSize="8"
-                  >
+                  <text x={x + chart.barW / 2} y={chart.h - 14} textAnchor="middle" fill="#a78bfa" fontSize="8">
                     en cours
                   </text>
                 ) : null}
@@ -280,36 +360,50 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
       </div>
 
       <div className="flex flex-wrap gap-4 mt-2 text-[10px] text-white/55">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-sm bg-emerald-400" /> Net club réalisé
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-sm bg-violet-500" /> Courtage pipeline (ponctuel)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-sm bg-indigo-400 opacity-70" /> MRR projeté
-        </span>
+        {(Object.keys(SEGMENT_META) as ClubRevenueSegment[]).map((seg) => {
+          const meta = SEGMENT_META[seg];
+          return (
+            <span key={seg} className="flex items-center gap-1.5">
+              <span
+                className="inline-block w-3 h-3 rounded-sm"
+                style={{
+                  background: meta.fill,
+                  opacity: seg === "pipeline" ? 0.75 : 1,
+                  border: meta.stroke ? `1px dashed ${meta.stroke}` : undefined,
+                }}
+              />
+              {meta.label}
+            </span>
+          );
+        })}
       </div>
 
-      {pipelineRows.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px]">
-          <p className="font-bold text-white/60 uppercase mb-1.5">Détail pipeline (courtage brut)</p>
-          <ul className="space-y-0.5 text-white/75">
-            {pipelineRows.map((r) => (
-              <li key={r.id}>
-                <span className="font-mono text-violet-300">{r.id}</span>
-                {" · "}
-                {formatEur(r.courtageGrossEur)} brut
-                {r.monthlyCommissionEur > 0
-                  ? ` · ${formatEur(r.monthlyCommissionEur)}/mois commission`
-                  : ""}
-                {" · "}
-                mois {r.startMonthKey}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      {(["pipeline", "signed", "settled"] as ClubRevenueSegment[]).map((segment) => {
+        const rows = segmentRows(segment);
+        if (!rows.length) return null;
+        const meta = SEGMENT_META[segment];
+        return (
+          <div key={segment} className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px]">
+            <p className="font-bold text-white/60 uppercase mb-1.5">Détail — {meta.label}</p>
+            <ul className="space-y-0.5 text-white/75">
+              {rows.map((r) => (
+                <li key={r.id}>
+                  <span className="font-mono" style={{ color: meta.fill }}>
+                    {r.id}
+                  </span>
+                  {" · "}
+                  {r.courtageNetEur > 0 ? `${formatEur(r.courtageNetEur)} courtage net club` : "— courtage"}
+                  {r.monthlyCommissionEur > 0
+                    ? ` · ${formatEur(r.monthlyCommissionEur)}/mois commission linéaire`
+                    : ""}
+                  {" · "}
+                  mois {r.startMonthKey}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }

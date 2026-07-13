@@ -1,41 +1,53 @@
-/** Point mensuel agrégé — réalisé + projection pipeline. */
+/** Segment dossier pour la projection rémunération club. */
+export type ClubRevenueSegment = "pipeline" | "signed" | "settled";
+
+/** Point mensuel agrégé — réalisé + signé + théorique. */
 export type ClubRevenueMonthPoint = {
   monthKey: string;
   label: string;
-  /** Courtage net club encaissé ce mois (ponctuel). */
-  courtageNetEur: number;
-  /** Courtage brut (avant rétro) encaissé ce mois. */
-  courtageGrossEur: number;
-  /** Commissions linéaires Kereis ce mois (contrats actifs). */
-  monthlyCommissionEur: number;
-  /** Primes clients ce mois (somme primes annuelles / 12). */
-  monthlyPremiumEur: number;
-  /** Total net club réalisé = courtage net + commissions du mois. */
-  totalNetClubEur: number;
-  /** Projection : courtage brut si dossiers pipeline signent ce mois. */
-  projectedCourtageGrossEur: number;
-  /** Projection : courtage net club si dossiers pipeline signent ce mois. */
-  projectedCourtageNetEur: number;
-  projectedMonthlyCommissionEur: number;
-  projectedMonthlyPremiumEur: number;
-  projectedTotalEur: number;
+  /** Dossiers traités — courtage net club encaissé ce mois (ponctuel). */
+  settledCourtageNetEur: number;
+  settledCourtageGrossEur: number;
+  /** Commission linéaire Kereis — dossiers traités. */
+  settledMonthlyCommissionEur: number;
+  /** Dossiers signés, pas encore traités — courtage net club attendu à la signature. */
+  signedCourtageNetEur: number;
+  signedCourtageGrossEur: number;
+  /** Commission linéaire — dossiers signés en cours. */
+  signedMonthlyCommissionEur: number;
+  /** Pipeline (théorique) — courtage net club si signature ce mois. */
+  pipelineCourtageNetEur: number;
+  pipelineCourtageGrossEur: number;
+  /** Commission linéaire projetée — dossiers en cours de signature. */
+  pipelineMonthlyCommissionEur: number;
+  settledContributors: number;
   signedContributors: number;
   pipelineContributors: number;
 };
 
 export type ClubRevenueForecastSummary = {
-  currentMrrCommissionEur: number;
-  currentMonthlyPremiumEur: number;
-  projectedMrrCommissionEur: number;
-  /** Somme des courtages bruts des dossiers en pipeline (ponctuel à la signature). */
-  projectedPipelineCourtageGrossEur: number;
-  projectedPipelineCourtageNetEur: number;
+  /** MRR commission linéaire — dossiers traités (réalisé). */
+  settledMrrCommissionEur: number;
+  /** MRR commission linéaire — signés en cours (quasi assuré). */
+  signedMrrCommissionEur: number;
+  /** MRR commission linéaire — pipeline théorique. */
+  pipelineMrrCommissionEur: number;
+  /** Courtage net club — somme pipeline (théorique, ponctuel à la signature). */
+  pipelineCourtageNetEur: number;
+  pipelineCourtageGrossEur: number;
+  /** Courtage net club — signés en attente de traitement (ponctuel). */
+  signedCourtageNetEur: number;
+  signedCourtageGrossEur: number;
+  /** Courtage net club — dossiers traités (déjà encaissé ou en cours de règlement). */
+  settledCourtageNetEur: number;
+  settledCourtageGrossEur: number;
+  settledDossiers: number;
   signedDossiers: number;
   pipelineDossiers: number;
-  /** Détail par dossier pour contrôle (pipeline + signés). */
+  /** Détail par dossier pour contrôle. */
   contributions?: Array<{
     id: string;
-    segment: "signed" | "pipeline";
+    segment: ClubRevenueSegment;
     courtageGrossEur: number;
     courtageNetEur: number;
     monthlyCommissionEur: number;
@@ -51,12 +63,11 @@ export type ClubRevenueForecast = {
 
 export type ForecastDossierContribution = {
   id: string;
-  segment: "signed" | "pipeline";
+  segment: ClubRevenueSegment;
   startMonthKey: string;
   courtageGrossEur: number;
   courtageNetEur: number;
   monthlyCommissionEur: number;
-  monthlyPremiumEur: number;
 };
 
 const MONTH_LABELS = [
@@ -119,6 +130,17 @@ export function clampMonthKeyToRange(key: string, monthKeys: string[]): string {
   return monthKeys[monthKeys.length - 1];
 }
 
+export function monthPointTotalNetClub(point: ClubRevenueMonthPoint): number {
+  return (
+    point.settledCourtageNetEur +
+    point.settledMonthlyCommissionEur +
+    point.signedCourtageNetEur +
+    point.signedMonthlyCommissionEur +
+    point.pipelineCourtageNetEur +
+    point.pipelineMonthlyCommissionEur
+  );
+}
+
 export function buildClubRevenueForecastFromContributions(
   contributions: ForecastDossierContribution[],
   options?: { monthsPast?: number; monthsFuture?: number; now?: Date },
@@ -132,39 +154,51 @@ export function buildClubRevenueForecastFromContributions(
   const emptyPoint = (monthKey: string): ClubRevenueMonthPoint => ({
     monthKey,
     label: formatMonthLabel(monthKey),
-    courtageNetEur: 0,
-    courtageGrossEur: 0,
-    monthlyCommissionEur: 0,
-    monthlyPremiumEur: 0,
-    totalNetClubEur: 0,
-    projectedCourtageGrossEur: 0,
-    projectedCourtageNetEur: 0,
-    projectedMonthlyCommissionEur: 0,
-    projectedMonthlyPremiumEur: 0,
-    projectedTotalEur: 0,
+    settledCourtageNetEur: 0,
+    settledCourtageGrossEur: 0,
+    settledMonthlyCommissionEur: 0,
+    signedCourtageNetEur: 0,
+    signedCourtageGrossEur: 0,
+    signedMonthlyCommissionEur: 0,
+    pipelineCourtageNetEur: 0,
+    pipelineCourtageGrossEur: 0,
+    pipelineMonthlyCommissionEur: 0,
+    settledContributors: 0,
     signedContributors: 0,
     pipelineContributors: 0,
   });
 
   const byMonth = new Map(monthKeys.map((k) => [k, emptyPoint(k)]));
 
+  let settledCount = 0;
   let signedCount = 0;
   let pipelineCount = 0;
-  let projectedPipelineCourtageGrossEur = 0;
-  let projectedPipelineCourtageNetEur = 0;
-  let projectedPipelineMrrCommissionEur = 0;
+  let pipelineCourtageNetEur = 0;
+  let pipelineCourtageGrossEur = 0;
+  let pipelineMrrCommissionEur = 0;
+  let signedCourtageNetTotal = 0;
+  let signedCourtageGrossTotal = 0;
+  let settledCourtageNetTotal = 0;
+  let settledCourtageGrossTotal = 0;
 
   for (const c of contributions) {
     const startMonthKey = clampMonthKeyToRange(c.startMonthKey, monthKeys);
     const startIdx = monthKeys.indexOf(startMonthKey);
     if (startIdx < 0) continue;
 
-    if (c.segment === "signed") signedCount += 1;
-    else {
+    if (c.segment === "settled") {
+      settledCount += 1;
+      settledCourtageNetTotal += c.courtageNetEur;
+      settledCourtageGrossTotal += c.courtageGrossEur;
+    } else if (c.segment === "signed") {
+      signedCount += 1;
+      signedCourtageNetTotal += c.courtageNetEur;
+      signedCourtageGrossTotal += c.courtageGrossEur;
+    } else {
       pipelineCount += 1;
-      projectedPipelineCourtageGrossEur += c.courtageGrossEur;
-      projectedPipelineCourtageNetEur += c.courtageNetEur;
-      projectedPipelineMrrCommissionEur += c.monthlyCommissionEur;
+      pipelineCourtageNetEur += c.courtageNetEur;
+      pipelineCourtageGrossEur += c.courtageGrossEur;
+      pipelineMrrCommissionEur += c.monthlyCommissionEur;
     }
 
     for (let i = startIdx; i < monthKeys.length; i++) {
@@ -172,37 +206,44 @@ export function buildClubRevenueForecastFromContributions(
       const point = byMonth.get(key);
       if (!point) continue;
 
-      if (c.segment === "signed") {
+      if (c.segment === "settled") {
         if (i === startIdx) {
-          point.courtageGrossEur += c.courtageGrossEur;
-          point.courtageNetEur += c.courtageNetEur;
+          point.settledCourtageGrossEur += c.courtageGrossEur;
+          point.settledCourtageNetEur += c.courtageNetEur;
+          point.settledContributors += 1;
+        }
+        point.settledMonthlyCommissionEur += c.monthlyCommissionEur;
+      } else if (c.segment === "signed") {
+        if (i === startIdx) {
+          point.signedCourtageGrossEur += c.courtageGrossEur;
+          point.signedCourtageNetEur += c.courtageNetEur;
           point.signedContributors += 1;
         }
-        point.monthlyCommissionEur += c.monthlyCommissionEur;
-        point.monthlyPremiumEur += c.monthlyPremiumEur;
-        point.totalNetClubEur = point.courtageNetEur + point.monthlyCommissionEur;
+        point.signedMonthlyCommissionEur += c.monthlyCommissionEur;
       } else {
         if (i === startIdx) {
-          point.projectedCourtageGrossEur += c.courtageGrossEur;
-          point.projectedCourtageNetEur += c.courtageNetEur;
+          point.pipelineCourtageGrossEur += c.courtageGrossEur;
+          point.pipelineCourtageNetEur += c.courtageNetEur;
           point.pipelineContributors += 1;
         }
-        point.projectedMonthlyCommissionEur += c.monthlyCommissionEur;
-        point.projectedMonthlyPremiumEur += c.monthlyPremiumEur;
-        point.projectedTotalEur =
-          point.projectedCourtageGrossEur + point.projectedMonthlyCommissionEur;
+        point.pipelineMonthlyCommissionEur += c.monthlyCommissionEur;
       }
     }
   }
 
   const current = byMonth.get(currentKey);
+
   const summary: ClubRevenueForecastSummary = {
-    currentMrrCommissionEur: current?.monthlyCommissionEur ?? 0,
-    currentMonthlyPremiumEur: current?.monthlyPremiumEur ?? 0,
-    projectedMrrCommissionEur:
-      (current?.monthlyCommissionEur ?? 0) + projectedPipelineMrrCommissionEur,
-    projectedPipelineCourtageGrossEur,
-    projectedPipelineCourtageNetEur,
+    settledMrrCommissionEur: current?.settledMonthlyCommissionEur ?? 0,
+    signedMrrCommissionEur: current?.signedMonthlyCommissionEur ?? 0,
+    pipelineMrrCommissionEur: current?.pipelineMonthlyCommissionEur ?? 0,
+    pipelineCourtageNetEur,
+    pipelineCourtageGrossEur,
+    signedCourtageNetEur: signedCourtageNetTotal,
+    signedCourtageGrossEur: signedCourtageGrossTotal,
+    settledCourtageNetEur: settledCourtageNetTotal,
+    settledCourtageGrossEur: settledCourtageGrossTotal,
+    settledDossiers: settledCount,
     signedDossiers: signedCount,
     pipelineDossiers: pipelineCount,
     contributions: contributions.map((c) => ({

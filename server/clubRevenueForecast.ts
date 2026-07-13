@@ -21,6 +21,17 @@ import type { ApporteurRemunerationTier } from "../shared/apporteurRemuneration"
 
 const CLOSED: ReferralStatus[] = ["REFUSE", "PERDU"];
 
+function isDossierSettled(dossier: Dossier, referral?: Referral): boolean {
+  const st = String(dossier.status || "");
+  if (["TRAITÉ", "TRAITE", "CLOS"].includes(st)) {
+    if (referral?.status === "SIGNE" || clientHasAcceptedInsuranceChange(dossier)) return true;
+    if (resolveEffectiveSubscriptionPhase(dossier) === "completed") return true;
+  }
+  if (resolveEffectiveSubscriptionPhase(dossier) === "completed") return true;
+  if (dossier.clubRevenueKpi?.paymentStatus === "received") return true;
+  return false;
+}
+
 function isDossierSigned(dossier: Dossier, referral?: Referral): boolean {
   if (referral?.status === "SIGNE") return true;
   const phase = resolveEffectiveSubscriptionPhase(dossier);
@@ -118,6 +129,7 @@ export function buildClubRevenueForecast(params: {
     const referral = referralByDossier.get(dossier.id);
     const signed = isDossierSigned(dossier, referral);
     const pipeline = isDossierPipeline(dossier, referral);
+    const settled = signed && isDossierSettled(dossier, referral);
     if (!signed && !pipeline) continue;
     if (!hasForecastEconomics(dossier) && !pipeline) continue;
 
@@ -135,20 +147,20 @@ export function buildClubRevenueForecast(params: {
       continue;
     }
 
-    const monthlyPremiumEur =
-      breakdown.annualPremiumEur > 0
-        ? Math.round(breakdown.annualPremiumEur / 12)
-        : 0;
-
     const base = {
       id: dossier.id,
       courtageGrossEur: breakdown.feesCourtageEur,
       courtageNetEur: breakdown.clubCourtageNetEur,
       monthlyCommissionEur: breakdown.monthlyLinearCommissionEur,
-      monthlyPremiumEur,
     };
 
-    if (signed) {
+    if (settled) {
+      contributions.push({
+        ...base,
+        segment: "settled",
+        startMonthKey: resolveSignedMonthKey(dossier, referral),
+      });
+    } else if (signed) {
       contributions.push({
         ...base,
         segment: "signed",

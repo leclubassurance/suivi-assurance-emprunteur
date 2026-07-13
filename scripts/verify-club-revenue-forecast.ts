@@ -3,6 +3,7 @@
  */
 import {
   buildClubRevenueForecastFromContributions,
+  monthPointTotalNetClub,
   toMonthKey,
 } from "../shared/clubRevenueForecast";
 
@@ -18,12 +19,11 @@ const forecast = buildClubRevenueForecastFromContributions(
   [
     {
       id: "A",
-      segment: "signed",
+      segment: "settled",
       startMonthKey: start,
       courtageGrossEur: 250,
       courtageNetEur: 200,
       monthlyCommissionEur: 15,
-      monthlyPremiumEur: 100,
     },
     {
       id: "B",
@@ -32,39 +32,49 @@ const forecast = buildClubRevenueForecastFromContributions(
       courtageGrossEur: 400,
       courtageNetEur: 300,
       monthlyCommissionEur: 20,
-      monthlyPremiumEur: 120,
     },
     {
       id: "C",
+      segment: "signed",
+      startMonthKey: "2026-06",
+      courtageGrossEur: 500,
+      courtageNetEur: 350,
+      monthlyCommissionEur: 10,
+    },
+    {
+      id: "D",
       segment: "pipeline",
       startMonthKey: "2027-02",
       courtageGrossEur: 1400,
       courtageNetEur: 900,
       monthlyCommissionEur: 0,
-      monthlyPremiumEur: 0,
     },
   ],
   { monthsPast: 2, monthsFuture: 3, now },
 );
 
 const may = forecast.months.find((m) => m.monthKey === "2026-05");
+const jun = forecast.months.find((m) => m.monthKey === "2026-06");
 const jul = forecast.months.find((m) => m.monthKey === "2026-07");
 const aug = forecast.months.find((m) => m.monthKey === "2026-08");
 const last = forecast.months[forecast.months.length - 1];
 
 assert(Boolean(may), "mai présent");
-assert(may!.courtageGrossEur === 250, "courtage brut mai");
-assert(may!.courtageNetEur === 200, "courtage net mai");
-assert(may!.monthlyCommissionEur === 15, "commission récurrente mai");
-assert(jul!.monthlyCommissionEur === 15, "commission juillet signé");
-assert(jul!.monthlyPremiumEur === 100, "prime juillet");
-assert(aug!.projectedCourtageGrossEur === 400, "projection courtage brut août");
-assert(aug!.projectedCourtageNetEur === 300, "projection courtage net août");
-assert(aug!.projectedMonthlyCommissionEur === 20, "projection MRR août");
-assert(aug!.projectedTotalEur === 420, "projection totale août = courtage brut + MRR");
-assert(last!.projectedCourtageGrossEur === 1400, "courtage pipeline hors fenêtre clampé au dernier mois");
-assert(forecast.summary.currentMrrCommissionEur === 15, "MRR courant");
-assert(forecast.summary.projectedMrrCommissionEur === 35, "MRR avec pipeline");
-assert(forecast.summary.projectedPipelineCourtageGrossEur === 1800, "somme courtage pipeline brut");
+assert(may!.settledCourtageNetEur === 200, "courtage net traité mai");
+assert(may!.settledMonthlyCommissionEur === 15, "commission récurrente traitée mai");
+assert(jun!.signedCourtageNetEur === 350, "courtage net signé juin");
+assert(jun!.signedMonthlyCommissionEur === 10, "commission signée juin");
+assert(jul!.settledMonthlyCommissionEur === 15, "commission traitée juillet");
+assert(jul!.signedMonthlyCommissionEur === 10, "commission signée juillet");
+assert(aug!.pipelineCourtageNetEur === 300, "projection courtage net août");
+assert(aug!.pipelineMonthlyCommissionEur === 20, "projection récurrent août");
+assert(
+  monthPointTotalNetClub(aug!) === 345,
+  "total août = courtage pipeline + récurrent signé + récurrent traité",
+);
+assert(last!.pipelineCourtageNetEur === 900, "courtage pipeline hors fenêtre clampé au dernier mois");
+assert(forecast.summary.settledMrrCommissionEur === 15, "MRR traités courant");
+assert(forecast.summary.signedMrrCommissionEur === 10, "MRR signés courant");
+assert(forecast.summary.pipelineCourtageNetEur === 1200, "somme courtage pipeline net");
 
 console.log("\nForecast OK.");
