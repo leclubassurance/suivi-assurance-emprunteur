@@ -1,5 +1,5 @@
 import type { Dossier } from "./dossierModel";
-import type { Referral, ReferralStatus } from "../shared/apporteurTypes";
+import type { Referral } from "../shared/apporteurTypes";
 import { filterMetricsDossiers } from "./activityMetrics";
 import {
   computeClubRevenueBreakdown,
@@ -13,57 +13,34 @@ import {
   type ClubRevenueForecast,
   type ForecastDossierContribution,
 } from "../shared/clubRevenueForecast";
+import { resolveClubRevenueDossierSegment } from "../shared/clubRevenueDossierSegment";
 import { enrichDossierClubEconomics } from "./clubRevenueAutoSync";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import type { ApporteurRemunerationTier } from "../shared/apporteurRemuneration";
 
-const CLOSED: ReferralStatus[] = ["REFUSE", "PERDU"];
-
-function isDossierSettled(dossier: Dossier, referral?: Referral): boolean {
-  const st = String(dossier.status || "");
-  if (["TRAITÉ", "TRAITE", "CLOS"].includes(st)) {
-    if (referral?.status === "SIGNE" || clientHasAcceptedInsuranceChange(dossier)) return true;
-    if (resolveEffectiveSubscriptionPhase(dossier) === "completed") return true;
-  }
-  if (resolveEffectiveSubscriptionPhase(dossier) === "completed") return true;
-  if (dossier.clubRevenueKpi?.paymentStatus === "received") return true;
-  return false;
-}
-
-function isDossierSigned(dossier: Dossier, referral?: Referral): boolean {
-  if (referral?.status === "SIGNE") return true;
-  const phase = resolveEffectiveSubscriptionPhase(dossier);
-  if (phase === "completed") return true;
-  if (clientHasAcceptedInsuranceChange(dossier)) {
-    const st = String(dossier.status || "");
-    if (["TRAITÉ", "TRAITE", "CLOS"].includes(st)) return true;
-  }
-  return false;
-}
-
-function isDossierPipeline(dossier: Dossier, referral?: Referral): boolean {
-  if (isDossierSigned(dossier, referral)) return false;
-  if (resolveFeesCourtageEur(dossier) > 0) return true;
-  if (referral && CLOSED.includes(referral.status)) return false;
-
-  if (!hasStudyBeenSent(dossier) && !dossier.studyKpi?.extractedAt) return false;
-
-  const phase = resolveEffectiveSubscriptionPhase(dossier);
-  if (phase === "adhesion_space_sent" || phase === "decision_received") return true;
-  if (referral && !CLOSED.includes(referral.status)) {
-    if (["ETUDE_ENVOYEE", "DOSSIER_OUVERT", "CONTACTE", "NOUVEAU"].includes(referral.status)) {
-      return hasStudyBeenSent(dossier) || Boolean(dossier.studyKpi?.extractedAt);
-    }
-  }
-  return hasStudyBeenSent(dossier);
+function buildSegmentInput(dossier: Dossier, referral?: Referral) {
+  return {
+    status: dossier.status,
+    subscriptionPhase: resolveEffectiveSubscriptionPhase(dossier),
+    clientAcceptedInsuranceAt: dossier.clientAcceptedInsuranceAt,
+    clientAccepted: clientHasAcceptedInsuranceChange(dossier),
+    studySent: hasStudyBeenSent(dossier),
+    studyKpiExtracted: Boolean(dossier.studyKpi?.extractedAt),
+    referralStatus: referral?.status,
+    paymentStatus: dossier.clubRevenueKpi?.paymentStatus,
+  };
 }
 
 function resolveSignedMonthKey(dossier: Dossier, referral?: Referral): string {
   const fromKpi = dossier.clubRevenueKpi?.signedAt;
   if (fromKpi) {
     const k = toMonthKey(fromKpi);
+    if (k) return k;
+  }
+  if (dossier.clientAcceptedInsuranceAt) {
+    const k = toMonthKey(dossier.clientAcceptedInsuranceAt);
     if (k) return k;
   }
   if (referral?.status === "SIGNE") {
@@ -127,11 +104,12 @@ export function buildClubRevenueForecast(params: {
   for (const dossier of scoped) {
     enrichDossierClubEconomics(dossier);
     const referral = referralByDossier.get(dossier.id);
-    const signed = isDossierSigned(dossier, referral);
-    const pipeline = isDossierPipeline(dossier, referral);
-    const settled = signed && isDossierSettled(dossier, referral);
-    if (!signed && !pipeline) continue;
-    if (!hasForecastEconomics(dossier) && !pipeline) continue;
+    const segmentInput = buildSegmentInput(dossier, referral);
+    segmentInput.feesCourtageEur = resolveFeesCourtageEur(dossier);
+    segmentInput.hasEconomics = hasForecastEconomics(dossier);
+
+    const segment = resolveClubRevenueDossierSegment(segmentInput);
+    if (!segment) continue;
 
     const apporteurId = dossier.apporteur?.apporteurId;
     const breakdown = computeClubRevenueBreakdown(dossier, {
@@ -147,32 +125,20 @@ export function buildClubRevenueForecast(params: {
       continue;
     }
 
-    const base = {
+    const startMonthKey =
+      segment === "pipeline"
+        ? resolveProjectedMonthKey(dossier, now)
+        : resolveSignedMonthKey(dossier, referral);
+
+    contributions.push({
       id: dossier.id,
+      segment,
+      startMonthKey,
       courtageGrossEur: breakdown.feesCourtageEur,
       courtageNetEur: breakdown.clubCourtageNetEur,
       monthlyCommissionEur: breakdown.monthlyLinearCommissionEur,
-    };
-
-    if (settled) {
-      contributions.push({
-        ...base,
-        segment: "settled",
-        startMonthKey: resolveSignedMonthKey(dossier, referral),
-      });
-    } else if (signed) {
-      contributions.push({
-        ...base,
-        segment: "signed",
-        startMonthKey: resolveSignedMonthKey(dossier, referral),
-      });
-    } else {
-      contributions.push({
-        ...base,
-        segment: "pipeline",
-        startMonthKey: resolveProjectedMonthKey(dossier, now),
-      });
-    }
+      dossierStatus: String(dossier.status || ""),
+    });
   }
 
   return buildClubRevenueForecastFromContributions(contributions, {

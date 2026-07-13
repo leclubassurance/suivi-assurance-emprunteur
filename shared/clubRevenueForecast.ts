@@ -58,6 +58,7 @@ export type ClubRevenueForecastSummary = {
     courtageNetEur: number;
     monthlyCommissionEur: number;
     startMonthKey: string;
+    dossierStatus?: string;
   }>;
 };
 
@@ -74,6 +75,8 @@ export type ForecastDossierContribution = {
   courtageGrossEur: number;
   courtageNetEur: number;
   monthlyCommissionEur: number;
+  /** Statut CRM au moment du calcul (debug / contrôle). */
+  dossierStatus?: string;
 };
 
 const MONTH_LABELS = [
@@ -298,6 +301,7 @@ export function buildClubRevenueForecastFromContributions(
       courtageNetEur: c.courtageNetEur,
       monthlyCommissionEur: c.monthlyCommissionEur,
       startMonthKey: clampMonthKeyToRange(c.startMonthKey, monthKeys),
+      dossierStatus: c.dossierStatus,
     })),
   };
 

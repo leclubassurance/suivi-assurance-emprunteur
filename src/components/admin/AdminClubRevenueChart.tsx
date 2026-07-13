@@ -436,6 +436,7 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
                 <thead>
                   <tr className="text-white/40 border-b border-white/5">
                     <th className="text-left font-bold px-3 py-1.5">Dossier</th>
+                    <th className="text-left font-bold px-3 py-1.5">Statut CRM</th>
                     <th className="text-right font-bold px-3 py-1.5">Courtage net</th>
                     <th className="text-right font-bold px-3 py-1.5">Récurrent / mois</th>
                     <th className="text-right font-bold px-3 py-1.5">Mois signature</th>
@@ -447,6 +448,7 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
                       <td className="px-3 py-1.5 font-mono" style={{ color: meta.fill }}>
                         {r.id}
                       </td>
+                      <td className="px-3 py-1.5 text-white/55">{r.dossierStatus || "—"}</td>
                       <td className="px-3 py-1.5 text-right text-white/85">
                         {r.courtageNetEur > 0 ? formatEur(r.courtageNetEur) : "—"}
                       </td>
@@ -460,6 +462,7 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
                 <tfoot>
                   <tr className="bg-white/[0.04] font-bold">
                     <td className="px-3 py-1.5 text-white/60">Total</td>
+                    <td className="px-3 py-1.5" />
                     <td className="px-3 py-1.5 text-right">
                       {formatEur(rows.reduce((s, r) => s + r.courtageNetEur, 0))}
                     </td>
