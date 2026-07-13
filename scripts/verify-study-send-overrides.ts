@@ -90,4 +90,15 @@ assert(
   "brouillon patché date",
 );
 
+const plainDateHtml = draftHtml.replace(
+  "Comment ça marche",
+  "Changement prévu le 15 juillet 2026. Comment ça marche",
+);
+const plainPatched = resolveStudyEmailHtmlForSend({
+  draftHtml: plainDateHtml,
+  dossier: manualDossier,
+});
+assert(plainPatched.includes("1 septembre 2026"), "date en texte brut remplacée");
+assert(!plainPatched.includes("15 juillet 2026"), "plus de juillet en texte brut");
+
 console.log("\nOverrides envoi étude OK.");

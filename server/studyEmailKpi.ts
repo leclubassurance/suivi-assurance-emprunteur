@@ -1,6 +1,7 @@
 import { addEvent, type Dossier } from "./dossierModel";
 import { getLastStudyOutbound, isOutboundConfirmation } from "./dossierLifecycle";
 import { tryApplyInsuranceChangePlanFromStudyContent } from "./insuranceChangePlan";
+import { hasManualInsuranceChangePlan } from "./dossierManualOverrides";
 import {
   enrichParsedStudyFees,
   extractAnnualPremiumFromStudyHtml,
@@ -455,7 +456,7 @@ export function applyStudyKpiFromGmailOutbound(
     date: params.date,
     source: "gmail_outbound",
   });
-  if (written) {
+  if (written && !hasManualInsuranceChangePlan(dossier)) {
     tryApplyInsuranceChangePlanFromStudyContent(dossier, body);
   }
   return written;
@@ -566,6 +567,10 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
   const existing = dossier.studyKpi as StudyKpiRecord | undefined;
   if (existing?.source === "manual") return false;
 
+  const preservedManualPlan = hasManualInsuranceChangePlan(dossier)
+    ? { ...(dossier as any).insuranceChangePlan }
+    : null;
+
   if (applyStudyKpiFromStudyDraft(dossier)) {
     const loan = getLoanCapitalFromDossier(dossier);
     const kpi = dossier.studyKpi;
@@ -573,6 +578,7 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
       kpi?.grossSource === "draft" &&
       isGrossSavingsPlausible(Number(kpi.grossSavingsEur) || 0, loan)
     ) {
+      if (preservedManualPlan) (dossier as any).insuranceChangePlan = preservedManualPlan;
       return true;
     }
   }
@@ -611,13 +617,16 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
       date: best.date,
       source: "gmail_outbound",
     });
-    if (changed) {
+    if (changed && !hasManualInsuranceChangePlan(dossier)) {
       tryApplyInsuranceChangePlanFromStudyContent(dossier, best.body);
-      return true;
     }
+    if (preservedManualPlan) (dossier as any).insuranceChangePlan = preservedManualPlan;
+    if (changed) return true;
   }
 
-  return applyStudyKpiFromStudyDraft(dossier);
+  const fromDraft = applyStudyKpiFromStudyDraft(dossier);
+  if (preservedManualPlan) (dossier as any).insuranceChangePlan = preservedManualPlan;
+  return fromDraft;
 }
 
 /** Date de référence pour les totaux bandeau admin (envoi étude > extraction KPI). */

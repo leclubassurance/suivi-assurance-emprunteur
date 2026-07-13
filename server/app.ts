@@ -3685,9 +3685,14 @@ export function createApp() {
           kpi?.confidence === "low" ||
           (gross > 0 && loan > 0 && !isGrossSavingsPlausible(gross, loan)) ||
           (gross <= 0 && kpi?.grossSource !== "draft" && kpi?.grossSource !== "manual"));
-      if (suspectKpi && refreshStudyKpiFromCommunications(d)) {
-        kpiBackfilled += 1;
-        dirtyKpiIds.push(d.id);
+      if (suspectKpi) {
+        const preservedManualPlan =
+          d.insuranceChangePlan?.source === "manual" ? { ...d.insuranceChangePlan } : null;
+        if (refreshStudyKpiFromCommunications(d)) {
+          kpiBackfilled += 1;
+          dirtyKpiIds.push(d.id);
+        }
+        if (preservedManualPlan) d.insuranceChangePlan = preservedManualPlan;
       }
     }
     if (dirtyKpiIds.length > 0) {

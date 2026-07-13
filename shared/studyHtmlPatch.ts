@@ -59,9 +59,17 @@ export function formatPlannedChangeDateFr(isoDate: string): string {
 
 const PLANNED_DATE_RES = [
   /(Date de changement prévue\s*:\s*)<strong>[^<]*<\/strong>/i,
+  /(Date de changement prévue\s*:\s*)(?:<strong>)?[^<\n]{4,48}(?:<\/strong>)?/i,
   /(Changement prévu\s*(?:le|:)\s*)<strong>[^<]*<\/strong>/i,
+  /(Changement prévu\s*(?:le|:)\s*)(?:<strong>)?[^<\n]{4,48}(?:<\/strong>)?/i,
   /(changement\s+prévu\s*(?:le|:)\s*)<strong>[^<]*<\/strong>/i,
+  /(changement\s+prévu\s*(?:le|:)\s*)(?:<strong>)?[^<\n]{4,48}(?:<\/strong>)?/i,
+  /((?:effectif|à partir)\s+(?:le|du)\s*)<strong>[^<]*<\/strong>/i,
+  /((?:effectif|à partir)\s+(?:le|du)\s*)(?:<strong>)?[^<\n]{4,48}(?:<\/strong>)?/i,
 ];
+
+const FRENCH_DATE_IN_CHANGE_LINE =
+  /((?:date\s+(?:de\s+)?changement|changement\s+pr[ée]vu|effectif|à partir)[^<\n]{0,80}?)(\d{1,2}\s+(?:janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+\d{4})/i;
 
 export function patchStudyHtmlPlannedDate(
   html: string,
@@ -74,6 +82,12 @@ export function patchStudyHtmlPlannedDate(
     }
   }
 
+  if (FRENCH_DATE_IN_CHANGE_LINE.test(html)) {
+    return {
+      html: html.replace(FRENCH_DATE_IN_CHANGE_LINE, `$1<strong>${label}</strong>`),
+      patched: true,
+    };
+  }
   const block = `<p style="font-size:14px;margin:0 0 16px 0;color:#1F2937;">Date de changement prévue : <strong>${label}</strong></p>`;
   const anchor = /(<p style="font-size:16px;margin:0 0 16px 0;color:#1F2937;">Bonjour[^<]*<\/p>)/i;
   if (anchor.test(html)) {

@@ -15,6 +15,7 @@ import fs from "fs";
 import path from "path";
 import { ensureDossierShape } from "./dossierModel";
 import { compactDossierForPersistence, stripUndefinedForFirestore } from "./dossierFirestoreCompact";
+import { mergeManualDossierOverrides } from "./dossierManualOverrides";
 import { loadServiceAccountCredentials } from "./serviceAccount";
 
 const DOSSIERS_COLLECTION = "dossiers";
@@ -304,7 +305,9 @@ export async function syncDossierToFirebase(dossier: unknown) {
   if (!db) return;
   try {
     const shaped = ensureDossierShape(dossier);
-    const cleanDossier = compactDossierForPersistence(shaped);
+    const existing = await readDossierFromFirebase(String(shaped.id));
+    const merged = existing ? mergeManualDossierOverrides(existing, shaped) : shaped;
+    const cleanDossier = compactDossierForPersistence(merged);
     if (adminFirestoreDb) {
       await adminFirestoreDb
         .collection(DOSSIERS_COLLECTION)
