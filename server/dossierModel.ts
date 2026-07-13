@@ -181,6 +181,10 @@ export interface Dossier {
     updatedBy?: string;
     note?: string;
   };
+  /** Accord client pour activer le changement d'assurance (mail auto ou validation admin/conseiller). */
+  clientAcceptedInsuranceAt?: string;
+  clientAcceptedInsuranceSource?: "mail" | "admin" | "conseiller" | "system";
+  clientAcceptedInsuranceNote?: string;
   camilleTelegramStaff?: {
     lastNewsKey?: string;
     lastNewsAt?: string;
@@ -316,6 +320,9 @@ export function ensureDossierShape(d: any): Dossier {
     insuranceChangePlan: d.insuranceChangePlan,
     clientPortal: d.clientPortal,
     subscriptionProgress: d.subscriptionProgress,
+    clientAcceptedInsuranceAt: d.clientAcceptedInsuranceAt,
+    clientAcceptedInsuranceSource: d.clientAcceptedInsuranceSource,
+    clientAcceptedInsuranceNote: d.clientAcceptedInsuranceNote,
     camilleTelegramStaff: d.camilleTelegramStaff,
     camillePendingReview: d.camillePendingReview,
     remiQueue: d.remiQueue,

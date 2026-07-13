@@ -7,6 +7,9 @@ import type { Dossier } from "../../types";
 type SubscriptionView = {
   studySent: boolean;
   clientAccepted: boolean;
+  clientAcceptedAt?: string | null;
+  clientAcceptedSource?: string | null;
+  clientAcceptedNote?: string | null;
   effectivePhase: string | null;
   effectivePhaseLabel: string | null;
   manualPhase: string | null;
@@ -27,7 +30,7 @@ const QUICK_PHASES = [
     value: "decision_received",
     label: "Accord client",
     icon: CheckCircle2,
-    hint: "Le client a accepté le changement d'assurance",
+    hint: "Mail client OU accord oral confirmé par le conseiller / l'équipe",
   },
   {
     value: "adhesion_space_sent",
@@ -147,8 +150,8 @@ export default function AdminSubscriptionProgressPanel({
           Phase souscription — Camille &amp; portail client
         </p>
         <p className="text-[11px] text-indigo-800 mt-1 leading-relaxed">
-          Indiquez où en est le dossier <strong>après l&apos;étude</strong>. Camille s&apos;appuie sur cette
-          information pour ses réponses (espace Kereis, relances, pièces).
+          Après l&apos;étude : indiquez l&apos;accord client (mail auto ou oral conseiller). Camille, le portail
+          client et le suivi conseiller se synchronisent sur cette phase.
         </p>
       </div>
 
@@ -166,8 +169,13 @@ export default function AdminSubscriptionProgressPanel({
             </p>
             <p className="text-[10px] text-slate-500 mt-1">
               Statut CRM : <strong>{view.dossierStatus}</strong>
-              {view.clientAccepted ? " · Accord client détecté dans les mails" : " · Pas d'accord explicite détecté"}
+              {view.clientAccepted
+                ? ` · Accord enregistré${view.clientAcceptedSource ? ` (${view.clientAcceptedSource})` : ""}`
+                : " · Pas d'accord enregistré — utilisez « Accord client » ou ADHÉSION EN COURS"}
             </p>
+            {view.clientAcceptedNote ? (
+              <p className="text-[10px] text-slate-500 mt-1 italic">{view.clientAcceptedNote}</p>
+            ) : null}
             {view.manualUpdatedAt && (
               <p className="text-[10px] text-slate-400 mt-1">
                 Dernière mise à jour admin : {view.manualUpdatedAt.slice(0, 16).replace("T", " ")}

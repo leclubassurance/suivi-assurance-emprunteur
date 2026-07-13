@@ -138,10 +138,14 @@ export default function AdminDossierBannerControls({
           ))}
         </select>
         {(dossier as Dossier & { statusManualAt?: string }).statusManualAt ? (
-          <span className="text-[10px] text-amber-700 max-w-[200px] text-right leading-tight">
-            Statut figé manuellement — la synchro Gmail ne le modifie plus
+          <span className="text-[10px] text-amber-700 max-w-[220px] text-right leading-tight">
+            Statut CRM figé — pour l&apos;accord client, préférez la phase « Accord client » ou ADHÉSION EN COURS
           </span>
-        ) : null}
+        ) : (
+          <span className="text-[10px] text-slate-400 max-w-[220px] text-right leading-tight">
+            ADHÉSION EN COURS enregistre aussi l&apos;accord client
+          </span>
+        )}
       </div>
 
       <button

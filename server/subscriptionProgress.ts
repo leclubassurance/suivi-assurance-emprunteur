@@ -1,6 +1,6 @@
 import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent, getLastStudyOutbound, isStudyPendingConseillerValidation } from "./dossierLifecycle";
-import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
+import { clientHasAcceptedInsuranceChange, recordClientInsuranceAcceptance, syncClientInsuranceAcceptanceFromMail } from "./insuranceAcceptance";
 import { isLoanDocsStepComplete } from "./loanDocPresence";
 
 /** Phases opérationnelles après envoi de l'étude. */
@@ -22,7 +22,7 @@ const LEGACY_KEREIS_PHASES = new Set([
 
 export const SUBSCRIPTION_PHASE_OPTIONS: { value: SubscriptionPhase; label: string }[] = [
   { value: "awaiting_decision", label: "En attente de décision (après étude)" },
-  { value: "decision_received", label: "Accord client reçu (automatique si mail)" },
+  { value: "decision_received", label: "Accord client — mail auto ou validation manuelle" },
   { value: "adhesion_space_sent", label: "Espace adhésion envoyé au client" },
   { value: "completed", label: "Dossier clos (client a terminé en ligne)" },
 ];
@@ -64,6 +64,7 @@ export type SubscriptionProgress = {
 /** Avance automatiquement si accord client détecté dans les mails. */
 export function ensureSubscriptionProgressOnAcceptance(dossier: Dossier): boolean {
   if (!hasStudyBeenSent(dossier)) return false;
+  syncClientInsuranceAcceptanceFromMail(dossier);
   if (!clientHasAcceptedInsuranceChange(dossier)) return false;
 
   const current = coerceSubscriptionPhase(dossier.subscriptionProgress?.phase);
@@ -101,6 +102,17 @@ export function resolveEffectiveSubscriptionPhase(dossier: Dossier): Subscriptio
 
   if (accepted) return "decision_received";
   return "awaiting_decision";
+}
+
+/** Décision client enregistrée (accord persisté ou phase admin post-accord). */
+export function clientDecisionIsRecorded(dossier: Dossier): boolean {
+  if (clientHasAcceptedInsuranceChange(dossier)) return true;
+  const phase = coerceSubscriptionPhase(dossier.subscriptionProgress?.phase);
+  const by = dossier.subscriptionProgress?.updatedBy;
+  if (by && by !== "system" && phaseRank(phase) >= phaseRank("decision_received")) {
+    return true;
+  }
+  return false;
 }
 
 export type PortalStep = {
@@ -212,6 +224,18 @@ export function applySubscriptionPhaseUpdate(
     note: meta?.note?.trim() || undefined,
   };
 
+  if (phaseRank(phase) >= phaseRank("decision_received")) {
+    recordClientInsuranceAcceptance(dossier, {
+      source: meta?.updatedBy === "admin" ? "admin" : "system",
+      note:
+        meta?.note?.trim() ||
+        (phase === "decision_received"
+          ? "Accord client enregistré manuellement (admin)."
+          : undefined),
+      actor: meta?.updatedBy,
+    });
+  }
+
   if (phase === "completed") {
     dossier.status = "TRAITÉ";
   } else if (phase === "adhesion_space_sent") {
@@ -236,6 +260,9 @@ export function buildSubscriptionProgressAdminView(dossier: Dossier) {
   return {
     studySent,
     clientAccepted: clientHasAcceptedInsuranceChange(dossier),
+    clientAcceptedAt: dossier.clientAcceptedInsuranceAt || null,
+    clientAcceptedSource: dossier.clientAcceptedInsuranceSource || null,
+    clientAcceptedNote: dossier.clientAcceptedInsuranceNote || null,
     effectivePhase,
     effectivePhaseLabel: effectivePhase
       ? SUBSCRIPTION_PHASE_OPTIONS.find((o) => o.value === effectivePhase)?.label || effectivePhase

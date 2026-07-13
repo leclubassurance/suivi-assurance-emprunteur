@@ -8,7 +8,7 @@ import {
 } from "../shared/conseillerSubscription";
 import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent, isStudyPendingConseillerValidation } from "./dossierLifecycle";
-import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
+import { clientHasAcceptedInsuranceChange, clientDecisionIsRecorded } from "./subscriptionProgress";
 import { resolveDossierCommission } from "../shared/apporteurCommissionFromDossier";
 import type { ApporteurReferralTracking } from "./apporteurPortalEnrich";
 import {
@@ -61,7 +61,7 @@ function buildConseillerSubscriptionSteps(
   const studyPendingValidation = isStudyPendingConseillerValidation(dossier);
   const validationApproved = dossier.studyConseillerValidation?.status === "approved";
   const studySent = hasStudyBeenSent(dossier);
-  const accepted = clientHasAcceptedInsuranceChange(dossier);
+  const accepted = clientDecisionIsRecorded(dossier);
   const sub: ConseillerSubscriptionPackage | undefined = (dossier as any).conseillerSubscription;
   const subStatus: ConseillerSubscriptionStatus = sub?.status || "pending";
 
@@ -193,7 +193,7 @@ export function enrichReferralForConseillerPortal(params: {
       : null;
 
   const studySent = hasStudyBeenSent(dossier);
-  const clientAccepted = clientHasAcceptedInsuranceChange(dossier);
+  const clientAccepted = clientDecisionIsRecorded(dossier);
 
   const statusView = studyValidationRaw?.status === "pending"
     ? {
@@ -211,7 +211,7 @@ export function enrichReferralForConseillerPortal(params: {
       ? {
           label: "Étude envoyée — décision en attente",
           description:
-            "L'étude a été transmise au client. En attente de son accord pour activer le changement d'assurance.",
+            "L'étude a été transmise au client. Enregistrez l'accord client (mail ou validation manuelle) pour lancer la suite.",
         }
       : resolveClientPortalStatusView(dossier);
   const steps = buildConseillerSubscriptionSteps(dossier, operatingPhase);

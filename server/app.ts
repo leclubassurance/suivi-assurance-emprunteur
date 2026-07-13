@@ -699,6 +699,33 @@ export function createApp() {
           meta: { from: before.status, to: req.body.status },
         });
 
+        const nextStatus = String(req.body.status || "");
+        if (nextStatus === "ADHESION_EN_COURS") {
+          const {
+            applySubscriptionPhaseUpdate,
+            coerceSubscriptionPhase,
+            phaseRank,
+          } = await import("./subscriptionProgress");
+          const { recordClientInsuranceAcceptance } = await import("./insuranceAcceptance");
+          const currentPhase = coerceSubscriptionPhase(dossier.subscriptionProgress?.phase);
+          if (phaseRank(currentPhase) < phaseRank("decision_received")) {
+            applySubscriptionPhaseUpdate(dossier, "decision_received", {
+              updatedBy: "admin",
+              note: "Accord client — statut CRM ADHÉSION EN COURS",
+            });
+          } else {
+            recordClientInsuranceAcceptance(dossier, {
+              source: "admin",
+              note: "Accord client — statut CRM ADHÉSION EN COURS",
+            });
+          }
+          addEvent(dossier, {
+            type: "NOTE_ADDED",
+            actor: { kind: "ADMIN" },
+            message: "Accord client enregistré via statut ADHÉSION EN COURS (Camille + portail synchronisés).",
+          });
+        }
+
         if (req.body.status === "EN_ATTENTE_CLIENT") {
           const hasPendingNoReply = (dossier.tasks || []).some(
             (t: any) => t.status === "PENDING" && t.type === "FOLLOWUP_NO_REPLY",
