@@ -914,6 +914,12 @@ export function createApp() {
 
     const draft = comp.ok ? buildEconomyHtmlDraft(dossier, comp) : null;
     const now = new Date().toISOString();
+    const y1Monthly =
+      comp.extracted?.proposedMonthlyByYear?.find((r) => r.year === 1)?.monthly ??
+      comp.extracted?.proposedMonthlyByYear?.[0]?.monthly ??
+      comp.result?.table?.find((r) => /année\s*1/i.test(r.label))?.proposedMonthly;
+    const annualPremiumEur =
+      y1Monthly != null && y1Monthly > 0 ? Math.round(y1Monthly * 12) : undefined;
 
     dossier.studyDraft = {
       kind: "ECONOMY",
@@ -927,10 +933,18 @@ export function createApp() {
         ? {
             grossSavingsEur: Math.round(comp.result?.grossSavings || 0),
             feesCourtageEur: Math.round(comp.extracted?.feesCourtierTotal || 0),
-            feesAssureurEur: Math.round(comp.extracted?.feesAssureurTotal || 0),
+            feesAssureurEur:
+              comp.extracted?.feesAssureurTotal != null
+                ? Math.round(comp.extracted.feesAssureurTotal)
+                : undefined,
+            annualPremiumEur,
           }
         : undefined,
     };
+    const { applyStudyKpiFromStudyDraft } = await import("./studyEmailKpi");
+    const { syncClubRevenueKpiFromStudy } = await import("./clubRevenueKpi");
+    applyStudyKpiFromStudyDraft(dossier);
+    syncClubRevenueKpiFromStudy(dossier);
     addEvent(dossier, {
       type: "NOTE_ADDED",
       actor: { kind: "SYSTEM" },
@@ -3654,6 +3668,12 @@ export function createApp() {
     const { resolveRemunerationTier } = await import("../shared/apporteurRemuneration");
     const store = await loadApporteurStore();
     const apporteurById = new Map(store.apporteurs.map((a) => [a.id, a]));
+    const { backfillClubEconomicsForDossiers } = await import("./clubRevenueAutoSync");
+    const dirtyIds = backfillClubEconomicsForDossiers(db.dossiers);
+    if (dirtyIds.length > 0) {
+      const { writeDirtyDossiers } = await import("./db");
+      await writeDirtyDossiers(db, dirtyIds);
+    }
     const forecast = buildClubRevenueForecast({
       dossiers: db.dossiers,
       referrals: store.referrals,
@@ -3842,9 +3862,32 @@ export function createApp() {
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     delete dossier.studyKpi;
     const { refreshStudyKpiFromCommunications } = await import("./studyEmailKpi");
+    const { syncClubRevenueKpiFromStudy } = await import("./clubRevenueKpi");
     const ok = refreshStudyKpiFromCommunications(dossier);
+    syncClubRevenueKpiFromStudy(dossier);
     await writeDB(db, dossier);
-    res.json({ ok, studyKpi: dossier.studyKpi || null, insuranceChangePlan: dossier.insuranceChangePlan || null });
+    res.json({
+      ok,
+      studyKpi: dossier.studyKpi || null,
+      clubRevenueKpi: dossier.clubRevenueKpi || null,
+      insuranceChangePlan: dossier.insuranceChangePlan || null,
+    });
+  });
+
+  app.post("/api/admin/dossiers/:id/sync-club-revenue", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { enrichDossierClubEconomics } = await import("./clubRevenueAutoSync");
+    const changed = enrichDossierClubEconomics(dossier);
+    if (changed) await writeDB(db, dossier);
+    res.json({
+      ok: true,
+      changed,
+      studyKpi: dossier.studyKpi || null,
+      clubRevenueKpi: dossier.clubRevenueKpi || null,
+    });
   });
 
   app.patch("/api/admin/dossiers/:id/insurance-change-plan", async (req, res) => {
@@ -3938,7 +3981,7 @@ export function createApp() {
       productLine?: string;
       insurer?: string;
       annualPremiumEur?: number;
-      linearCommissionPercent?: number;
+      linearCommissionPercent?: number | null;
       kereisCommissionOverrideEur?: number | null;
       feesCourtageOverrideEur?: number | null;
       paymentStatus?: string;
@@ -3951,6 +3994,7 @@ export function createApp() {
       body.insurer != null ||
       body.annualPremiumEur != null ||
       body.linearCommissionPercent != null ||
+      body.linearCommissionPercent === null ||
       body.kereisCommissionOverrideEur !== undefined ||
       body.feesCourtageOverrideEur !== undefined ||
       body.paymentStatus != null ||

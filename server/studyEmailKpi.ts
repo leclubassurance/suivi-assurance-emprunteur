@@ -1,6 +1,11 @@
 import { addEvent, type Dossier } from "./dossierModel";
 import { getLastStudyOutbound, isOutboundConfirmation } from "./dossierLifecycle";
 import { tryApplyInsuranceChangePlanFromStudyContent } from "./insuranceChangePlan";
+import {
+  enrichParsedStudyFees,
+  extractAnnualPremiumFromStudyHtml,
+} from "../shared/studyClubEconomics";
+import { syncClubRevenueKpiFromStudy } from "./clubRevenueKpi";
 
 export type StudyKpiGrossSource = "draft" | "table" | "hero" | "text" | "subject" | "manual";
 
@@ -8,6 +13,8 @@ export type StudyKpiRecord = {
   grossSavingsEur: number;
   feesCourtageEur: number;
   feesAssureurEur?: number;
+  /** Prime annuelle (cotisation an 1 × 12) — extraite du mail / devis. */
+  annualPremiumEur?: number;
   scenario?: "A" | "B" | "C";
   confidence: "high" | "medium" | "low";
   source: "gmail_outbound" | "study_draft" | "manual";
@@ -316,6 +323,8 @@ export function parseStudyEconomyFromEmailHtml(
     firstAmountAfter(/frais de dossier de la nouvelle assurance/i, blob) ??
     undefined;
 
+  const annualFromHtml = rawHtml.length > 0 ? extractAnnualPremiumFromStudyHtml(rawHtml) : null;
+
   let scenario: "A" | "B" | "C" = "A";
   if ((gross ?? 0) <= 0) scenario = "C";
   else if ((gross ?? 0) < 500) scenario = "B";
@@ -331,15 +340,18 @@ export function parseStudyEconomyFromEmailHtml(
             ? "high"
             : "low";
 
-  return {
+  const parsed: ParsedStudyKpi = {
     grossSavingsEur: gross ?? 0,
     feesCourtageEur: feesCourtage ?? 0,
     feesAssureurEur: feesAssureur,
+    annualPremiumEur: annualFromHtml ?? undefined,
     scenario,
     confidence,
     grossSource: grossSource || undefined,
     subject,
   };
+
+  return parsed;
 }
 
 function kpiQualityScore(
@@ -414,6 +426,7 @@ function writeStudyKpi(
     },
   });
 
+  syncClubRevenueKpiFromStudy(dossier);
   return true;
 }
 
@@ -435,6 +448,7 @@ export function applyStudyKpiFromGmailOutbound(
   const loanCapitalEur = getLoanCapitalFromDossier(dossier);
   const parsed = parseStudyEconomyFromEmailHtml(html || text, params.subject, loanCapitalEur);
   if (!parsed) return false;
+  enrichParsedStudyFees(parsed, dossier);
 
   const written = writeStudyKpi(dossier, parsed, {
     gmailId: params.gmailId,
@@ -459,6 +473,7 @@ export function applyStudyKpiFromStudyDraft(dossier: Dossier): boolean {
           grossSavingsEur?: number;
           feesCourtageEur?: number;
           feesAssureurEur?: number;
+          annualPremiumEur?: number;
         };
       }
     | undefined;
@@ -471,11 +486,16 @@ export function applyStudyKpiFromStudyDraft(dossier: Dossier): boolean {
       grossSavingsEur: gross,
       feesCourtageEur: Math.round(Number(summary.feesCourtageEur) || 0),
       feesAssureurEur: summary.feesAssureurEur,
+      annualPremiumEur:
+        summary.annualPremiumEur != null
+          ? Math.round(Number(summary.annualPremiumEur) || 0)
+          : undefined,
       scenario: gross <= 0 ? "C" : gross < 500 ? "B" : "A",
       confidence: draft.reliability === "HIGH" ? "high" : "medium",
       grossSource: "draft",
       subject: draft.subject || undefined,
     };
+    enrichParsedStudyFees(parsed, dossier);
     const loanCapitalEur = getLoanCapitalFromDossier(dossier);
     if (!isBetterKpi(parsed, dossier.studyKpi as StudyKpiRecord | undefined, loanCapitalEur)) {
       return Boolean(dossier.studyKpi?.grossSavingsEur != null);
@@ -497,6 +517,7 @@ export function applyStudyKpiFromStudyDraft(dossier: Dossier): boolean {
   if (!parsed) return false;
   parsed.grossSource = "draft";
   parsed.confidence = draft.reliability === "HIGH" ? "high" : parsed.confidence;
+  enrichParsedStudyFees(parsed, dossier);
   return writeStudyKpi(dossier, parsed, {
     gmailId: `study_draft_html_${dossier.id}`,
     date: draft.computedAt || new Date().toISOString(),
@@ -561,6 +582,7 @@ export function refreshStudyKpiFromCommunications(dossier: Dossier): boolean {
     if (!isStudyEconomyOutboundEmail(String(c.subject || ""), body)) continue;
     const parsed = parseStudyEconomyFromEmailHtml(body, String(c.subject || ""), loanCapitalEur);
     if (!parsed) continue;
+    enrichParsedStudyFees(parsed, dossier);
     const score = kpiQualityScore(parsed, loanCapitalEur);
     if (score > bestScore) {
       bestScore = score;

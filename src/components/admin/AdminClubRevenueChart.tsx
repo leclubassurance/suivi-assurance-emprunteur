@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TrendingUp, RefreshCw } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
 import type { ClubRevenueForecast } from "../../../shared/clubRevenueForecast";
+import { toMonthKeyFromDate } from "../../../shared/clubRevenueForecast";
 
 function formatEur(n: number): string {
   return `${Math.round(n).toLocaleString("fr-FR")} €`;
@@ -66,7 +67,8 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
       const realizedH = (m.totalNetClubEur / maxVal) * innerH;
       const projectedH = (m.projectedTotalEur / maxVal) * innerH;
       const premiumY = y(m.monthlyPremiumEur + m.projectedMonthlyPremiumEur);
-      const isFuture = i > months.findIndex((mo) => mo.monthKey === new Date().toISOString().slice(0, 7));
+      const isFuture =
+        i > months.findIndex((mo) => mo.monthKey === toMonthKeyFromDate(new Date()));
       return {
         m,
         x,

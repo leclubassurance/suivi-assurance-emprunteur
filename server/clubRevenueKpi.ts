@@ -1,7 +1,49 @@
 import { addEvent, type Dossier } from "./dossierModel";
 import type { ClubRevenueKpiRecord, KereisMiaProductLine } from "../shared/kereisMiaRemuneration";
+import { resolveFeesCourtageEur } from "../shared/kereisMiaRemuneration";
+import { resolveAnnualPremiumEur } from "../shared/studyClubEconomics";
 
 export type { ClubRevenueKpiRecord };
+
+/** Met à jour clubRevenueKpi depuis le mail d'étude — seul le % linéaire dossier reste manuel. */
+export function syncClubRevenueKpiFromStudy(dossier: Dossier): boolean {
+  const courtage = resolveFeesCourtageEur(dossier);
+  const annualPremium = resolveAnnualPremiumEur(dossier);
+  const feesAssureur =
+    dossier.studyKpi?.feesAssureurEur ?? dossier.studyDraft?.economySummary?.feesAssureurEur;
+
+  if (courtage <= 0 && annualPremium <= 0 && !(feesAssureur != null && feesAssureur > 0)) {
+    return false;
+  }
+
+  const prev = dossier.clubRevenueKpi;
+  const next: ClubRevenueKpiRecord = {
+    productLine: prev?.productLine ?? "emprunteur",
+    insurer: prev?.insurer,
+    annualPremiumEur: annualPremium > 0 ? annualPremium : prev?.annualPremiumEur,
+    linearCommissionPercent: prev?.linearCommissionPercent,
+    kereisCommissionOverrideEur: prev?.kereisCommissionOverrideEur,
+    feesCourtageOverrideEur: undefined,
+    paymentStatus: prev?.paymentStatus ?? "pending",
+    signedAt: prev?.signedAt,
+    notes: prev?.notes,
+    source: "estimated",
+    updatedAt: new Date().toISOString(),
+  };
+
+  const unchanged =
+    prev &&
+    prev.annualPremiumEur === next.annualPremiumEur &&
+    prev.linearCommissionPercent === next.linearCommissionPercent &&
+    !prev.feesCourtageOverrideEur &&
+    prev.source === "estimated" &&
+    resolveFeesCourtageEur({ ...dossier, clubRevenueKpi: prev }) === courtage;
+
+  if (unchanged) return false;
+
+  dossier.clubRevenueKpi = next;
+  return true;
+}
 
 export function patchClubRevenueKpi(
   dossier: Dossier,
@@ -9,7 +51,7 @@ export function patchClubRevenueKpi(
     productLine?: KereisMiaProductLine;
     insurer?: string;
     annualPremiumEur?: number;
-    linearCommissionPercent?: number;
+    linearCommissionPercent?: number | null;
     kereisCommissionOverrideEur?: number | null;
     feesCourtageOverrideEur?: number | null;
     paymentStatus?: ClubRevenueKpiRecord["paymentStatus"];
@@ -29,9 +71,11 @@ export function patchClubRevenueKpi(
         ? Math.round(Number(input.annualPremiumEur) || 0)
         : prev?.annualPremiumEur,
     linearCommissionPercent:
-      input.linearCommissionPercent != null
-        ? Math.round(Number(input.linearCommissionPercent) * 100) / 100
-        : prev?.linearCommissionPercent,
+      input.linearCommissionPercent === null
+        ? undefined
+        : input.linearCommissionPercent != null
+          ? Math.round(Number(input.linearCommissionPercent) * 100) / 100
+          : prev?.linearCommissionPercent,
     kereisCommissionOverrideEur:
       input.kereisCommissionOverrideEur === null
         ? undefined

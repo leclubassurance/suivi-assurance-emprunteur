@@ -114,6 +114,7 @@ export interface Dossier {
       grossSavingsEur: number;
       feesCourtageEur: number;
       feesAssureurEur?: number;
+      annualPremiumEur?: number;
     };
   };
   /** Validation conseiller : débrief courtage puis envoi manuel admin. */

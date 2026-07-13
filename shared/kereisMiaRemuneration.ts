@@ -2,6 +2,7 @@ import {
   resolveDossierCommission,
   type DossierEconomicsSlice,
 } from "./apporteurCommissionFromDossier";
+import { resolveAnnualPremiumEur, type StudyEconomicsSlice } from "./studyClubEconomics";
 import {
   getRemunerationConfig,
   resolveRemunerationTier,
@@ -102,12 +103,15 @@ export function resolveFeesCourtageEur(dossier: DossierClubRevenueSlice): number
   return 0;
 }
 
-export type DossierClubRevenueSlice = DossierEconomicsSlice & {
+export type DossierClubRevenueSlice = DossierEconomicsSlice &
+  StudyEconomicsSlice & {
   clubRevenueKpi?: ClubRevenueKpiRecord;
   studyConseillerValidation?: {
     status?: string;
     conseillerRetroEur?: number;
     feesCourtageTotalEur?: number;
+    feesPerAssuredEur?: number;
+    assuredCount?: number;
   };
 };
 
@@ -132,11 +136,15 @@ export function resolveLinearCommissionPercent(
 }
 
 export function computeKereisLinearCommissionEur(
-  kpi: ClubRevenueKpiRecord | undefined,
+  dossier: DossierClubRevenueSlice,
   settings: KereisMiaSettings = DEFAULT_KEREIS_MIA_SETTINGS,
 ): { amountEur: number; fromPercent: boolean; percent: number; annualPremiumEur: number } {
+  const kpi = dossier.clubRevenueKpi;
   const percent = resolveLinearCommissionPercent(kpi, settings);
-  const annualPremiumEur = roundEur(kpi?.annualPremiumEur ?? 0);
+  let annualPremiumEur = roundEur(kpi?.annualPremiumEur ?? 0);
+  if (annualPremiumEur <= 0) {
+    annualPremiumEur = resolveAnnualPremiumEur(dossier);
+  }
 
   if (kpi?.kereisCommissionOverrideEur != null && Number(kpi.kereisCommissionOverrideEur) > 0) {
     return {
@@ -257,7 +265,7 @@ export function computeClubRevenueBreakdown(
 
   const feesCourtageEur = resolveFeesCourtageEur(dossier);
 
-  const kereis = computeKereisLinearCommissionEur(kpi, settings);
+  const kereis = computeKereisLinearCommissionEur(dossier, settings);
   const monthlyLinearCommissionEur =
     kereis.annualPremiumEur > 0 && kereis.percent > 0
       ? roundEur((kereis.annualPremiumEur * kereis.percent) / 100 / 12)

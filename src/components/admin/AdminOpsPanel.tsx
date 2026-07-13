@@ -39,7 +39,9 @@ import AdminConseillerSubscriptionPanel from "./AdminConseillerSubscriptionPanel
 import {
   computeClubRevenueBreakdown,
   KEREIS_MIA_CONTRACT,
+  resolveFeesCourtageEur,
 } from "../../../shared/kereisMiaRemuneration";
+import { resolveAnnualPremiumEur } from "../../../shared/studyClubEconomics";
 
 type GeminiUsageSummary = {
   sinceIso: string;
@@ -1223,14 +1225,10 @@ export function AdminCamillePanel({
   const [manualChangeDate, setManualChangeDate] = useState("");
   const [savingChangeDate, setSavingChangeDate] = useState(false);
   const [clubRevenueKpi, setClubRevenueKpi] = useState<any>((dossier as any).clubRevenueKpi ?? null);
-  const [manualAnnualPremium, setManualAnnualPremium] = useState("");
   const [manualLinearPercent, setManualLinearPercent] = useState("");
-  const [manualKereisOverride, setManualKereisOverride] = useState("");
-  const [manualCourtageOverride, setManualCourtageOverride] = useState("");
-  const [manualInsurer, setManualInsurer] = useState("");
-  const [manualPaymentStatus, setManualPaymentStatus] = useState("pending");
   const [defaultLinearPercent, setDefaultLinearPercent] = useState("15");
   const [savingClubRevenue, setSavingClubRevenue] = useState(false);
+  const [syncingClubRevenue, setSyncingClubRevenue] = useState(false);
   const [savingDefaultLinearPercent, setSavingDefaultLinearPercent] = useState(false);
 
   useEffect(() => {
@@ -1244,23 +1242,44 @@ export function AdminCamillePanel({
     setManualGross(kpi?.grossSavingsEur != null ? String(kpi.grossSavingsEur) : "");
     setManualCourtage(kpi?.feesCourtageEur != null ? String(kpi.feesCourtageEur) : "");
     setManualCapital(kpi?.loanCapitalEur != null ? String(kpi.loanCapitalEur) : "");
-    setManualAnnualPremium(club?.annualPremiumEur != null ? String(club.annualPremiumEur) : "");
     setManualLinearPercent(
       club?.linearCommissionPercent != null ? String(club.linearCommissionPercent) : "",
     );
-    setManualKereisOverride(
-      club?.kereisCommissionOverrideEur != null ? String(club.kereisCommissionOverrideEur) : "",
-    );
-    const courtageEffective =
-      club?.feesCourtageOverrideEur != null
-        ? club.feesCourtageOverrideEur
-        : kpi?.feesCourtageEur;
-    setManualCourtageOverride(
-      courtageEffective != null ? String(courtageEffective) : "",
-    );
-    setManualInsurer(club?.insurer ? String(club.insurer) : "");
-    setManualPaymentStatus(club?.paymentStatus || "pending");
   }, [dossier]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setSyncingClubRevenue(true);
+      try {
+        const token = await getAccessToken();
+        const headers = token
+          ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+          : { "Content-Type": "application/json" };
+        const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/sync-club-revenue`, {
+          method: "POST",
+          headers,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !data.ok) return;
+        if (data.studyKpi) {
+          setStudyKpi(data.studyKpi);
+          (dossier as any).studyKpi = data.studyKpi;
+        }
+        if (data.clubRevenueKpi) {
+          setClubRevenueKpi(data.clubRevenueKpi);
+          (dossier as any).clubRevenueKpi = data.clubRevenueKpi;
+        }
+      } catch {
+        /* non bloquant */
+      } finally {
+        if (!cancelled) setSyncingClubRevenue(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dossier.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1464,26 +1483,9 @@ export function AdminCamillePanel({
   };
 
   const handleSaveClubRevenue = async () => {
-    const premiumRaw = String(manualAnnualPremium).replace(/\s/g, "").replace(",", ".");
     const percentRaw = String(manualLinearPercent).replace(/\s/g, "").replace(",", ".");
-    const overrideRaw = String(manualKereisOverride).replace(/\s/g, "").replace(",", ".");
-    const premiumProvided = premiumRaw.trim().length > 0;
-    const percentProvided = percentRaw.trim().length > 0;
-    const overrideProvided = overrideRaw.trim().length > 0;
-    const courtageRaw = String(manualCourtageOverride).replace(/\s/g, "").replace(",", ".");
-    const courtageProvided = courtageRaw.trim().length > 0;
-    if (!premiumProvided && !percentProvided && !overrideProvided && !courtageProvided && !manualInsurer.trim()) {
-      showToast("Renseignez au moins la prime, le %, le courtage ou l'assureur", "error");
-      return;
-    }
-    const annualPremiumEur = premiumProvided ? Number(premiumRaw) : undefined;
-    const linearCommissionPercent = percentProvided ? Number(percentRaw) : undefined;
-    const kereisCommissionOverrideEur = overrideProvided ? Number(overrideRaw) : undefined;
-    const feesCourtageOverrideEur = courtageProvided ? Number(courtageRaw) : undefined;
-    if (annualPremiumEur != null && (!Number.isFinite(annualPremiumEur) || annualPremiumEur < 0)) {
-      showToast("Prime annuelle invalide", "error");
-      return;
-    }
+    const linearCommissionPercent =
+      percentRaw.trim().length > 0 ? Number(percentRaw) : undefined;
     if (
       linearCommissionPercent != null &&
       (!Number.isFinite(linearCommissionPercent) ||
@@ -1493,61 +1495,24 @@ export function AdminCamillePanel({
       showToast("Taux linéaire invalide (0–100 %)", "error");
       return;
     }
-    if (
-      kereisCommissionOverrideEur != null &&
-      (!Number.isFinite(kereisCommissionOverrideEur) || kereisCommissionOverrideEur < 0)
-    ) {
-      showToast("Commission Kereis manuelle invalide", "error");
-      return;
-    }
-    if (
-      feesCourtageOverrideEur != null &&
-      (!Number.isFinite(feesCourtageOverrideEur) || feesCourtageOverrideEur < 0)
-    ) {
-      showToast("Courtage dossier invalide", "error");
-      return;
-    }
     setSavingClubRevenue(true);
     try {
       const res = await adminFetch(`/api/admin/dossiers/${dossier.id}/club-revenue-kpi`, {
         method: "PATCH",
         headers: await authHeaders(),
         body: JSON.stringify({
-          annualPremiumEur,
-          linearCommissionPercent,
-          kereisCommissionOverrideEur,
-          feesCourtageOverrideEur,
-          insurer: manualInsurer.trim() || undefined,
-          paymentStatus: manualPaymentStatus,
-          source: "manual",
+          linearCommissionPercent: linearCommissionPercent ?? null,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        showToast(data.error || "Impossible d'enregistrer la rémunération club", "error");
+        showToast(data.error || "Impossible d'enregistrer le taux linéaire", "error");
         return;
       }
       setClubRevenueKpi(data.clubRevenueKpi);
       (dossier as any).clubRevenueKpi = data.clubRevenueKpi;
-      if (feesCourtageOverrideEur != null) {
-        setManualCourtage(String(feesCourtageOverrideEur));
-        const kpiRes = await adminFetch(`/api/admin/dossiers/${dossier.id}/study-kpi`, {
-          method: "PATCH",
-          headers: await authHeaders(),
-          body: JSON.stringify({ feesCourtageEur: feesCourtageOverrideEur }),
-        });
-        const kpiData = await kpiRes.json().catch(() => ({}));
-        if (kpiRes.ok && kpiData.studyKpi) {
-          setStudyKpi(kpiData.studyKpi);
-          (dossier as any).studyKpi = kpiData.studyKpi;
-        } else if (studyKpi) {
-          const nextKpi = { ...studyKpi, feesCourtageEur: feesCourtageOverrideEur, source: "manual" };
-          setStudyKpi(nextKpi);
-          (dossier as any).studyKpi = nextKpi;
-        }
-      }
       showToast(
-        `Rémunération club enregistrée — net LCIF ${data.breakdown?.clubNetEur ?? 0} €`,
+        `Taux linéaire enregistré — net LCIF ${data.breakdown?.clubNetEur ?? clubRevenuePreview.clubNetEur} €`,
         "success",
       );
       onDossierUpdated?.();
@@ -1587,32 +1552,29 @@ export function AdminCamillePanel({
   };
 
   const kereisSettings = {
-    defaultLinearCommissionPercent: Number(defaultLinearPercent) || 25,
+    defaultLinearCommissionPercent: Number(defaultLinearPercent) || 15,
   };
 
-  const clubRevenuePreview = computeClubRevenueBreakdown(
-    {
-      ...dossier,
-      studyKpi,
-      clubRevenueKpi: {
-        ...(clubRevenueKpi || {}),
-        annualPremiumEur: manualAnnualPremium.trim()
-          ? Number(String(manualAnnualPremium).replace(/\s/g, "").replace(",", ".")) || 0
-          : clubRevenueKpi?.annualPremiumEur,
-        linearCommissionPercent: manualLinearPercent.trim()
-          ? Number(String(manualLinearPercent).replace(/\s/g, "").replace(",", "."))
-          : clubRevenueKpi?.linearCommissionPercent,
-        kereisCommissionOverrideEur: manualKereisOverride.trim()
-          ? Number(String(manualKereisOverride).replace(/\s/g, "").replace(",", ".")) || 0
-          : clubRevenueKpi?.kereisCommissionOverrideEur,
-        feesCourtageOverrideEur: manualCourtageOverride.trim()
-          ? Number(String(manualCourtageOverride).replace(/\s/g, "").replace(",", ".")) || 0
-          : clubRevenueKpi?.feesCourtageOverrideEur,
-        paymentStatus: manualPaymentStatus as any,
-      },
+  const economicsSlice = {
+    ...dossier,
+    studyKpi,
+    studyDraft: (dossier as any).studyDraft,
+    studyConseillerValidation: (dossier as any).studyConseillerValidation,
+    communications: dossier.communications,
+    clubRevenueKpi: {
+      ...(clubRevenueKpi || {}),
+      linearCommissionPercent: manualLinearPercent.trim()
+        ? Number(String(manualLinearPercent).replace(/\s/g, "").replace(",", "."))
+        : clubRevenueKpi?.linearCommissionPercent,
     },
-    { kereisSettings },
-  );
+  };
+
+  const autoCourtageEur = resolveFeesCourtageEur(economicsSlice);
+  const autoPremiumEur = resolveAnnualPremiumEur(economicsSlice);
+  const autoFeesAssureurEur =
+    studyKpi?.feesAssureurEur ?? (dossier as any).studyDraft?.economySummary?.feesAssureurEur;
+
+  const clubRevenuePreview = computeClubRevenueBreakdown(economicsSlice, { kereisSettings });
 
   const handleSavePlaybookFromLastReply = async () => {
     setSavingPlaybook(true);
@@ -1858,11 +1820,41 @@ export function AdminCamillePanel({
       </div>
 
       <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-950">
-        <p className="font-black mb-1">Rémunération club — contrat Kereis MIA (linéaire)</p>
-        <p className="text-[10px] text-indigo-800 mb-3 leading-relaxed">
-          {KEREIS_MIA_CONTRACT.emprunteur.courtageEqualsDistribution}. Commission assureur en mode{" "}
-          <strong>linéaire</strong> : % × prime annuelle (mensualisée par Kereis).
+        <p className="font-black mb-1 flex items-center gap-2">
+          Rémunération club — Kereis MIA (linéaire)
+          {syncingClubRevenue ? (
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+          ) : null}
         </p>
+        <p className="text-[10px] text-indigo-800 mb-3 leading-relaxed">
+          {KEREIS_MIA_CONTRACT.emprunteur.courtageEqualsDistribution}. Courtage, prime et frais de dossier
+          sont lus automatiquement depuis le mail d&apos;étude (ou le brouillon calculé). Seul le{" "}
+          <strong>% linéaire dossier</strong> est modifiable ci-dessous (sinon défaut global).
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+          <div className="rounded-lg bg-white/70 border border-indigo-100 px-2.5 py-2">
+            <p className="text-[10px] font-bold text-indigo-600 uppercase">Courtage / distribution</p>
+            <p className="text-sm font-black">{autoCourtageEur > 0 ? `${autoCourtageEur} €` : "—"}</p>
+          </div>
+          <div className="rounded-lg bg-white/70 border border-indigo-100 px-2.5 py-2">
+            <p className="text-[10px] font-bold text-indigo-600 uppercase">Prime annuelle</p>
+            <p className="text-sm font-black">{autoPremiumEur > 0 ? `${autoPremiumEur} €` : "—"}</p>
+          </div>
+          <div className="rounded-lg bg-white/70 border border-indigo-100 px-2.5 py-2">
+            <p className="text-[10px] font-bold text-indigo-600 uppercase">Frais de dossier</p>
+            <p className="text-sm font-black">
+              {autoFeesAssureurEur != null && autoFeesAssureurEur > 0 ? `${autoFeesAssureurEur} €` : "—"}
+            </p>
+          </div>
+          <div className="rounded-lg bg-white/70 border border-indigo-100 px-2.5 py-2">
+            <p className="text-[10px] font-bold text-indigo-600 uppercase">Commission Kereis / an</p>
+            <p className="text-sm font-black">
+              {clubRevenuePreview.kereisCommissionEur > 0
+                ? `${clubRevenuePreview.kereisCommissionEur} €`
+                : "—"}
+            </p>
+          </div>
+        </div>
         <div className="flex flex-wrap items-end gap-2 mb-3 p-2 rounded-lg bg-white/60 border border-indigo-100">
           <label className="block flex-1 min-w-[120px]">
             <span className="text-[10px] font-bold">Taux linéaire par défaut (%)</span>
@@ -1883,84 +1875,27 @@ export function AdminCamillePanel({
             {savingDefaultLinearPercent ? "…" : "Enregistrer défaut"}
           </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
-          <label className="block">
-            <span className="text-[10px] font-bold">Courtage / distribution (€)</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={manualCourtageOverride}
-              onChange={(e) => setManualCourtageOverride(e.target.value)}
-              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm font-bold"
-              placeholder="ex. 800"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] font-bold">Prime annuelle (€)</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={manualAnnualPremium}
-              onChange={(e) => setManualAnnualPremium(e.target.value)}
-              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm font-bold"
-              placeholder="ex. 1200"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] font-bold">% linéaire dossier</span>
+        <div className="flex flex-wrap items-end gap-2 mb-3">
+          <label className="block flex-1 min-w-[160px]">
+            <span className="text-[10px] font-bold">% linéaire dossier (optionnel)</span>
             <input
               type="text"
               inputMode="decimal"
               value={manualLinearPercent}
               onChange={(e) => setManualLinearPercent(e.target.value)}
-              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm"
+              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm font-bold"
               placeholder={`défaut ${defaultLinearPercent} %`}
             />
           </label>
-          <label className="block">
-            <span className="text-[10px] font-bold">Commission Kereis manuelle (€)</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={manualKereisOverride}
-              onChange={(e) => setManualKereisOverride(e.target.value)}
-              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm"
-              placeholder="optionnel — bordereau"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] font-bold">Assureur</span>
-            <input
-              type="text"
-              value={manualInsurer}
-              onChange={(e) => setManualInsurer(e.target.value)}
-              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm"
-              placeholder="ex. Generali"
-            />
-          </label>
+          <button
+            type="button"
+            disabled={savingClubRevenue}
+            onClick={handleSaveClubRevenue}
+            className="text-[10px] font-bold px-3 py-2 rounded bg-indigo-900 text-white hover:bg-indigo-950 disabled:opacity-50 shrink-0"
+          >
+            {savingClubRevenue ? "…" : "Enregistrer % linéaire"}
+          </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-          <label className="block">
-            <span className="text-[10px] font-bold">Paiement commission Kereis</span>
-            <select
-              value={manualPaymentStatus}
-              onChange={(e) => setManualPaymentStatus(e.target.value)}
-              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm bg-white"
-            >
-              <option value="pending">En attente</option>
-              <option value="partial">Partiel</option>
-              <option value="received">Reçu</option>
-            </select>
-          </label>
-        </div>
-        <button
-          type="button"
-          disabled={savingClubRevenue}
-          onClick={handleSaveClubRevenue}
-          className="text-[10px] font-bold px-3 py-2 rounded bg-indigo-900 text-white hover:bg-indigo-950 disabled:opacity-50 mb-3"
-        >
-          {savingClubRevenue ? "…" : "Enregistrer commission linéaire"}
-        </button>
         <div className="rounded-lg bg-white/70 border border-indigo-200 p-3 space-y-1 text-[11px]">
           <p>
             Courtage / distribution : <strong>{clubRevenuePreview.feesCourtageEur} €</strong>

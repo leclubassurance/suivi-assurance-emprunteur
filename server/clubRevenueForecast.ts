@@ -8,11 +8,12 @@ import {
 } from "../shared/kereisMiaRemuneration";
 import {
   buildClubRevenueForecastFromContributions,
-  nextMonthKey,
   toMonthKey,
+  toMonthKeyFromDate,
   type ClubRevenueForecast,
   type ForecastDossierContribution,
 } from "../shared/clubRevenueForecast";
+import { enrichDossierClubEconomics } from "./clubRevenueAutoSync";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
@@ -33,9 +34,8 @@ function isDossierSigned(dossier: Dossier, referral?: Referral): boolean {
 
 function isDossierPipeline(dossier: Dossier, referral?: Referral): boolean {
   if (isDossierSigned(dossier, referral)) return false;
-  if (referral && CLOSED.includes(referral.status)) return false;
-
   if (resolveFeesCourtageEur(dossier) > 0) return true;
+  if (referral && CLOSED.includes(referral.status)) return false;
 
   if (!hasStudyBeenSent(dossier) && !dossier.studyKpi?.extractedAt) return false;
 
@@ -86,7 +86,7 @@ function resolveProjectedMonthKey(dossier: Dossier, now = new Date()): string {
       return k;
     }
   }
-  return nextMonthKey(now);
+  return toMonthKeyFromDate(now);
 }
 
 function hasForecastEconomics(dossier: Dossier): boolean {
@@ -111,8 +111,10 @@ export function buildClubRevenueForecast(params: {
 
   const contributions: ForecastDossierContribution[] = [];
   const scoped = filterMetricsDossiers(params.dossiers);
+  const now = params.now ?? new Date();
 
   for (const dossier of scoped) {
+    enrichDossierClubEconomics(dossier);
     const referral = referralByDossier.get(dossier.id);
     const signed = isDossierSigned(dossier, referral);
     const pipeline = isDossierPipeline(dossier, referral);
@@ -156,7 +158,7 @@ export function buildClubRevenueForecast(params: {
       contributions.push({
         ...base,
         segment: "pipeline",
-        startMonthKey: resolveProjectedMonthKey(dossier, params.now),
+        startMonthKey: resolveProjectedMonthKey(dossier, now),
       });
     }
   }
