@@ -536,6 +536,16 @@ export function applyStudyKpiBestAvailable(
     date: string;
   },
 ): boolean {
+  if (dossier.studyKpi?.source === "manual") {
+    if (mailParams) {
+      tryApplyInsuranceChangePlanFromStudyContent(
+        dossier,
+        mailParams.html || mailParams.text || "",
+      );
+    }
+    return false;
+  }
+
   const fromDraft = applyStudyKpiFromStudyDraft(dossier);
   const loanCapitalEur = getLoanCapitalFromDossier(dossier);
   const currentOk =

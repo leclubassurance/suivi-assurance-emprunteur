@@ -798,10 +798,13 @@ export function createApp() {
     const htmlInput = String(html);
     let finalHtml = htmlInput;
     if (emailKind === "study") {
-      const { resolveStudyEmailHtmlForSend } = await import("../shared/studyEmailForSend");
+      const { resolveStudyEmailHtmlForSend, dossierSliceForStudySend } = await import(
+        "../shared/studyEmailForSend"
+      );
       finalHtml = resolveStudyEmailHtmlForSend({
         draftHtml: htmlInput,
         validation: dossier.studyConseillerValidation,
+        dossier: dossierSliceForStudySend(dossier),
       });
     }
 
@@ -913,17 +916,20 @@ export function createApp() {
       "./studyConseillerValidation"
     );
     const { hasStudyBeenSent } = await import("./dossierLifecycle");
-    const { resolveStudyEmailHtmlForSend } = await import("../shared/studyEmailForSend");
+    const { resolveStudyEmailHtmlForSend, dossierSliceForStudySend } = await import(
+      "../shared/studyEmailForSend"
+    );
     const requiresConseillerValidation = await dossierRequiresConseillerStudyValidation(dossier);
     const gate = await getConseillerStudySendGate(dossier);
     const validation = dossier.studyConseillerValidation || null;
     const draftHtml = dossier.studyDraft?.html || validation?.html || "";
+    const sendSlice = dossierSliceForStudySend(dossier);
     res.json({
       requiresConseillerValidation,
       canAdminSendStudy: !gate.blocked,
       studySent: hasStudyBeenSent(dossier),
       validation,
-      htmlForSend: resolveStudyEmailHtmlForSend({ draftHtml, validation }),
+      htmlForSend: resolveStudyEmailHtmlForSend({ draftHtml, validation, dossier: sendSlice }),
     });
   });
 
@@ -948,6 +954,22 @@ export function createApp() {
     const annualPremiumEur =
       y1Monthly != null && y1Monthly > 0 ? Math.round(y1Monthly * 12) : undefined;
 
+    const manualCourtage =
+      dossier.studyKpi?.source === "manual" &&
+      dossier.studyKpi.feesCourtageEur != null &&
+      dossier.studyKpi.feesCourtageEur > 0
+        ? Math.round(Number(dossier.studyKpi.feesCourtageEur))
+        : null;
+    const overrideCourtage =
+      dossier.clubRevenueKpi?.feesCourtageOverrideEur != null &&
+      Number(dossier.clubRevenueKpi.feesCourtageOverrideEur) > 0
+        ? Math.round(Number(dossier.clubRevenueKpi.feesCourtageOverrideEur))
+        : null;
+    const feesCourtageEur =
+      manualCourtage ??
+      overrideCourtage ??
+      (comp.ok ? Math.round(comp.extracted?.feesCourtierTotal || 0) : 0);
+
     dossier.studyDraft = {
       kind: "ECONOMY",
       computedAt: now,
@@ -959,7 +981,7 @@ export function createApp() {
       economySummary: comp.ok
         ? {
             grossSavingsEur: Math.round(comp.result?.grossSavings || 0),
-            feesCourtageEur: Math.round(comp.extracted?.feesCourtierTotal || 0),
+            feesCourtageEur,
             feesAssureurEur:
               comp.extracted?.feesAssureurTotal != null
                 ? Math.round(comp.extracted.feesAssureurTotal)
@@ -968,6 +990,8 @@ export function createApp() {
           }
         : undefined,
     };
+    const { applyStudyHtmlOverridesToDossier } = await import("../shared/studyEmailForSend");
+    applyStudyHtmlOverridesToDossier(dossier);
     const { materializeStudyEconomics } = await import("./materializeStudyEconomics");
     materializeStudyEconomics(dossier);
     addEvent(dossier, {
@@ -3885,9 +3909,17 @@ export function createApp() {
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    delete dossier.studyKpi;
+    const preservedManualKpi =
+      dossier.studyKpi?.source === "manual" ? { ...dossier.studyKpi } : null;
+    const preservedManualPlan =
+      dossier.insuranceChangePlan?.source === "manual"
+        ? { ...dossier.insuranceChangePlan }
+        : null;
+    if (!preservedManualKpi) delete dossier.studyKpi;
     const { refreshStudyKpiFromCommunications } = await import("./studyEmailKpi");
     const ok = refreshStudyKpiFromCommunications(dossier);
+    if (preservedManualKpi) dossier.studyKpi = preservedManualKpi;
+    if (preservedManualPlan) dossier.insuranceChangePlan = preservedManualPlan;
     const { materializeStudyEconomics } = await import("./materializeStudyEconomics");
     materializeStudyEconomics(dossier);
     await writeDB(db, dossier);
@@ -3931,6 +3963,8 @@ export function createApp() {
         body.plannedDate,
         String((req as any).adminEmail || "admin"),
       );
+      const { applyStudyHtmlOverridesToDossier } = await import("../shared/studyEmailForSend");
+      applyStudyHtmlOverridesToDossier(dossier);
       await writeDB(db, dossier);
       res.json({ ok: true, insuranceChangePlan: plan });
     } catch (err: any) {
@@ -3966,6 +4000,10 @@ export function createApp() {
       loanCapitalEur:
         body.loanCapitalEur != null ? Number(body.loanCapitalEur) : undefined,
     });
+    const { applyStudyHtmlOverridesToDossier } = await import("../shared/studyEmailForSend");
+    applyStudyHtmlOverridesToDossier(dossier);
+    const { materializeStudyEconomics } = await import("./materializeStudyEconomics");
+    materializeStudyEconomics(dossier);
     await writeDB(db, dossier);
     res.json({ ok: true, studyKpi });
   });

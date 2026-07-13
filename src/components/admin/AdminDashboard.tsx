@@ -25,7 +25,7 @@ import AdminClubRevenueChart from "./AdminClubRevenueChart";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
-import { resolveStudyEmailHtmlForSend } from "../../../shared/studyEmailForSend";
+import { resolveStudyEmailHtmlForSend, dossierSliceForStudySend } from "../../../shared/studyEmailForSend";
 import { Button } from "../ui/Button";
 import { Tabs } from "../ui/Tabs";
 
@@ -93,13 +93,26 @@ export default function AdminDashboard({
     (selectedDossier as Dossier & { studyConseillerValidation?: { status?: string; html?: string; feesCourtageTotalEur?: number } })
       ?.studyConseillerValidation ?? conseillerStudyFlow?.validation ?? null;
 
+  const studySendSlice = useMemo(
+    () => (selectedDossier ? dossierSliceForStudySend(selectedDossier as Dossier) : null),
+    [
+      selectedDossier?.id,
+      (selectedDossier as any)?.studyKpi?.source,
+      (selectedDossier as any)?.studyKpi?.feesCourtageEur,
+      (selectedDossier as any)?.clubRevenueKpi?.feesCourtageOverrideEur,
+      (selectedDossier as any)?.insuranceChangePlan?.plannedDate,
+      (selectedDossier as any)?.insuranceChangePlan?.source,
+    ],
+  );
+
   const studyEmailHtmlResolved = useMemo(
     () =>
       resolveStudyEmailHtmlForSend({
         draftHtml: emailHtml,
         validation: studyConseillerValidation,
+        dossier: studySendSlice ?? undefined,
       }),
-    [emailHtml, studyConseillerValidation],
+    [emailHtml, studyConseillerValidation, studySendSlice],
   );
 
   useEffect(() => {
@@ -114,7 +127,13 @@ export default function AdminDashboard({
       draft?.subject || `${clientName}, votre étude personnalisée - Assurance Emprunteur`,
     );
     const baseHtml = draft?.html || validation?.html || "";
-    setEmailHtml(resolveStudyEmailHtmlForSend({ draftHtml: baseHtml, validation }));
+    setEmailHtml(
+      resolveStudyEmailHtmlForSend({
+        draftHtml: baseHtml,
+        validation,
+        dossier: dossierSliceForStudySend(selectedDossier as Dossier),
+      }),
+    );
     setPreviewActive(false);
   }, [
     selectedDossier?.id,
@@ -122,6 +141,11 @@ export default function AdminDashboard({
     (selectedDossier as any)?.studyConseillerValidation?.approvedAt,
     (selectedDossier as any)?.studyConseillerValidation?.feesCourtageTotalEur,
     (selectedDossier as any)?.studyConseillerValidation?.status,
+    (selectedDossier as any)?.studyKpi?.source,
+    (selectedDossier as any)?.studyKpi?.feesCourtageEur,
+    (selectedDossier as any)?.clubRevenueKpi?.feesCourtageOverrideEur,
+    (selectedDossier as any)?.insuranceChangePlan?.plannedDate,
+    (selectedDossier as any)?.insuranceChangePlan?.source,
   ]);
 
   useEffect(() => {

@@ -78,33 +78,23 @@ export function resolveStudyEconomicsSnapshot(dossier: Dossier): StudyEconomicsS
     proposedMonthlyYear1Eur = parsed.proposedMonthlyYear1Eur;
   }
 
-  if (draft?.grossSavingsEur != null && grossSavingsEur <= 0) {
-    grossSavingsEur = Math.round(Number(draft.grossSavingsEur) || 0);
-    source = "study_draft";
-  }
-  if (draft?.feesAssureurEur != null && draft.feesAssureurEur > 0 && feesAssureurEur <= 0) {
-    feesAssureurEur = Math.round(Number(draft.feesAssureurEur));
-    source = "study_draft";
-  }
-  if (draft?.feesCourtageEur != null && draft.feesCourtageEur > 0 && feesCourtageEur <= 0) {
-    feesCourtageEur = Math.round(Number(draft.feesCourtageEur));
-    source = "study_draft";
-  }
-  if (draft?.annualPremiumEur != null && draft.annualPremiumEur > 0 && annualPremiumEur <= 0) {
-    annualPremiumEur = Math.round(Number(draft.annualPremiumEur));
-    source = "study_draft";
-  }
+  const manualCourtage =
+    prevManual && dossier.studyKpi?.feesCourtageEur != null && dossier.studyKpi.feesCourtageEur > 0
+      ? Math.round(Number(dossier.studyKpi.feesCourtageEur))
+      : null;
+  const overrideCourtage =
+    dossier.clubRevenueKpi?.feesCourtageOverrideEur != null &&
+    Number(dossier.clubRevenueKpi.feesCourtageOverrideEur) > 0
+      ? Math.round(Number(dossier.clubRevenueKpi.feesCourtageOverrideEur))
+      : null;
 
-  const y1Monthly =
-    draftExtracted?.proposedMonthlyByYear?.find((r) => r.year === 1)?.monthly ??
-    draftExtracted?.proposedMonthlyByYear?.[0]?.monthly;
-  if (y1Monthly != null && y1Monthly > 0 && annualPremiumEur <= 0) {
-    proposedMonthlyYear1Eur = y1Monthly;
-    annualPremiumEur = Math.round(y1Monthly * 12);
-    source = "study_draft";
-  }
-
-  if (validation?.feesCourtageTotalEur != null && validation.feesCourtageTotalEur > 0) {
+  if (manualCourtage != null) {
+    feesCourtageEur = manualCourtage;
+    source = "manual";
+  } else if (overrideCourtage != null) {
+    feesCourtageEur = overrideCourtage;
+    source = "manual";
+  } else if (validation?.feesCourtageTotalEur != null && validation.feesCourtageTotalEur > 0) {
     feesCourtageEur = Math.round(Number(validation.feesCourtageTotalEur));
     source = "conseiller_validation";
   } else if (
@@ -117,9 +107,35 @@ export function resolveStudyEconomicsSnapshot(dossier: Dossier): StudyEconomicsS
     source = "conseiller_validation";
   }
 
-  if (prevManual && dossier.studyKpi?.feesCourtageEur != null && dossier.studyKpi.feesCourtageEur > 0) {
-    feesCourtageEur = Math.round(Number(dossier.studyKpi.feesCourtageEur));
-    source = "manual";
+  if (draft?.grossSavingsEur != null && grossSavingsEur <= 0) {
+    grossSavingsEur = Math.round(Number(draft.grossSavingsEur) || 0);
+    if (source === "study_email") source = "study_draft";
+  }
+  if (draft?.feesAssureurEur != null && draft.feesAssureurEur > 0 && feesAssureurEur <= 0) {
+    feesAssureurEur = Math.round(Number(draft.feesAssureurEur));
+    if (source === "study_email") source = "study_draft";
+  }
+  if (
+    draft?.feesCourtageEur != null &&
+    draft.feesCourtageEur > 0 &&
+    feesCourtageEur <= 0 &&
+    source !== "manual"
+  ) {
+    feesCourtageEur = Math.round(Number(draft.feesCourtageEur));
+    source = "study_draft";
+  }
+  if (draft?.annualPremiumEur != null && draft.annualPremiumEur > 0 && annualPremiumEur <= 0) {
+    annualPremiumEur = Math.round(Number(draft.annualPremiumEur));
+    if (source === "study_email") source = "study_draft";
+  }
+
+  const y1Monthly =
+    draftExtracted?.proposedMonthlyByYear?.find((r) => r.year === 1)?.monthly ??
+    draftExtracted?.proposedMonthlyByYear?.[0]?.monthly;
+  if (y1Monthly != null && y1Monthly > 0 && annualPremiumEur <= 0) {
+    proposedMonthlyYear1Eur = y1Monthly;
+    annualPremiumEur = Math.round(y1Monthly * 12);
+    if (source === "study_email") source = "study_draft";
   }
 
   if (

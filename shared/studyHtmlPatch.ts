@@ -35,3 +35,49 @@ export function patchStudyHtmlBrokerageFee(
   );
   return { html: fallback, patched: fallback !== html };
 }
+
+const MONTHS_FR = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+];
+
+export function formatPlannedChangeDateFr(isoDate: string): string {
+  const [y, m, d] = isoDate.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return isoDate;
+  return `${d} ${MONTHS_FR[m - 1] || m} ${y}`;
+}
+
+const PLANNED_DATE_RES = [
+  /(Date de changement prévue\s*:\s*)<strong>[^<]*<\/strong>/i,
+  /(Changement prévu\s*(?:le|:)\s*)<strong>[^<]*<\/strong>/i,
+  /(changement\s+prévu\s*(?:le|:)\s*)<strong>[^<]*<\/strong>/i,
+];
+
+export function patchStudyHtmlPlannedDate(
+  html: string,
+  isoDate: string,
+): { html: string; patched: boolean } {
+  const label = formatPlannedChangeDateFr(isoDate);
+  for (const re of PLANNED_DATE_RES) {
+    if (re.test(html)) {
+      return { html: html.replace(re, `$1<strong>${label}</strong>`), patched: true };
+    }
+  }
+
+  const block = `<p style="font-size:14px;margin:0 0 16px 0;color:#1F2937;">Date de changement prévue : <strong>${label}</strong></p>`;
+  const anchor = /(<p style="font-size:16px;margin:0 0 16px 0;color:#1F2937;">Bonjour[^<]*<\/p>)/i;
+  if (anchor.test(html)) {
+    return { html: html.replace(anchor, `$1\n${block}`), patched: true };
+  }
+  return { html: `${block}\n${html}`, patched: true };
+}
