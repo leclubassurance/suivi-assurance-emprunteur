@@ -18,7 +18,15 @@ import { enrichDossierClubEconomics } from "./clubRevenueAutoSync";
 import { hasStudyBeenSent } from "./dossierLifecycle";
 import { resolveEffectiveSubscriptionPhase } from "./subscriptionProgress";
 import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
+import { getInsuranceChangePlan } from "./insuranceChangePlan";
 import type { ApporteurRemunerationTier } from "../shared/apporteurRemuneration";
+
+function resolveManualPlannedMonthKey(dossier: Dossier): string | null {
+  const plan = getInsuranceChangePlan(dossier);
+  if (plan?.source !== "manual" || !plan.plannedDate) return null;
+  const k = toMonthKey(plan.plannedDate);
+  return k || null;
+}
 
 function buildSegmentInput(dossier: Dossier, referral?: Referral) {
   return {
@@ -34,6 +42,9 @@ function buildSegmentInput(dossier: Dossier, referral?: Referral) {
 }
 
 function resolveSignedMonthKey(dossier: Dossier, referral?: Referral): string {
+  const manualMonth = resolveManualPlannedMonthKey(dossier);
+  if (manualMonth) return manualMonth;
+
   const fromKpi = dossier.clubRevenueKpi?.signedAt;
   if (fromKpi) {
     const k = toMonthKey(fromKpi);
@@ -65,6 +76,9 @@ function resolveSignedMonthKey(dossier: Dossier, referral?: Referral): string {
 }
 
 function resolveProjectedMonthKey(dossier: Dossier, now = new Date()): string {
+  const manualMonth = resolveManualPlannedMonthKey(dossier);
+  if (manualMonth) return manualMonth;
+
   const planned = dossier.insuranceChangePlan?.plannedDate;
   if (planned) {
     const k = toMonthKey(planned);

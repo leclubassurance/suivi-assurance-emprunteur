@@ -75,6 +75,7 @@ export default function AdminDashboard({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { metrics, reloadMetrics, metricsPeriodDays, setMetricsPeriodDays } = useAdminOpsData();
+  const [clubRevenueRefresh, setClubRevenueRefresh] = useState(0);
   const [driveDiagnostic, setDriveDiagnostic] = useState<{
     summary: string;
     parentOk: boolean;
@@ -1005,7 +1006,7 @@ export default function AdminDashboard({
         onReanalyzeAll={handleReanalyzeAllDocuments}
         onRefreshMetrics={reloadMetrics}
       />
-      <AdminClubRevenueChart />
+      <AdminClubRevenueChart refreshToken={clubRevenueRefresh} />
       <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -1316,6 +1317,7 @@ export default function AdminDashboard({
                       onDossierUpdated={(opts) => {
                         loadDossiers();
                         if (!opts?.skipMetrics) reloadMetrics();
+                        setClubRevenueRefresh((n) => n + 1);
                       }}
                     />
                     <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">

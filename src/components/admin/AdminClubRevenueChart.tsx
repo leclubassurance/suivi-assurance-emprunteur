@@ -44,7 +44,7 @@ const SEGMENT_META: Record<
   },
 };
 
-type Props = { className?: string };
+type Props = { className?: string; refreshToken?: number };
 
 type SegmentAmounts = Record<ClubRevenueSegment, number>;
 
@@ -220,7 +220,7 @@ function MiniStackedChart({
   );
 }
 
-export default function AdminClubRevenueChart({ className = "" }: Props) {
+export default function AdminClubRevenueChart({ className = "", refreshToken = 0 }: Props) {
   const [forecast, setForecast] = useState<ClubRevenueForecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [monthsPast, setMonthsPast] = useState(0);
@@ -243,7 +243,7 @@ export default function AdminClubRevenueChart({ className = "" }: Props) {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshToken]);
 
   const currentMonthKey = toMonthKeyFromDate(new Date());
 
