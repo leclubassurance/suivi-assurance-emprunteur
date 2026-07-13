@@ -305,7 +305,7 @@ export async function syncDossierToFirebase(dossier: unknown) {
   if (!db) return;
   try {
     const shaped = ensureDossierShape(dossier);
-    const existing = await readDossierFromFirebase(String(shaped.id));
+    const existing = await readDossierFromFirestore(String(shaped.id));
     const merged = existing ? mergeManualDossierOverrides(existing, shaped) : shaped;
     const cleanDossier = compactDossierForPersistence(merged);
     if (adminFirestoreDb) {

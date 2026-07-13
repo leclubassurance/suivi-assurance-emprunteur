@@ -1671,8 +1671,6 @@ export function AdminCamillePanel({
     }
   };
 
-  if (!ctx) return <p className="text-xs text-slate-400">Chargement contexte Camille…</p>;
-
   return (
     <div className="space-y-4">
       <AdminSubscriptionProgressPanel
@@ -2002,6 +2000,10 @@ export function AdminCamillePanel({
         <AdminPortalPreviewModal dossierId={dossier.id} onClose={() => setShowPortalPreview(false)} />
       )}
 
+      {!ctx ? (
+        <p className="text-xs text-slate-400">Chargement contexte Camille…</p>
+      ) : (
+        <>
       <div className="p-4 rounded-xl bg-violet-50 border border-violet-100">
         <div className="flex justify-between items-start gap-2 mb-2 flex-wrap">
           <p className="text-xs font-black text-violet-900">Ce que Camille sait</p>
@@ -2097,6 +2099,8 @@ export function AdminCamillePanel({
           ))}
         </ul>
       </div>
+        </>
+      )}
     </div>
   );
 }
