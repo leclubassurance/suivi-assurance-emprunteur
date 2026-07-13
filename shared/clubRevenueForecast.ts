@@ -44,6 +44,12 @@ export type ClubRevenueForecastSummary = {
   settledDossiers: number;
   signedDossiers: number;
   pipelineDossiers: number;
+  /** Mois le plus élevé dans la fenêtre (courtage + récurrent). */
+  peakMonthKey?: string;
+  peakMonthLabel?: string;
+  peakMonthTotalEur?: number;
+  peakMonthCourtageEur?: number;
+  peakMonthRecurringEur?: number;
   /** Détail par dossier pour contrôle. */
   contributions?: Array<{
     id: string;
@@ -130,14 +136,44 @@ export function clampMonthKeyToRange(key: string, monthKeys: string[]): string {
   return monthKeys[monthKeys.length - 1];
 }
 
-export function monthPointTotalNetClub(point: ClubRevenueMonthPoint): number {
+export function monthPointCourtageNetTotal(point: ClubRevenueMonthPoint): number {
+  return point.settledCourtageNetEur + point.signedCourtageNetEur + point.pipelineCourtageNetEur;
+}
+
+export function monthPointRecurringTotal(point: ClubRevenueMonthPoint): number {
   return (
-    point.settledCourtageNetEur +
     point.settledMonthlyCommissionEur +
-    point.signedCourtageNetEur +
     point.signedMonthlyCommissionEur +
-    point.pipelineCourtageNetEur +
     point.pipelineMonthlyCommissionEur
+  );
+}
+
+export function monthPointTotalNetClub(point: ClubRevenueMonthPoint): number {
+  return monthPointCourtageNetTotal(point) + monthPointRecurringTotal(point);
+}
+
+export function sumContributionMrr(
+  contributions: ForecastDossierContribution[],
+  segment: ClubRevenueSegment,
+): number {
+  return contributions
+    .filter((c) => c.segment === segment)
+    .reduce((sum, c) => sum + c.monthlyCommissionEur, 0);
+}
+
+export function sumContributionCourtageNet(
+  contributions: ForecastDossierContribution[],
+  segment: ClubRevenueSegment,
+): number {
+  return contributions
+    .filter((c) => c.segment === segment)
+    .reduce((sum, c) => sum + c.courtageNetEur, 0);
+}
+
+export function findPeakMonth(months: ClubRevenueMonthPoint[]): ClubRevenueMonthPoint | null {
+  if (!months.length) return null;
+  return months.reduce((best, m) =>
+    monthPointTotalNetClub(m) > monthPointTotalNetClub(best) ? m : best,
   );
 }
 
@@ -149,7 +185,6 @@ export function buildClubRevenueForecastFromContributions(
   const monthsFuture = Math.max(1, Math.min(24, options?.monthsFuture ?? 6));
   const now = options?.now ?? new Date();
   const monthKeys = buildMonthKeyRange(monthsPast, monthsFuture, now);
-  const currentKey = toMonthKeyFromDate(now);
 
   const emptyPoint = (monthKey: string): ClubRevenueMonthPoint => ({
     monthKey,
@@ -180,6 +215,8 @@ export function buildClubRevenueForecastFromContributions(
   let signedCourtageGrossTotal = 0;
   let settledCourtageNetTotal = 0;
   let settledCourtageGrossTotal = 0;
+  let settledMrrTotal = 0;
+  let signedMrrTotal = 0;
 
   for (const c of contributions) {
     const startMonthKey = clampMonthKeyToRange(c.startMonthKey, monthKeys);
@@ -190,10 +227,12 @@ export function buildClubRevenueForecastFromContributions(
       settledCount += 1;
       settledCourtageNetTotal += c.courtageNetEur;
       settledCourtageGrossTotal += c.courtageGrossEur;
+      settledMrrTotal += c.monthlyCommissionEur;
     } else if (c.segment === "signed") {
       signedCount += 1;
       signedCourtageNetTotal += c.courtageNetEur;
       signedCourtageGrossTotal += c.courtageGrossEur;
+      signedMrrTotal += c.monthlyCommissionEur;
     } else {
       pipelineCount += 1;
       pipelineCourtageNetEur += c.courtageNetEur;
@@ -231,12 +270,13 @@ export function buildClubRevenueForecastFromContributions(
     }
   }
 
-  const current = byMonth.get(currentKey);
+  const monthsList = monthKeys.map((k) => byMonth.get(k)!);
+  const peak = findPeakMonth(monthsList);
 
   const summary: ClubRevenueForecastSummary = {
-    settledMrrCommissionEur: current?.settledMonthlyCommissionEur ?? 0,
-    signedMrrCommissionEur: current?.signedMonthlyCommissionEur ?? 0,
-    pipelineMrrCommissionEur: current?.pipelineMonthlyCommissionEur ?? 0,
+    settledMrrCommissionEur: settledMrrTotal,
+    signedMrrCommissionEur: signedMrrTotal,
+    pipelineMrrCommissionEur,
     pipelineCourtageNetEur,
     pipelineCourtageGrossEur,
     signedCourtageNetEur: signedCourtageNetTotal,
@@ -246,6 +286,11 @@ export function buildClubRevenueForecastFromContributions(
     settledDossiers: settledCount,
     signedDossiers: signedCount,
     pipelineDossiers: pipelineCount,
+    peakMonthKey: peak?.monthKey,
+    peakMonthLabel: peak?.label,
+    peakMonthTotalEur: peak ? monthPointTotalNetClub(peak) : 0,
+    peakMonthCourtageEur: peak ? monthPointCourtageNetTotal(peak) : 0,
+    peakMonthRecurringEur: peak ? monthPointRecurringTotal(peak) : 0,
     contributions: contributions.map((c) => ({
       id: c.id,
       segment: c.segment,
@@ -257,7 +302,7 @@ export function buildClubRevenueForecastFromContributions(
   };
 
   return {
-    months: monthKeys.map((k) => byMonth.get(k)!),
+    months: monthsList,
     summary,
     generatedAt: now.toISOString(),
   };

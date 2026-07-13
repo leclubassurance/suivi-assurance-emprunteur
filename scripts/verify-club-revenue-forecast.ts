@@ -73,8 +73,11 @@ assert(
   "total août = courtage pipeline + récurrent signé + récurrent traité",
 );
 assert(last!.pipelineCourtageNetEur === 900, "courtage pipeline hors fenêtre clampé au dernier mois");
-assert(forecast.summary.settledMrrCommissionEur === 15, "MRR traités courant");
-assert(forecast.summary.signedMrrCommissionEur === 10, "MRR signés courant");
+assert(forecast.summary.settledMrrCommissionEur === 15, "MRR traités total");
+assert(forecast.summary.signedMrrCommissionEur === 10, "MRR signés total");
+assert(forecast.summary.pipelineMrrCommissionEur === 20, "MRR pipeline total");
 assert(forecast.summary.pipelineCourtageNetEur === 1200, "somme courtage pipeline net");
+assert(forecast.summary.peakMonthKey === last!.monthKey, "pic sur le mois le plus chargé");
+assert(forecast.summary.peakMonthTotalEur === monthPointTotalNetClub(last!), "montant pic cohérent");
 
 console.log("\nForecast OK.");
