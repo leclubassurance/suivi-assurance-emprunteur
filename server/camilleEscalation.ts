@@ -1,7 +1,7 @@
 import { addEvent, scheduleTask, type Dossier } from "./dossierModel";
 import { wrapCamilleHtmlReply } from "./camilleMail";
 import { resolveLoanDocPresence } from "./loanDocPresence";
-import { hasStudyBeenSent } from "./dossierLifecycle";
+import { hasStudyBeenSent, setDossierStatusIfNotLocked } from "./dossierLifecycle";
 
 async function sendGmail(
   accessToken: string | null,
@@ -244,7 +244,7 @@ export async function handleCamilleEscalation(params: {
     clientNotifiedAt: notifiedClient ? nowIso : undefined,
     followUpScheduledAt: followUpAt,
   };
-  dossier.status = "EN_ATTENTE_CLIENT";
+  setDossierStatusIfNotLocked(dossier, "EN_ATTENTE_CLIENT");
 
   addEvent(dossier, {
     type: "AI_DECISION",

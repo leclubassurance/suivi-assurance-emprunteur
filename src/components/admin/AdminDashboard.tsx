@@ -233,12 +233,21 @@ export default function AdminDashboard({
 
   const updateStatus = async (id: string, newStatus: string) => {
     try {
-      await adminFetch(`/api/dossiers/${id}/status`, {
+      const res = await adminFetch(`/api/dossiers/${id}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      loadDossiers();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(json.error || "Erreur status", "error");
+        return;
+      }
+      await loadDossiers();
+      if (json.dossier && selectedDossier?.id === id) {
+        setSelectedDossier(json.dossier);
+      }
+      showToast("Statut dossier mis à jour", "success");
     } catch (e) {
       showToast("Erreur status", "error");
     }

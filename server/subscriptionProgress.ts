@@ -2,6 +2,7 @@ import type { Dossier } from "./dossierModel";
 import { hasStudyBeenSent, getLastStudyOutbound, isStudyPendingConseillerValidation } from "./dossierLifecycle";
 import { clientHasAcceptedInsuranceChange, recordClientInsuranceAcceptance, syncClientInsuranceAcceptanceFromMail } from "./insuranceAcceptance";
 import { isLoanDocsStepComplete } from "./loanDocPresence";
+import { normalizeDossierStatus } from "../shared/clubRevenueDossierSegment";
 
 /** Phases opérationnelles après envoi de l'étude. */
 export type SubscriptionPhase =
@@ -80,11 +81,25 @@ export function ensureSubscriptionProgressOnAcceptance(dossier: Dossier): boolea
 }
 
 export function resolveEffectiveSubscriptionPhase(dossier: Dossier): SubscriptionPhase | null {
-  const st = String(dossier.status || "");
-  if (["TRAITÉ", "TRAITE", "CLOS"].includes(st)) return "completed";
-  if (!hasStudyBeenSent(dossier)) return null;
+  const st = normalizeDossierStatus(dossier.status);
+  if (["TRAITE", "CLOS"].includes(st)) return "completed";
 
   const manual = coerceSubscriptionPhase(dossier.subscriptionProgress?.phase);
+  const manualByAdmin = Boolean(
+    manual && dossier.subscriptionProgress?.updatedBy && dossier.subscriptionProgress.updatedBy !== "system",
+  );
+
+  if (dossier.statusManualAt && st === "ADHESION_EN_COURS") {
+    if (manualByAdmin && manual && phaseRank(manual) >= phaseRank("decision_received")) {
+      return manual;
+    }
+    if (manual && phaseRank(manual) >= phaseRank("decision_received")) {
+      return manual;
+    }
+    return "decision_received";
+  }
+
+  if (!hasStudyBeenSent(dossier)) return null;
   const accepted = clientHasAcceptedInsuranceChange(dossier);
   if (manual) {
     if (
@@ -243,8 +258,11 @@ export function applySubscriptionPhaseUpdate(
   } else if (phase === "decision_received") {
     dossier.status = "ADHESION_EN_COURS";
   } else if (phase === "awaiting_decision" && hasStudyBeenSent(dossier)) {
-    const st = String(dossier.status || "");
-    if (!["TRAITÉ", "TRAITE", "REFUSÉ", "REFUSE"].includes(st)) {
+    const st = normalizeDossierStatus(dossier.status);
+    if (
+      !dossier.statusManualAt &&
+      !["TRAITE", "REFUSE", "ADHESION_EN_COURS"].includes(st)
+    ) {
       dossier.status = "DECISION_EN_ATTENTE";
     }
   }

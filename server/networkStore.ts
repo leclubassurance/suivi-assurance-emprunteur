@@ -474,6 +474,7 @@ function inferReferralStatusFromDossier(dossier: Dossier): ReferralStatus | null
   if (status === "REFUSÉ" || status === "REFUSE") return "REFUSE";
   if (status === "CLOS" && !clientHasAcceptedInsuranceChange(dossier)) return "PERDU";
   if (clientHasAcceptedInsuranceChange(dossier)) return "SIGNE";
+  if (status === "ADHESION_EN_COURS" || status === "TRAITÉ" || status === "TRAITE") return "SIGNE";
   if (hasStudyBeenSent(dossier) || status === "MAIL_ENVOYÉ" || status === "MAIL_ENVOYE") {
     return "ETUDE_ENVOYEE";
   }

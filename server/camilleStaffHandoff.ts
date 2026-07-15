@@ -1,5 +1,5 @@
 import { addEvent, type Dossier } from "./dossierModel";
-import { isOutboundConfirmation } from "./dossierLifecycle";
+import { isOutboundConfirmation, setDossierStatusIfNotLocked } from "./dossierLifecycle";
 
 const STUDY_OUTBOUND_SUBJECT_RE =
   /\b(étude|etude)(\s+personnalisée|\s+personnalisee)?\b|économies|economies|votre étude/i;
@@ -117,8 +117,7 @@ export function acknowledgeStaffOutboundToClient(
     }
   }
 
-  if (dossier.status === "EN_ATTENTE_CLIENT") {
-    dossier.status = "EN_COURS";
+  if (setDossierStatusIfNotLocked(dossier, "EN_COURS")) {
     changed = true;
   }
 

@@ -155,6 +155,14 @@ export function isDossierStatusLockedByAdmin(dossier: Dossier): boolean {
   return Boolean(dossier.statusManualAt);
 }
 
+/** Met à jour le statut CRM seulement si l'admin ne l'a pas figé manuellement. */
+export function setDossierStatusIfNotLocked(dossier: Dossier, status: string): boolean {
+  if (isDossierStatusLockedByAdmin(dossier)) return false;
+  if (String(dossier.status || "") === status) return false;
+  dossier.status = status;
+  return true;
+}
+
 /** Passe en MAIL ENVOYÉ si une étude a été détectée (sauf statut figé manuellement). */
 export function applyStudySentStatusIfNeeded(dossier: Dossier): boolean {
   if (!needsStatusStudySent(dossier)) return false;

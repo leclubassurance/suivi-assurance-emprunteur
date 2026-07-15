@@ -8,6 +8,7 @@ import { buildCamilleKnowledgePromptBlock } from "./camilleKnowledgeDrive";
 import { CAMILLE_PERSONA_PROMPT } from "./camillePersona";
 import { getConversationTailForAi } from "./gmailConversation";
 import { isLeadDossier } from "../shared/leadDossierStatus";
+import { setDossierStatusIfNotLocked } from "./dossierLifecycle";
 import { registerTelegramDossierContext } from "./telegramCamille";
 import { isTelegramEnabled, sendTelegramMessage } from "./telegramCamille";
 import { escapeTelegramHtml, reviewConfirmKeyboard } from "./telegramUi";
@@ -793,7 +794,7 @@ export async function confirmAndSendReviewReply(
     dossier.status = "PROSPECT";
     (dossier as { isLead?: boolean }).isLead = true;
   } else {
-    dossier.status = "EN_COURS";
+    setDossierStatusIfNotLocked(dossier, "EN_COURS");
   }
 
   addEvent(dossier, {

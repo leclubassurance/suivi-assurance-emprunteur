@@ -25,6 +25,10 @@ async function main() {
   const summary = {
     id: dossier.id,
     status: dossier.status,
+    statusManualAt: dossier.statusManualAt || null,
+    subscriptionProgress: dossier.subscriptionProgress || null,
+    clientAcceptedInsuranceAt: dossier.clientAcceptedInsuranceAt || null,
+    clientAcceptedInsuranceSource: dossier.clientAcceptedInsuranceSource || null,
     updatedAt: dossier.updatedAt,
     clients: (dossier.formData?.assures || []).map((a) => ({
       prenom: a.prenom,

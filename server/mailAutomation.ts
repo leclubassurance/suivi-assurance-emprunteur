@@ -24,6 +24,7 @@ import {
 } from './gmailAttachments';
 import { isLeadDossier } from "./leadDossierMerge";
 import { finalizeGmailDocumentImport } from "./dossierDocumentSync";
+import { setDossierStatusIfNotLocked } from "./dossierLifecycle";
 
 export function extractEmail(fromRaw: string) {
   const emailMatch = fromRaw.match(/<([^>]+)>/);
@@ -1036,7 +1037,7 @@ export async function syncGmailInbox(
                   message: `Réponse automatique envoyée au client (${replyToEmail}).`,
                   meta: { gmailId: msgMeta.id },
                 });
-                dossier.status = "EN_COURS";
+                setDossierStatusIfNotLocked(dossier, "EN_COURS");
                 void import("./telegramNotify")
                   .then(({ notifyTelegramCamilleReplied }) =>
                     notifyTelegramCamilleReplied({

@@ -1,6 +1,10 @@
 import type { Dossier } from "./dossierModel";
 import { getInsuranceChangePlan } from "./insuranceChangePlan";
 import type { StudyKpiRecord } from "./studyEmailKpi";
+import {
+  coerceSubscriptionPhase,
+  phaseRank,
+} from "./subscriptionProgress";
 
 /** Empêche une synchro Gmail / metrics d'écraser des saisies admin — jamais l'inverse. */
 export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier): Dossier {
@@ -27,6 +31,31 @@ export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier
       source: "manual",
       grossSource: existingKpi.grossSource || "manual",
     };
+  }
+
+  if (existing.statusManualAt) {
+    if (existing.status) incoming.status = existing.status;
+    incoming.statusManualAt = existing.statusManualAt;
+
+    const existingProgress = existing.subscriptionProgress;
+    const incomingProgress = incoming.subscriptionProgress;
+    const existingRank = phaseRank(coerceSubscriptionPhase(existingProgress?.phase));
+    const incomingRank = phaseRank(coerceSubscriptionPhase(incomingProgress?.phase));
+    const existingProgressIsAdmin =
+      Boolean(existingProgress?.updatedBy) && existingProgress?.updatedBy !== "system";
+
+    if (
+      existingProgress &&
+      (existingProgressIsAdmin || existingRank > incomingRank)
+    ) {
+      incoming.subscriptionProgress = existingProgress;
+    }
+
+    if (existing.clientAcceptedInsuranceAt) {
+      incoming.clientAcceptedInsuranceAt = existing.clientAcceptedInsuranceAt;
+      incoming.clientAcceptedInsuranceSource = existing.clientAcceptedInsuranceSource;
+      incoming.clientAcceptedInsuranceNote = existing.clientAcceptedInsuranceNote;
+    }
   }
 
   return incoming;
