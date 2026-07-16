@@ -1,3 +1,6 @@
+import type { ApporteurPublicProfile } from "./apporteurPublicProfile";
+export type { ApporteurPublicProfile } from "./apporteurPublicProfile";
+
 export type ApporteurType = "apporteur_affaires" | "agent_immo" | "courtier" | "autre" | "conseiller_immo_club";
 
 export type ReferralStatus =
@@ -116,6 +119,8 @@ export type Apporteur = {
   };
   /** Apporteur parrain (niveau 1 — marketing de réseau). */
   sponsorId?: string;
+  /** Profil affiché sur le lien client (?ref=) — photo, bio, titre. */
+  publicProfile?: ApporteurPublicProfile;
 };
 
 export type PartnerRecruitStatus =

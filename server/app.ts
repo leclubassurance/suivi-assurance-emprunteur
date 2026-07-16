@@ -1534,7 +1534,18 @@ export function createApp() {
   app.patch("/api/admin/apporteurs/:id", async (req, res) => {
     try {
       const { updateApporteur } = await import("./apporteurStore");
-      const apporteur = await updateApporteur(req.params.id, (req.body || {}) as any);
+      const body = { ...(req.body || {}) } as any;
+      if (body.publicProfile != null) {
+        const {
+          normalizeApporteurPublicProfile,
+          validateApporteurPublicProfile,
+        } = await import("../shared/apporteurPublicProfile");
+        const profile = normalizeApporteurPublicProfile(body.publicProfile, { updatedBy: "admin" });
+        const check = validateApporteurPublicProfile(profile);
+        if (!check.ok) return res.status(400).json({ success: false, error: check.error });
+        body.publicProfile = profile;
+      }
+      const apporteur = await updateApporteur(req.params.id, body);
       res.json({ success: true, apporteur });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err?.message || String(err) });
@@ -1861,11 +1872,20 @@ export function createApp() {
   app.get("/api/public/apporteur-ref/:token", async (req, res) => {
     try {
       const { findApporteurByToken } = await import("./apporteurStore");
+      const { buildApporteurPublicRefPayload } = await import("../shared/apporteurPublicProfile");
       const apporteur = await findApporteurByToken(req.params.token);
       if (!apporteur || !apporteur.active) {
         return res.status(404).json({ ok: false, error: "ref_invalid" });
       }
-      res.json({ ok: true, companyName: apporteur.companyName });
+      const publicPayload = buildApporteurPublicRefPayload(apporteur);
+      res.json({
+        ok: true,
+        companyName: apporteur.companyName,
+        contactName: apporteur.contactName,
+        contactPrenom: apporteur.contactPrenom || null,
+        contactNom: apporteur.contactNom || null,
+        publicProfile: publicPayload?.profile || null,
+      });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
@@ -2189,8 +2209,11 @@ export function createApp() {
         apporteur: {
           companyName: apporteur.companyName,
           contactName: apporteur.contactName,
+          contactPrenom: apporteur.contactPrenom || null,
+          contactNom: apporteur.contactNom || null,
           type: apporteur.type,
           sponsorName: sponsor?.contactName || null,
+          publicProfile: apporteur.publicProfile || null,
         },
         downline: enrichDownlineForPortal(store, downline),
         teamSummary: {
@@ -2292,6 +2315,29 @@ export function createApp() {
           ok: true,
           profile: getApporteurProfilePayload(apporteur),
           profileComplete: isApporteurProfileComplete(apporteur),
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/apporteur-portal/:token/public-profile",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { updateApporteurPublicProfileFromPortal } = await import("./apporteurStore");
+        const apporteur = await updateApporteurPublicProfileFromPortal(
+          req.params.token,
+          (req.body || {}) as any,
+          "conseiller",
+        );
+        res.json({
+          ok: true,
+          publicProfile: apporteur.publicProfile || null,
+          contactName: apporteur.contactName,
         });
       } catch (err: any) {
         res.status(400).json({ ok: false, error: err?.message || String(err) });

@@ -455,6 +455,7 @@ export async function updateApporteur(
       | "driveFolderId"
       | "referralToken"
       | "sponsorId"
+      | "publicProfile"
     >
   >,
 ): Promise<Apporteur> {
@@ -538,9 +539,29 @@ export async function updateApporteur(
   if (patch.driveFolderId !== undefined) {
     apporteur.driveFolderId = patch.driveFolderId || undefined;
   }
+  if (patch.publicProfile !== undefined) {
+    apporteur.publicProfile = patch.publicProfile || undefined;
+  }
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);
   return apporteur;
+}
+
+export async function updateApporteurPublicProfileFromPortal(
+  portalToken: string,
+  input: import("../shared/apporteurPublicProfile").ApporteurPublicProfileInput,
+  updatedBy: "admin" | "conseiller" = "conseiller",
+): Promise<Apporteur> {
+  const {
+    normalizeApporteurPublicProfile,
+    validateApporteurPublicProfile,
+  } = await import("../shared/apporteurPublicProfile");
+  const apporteur = await findApporteurByPortalToken(portalToken);
+  if (!apporteur) throw new Error("Lien portail invalide.");
+  const profile = normalizeApporteurPublicProfile(input, { updatedBy });
+  const check = validateApporteurPublicProfile(profile);
+  if (!check.ok) throw new Error(check.error);
+  return updateApporteur(apporteur.id, { publicProfile: profile });
 }
 
 export async function updateApporteurProfileFromPortal(

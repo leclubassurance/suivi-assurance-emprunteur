@@ -13,6 +13,7 @@ import {
   STATUT_PRO_OPTIONS,
 } from './constants';
 import LandingStep from './components/steps/LandingStep';
+import type { LandingReferralProfile } from './components/LandingReferralBanner';
 import PreparationStep from './components/steps/PreparationStep';
 import ProjetStep from './components/steps/ProjetStep';
 import CoordonneesStep from './components/steps/CoordonneesStep';
@@ -76,6 +77,7 @@ export default function App() {
   const [showConseillerEspace, setShowConseillerEspace] = useState(false);
   const [conseillerLoginToken, setConseillerLoginToken] = useState<string | null>(null);
   const [adminPartnersView, setAdminPartnersView] = useState<'none' | 'apporteurs' | 'conseillers'>('none');
+  const [referralProfile, setReferralProfile] = useState<LandingReferralProfile | null>(null);
 
   const goHome = () => {
     setLegalView(null);
@@ -183,6 +185,24 @@ export default function App() {
         } catch {
           /* ignore */
         }
+        fetch(getApiUrl(`/api/public/apporteur-ref/${encodeURIComponent(normalized)}`))
+          .then((r) => r.json())
+          .then((json) => {
+            if (json?.ok && json.publicProfile) {
+              setReferralProfile({
+                contactName: String(json.contactName || "").trim() || "Votre conseiller",
+                companyName: json.companyName || null,
+                profile: {
+                  photoUrl: json.publicProfile.photoUrl,
+                  title: json.publicProfile.title,
+                  bio: json.publicProfile.bio,
+                },
+              });
+            } else {
+              setReferralProfile(null);
+            }
+          })
+          .catch(() => setReferralProfile(null));
       }
     } catch {
       /* ignore */
@@ -581,6 +601,7 @@ export default function App() {
             onAdminAccess={goToAdmin}
             onLegalMentions={() => openLegal('mentions')}
             onLegalPrivacy={() => openLegal('privacy')}
+            referralProfile={referralProfile}
           />
         )}
         

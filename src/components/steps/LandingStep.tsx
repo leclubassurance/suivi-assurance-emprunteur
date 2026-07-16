@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { CLIENT_PORTAL_URL_KEY } from '../../constants';
 import CalBookingButton from '../ui/CalBookingButton';
+import LandingReferralBanner, { type LandingReferralProfile } from '../LandingReferralBanner';
 
 /** Espace réservé au bandeau CTA fixe mobile + encoche iOS */
 const MOBILE_STICKY_FOOTER_CLASS =
@@ -110,11 +111,13 @@ export default function LandingStep({
   onAdminAccess,
   onLegalMentions,
   onLegalPrivacy,
+  referralProfile,
 }: {
   onStart: () => void;
   onAdminAccess: () => void;
   onLegalMentions?: () => void;
   onLegalPrivacy?: () => void;
+  referralProfile?: LandingReferralProfile | null;
 }) {
   const [savedPortalUrl, setSavedPortalUrl] = useState<string | null>(null);
 
@@ -162,6 +165,8 @@ export default function LandingStep({
           </a>
         ) : null}
       </header>
+
+      {referralProfile ? <LandingReferralBanner data={referralProfile} /> : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
         <div className="lg:col-span-7 bg-gradient-to-br from-[#1E3A8A] to-[#172554] text-white rounded-[24px] sm:rounded-[32px] p-6 sm:p-8 md:p-12 flex flex-col justify-between relative shadow-xl">

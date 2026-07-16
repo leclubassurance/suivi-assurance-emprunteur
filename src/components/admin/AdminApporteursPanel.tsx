@@ -42,6 +42,7 @@ import ApporteurProfileFormFields, {
 } from "../portal/ApporteurProfileFormFields";
 import { resolveApporteurTypeLabel } from "../../../shared/apporteurProfile";
 import { formatReferralGeoDetail } from "../../../shared/referralGeo";
+import AdminApporteurPublicProfileEditor from "./AdminApporteurPublicProfileEditor";
 
 type Props = {
   onBack: () => void;
@@ -818,6 +819,10 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                           );
                         })()}
                       </div>
+                      <AdminApporteurPublicProfileEditor
+                        apporteur={a}
+                        onSaved={() => load()}
+                      />
                       </div>
                       )}
                     </div>
