@@ -216,6 +216,15 @@ export function enrichReferralForConseillerPortal(params: {
       : resolveClientPortalStatusView(dossier);
   const steps = buildConseillerSubscriptionSteps(dossier, operatingPhase);
   const commission = (() => {
+    if (studyValidationPending) {
+      return {
+        feesCourtageEur: studyValidationPending.feesCourtageTotalEur,
+        apporteurPayoutEur: studyValidationPending.conseillerRetroEur,
+        source: "pending_validation" as const,
+        hasStudyFees: false,
+        payoutSharePercent,
+      };
+    }
     const c = resolveDossierCommission(dossier, remuneration);
     return {
       feesCourtageEur: c.feesCourtageEur,

@@ -6,7 +6,7 @@ type Step = { key: string; label: string; done: boolean; active: boolean };
 type Commission = {
   feesCourtageEur: number;
   apporteurPayoutEur: number;
-  source: "manual" | "auto" | "estimate";
+  source: "manual" | "auto" | "estimate" | "pending_validation";
   hasStudyFees: boolean;
   payoutSharePercent?: number;
 };
@@ -25,10 +25,12 @@ const COMMISSION_SOURCE_LABEL: Record<Commission["source"], string> = {
   manual: "montant confirmé LCIF",
   auto: "extrait de l'étude",
   estimate: "estimation barème",
+  pending_validation: "débrief courtage (provisoire)",
 };
 
 export default function PartnerReferralTracking({ tracking }: { tracking: Tracking }) {
   const isEstimate = tracking.commission?.source === "estimate";
+  const isPendingValidation = tracking.commission?.source === "pending_validation";
   const sharePct = Math.round((tracking.commission?.payoutSharePercent ?? 0.5) * 100);
   const activeIndex = tracking.steps.findIndex((s) => s.active);
   const progressPct =
@@ -84,7 +86,11 @@ export default function PartnerReferralTracking({ tracking }: { tracking: Tracki
         <div className="grid sm:grid-cols-2 gap-2 mb-4">
           <div className="rounded-xl bg-white border border-slate-200 px-3 py-2.5">
             <p className="text-[10px] font-bold uppercase text-slate-500">
-              {isEstimate ? "Courtage estimé" : "Frais de courtage"}
+              {isPendingValidation
+                ? "Courtage proposé"
+                : isEstimate
+                  ? "Courtage estimé"
+                  : "Frais de courtage"}
             </p>
             <p className="text-lg font-black text-slate-900">{tracking.commission.feesCourtageEur} €</p>
           </div>

@@ -24,7 +24,7 @@ export type DossierEconomicsSlice = {
   };
 };
 
-export type CommissionSource = "manual" | "auto" | "estimate";
+export type CommissionSource = "manual" | "auto" | "estimate" | "pending_validation";
 
 export type DossierCommissionBreakdown = {
   feesCourtageEur: number;

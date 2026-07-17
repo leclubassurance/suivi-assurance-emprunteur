@@ -51,7 +51,7 @@ type PortalReferralTracking = {
   commission?: {
     feesCourtageEur: number;
     apporteurPayoutEur: number;
-    source: "manual" | "auto" | "estimate";
+    source: "manual" | "auto" | "estimate" | "pending_validation";
     hasStudyFees: boolean;
     payoutSharePercent?: number;
   } | null;
