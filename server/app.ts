@@ -2597,6 +2597,85 @@ export function createApp() {
     },
   );
 
+  app.get(
+    "/api/apporteur-portal/:token/study-validation/:dossierId/preview",
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken, listReferrals, getRemunerationForApporteur } =
+          await import("./apporteurStore");
+        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+        const { validateFeesPerAssuredEur } = await import(
+          "./studyConseillerValidation"
+        );
+        const { resolveStudyEmailHtmlForSend } = await import("../shared/studyEmailForSend");
+
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (!isConseillerImmoClubType(apporteur.type)) {
+          return res.status(403).json({ ok: false, error: "not_conseiller" });
+        }
+        if ((apporteur.contractStatus || "none") !== "signed") {
+          return res.status(403).json({ ok: false, error: "contract_required" });
+        }
+
+        const dossierId = String(req.params.dossierId || "").trim().toUpperCase();
+        const referrals = await listReferrals({ apporteurId: apporteur.id });
+        const ownsDossier = referrals.some((r) => r.dossierId === dossierId);
+        if (!ownsDossier) return res.status(403).json({ ok: false, error: "forbidden" });
+
+        const db = await readDBAsync();
+        const dossier = db.dossiers.find((d: any) => d.id === dossierId);
+        if (!dossier) return res.status(404).json({ ok: false, error: "dossier_not_found" });
+
+        const validation = dossier.studyConseillerValidation;
+        if (!validation || !["pending", "approved"].includes(String(validation.status || ""))) {
+          return res.status(404).json({ ok: false, error: "no_pending_validation" });
+        }
+        if (!String(validation.html || "").trim()) {
+          return res.status(404).json({ ok: false, error: "preview_unavailable" });
+        }
+
+        const remuneration = getRemunerationForApporteur(apporteur);
+        const rawFees = req.query.feesPerAssuredEur;
+        let feesPerAssuredEur =
+          rawFees != null && String(rawFees).trim() !== ""
+            ? Number(rawFees)
+            : validation.feesPerAssuredEur ?? validation.suggestedFeePerAssuredEur;
+
+        if (!Number.isFinite(feesPerAssuredEur)) {
+          feesPerAssuredEur = validation.suggestedFeePerAssuredEur;
+        }
+
+        const feeCheck = validateFeesPerAssuredEur(feesPerAssuredEur, remuneration);
+        if (!feeCheck.ok) {
+          return res.status(400).json({ ok: false, error: feeCheck.error });
+        }
+
+        const total = Math.round(feesPerAssuredEur * Number(validation.assuredCount || 1));
+        const html = resolveStudyEmailHtmlForSend({
+          draftHtml: validation.html,
+          validation: {
+            status: validation.status,
+            html: validation.html,
+            feesCourtageTotalEur: total,
+          },
+          dossier,
+          feesCourtageEur: total,
+        });
+
+        res.json({
+          ok: true,
+          subject: validation.subject,
+          html,
+          feesCourtageTotalEur: total,
+          feesPerAssuredEur,
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
   app.post(
     "/api/apporteur-portal/:token/study-validation/:dossierId/approve",
     apporteurPortalPostLimiter,
