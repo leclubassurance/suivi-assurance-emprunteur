@@ -16,6 +16,7 @@ export type StudyValidationPending = {
   minPerAssuredEur: number;
   maxPerAssuredEur: number;
   payoutSharePercent: number;
+  lowSavingsException?: boolean;
 };
 
 const PORTAL_ERROR_LABELS: Record<string, string> = {
@@ -193,8 +194,15 @@ export default function ConseillerStudyValidation({
         </div>
 
         <label className="block text-xs font-bold text-slate-700 mb-1">
-          Frais de courtage par assuré ({validation.minPerAssuredEur}–{validation.maxPerAssuredEur} €, ou 0 €)
+          {validation.minPerAssuredEur > 0
+            ? `Frais de courtage par assuré (${validation.minPerAssuredEur}–${validation.maxPerAssuredEur} €, ou 0 €)`
+            : `Frais de courtage par assuré (0–${validation.maxPerAssuredEur} €)`}
         </label>
+        {validation.lowSavingsException ? (
+          <p className="text-[11px] text-amber-800 mb-2 leading-relaxed">
+            Économie inférieure à 2&nbsp;000 € : vous pouvez descendre sous 200 € par assuré.
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <input
             type="number"

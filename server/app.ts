@@ -2604,7 +2604,7 @@ export function createApp() {
         const { findApporteurByPortalToken, listReferrals, getRemunerationForApporteur } =
           await import("./apporteurStore");
         const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
-        const { validateFeesPerAssuredEur } = await import(
+        const { validateFeesPerAssuredEur, resolveGrossSavingsForStudyValidation } = await import(
           "./studyConseillerValidation"
         );
         const { resolveStudyEmailHtmlForSend } = await import("../shared/studyEmailForSend");
@@ -2646,7 +2646,9 @@ export function createApp() {
           feesPerAssuredEur = validation.suggestedFeePerAssuredEur;
         }
 
-        const feeCheck = validateFeesPerAssuredEur(feesPerAssuredEur, remuneration);
+        const feeCheck = validateFeesPerAssuredEur(feesPerAssuredEur, remuneration, {
+          grossSavingsEur: resolveGrossSavingsForStudyValidation(dossier, validation),
+        });
         if (!feeCheck.ok) {
           return res.status(400).json({ ok: false, error: feeCheck.error });
         }

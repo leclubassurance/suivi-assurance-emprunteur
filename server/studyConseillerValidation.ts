@@ -15,6 +15,9 @@ import { hasBrokerageFeeLine } from "./studyHtmlPatch";
 import { sendApporteurHtmlEmail } from "./apporteurNotify";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
 
+/** Sous ce seuil d'économie brute, le plancher 200 €/assuré peut être baissé (jusqu'à 0 €). */
+export const LOW_SAVINGS_COURTAGE_THRESHOLD_EUR = 2000;
+
 export type StudyConseillerValidation = {
   status: "pending" | "approved" | "cancelled";
   submittedAt: string;
@@ -168,18 +171,34 @@ export async function getConseillerStudySendGate(
   };
 }
 
+export function resolveEffectiveMinPerAssuredEur(params: {
+  configMinPerAssuredEur: number;
+  grossSavingsEur?: number | null;
+}): number {
+  const gross = params.grossSavingsEur;
+  if (gross != null && Number.isFinite(gross) && gross > 0 && gross < LOW_SAVINGS_COURTAGE_THRESHOLD_EUR) {
+    return 0;
+  }
+  return params.configMinPerAssuredEur;
+}
+
 export function validateFeesPerAssuredEur(
   feesPerAssuredEur: number,
   config: Pick<RemunerationConfig, "minPerAssuredEur" | "maxPerAssuredEur">,
+  options?: { grossSavingsEur?: number | null },
 ): { ok: true } | { ok: false; error: string } {
   const n = Number(feesPerAssuredEur);
   if (!Number.isFinite(n) || n < 0) {
     return { ok: false, error: "Montant de courtage invalide." };
   }
-  if (n > 0 && n < config.minPerAssuredEur) {
+  const minPerAssured = resolveEffectiveMinPerAssuredEur({
+    configMinPerAssuredEur: config.minPerAssuredEur,
+    grossSavingsEur: options?.grossSavingsEur,
+  });
+  if (n > 0 && n < minPerAssured) {
     return {
       ok: false,
-      error: `Minimum barème : ${config.minPerAssuredEur} € par assuré (ou 0 € sans courtage).`,
+      error: `Minimum barème : ${minPerAssured} € par assuré (ou 0 € sans courtage).`,
     };
   }
   if (n > config.maxPerAssuredEur) {
@@ -200,6 +219,10 @@ export function buildStudyValidationSummaryForPortal(
   const grossSavingsEur = dossier
     ? resolveGrossSavingsForStudyValidation(dossier, validation)
     : validation.grossSavingsEur ?? null;
+  const minPerAssuredEur = resolveEffectiveMinPerAssuredEur({
+    configMinPerAssuredEur: config.minPerAssuredEur,
+    grossSavingsEur,
+  });
   return {
     grossSavingsEur,
     feesAssureurEur: validation.feesAssureurEur ?? null,
@@ -207,9 +230,10 @@ export function buildStudyValidationSummaryForPortal(
     feesPerAssuredEur: feesPerAssured,
     feesCourtageTotalEur: total,
     conseillerRetroEur: retro,
-    minPerAssuredEur: config.minPerAssuredEur,
+    minPerAssuredEur,
     maxPerAssuredEur: config.maxPerAssuredEur,
     payoutSharePercent: config.apporteurShareOfBrokerage,
+    lowSavingsException: minPerAssuredEur < config.minPerAssuredEur,
   };
 }
 
@@ -248,7 +272,7 @@ export async function notifyConseillerStudyPending(params: {
     <p>Un dossier assurance emprunteur est prêt pour validation du <strong>courtage</strong> : <strong>${dossier.id}</strong>${clientName ? ` (${clientName})` : ""}.</p>
     <p>${grossLine}<br>Assurés : <strong>${validation.assuredCount}</strong></p>
     ${debriefBlock}
-    <p>Indiquez le montant de courtage adapté à ce client (barème 200–500 € / assuré). L'équipe LCIF enverra ensuite l'étude au client.</p>
+    <p>Indiquez le montant de courtage adapté à ce client (barème 200–500 € / assuré ; en dessous de 200 € autorisé si l'économie est inférieure à 2&nbsp;000 €). L'équipe LCIF enverra ensuite l'étude au client.</p>
     <p style="margin:24px 0"><a href="${portalUrl}" style="display:inline-block;background:#1E3A8A;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Valider le courtage</a></p>
     <p style="font-size:12px;color:#64748b">Le Club Immobilier Français</p>
   </div>`;
@@ -411,7 +435,9 @@ export async function approveConseillerStudyCourtage(params: {
     return { ok: false, error: "no_pending_validation" };
   }
 
-  const feeCheck = validateFeesPerAssuredEur(feesPerAssuredEur, config);
+  const feeCheck = validateFeesPerAssuredEur(feesPerAssuredEur, config, {
+    grossSavingsEur: resolveGrossSavingsForStudyValidation(dossier, validation),
+  });
   if (!feeCheck.ok) return { ok: false, error: feeCheck.error };
 
   const approved = applyConseillerApprovedFees(validation, feesPerAssuredEur, config);
