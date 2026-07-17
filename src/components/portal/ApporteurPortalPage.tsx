@@ -28,11 +28,9 @@ import ConseillerReferralCommunications from "./ConseillerReferralCommunications
 import ConseillerStudyValidation, { type StudyValidationPending } from "./ConseillerStudyValidation";
 import ConseillerFormationSection from "./ConseillerFormationSection";
 import ConseillerCommunicationDriveSection from "./ConseillerCommunicationDriveSection";
-import PartnerPublicProfileEditor from "./PartnerPublicProfileEditor";
 import { CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
 import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
-import type { ApporteurPublicProfile } from "../../../shared/apporteurPublicProfile";
 import {
   PORTAL_NAV_ICONS,
   PortalMobileNav,
@@ -102,11 +100,8 @@ type PortalData = {
   apporteur: {
     companyName: string;
     contactName: string;
-    contactPrenom?: string | null;
-    contactNom?: string | null;
     type: string;
     sponsorName?: string | null;
-    publicProfile?: ApporteurPublicProfile | null;
   };
   downline?: DownlineMember[];
   teamSummary?: {
@@ -485,14 +480,6 @@ export default function ApporteurPortalPage({
       visible: Boolean(isConseillerClub),
     },
     {
-      id: "ap-public-profile",
-      label: "Profil lien client",
-      shortLabel: "Profil",
-      icon: PORTAL_NAV_ICONS.script,
-      visible: true,
-      mobilePrimary: Boolean(isConseillerClub),
-    },
-    {
       id: "ap-ranking",
       label: "Classement",
       shortLabel: "Classement",
@@ -630,33 +617,6 @@ export default function ApporteurPortalPage({
                 onNewReferral={openNewReferral}
                 onGoReferrals={() => scrollToAnchor("ap-referrals")}
               />
-            </div>
-
-            <div id="ap-public-profile" className="scroll-mt-24 lg:scroll-mt-28">
-              <PortalSection
-                title="Profil sur votre lien client"
-                description="Photo, titre et bio affichés quand un client ouvre votre lien de recommandation."
-              >
-                <PartnerPublicProfileEditor
-                  portalToken={token}
-                  sessionAuth={conseillerSession}
-                  previewToken={adminPreviewToken || undefined}
-                  contactName={data.apporteur.contactName}
-                  initialProfile={data.apporteur.publicProfile}
-                  referralLink={data.referralLink}
-                  readOnly={adminViewMode}
-                  onApplied={(profile) => {
-                    setData((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            apporteur: { ...prev.apporteur, publicProfile: profile },
-                          }
-                        : prev,
-                    );
-                  }}
-                />
-              </PortalSection>
             </div>
 
         {isConseillerClub && data.conseillerClub ? (

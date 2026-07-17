@@ -2209,11 +2209,8 @@ export function createApp() {
         apporteur: {
           companyName: apporteur.companyName,
           contactName: apporteur.contactName,
-          contactPrenom: apporteur.contactPrenom || null,
-          contactNom: apporteur.contactNom || null,
           type: apporteur.type,
           sponsorName: sponsor?.contactName || null,
-          publicProfile: apporteur.publicProfile || null,
         },
         downline: enrichDownlineForPortal(store, downline),
         teamSummary: {
@@ -2315,29 +2312,6 @@ export function createApp() {
           ok: true,
           profile: getApporteurProfilePayload(apporteur),
           profileComplete: isApporteurProfileComplete(apporteur),
-        });
-      } catch (err: any) {
-        res.status(400).json({ ok: false, error: err?.message || String(err) });
-      }
-    },
-  );
-
-  app.patch(
-    "/api/apporteur-portal/:token/public-profile",
-    apporteurPortalPostLimiter,
-    express.json(),
-    async (req, res) => {
-      try {
-        const { updateApporteurPublicProfileFromPortal } = await import("./apporteurStore");
-        const apporteur = await updateApporteurPublicProfileFromPortal(
-          req.params.token,
-          (req.body || {}) as any,
-          "conseiller",
-        );
-        res.json({
-          ok: true,
-          publicProfile: apporteur.publicProfile || null,
-          contactName: apporteur.contactName,
         });
       } catch (err: any) {
         res.status(400).json({ ok: false, error: err?.message || String(err) });
