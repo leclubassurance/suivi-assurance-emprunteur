@@ -46,7 +46,8 @@ export function resolveStudyEmailHtmlForSend(params: {
         : null;
 
   if (planned) {
-    html = patchStudyHtmlPlannedDate(html, planned).html;
+    const { html: next, patched } = patchStudyHtmlPlannedDate(html, planned);
+    if (patched) html = next;
   }
 
   return html;

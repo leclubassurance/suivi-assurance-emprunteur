@@ -71,6 +71,21 @@ const PLANNED_DATE_RES = [
 const FRENCH_DATE_IN_CHANGE_LINE =
   /((?:date\s+(?:de\s+)?changement|changement\s+pr[ée]vu|effectif|à partir)[^<\n]{0,80}?)(\d{1,2}\s+(?:janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+\d{4})/i;
 
+function buildPlannedDateBlock(label: string): string {
+  return `<p style="font-size:14px;margin:0 0 16px 0;color:#1F2937;">Date de changement prévue : <strong>${label}</strong></p>`;
+}
+
+/** Ligne habituelle des études manuelles — seul point d'insertion automatique. */
+const BANK_DEADLINE_LINE_RE =
+  /(<(?:p|li)[^>]*>[\s\S]*?10\s+jours\s+ouvr[\s\S]*?r[ée]silie[\s\S]*?<\/(?:p|li)>)/i;
+
+function insertPlannedDateBlock(html: string, block: string): { html: string; patched: boolean } {
+  if (BANK_DEADLINE_LINE_RE.test(html)) {
+    return { html: html.replace(BANK_DEADLINE_LINE_RE, `$1\n${block}`), patched: true };
+  }
+  return { html, patched: false };
+}
+
 export function patchStudyHtmlPlannedDate(
   html: string,
   isoDate: string,
@@ -88,10 +103,6 @@ export function patchStudyHtmlPlannedDate(
       patched: true,
     };
   }
-  const block = `<p style="font-size:14px;margin:0 0 16px 0;color:#1F2937;">Date de changement prévue : <strong>${label}</strong></p>`;
-  const anchor = /(<p style="font-size:16px;margin:0 0 16px 0;color:#1F2937;">Bonjour[^<]*<\/p>)/i;
-  if (anchor.test(html)) {
-    return { html: html.replace(anchor, `$1\n${block}`), patched: true };
-  }
-  return { html: `${block}\n${html}`, patched: true };
+
+  return insertPlannedDateBlock(html, buildPlannedDateBlock(label));
 }

@@ -101,4 +101,24 @@ const plainPatched = resolveStudyEmailHtmlForSend({
 assert(plainPatched.includes("1 septembre 2026"), "date en texte brut remplacée");
 assert(!plainPatched.includes("15 juillet 2026"), "plus de juillet en texte brut");
 
+const bankLineHtml = draftHtml.replace(
+  "Comment ça marche",
+  `<p style="font-size:14px;margin:0 0 16px 0;color:#1F2937;">Votre banque dispose de 10 jours ouvrés pour accepter, obligation légale, et résilie automatiquement votre contrat actuel.</p>\n    <p style="font-size:14px;margin:0 0 16px 0;color:#1F2937;">Comment ça marche`,
+);
+const bankLinePatched = resolveStudyEmailHtmlForSend({
+  draftHtml: bankLineHtml,
+  dossier: { ...manualDossier, insuranceChangePlan: { plannedDate: "2026-10-05", source: "manual" } },
+});
+const bankIdx = bankLinePatched.indexOf("résilie automatiquement votre contrat actuel");
+const dateAfterBankIdx = bankLinePatched.indexOf("5 octobre 2026");
+assert(bankIdx > 0, "ligne banque 10 jours présente");
+assert(dateAfterBankIdx > bankIdx, "date insérée après la ligne banque");
+assert(!bankLinePatched.startsWith("Date de changement prévue"), "pas de date hors HTML");
+
+const noAnchorPatched = resolveStudyEmailHtmlForSend({
+  draftHtml,
+  dossier: { ...manualDossier, insuranceChangePlan: { plannedDate: "2026-10-05", source: "manual" } },
+});
+assert(!noAnchorPatched.includes("5 octobre 2026"), "sans ancre banque : pas d'injection automatique");
+
 console.log("\nOverrides envoi étude OK.");
