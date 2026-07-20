@@ -20,11 +20,13 @@ import {
   registerScheduledDocFollowUp,
   releaseCamilleClientEmailLock,
 } from "./camilleClientEmailGuard";
+import { isCamilleProductionSafeMode } from "./camilleClientSafety";
 
 export { assessCertainLoanDocProblems } from "./loanDocCertainty";
 
 function isProactiveDocFollowUpEnabled() {
-  const v = (process.env.AI_PROACTIVE_DOC_FOLLOWUP_ENABLED || "true").toLowerCase();
+  const configured = process.env.AI_PROACTIVE_DOC_FOLLOWUP_ENABLED;
+  const v = String(configured ?? (isCamilleProductionSafeMode() ? "false" : "true")).toLowerCase();
   return v !== "false" && v !== "0" && v !== "no";
 }
 

@@ -101,9 +101,23 @@ export function isPreApprovedClientReplyKind(kind: ClientReplyValidationKind): b
   );
 }
 
+export function shouldValidatePreparedClientReply(kind: ClientReplyValidationKind): boolean {
+  const raw = String(
+    process.env.CAMILLE_VALIDATE_PREAPPROVED_REPLIES ??
+      (isCamilleProductionSafeMode() ? "true" : "false"),
+  ).toLowerCase();
+  if (raw === "false" || raw === "0" || raw === "no") return false;
+
+  // Pure acknowledgements and staff-approved directives are already bounded.
+  return kind !== "cooldown_ack" && kind !== "staff_directive";
+}
+
 export function isHighConfidenceAutoSendAllowed(confidence?: number): boolean {
   const enabled =
-    String(process.env.CAMILLE_ALLOW_HIGH_CONFIDENCE_AUTO ?? "true").toLowerCase() !== "false";
+    String(
+      process.env.CAMILLE_ALLOW_HIGH_CONFIDENCE_AUTO ??
+        (isCamilleProductionSafeMode() ? "false" : "true"),
+    ).toLowerCase() !== "false";
   if (!enabled) return false;
   const min = Number(process.env.CAMILLE_CLIENT_HIGH_CONFIDENCE_AUTO ?? "8");
   const threshold = Number.isFinite(min) ? min : 9;

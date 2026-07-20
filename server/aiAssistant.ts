@@ -52,9 +52,11 @@ import {
   isRoutineAutonomousClientQuestion,
   isRoutineAutonomousSendAllowed,
   isUnsafeClientLlmReply,
+  isCamilleProductionSafeMode,
   shouldBlockClientAutoSendByConfidence,
   shouldForceClientReviewByConfidence,
   shouldQueueClientReplyForValidation,
+  shouldValidatePreparedClientReply,
   type ClientReplyValidationKind,
 } from "./camilleClientSafety";
 
@@ -79,6 +81,41 @@ export async function processIncomingClientEmail(
     const prenom = dossier.formData?.assures?.[0]?.prenom || "";
     const attachmentNames = options?.newAttachmentNames || [];
     const nom = dossier.formData?.assures?.[0]?.nom || "";
+    const buildPreparedReplyResult = (
+      plain: string,
+      actionKind: ClientReplyValidationKind,
+      reason: string,
+      extra?: Record<string, unknown>,
+    ) => {
+      const html = wrapCamilleHtmlReply(plain, prenom, nom, dossier);
+      const telegramAction = buildTelegramActionFromReply({
+        dossier,
+        clientMessage: clientMessageForAi,
+        replyPlain: plain,
+        emailSubject: options?.emailSubject,
+        actionKind,
+        attachmentNames,
+        ...extra,
+      });
+
+      if (shouldValidatePreparedClientReply(actionKind) && isCamilleReviewEnabled()) {
+        return {
+          status: "pending_validation" as const,
+          text: html,
+          replyPlain: plain,
+          telegramAction,
+          reason,
+          validationLabel: `Validation requise — ${reason}`,
+        };
+      }
+
+      return {
+        status: "replied" as const,
+        text: html,
+        replyPlain: plain,
+        telegramAction,
+      };
+    };
     if (isLeadDossier(dossier)) {
       console.log(`[AI] ${dossier.id} prospect pré-formulaire — réponse automatique Camille désactivée`);
       return {
@@ -138,20 +175,11 @@ export async function processIncomingClientEmail(
       });
       if (plain) {
         console.log(`[AI] Clarification multi-dossiers pour ${dossier.id}`);
-        const telegramAction = buildTelegramActionFromReply({
-          dossier,
-          clientMessage: clientMessageForAi,
-          replyPlain: plain,
-          emailSubject: options.emailSubject,
-          actionKind: "multi_dossier_clarification",
-          attachmentNames,
-        });
-        return {
-          status: "replied",
-          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-          replyPlain: plain,
-          telegramAction,
-        };
+        return buildPreparedReplyResult(
+          plain,
+          "playbook",
+          "Clarification multi-dossiers avant réponse client",
+        );
       }
     }
 
@@ -161,20 +189,11 @@ export async function processIncomingClientEmail(
     if (isForgottenDocumentProcedureQuestion(clientMessageForAi)) {
       const plain = buildForgottenDocumentProcedureReply(dossier);
       console.log(`[AI] Réponse procédure document oublié pour ${dossier.id}`);
-      const telegramAction = buildTelegramActionFromReply({
-        dossier,
-        clientMessage: clientMessageForAi,
-        replyPlain: plain,
-        emailSubject: options?.emailSubject,
-        actionKind: "routine_procedure",
-        attachmentNames,
-      });
-      return {
-        status: "replied",
-        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-        replyPlain: plain,
-        telegramAction,
-      };
+      return buildPreparedReplyResult(
+        plain,
+        "routine_procedure",
+        "Réponse procédure document oublié",
+      );
     }
 
     if (isPlaybookAutoSendEnabled() || isRoutineAutonomousClientQuestion(clientMessageForAi)) {
@@ -184,21 +203,9 @@ export async function processIncomingClientEmail(
       if (playbookHit) {
         const plain = playbookHit.plain;
         console.log(`[AI] Réponse playbook ${playbookHit.playbook.id} pour ${dossier.id}`);
-        const telegramAction = buildTelegramActionFromReply({
-          dossier,
-          clientMessage: clientMessageForAi,
-          replyPlain: plain,
-          emailSubject: options?.emailSubject,
-          actionKind: "playbook",
-          attachmentNames,
+        return buildPreparedReplyResult(plain, "playbook", "Réponse playbook", {
           playbookId: playbookHit.playbook.id,
         });
-        return {
-          status: "replied",
-          text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-          replyPlain: plain,
-          telegramAction,
-        };
       }
     }
 
@@ -209,20 +216,11 @@ export async function processIncomingClientEmail(
       const nom = dossier.formData?.assures?.[0]?.nom || "";
       const plain = buildPostStudyIdentityAttachmentsReply(dossier, emailText);
       console.log(`[AI] Accusé pièces identité post-étude pour ${dossier.id}`);
-      const telegramAction = buildTelegramActionFromReply({
-        dossier,
-        clientMessage: emailText,
-        replyPlain: plain,
-        emailSubject: options?.emailSubject,
-        actionKind: "template_identity",
-        attachmentNames,
-      });
-      return {
-        status: "replied",
-        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-        replyPlain: plain,
-        telegramAction,
-      };
+      return buildPreparedReplyResult(
+        plain,
+        "template_identity",
+        "Accusé pièces identité post-étude",
+      );
     }
 
     if (
@@ -234,20 +232,11 @@ export async function processIncomingClientEmail(
       const nom = dossier.formData?.assures?.[0]?.nom || "";
       const plain = buildPostStudyComplementaryDocsMessage(dossier);
       console.log(`[AI] Réponse pièces complémentaires post-étude pour ${dossier.id}`);
-      const telegramAction = buildTelegramActionFromReply({
-        dossier,
-        clientMessage: emailText,
-        replyPlain: plain,
-        emailSubject: options?.emailSubject,
-        actionKind: "template_complementary_docs",
-        attachmentNames,
-      });
-      return {
-        status: "replied",
-        text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-        replyPlain: plain,
-        telegramAction,
-      };
+      return buildPreparedReplyResult(
+        plain,
+        "template_complementary_docs",
+        "Accusé pièces complémentaires post-étude",
+      );
     }
 
     const ctx = buildCamilleContextBlock(dossier, attachmentNames, options?.allDossiers);
@@ -377,21 +366,9 @@ export async function processIncomingClientEmail(
         if (routineHit) {
           const plain = routineHit.plain;
           console.log(`[AI] REVIEW → playbook routinier ${routineHit.playbook.id} pour ${dossier.id}`);
-          const telegramAction = buildTelegramActionFromReply({
-            dossier,
-            clientMessage: clientMessageForAi,
-            replyPlain: plain,
-            emailSubject: options?.emailSubject,
-            actionKind: "playbook",
-            attachmentNames,
+          return buildPreparedReplyResult(plain, "playbook", "Playbook routinier après demande de review", {
             playbookId: routineHit.playbook.id,
           });
-          return {
-            status: "replied",
-            text: wrapCamilleHtmlReply(plain, prenom, nom, dossier),
-            replyPlain: plain,
-            telegramAction,
-          };
         }
       }
     }
@@ -490,6 +467,15 @@ export async function processIncomingClientEmail(
     }
 
     if (decision.action === "ESCALATE") {
+      if (isCamilleProductionSafeMode()) {
+        return {
+          status: "review",
+          questionForStaff:
+            String(decision.questionForStaff || "").trim() ||
+            `Camille voulait escalader ce message. Préparer une réponse prudente au client : « ${clientMessageForAi.slice(0, 300)} »`,
+          reason: decision.reasonForEscalation || "Escalade — validation requise avant tout mail client",
+        };
+      }
       const docReply = await tryCamilleDocClarificationInsteadOfEscalation(dossier, {
         clientMessage: emailText,
         reason: decision.reasonForEscalation,
