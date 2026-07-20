@@ -103,8 +103,16 @@ function lastStudyOutboundHtml(dossier: StudyEconomicsSlice): string {
   return String(dossier.studyDraft?.html || "");
 }
 
-/** Prime annuelle — extraite du mail / brouillon calculé (pas saisie manuelle). */
+/** Prime annuelle — saisie manuelle prioritaire, sinon mail / brouillon calculé. */
 export function resolveAnnualPremiumEur(dossier: StudyEconomicsSlice): number {
+  if (
+    dossier.studyKpi?.source === "manual" &&
+    dossier.studyKpi.annualPremiumEur != null &&
+    Number(dossier.studyKpi.annualPremiumEur) > 0
+  ) {
+    return Math.round(Number(dossier.studyKpi.annualPremiumEur));
+  }
+
   const fromSummary = dossier.studyDraft?.economySummary?.annualPremiumEur;
   if (fromSummary != null && Number(fromSummary) > 0) {
     return Math.round(Number(fromSummary));
@@ -123,6 +131,33 @@ export function resolveAnnualPremiumEur(dossier: StudyEconomicsSlice): number {
   if (monthly != null && monthly > 0) {
     return Math.round(monthly * 12);
   }
+
+  return 0;
+}
+
+/** Frais de dossier assureur — saisie manuelle prioritaire, sinon brouillon / mail. */
+export function resolveFeesAssureurEur(dossier: StudyEconomicsSlice): number {
+  if (
+    dossier.studyKpi?.source === "manual" &&
+    dossier.studyKpi.feesAssureurEur != null &&
+    Number(dossier.studyKpi.feesAssureurEur) > 0
+  ) {
+    return Math.round(Number(dossier.studyKpi.feesAssureurEur));
+  }
+
+  const fromKpi = dossier.studyKpi?.feesAssureurEur;
+  if (fromKpi != null && Number(fromKpi) > 0) {
+    return Math.round(Number(fromKpi));
+  }
+
+  const fromSummary = dossier.studyDraft?.economySummary?.feesAssureurEur;
+  if (fromSummary != null && Number(fromSummary) > 0) {
+    return Math.round(Number(fromSummary));
+  }
+
+  const html = lastStudyOutboundHtml(dossier) || String(dossier.studyDraft?.html || "");
+  const fromParser = html ? parseLcifStudyEmailEconomics(html)?.feesAssureurEur : null;
+  if (fromParser != null && fromParser > 0) return fromParser;
 
   return 0;
 }
@@ -154,8 +189,8 @@ export function enrichParsedStudyFees(
   }
 
   if (parsed.feesAssureurEur == null || parsed.feesAssureurEur <= 0) {
-    const fa = dossier.studyDraft?.economySummary?.feesAssureurEur;
-    if (fa != null && fa > 0) parsed.feesAssureurEur = Math.round(fa);
+    const fa = resolveFeesAssureurEur(dossier);
+    if (fa > 0) parsed.feesAssureurEur = fa;
   }
 
   if (!parsed.annualPremiumEur || parsed.annualPremiumEur <= 0) {

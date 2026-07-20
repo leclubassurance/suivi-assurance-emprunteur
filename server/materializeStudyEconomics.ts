@@ -82,11 +82,40 @@ export function resolveStudyEconomicsSnapshot(dossier: Dossier): StudyEconomicsS
     prevManual && dossier.studyKpi?.feesCourtageEur != null && dossier.studyKpi.feesCourtageEur > 0
       ? Math.round(Number(dossier.studyKpi.feesCourtageEur))
       : null;
+  const manualGross =
+    prevManual && dossier.studyKpi?.grossSavingsEur != null
+      ? Math.round(Number(dossier.studyKpi.grossSavingsEur) || 0)
+      : null;
+  const manualPremium =
+    prevManual &&
+    dossier.studyKpi?.annualPremiumEur != null &&
+    dossier.studyKpi.annualPremiumEur > 0
+      ? Math.round(Number(dossier.studyKpi.annualPremiumEur))
+      : null;
+  const manualFeesAssureur =
+    prevManual &&
+    dossier.studyKpi?.feesAssureurEur != null &&
+    dossier.studyKpi.feesAssureurEur > 0
+      ? Math.round(Number(dossier.studyKpi.feesAssureurEur))
+      : null;
   const overrideCourtage =
     dossier.clubRevenueKpi?.feesCourtageOverrideEur != null &&
     Number(dossier.clubRevenueKpi.feesCourtageOverrideEur) > 0
       ? Math.round(Number(dossier.clubRevenueKpi.feesCourtageOverrideEur))
       : null;
+
+  if (manualGross != null) {
+    grossSavingsEur = manualGross;
+    source = "manual";
+  }
+  if (manualPremium != null) {
+    annualPremiumEur = manualPremium;
+    source = "manual";
+  }
+  if (manualFeesAssureur != null) {
+    feesAssureurEur = manualFeesAssureur;
+    source = "manual";
+  }
 
   if (manualCourtage != null) {
     feesCourtageEur = manualCourtage;
@@ -165,31 +194,38 @@ export function materializeStudyEconomics(dossier: Dossier): boolean {
   if (!snap) return false;
 
   const prev = dossier.studyKpi as StudyKpiRecord | undefined;
-  const keepManualCourtage =
-    prev?.source === "manual" &&
-    prev.feesCourtageEur != null &&
-    prev.feesCourtageEur > 0;
+  const keepManual = prev?.source === "manual";
 
-  const feesCourtageEur = keepManualCourtage ? prev!.feesCourtageEur! : snap.feesCourtageEur;
+  const feesCourtageEur =
+    keepManual && prev?.feesCourtageEur != null && prev.feesCourtageEur > 0
+      ? prev.feesCourtageEur
+      : snap.feesCourtageEur;
+  const grossSavingsEur =
+    keepManual && prev?.grossSavingsEur != null
+      ? prev.grossSavingsEur
+      : snap.grossSavingsEur || prev?.grossSavingsEur || 0;
+  const feesAssureurEur =
+    keepManual && prev?.feesAssureurEur != null && prev.feesAssureurEur > 0
+      ? prev.feesAssureurEur
+      : snap.feesAssureurEur || prev?.feesAssureurEur;
+  const annualPremiumEur =
+    keepManual && prev?.annualPremiumEur != null && prev.annualPremiumEur > 0
+      ? prev.annualPremiumEur
+      : snap.annualPremiumEur || prev?.annualPremiumEur;
 
   const record: StudyKpiRecord = {
-    grossSavingsEur: snap.grossSavingsEur || prev?.grossSavingsEur || 0,
+    grossSavingsEur,
     feesCourtageEur,
-    feesAssureurEur: snap.feesAssureurEur || prev?.feesAssureurEur,
-    annualPremiumEur: snap.annualPremiumEur || prev?.annualPremiumEur,
+    feesAssureurEur,
+    annualPremiumEur,
     loanCapitalEur: prev?.loanCapitalEur,
-    scenario:
-      (snap.grossSavingsEur || prev?.grossSavingsEur || 0) <= 0
-        ? "C"
-        : (snap.grossSavingsEur || 0) < 500
-          ? "B"
-          : "A",
-    confidence: snap.annualPremiumEur > 0 && feesCourtageEur > 0 ? "high" : "medium",
-    source: keepManualCourtage ? "manual" : snap.source === "manual" ? "manual" : "gmail_outbound",
+    scenario: grossSavingsEur <= 0 ? "C" : grossSavingsEur < 500 ? "B" : "A",
+    confidence: annualPremiumEur > 0 && feesCourtageEur > 0 ? "high" : "medium",
+    source: keepManual ? "manual" : snap.source === "manual" ? "manual" : "gmail_outbound",
     gmailId: snap.communicationId || prev?.gmailId || `econ_${dossier.id}`,
     extractedAt: snap.extractedAt,
     subject: prev?.subject,
-    grossSource: keepManualCourtage ? prev?.grossSource : "table",
+    grossSource: keepManual ? prev?.grossSource || "manual" : "table",
   };
 
   const unchanged =

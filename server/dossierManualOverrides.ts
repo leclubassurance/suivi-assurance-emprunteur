@@ -20,11 +20,7 @@ export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier
 
   const existingKpi = existing.studyKpi as StudyKpiRecord | undefined;
   const incomingKpi = incoming.studyKpi as StudyKpiRecord | undefined;
-  if (
-    existingKpi?.source === "manual" &&
-    existingKpi.feesCourtageEur != null &&
-    incomingKpi?.source !== "manual"
-  ) {
+  if (existingKpi?.source === "manual" && incomingKpi?.source !== "manual") {
     incoming.studyKpi = {
       ...incomingKpi,
       ...existingKpi,

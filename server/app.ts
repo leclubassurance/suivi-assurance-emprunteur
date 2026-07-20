@@ -4086,15 +4086,20 @@ export function createApp() {
     const body = (req.body || {}) as {
       grossSavingsEur?: number;
       feesCourtageEur?: number;
+      feesAssureurEur?: number;
+      annualPremiumEur?: number;
       loanCapitalEur?: number;
     };
     if (
       body.grossSavingsEur == null &&
       body.feesCourtageEur == null &&
+      body.feesAssureurEur == null &&
+      body.annualPremiumEur == null &&
       body.loanCapitalEur == null
     ) {
       return res.status(400).json({
-        error: "Au moins un champ requis : grossSavingsEur, feesCourtageEur ou loanCapitalEur.",
+        error:
+          "Au moins un champ requis : grossSavingsEur, feesCourtageEur, feesAssureurEur, annualPremiumEur ou loanCapitalEur.",
       });
     }
     const { patchStudyKpi } = await import("./studyEmailKpi");
@@ -4103,6 +4108,10 @@ export function createApp() {
         body.grossSavingsEur != null ? Number(body.grossSavingsEur) : undefined,
       feesCourtageEur:
         body.feesCourtageEur != null ? Number(body.feesCourtageEur) : undefined,
+      feesAssureurEur:
+        body.feesAssureurEur != null ? Number(body.feesAssureurEur) : undefined,
+      annualPremiumEur:
+        body.annualPremiumEur != null ? Number(body.annualPremiumEur) : undefined,
       loanCapitalEur:
         body.loanCapitalEur != null ? Number(body.loanCapitalEur) : undefined,
     });

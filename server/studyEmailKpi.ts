@@ -651,6 +651,8 @@ export function patchStudyKpi(
   input: {
     grossSavingsEur?: number;
     feesCourtageEur?: number;
+    feesAssureurEur?: number;
+    annualPremiumEur?: number;
     loanCapitalEur?: number;
   },
 ): StudyKpiRecord {
@@ -668,6 +670,22 @@ export function patchStudyKpi(
             prev?.feesCourtageEur ?? dossier.studyDraft?.economySummary?.feesCourtageEur,
           ) || 0,
         );
+  const feesAssureurEur =
+    input.feesAssureurEur != null
+      ? Math.round(Number(input.feesAssureurEur) || 0)
+      : prev?.feesAssureurEur != null
+        ? Math.round(Number(prev.feesAssureurEur) || 0)
+        : dossier.studyDraft?.economySummary?.feesAssureurEur != null
+          ? Math.round(Number(dossier.studyDraft.economySummary.feesAssureurEur) || 0)
+          : undefined;
+  const annualPremiumEur =
+    input.annualPremiumEur != null
+      ? Math.round(Number(input.annualPremiumEur) || 0)
+      : prev?.annualPremiumEur != null
+        ? Math.round(Number(prev.annualPremiumEur) || 0)
+        : dossier.studyDraft?.economySummary?.annualPremiumEur != null
+          ? Math.round(Number(dossier.studyDraft.economySummary.annualPremiumEur) || 0)
+          : undefined;
   const loanCapitalEur =
     input.loanCapitalEur != null && Number(input.loanCapitalEur) > 0
       ? Math.round(Number(input.loanCapitalEur))
@@ -686,12 +704,15 @@ export function patchStudyKpi(
     gmailId: prev?.gmailId || `manual_${dossier.id}`,
     extractedAt: now,
     subject: prev?.subject,
-    feesAssureurEur: prev?.feesAssureurEur,
+    feesAssureurEur: feesAssureurEur && feesAssureurEur > 0 ? feesAssureurEur : undefined,
+    annualPremiumEur: annualPremiumEur && annualPremiumEur > 0 ? annualPremiumEur : undefined,
   };
   dossier.studyKpi = record;
   const parts: string[] = [];
   if (input.grossSavingsEur != null) parts.push(`${gross} € économie brute`);
   if (input.feesCourtageEur != null) parts.push(`${feesCourtageEur} € courtage`);
+  if (input.feesAssureurEur != null) parts.push(`${feesAssureurEur ?? 0} € frais dossier`);
+  if (input.annualPremiumEur != null) parts.push(`${annualPremiumEur ?? 0} € prime annuelle`);
   if (input.loanCapitalEur != null) parts.push(`${loanCapitalEur} € capital prêt`);
   addEvent(dossier, {
     type: "NOTE_ADDED",

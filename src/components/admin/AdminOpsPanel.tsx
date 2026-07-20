@@ -41,7 +41,7 @@ import {
   KEREIS_MIA_CONTRACT,
   resolveFeesCourtageEur,
 } from "../../../shared/kereisMiaRemuneration";
-import { resolveAnnualPremiumEur } from "../../../shared/studyClubEconomics";
+import { resolveAnnualPremiumEur, resolveFeesAssureurEur } from "../../../shared/studyClubEconomics";
 
 type GeminiUsageSummary = {
   sinceIso: string;
@@ -1220,6 +1220,8 @@ export function AdminCamillePanel({
   const [manualGross, setManualGross] = useState("");
   const [manualCourtage, setManualCourtage] = useState("");
   const [manualCapital, setManualCapital] = useState("");
+  const [manualPremium, setManualPremium] = useState("");
+  const [manualFeesAssureur, setManualFeesAssureur] = useState("");
   const [studyKpi, setStudyKpi] = useState<any>((dossier as any).studyKpi ?? null);
   const [changePlan, setChangePlan] = useState<any>((dossier as any).insuranceChangePlan ?? null);
   const [manualChangeDate, setManualChangeDate] = useState("");
@@ -1242,6 +1244,8 @@ export function AdminCamillePanel({
     setManualGross(kpi?.grossSavingsEur != null ? String(kpi.grossSavingsEur) : "");
     setManualCourtage(kpi?.feesCourtageEur != null ? String(kpi.feesCourtageEur) : "");
     setManualCapital(kpi?.loanCapitalEur != null ? String(kpi.loanCapitalEur) : "");
+    setManualPremium(kpi?.annualPremiumEur != null ? String(kpi.annualPremiumEur) : "");
+    setManualFeesAssureur(kpi?.feesAssureurEur != null ? String(kpi.feesAssureurEur) : "");
     setManualLinearPercent(
       club?.linearCommissionPercent != null ? String(club.linearCommissionPercent) : "",
     );
@@ -1429,14 +1433,20 @@ export function AdminCamillePanel({
   const handleSaveManualKpi = async () => {
     const grossRaw = String(manualGross).replace(/\s/g, "").replace(",", ".");
     const courtageRaw = String(manualCourtage).replace(/\s/g, "").replace(",", ".");
+    const premiumRaw = String(manualPremium).replace(/\s/g, "").replace(",", ".");
+    const feesAssureurRaw = String(manualFeesAssureur).replace(/\s/g, "").replace(",", ".");
     const grossProvided = grossRaw.trim().length > 0;
     const courtageProvided = courtageRaw.trim().length > 0;
-    if (!grossProvided && !courtageProvided) {
-      showToast("Renseignez au moins l'économie brute ou le courtage", "error");
+    const premiumProvided = premiumRaw.trim().length > 0;
+    const feesAssureurProvided = feesAssureurRaw.trim().length > 0;
+    if (!grossProvided && !courtageProvided && !premiumProvided && !feesAssureurProvided) {
+      showToast("Renseignez au moins un montant", "error");
       return;
     }
     const gross = grossProvided ? Number(grossRaw) : undefined;
     const courtage = courtageProvided ? Number(courtageRaw) : undefined;
+    const premium = premiumProvided ? Number(premiumRaw) : undefined;
+    const feesAssureur = feesAssureurProvided ? Number(feesAssureurRaw) : undefined;
     const capitalRaw = String(manualCapital).replace(/\s/g, "").replace(",", ".");
     const capital = capitalRaw.trim() ? Number(capitalRaw) : undefined;
     if (gross != null && (!Number.isFinite(gross) || gross < 0)) {
@@ -1445,6 +1455,14 @@ export function AdminCamillePanel({
     }
     if (courtage != null && (!Number.isFinite(courtage) || courtage < 0)) {
       showToast("Courtage invalide", "error");
+      return;
+    }
+    if (premium != null && (!Number.isFinite(premium) || premium < 0)) {
+      showToast("Prime annuelle invalide", "error");
+      return;
+    }
+    if (feesAssureur != null && (!Number.isFinite(feesAssureur) || feesAssureur < 0)) {
+      showToast("Frais de dossier invalides", "error");
       return;
     }
     if (capital != null && (!Number.isFinite(capital) || capital < 0)) {
@@ -1459,6 +1477,8 @@ export function AdminCamillePanel({
         body: JSON.stringify({
           ...(gross != null ? { grossSavingsEur: gross } : {}),
           ...(courtage != null ? { feesCourtageEur: courtage } : {}),
+          ...(premium != null ? { annualPremiumEur: premium } : {}),
+          ...(feesAssureur != null ? { feesAssureurEur: feesAssureur } : {}),
           loanCapitalEur: capital,
         }),
       });
@@ -1574,8 +1594,7 @@ export function AdminCamillePanel({
 
   const autoCourtageEur = resolveFeesCourtageEur(economicsSlice);
   const autoPremiumEur = resolveAnnualPremiumEur(economicsSlice);
-  const autoFeesAssureurEur =
-    studyKpi?.feesAssureurEur ?? (dossier as any).studyDraft?.economySummary?.feesAssureurEur;
+  const autoFeesAssureurEur = resolveFeesAssureurEur(economicsSlice);
 
   const clubRevenuePreview = computeClubRevenueBreakdown(economicsSlice, { kereisSettings });
 
@@ -1714,6 +1733,12 @@ export function AdminCamillePanel({
           <>
             <p>Économie brute : <strong>{studyKpi.grossSavingsEur} €</strong></p>
             <p>Capital prêt : <strong>{studyKpi.loanCapitalEur} €</strong></p>
+            {studyKpi.annualPremiumEur != null && studyKpi.annualPremiumEur > 0 ? (
+              <p>Prime annuelle : <strong>{studyKpi.annualPremiumEur} €</strong></p>
+            ) : null}
+            {studyKpi.feesAssureurEur != null && studyKpi.feesAssureurEur > 0 ? (
+              <p>Frais de dossier : <strong>{studyKpi.feesAssureurEur} €</strong></p>
+            ) : null}
             {(studyKpi.confidence || studyKpi.grossSource || studyKpi.source) && (
               <p className="text-[10px] text-emerald-800 mt-1">
                 {studyKpi.source === "manual" ? (
@@ -1771,7 +1796,9 @@ export function AdminCamillePanel({
         {showManualKpi && (
           <div className="mt-3 pt-3 border-t border-emerald-200 space-y-2">
             <p className="text-[10px] text-emerald-800">
-              Valeurs affichées dans le mail d&apos;étude — prioritaire sur l&apos;extraction auto.
+              Valeurs affichées dans le mail d&apos;étude et la rémunération club — prioritaires sur
+              l&apos;extraction auto (utile si un second devis avec garanties différentes remplace le
+              premier).
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <label className="block">
@@ -1807,6 +1834,28 @@ export function AdminCamillePanel({
                   placeholder="auto si vide"
                 />
               </label>
+              <label className="block">
+                <span className="text-[10px] font-bold">Prime annuelle (€)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={manualPremium}
+                  onChange={(e) => setManualPremium(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-emerald-300 px-2 py-1.5 text-sm"
+                  placeholder="ex. 1200"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold">Frais de dossier (€)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={manualFeesAssureur}
+                  onChange={(e) => setManualFeesAssureur(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-emerald-300 px-2 py-1.5 text-sm"
+                  placeholder="ex. 220"
+                />
+              </label>
             </div>
             <button
               type="button"
@@ -1828,8 +1877,10 @@ export function AdminCamillePanel({
           ) : null}
         </p>
         <p className="text-[10px] text-indigo-800 mb-3 leading-relaxed">
-          {KEREIS_MIA_CONTRACT.emprunteur.courtageEqualsDistribution}. Courtage, prime et frais de dossier
-          sont lus automatiquement depuis le mail d&apos;étude (ou le brouillon calculé). Seul le{" "}
+          {KEREIS_MIA_CONTRACT.emprunteur.courtageEqualsDistribution}. Courtage et frais de dossier
+          sont lus depuis le mail d&apos;étude ou le brouillon calculé ; la{" "}
+          <strong>prime annuelle</strong> et les <strong>frais de dossier</strong> peuvent être
+          corrigés via la saisie manuelle KPI (second devis, garanties différentes). Seul le{" "}
           <strong>% linéaire dossier</strong> est modifiable ci-dessous (sinon défaut global).
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
