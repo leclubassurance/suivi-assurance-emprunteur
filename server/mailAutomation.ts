@@ -478,10 +478,18 @@ export async function syncGmailInbox(
       const direction = isFromClient ? 'inbound' : 'outbound';
 
       let addedAttachments: any[] = [];
+      let inboundAttachmentNames: string[] = [];
       if (isFromClient) {
         const importedKeys = getImportedGmailAttachmentKeys(dossier);
         const importedMessages = getImportedGmailMessageIds(dossier);
         const attachmentParts = collectAttachmentParts(payload);
+        inboundAttachmentNames = [
+          ...new Set(
+            attachmentParts
+              .map((p) => String(p.filename || "").trim())
+              .filter(Boolean),
+          ),
+        ];
 
         if (!importedMessages.has(msgMeta.id) && attachmentParts.length > 0) {
           const hasNewParts =
@@ -610,7 +618,10 @@ export async function syncGmailInbox(
           subject,
           text,
           html: html || undefined,
-          attachments: addedAttachments.map((d) => ({ name: d.name, size: d.size })),
+          attachments: inboundAttachmentNames.map((name) => {
+            const added = addedAttachments.find((d) => String(d.name || "") === name);
+            return { name, size: added?.size };
+          }),
           date: msgDate,
         })
       ) {
@@ -678,8 +689,8 @@ export async function syncGmailInbox(
           if (!wasTelegramNotifiedRecently(dossier, tgKey, 24 * 60 * 60 * 1000)) {
             markTelegramNotified(dossier, tgKey);
             const attNote =
-              addedAttachments.length > 0
-                ? `Pièces jointes : ${addedAttachments.map((d) => d.name).join(", ")}`
+              inboundAttachmentNames.length > 0
+                ? `Pièces jointes : ${inboundAttachmentNames.join(", ")}`
                 : undefined;
             void import("./telegramNotify")
               .then(({ notifyTelegramClientInbound }) =>
@@ -792,7 +803,7 @@ export async function syncGmailInbox(
                 bodyText: text,
                 replySubject,
                 gmailId: msgMeta.id,
-                attachmentNames: addedAttachments.map((d) => d.name),
+                attachmentNames: inboundAttachmentNames,
                 upsertCommunication,
               });
               if (phaseBResult.ok) {
@@ -863,7 +874,7 @@ export async function syncGmailInbox(
                       replyPlain: ack,
                       emailSubject: replySubject,
                       actionKind: "cooldown_ack",
-                      attachmentNames: addedAttachments.map((d) => d.name),
+                      attachmentNames: inboundAttachmentNames,
                     });
                     camilleAction.interventionLevel = "none";
                     camilleAction.reason =
@@ -901,7 +912,7 @@ export async function syncGmailInbox(
             if (replyDelay > 0) await sleep(replyDelay);
 
             const aiDecision = await aiCallback(dossier, text, senderEmail, {
-              newAttachmentNames: addedAttachments.map((d) => d.name),
+              newAttachmentNames: inboundAttachmentNames,
               emailSubject: subject,
               allDossiers: db.dossiers,
               gmailId: msgMeta.id,
@@ -917,7 +928,7 @@ export async function syncGmailInbox(
                 clientMessage: text,
                 questionForStaff: aiDecision.questionForStaff,
                 reason: aiDecision.reason,
-                attachmentNames: addedAttachments.map((d) => d.name),
+                attachmentNames: inboundAttachmentNames,
               });
               if (reviewResult.ok) {
                 markDossierDirty(dossier);
@@ -961,7 +972,7 @@ export async function syncGmailInbox(
                 replyHtml: aiDecision.text,
                 replyPlain: aiDecision.replyPlain,
                 reason: aiDecision.reason,
-                attachmentNames: addedAttachments.map((d) => d.name),
+                attachmentNames: inboundAttachmentNames,
                 extraTelegramLabel: aiDecision.validationLabel,
               });
               if (queued.queued) {
@@ -988,7 +999,7 @@ export async function syncGmailInbox(
                 questionForStaff:
                   `Validation Telegram indisponible (${queued.error || "erreur"}). Comment répondre ? « ${text.slice(0, 200)} »`,
                 reason: aiDecision.reason,
-                attachmentNames: addedAttachments.map((d) => d.name),
+                attachmentNames: inboundAttachmentNames,
               });
               if (reviewResult.ok) {
                 finishInbound();
