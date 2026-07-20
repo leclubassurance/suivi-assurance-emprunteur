@@ -22,7 +22,8 @@ export type StudyValidationPending = {
 const PORTAL_ERROR_LABELS: Record<string, string> = {
   study_already_sent: "L'étude a déjà été envoyée au client.",
   no_pending_validation: "Aucune validation en attente.",
-  validation_pending: "Une validation est déjà en cours.",
+  validation_pending:
+    "Une validation est déjà en cours. LCIF peut l'annuler pour corriger le débrief.",
   validation_already_approved: "Le courtage est déjà validé — envoyez l'étude depuis l'admin.",
   forbidden: "Accès refusé pour ce dossier.",
   dossier_not_found: "Dossier introuvable.",

@@ -160,10 +160,6 @@ export async function getConseillerStudySendGate(
   if (v?.status === "approved") {
     return { blocked: false };
   }
-  const { hasStudyBeenSent } = await import("./dossierLifecycle");
-  if (hasStudyBeenSent(dossier)) {
-    return { blocked: false };
-  }
   return {
     blocked: true,
     reason:
@@ -338,10 +334,6 @@ export async function submitStudyToConseiller(params: {
     return { ok: false, error: "Le conseiller n'a pas de lien portail actif." };
   }
 
-  const { hasStudyBeenSent } = await import("./dossierLifecycle");
-  if (hasStudyBeenSent(dossier)) {
-    return { ok: false, error: "study_already_sent" };
-  }
   const existing = dossier.studyConseillerValidation;
   if (existing?.status === "pending") {
     return { ok: false, error: "validation_pending" };
@@ -415,6 +407,51 @@ export async function submitStudyToConseiller(params: {
       meta: { template: "STUDY_CONSEILLER_NOTIFY" },
     });
   }
+
+  return { ok: true, validation };
+}
+
+/**
+ * Annule une validation en cours ou validée — permet de resoumettre un débrief
+ * (erreur de HTML, second devis, nouvelle étude).
+ */
+export function cancelStudyConseillerValidation(
+  dossier: Dossier,
+  cancelledBy?: string,
+):
+  | { ok: true; validation: StudyConseillerValidation }
+  | { ok: false; error: string } {
+  const existing = dossier.studyConseillerValidation;
+  if (!existing || (existing.status !== "pending" && existing.status !== "approved")) {
+    return { ok: false, error: "nothing_to_cancel" };
+  }
+
+  const now = new Date().toISOString();
+  const validation: StudyConseillerValidation = {
+    ...existing,
+    status: "cancelled",
+    feesPerAssuredEur: undefined,
+    feesCourtageTotalEur: undefined,
+    conseillerRetroEur: undefined,
+    approvedAt: undefined,
+    approvedBy: undefined,
+  };
+  (dossier as Dossier & { studyConseillerValidation?: StudyConseillerValidation }).studyConseillerValidation =
+    validation;
+
+  addEvent(dossier, {
+    type: "NOTE_ADDED",
+    actor: { kind: "ADMIN", label: cancelledBy || "Admin" },
+    message:
+      existing.status === "pending"
+        ? "Validation courtage annulée — débrief à resoumettre au conseiller."
+        : "Validation courtage annulée après approbation — nouvelle étude possible.",
+    meta: {
+      template: "STUDY_CONSEILLER_CANCELLED",
+      previousStatus: existing.status,
+      cancelledAt: now,
+    },
+  });
 
   return { ok: true, validation };
 }

@@ -907,6 +907,32 @@ export function createApp() {
     return res.json({ success: true, validation: result.validation });
   });
 
+  app.post("/api/admin/dossiers/:id/cancel-study-conseiller-validation", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { cancelStudyConseillerValidation } = await import("./studyConseillerValidation");
+    const result = cancelStudyConseillerValidation(
+      dossier,
+      String((req as any).adminEmail || "admin"),
+    );
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    try {
+      await writeDB(db, dossier);
+    } catch (err: any) {
+      console.error("[cancel-study-conseiller-validation] Persistance:", err?.message || err);
+      return res.json({
+        success: true,
+        validation: result.validation,
+        warning: "Annulation enregistrée localement — persistance Firestore incomplète.",
+      });
+    }
+    return res.json({ success: true, validation: result.validation });
+  });
+
   app.get("/api/admin/dossiers/:id/conseiller-study-flow", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();
@@ -2688,7 +2714,6 @@ export function createApp() {
           await import("./apporteurStore");
         const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
         const { approveConseillerStudyCourtage } = await import("./studyConseillerValidation");
-        const { hasStudyBeenSent } = await import("./dossierLifecycle");
 
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
@@ -2707,14 +2732,6 @@ export function createApp() {
         const db = await readDBAsync();
         const dossier = db.dossiers.find((d: any) => d.id === dossierId);
         if (!dossier) return res.status(404).json({ ok: false, error: "dossier_not_found" });
-
-        if (hasStudyBeenSent(dossier)) {
-          return res.status(409).json({
-            ok: false,
-            error: "study_already_sent",
-            message: "L'étude a déjà été envoyée au client.",
-          });
-        }
 
         const feesPerAssuredEur = Number((req.body as any)?.feesPerAssuredEur);
         const remuneration = getRemunerationForApporteur(apporteur);
