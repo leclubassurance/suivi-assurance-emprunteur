@@ -91,8 +91,10 @@ export default function AdminDashboard({
     Boolean(err?.includes(LEGACY_DRIVE_PARENT_ID));
 
   const studyConseillerValidation =
+    conseillerStudyFlow?.validation ??
     (selectedDossier as Dossier & { studyConseillerValidation?: { status?: string; html?: string; feesCourtageTotalEur?: number } })
-      ?.studyConseillerValidation ?? conseillerStudyFlow?.validation ?? null;
+      ?.studyConseillerValidation ??
+    null;
 
   const studySendSlice = useMemo(
     () => (selectedDossier ? dossierSliceForStudySend(selectedDossier as Dossier) : null),
@@ -154,21 +156,59 @@ export default function AdminDashboard({
       setConseillerStudyFlow(null);
       return;
     }
+    const dossierId = selectedDossier.id;
     let cancelled = false;
-    (async () => {
+
+    const pullFlow = async () => {
       try {
         const res = await adminFetch(
-          `/api/admin/dossiers/${selectedDossier.id}/conseiller-study-flow`,
+          `/api/admin/dossiers/${dossierId}/conseiller-study-flow`,
           { headers: await authHeaders(false) },
         );
         const data = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok) setConseillerStudyFlow(data);
+        if (cancelled || !res.ok) return;
+        setConseillerStudyFlow(data);
+        if (data.validation) {
+          setSelectedDossier((prev) => {
+            if (!prev || prev.id !== dossierId) return prev;
+            const cur = (prev as any).studyConseillerValidation;
+            if (
+              cur?.status === data.validation.status &&
+              cur?.approvedAt === data.validation.approvedAt &&
+              cur?.feesCourtageTotalEur === data.validation.feesCourtageTotalEur
+            ) {
+              return prev;
+            }
+            return {
+              ...prev,
+              studyConseillerValidation: data.validation,
+            } as Dossier;
+          });
+        }
       } catch {
         if (!cancelled) setConseillerStudyFlow(null);
       }
-    })();
+    };
+
+    void pullFlow();
+
+    const onFocus = () => {
+      void pullFlow();
+    };
+    window.addEventListener("focus", onFocus);
+
+    const pendingNow =
+      (selectedDossier as any)?.studyConseillerValidation?.status === "pending";
+    const interval = pendingNow
+      ? window.setInterval(() => {
+          void pullFlow();
+        }, 20_000)
+      : undefined;
+
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      if (interval) window.clearInterval(interval);
     };
   }, [selectedDossier?.id, (selectedDossier as any)?.studyConseillerValidation?.status]);
 
@@ -178,7 +218,16 @@ export default function AdminDashboard({
         headers: await authHeaders(false),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) setConseillerStudyFlow(data);
+      if (res.ok) {
+        setConseillerStudyFlow(data);
+        if (data.validation) {
+          setSelectedDossier((prev) =>
+            prev?.id === dossierId
+              ? ({ ...prev, studyConseillerValidation: data.validation } as Dossier)
+              : prev,
+          );
+        }
+      }
     } catch {
       setConseillerStudyFlow(null);
     }
@@ -2215,10 +2264,19 @@ export default function AdminDashboard({
                         automatiquement dans l&apos;aperçu et à l&apos;envoi.
                       </p>
                       {conseillerStudyFlow.validation?.status === "pending" ? (
-                        <p className="text-xs font-bold text-amber-800 mt-2">
-                          En attente de validation courtage depuis le{" "}
-                          {new Date(conseillerStudyFlow.validation.submittedAt || "").toLocaleString("fr-FR")}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <p className="text-xs font-bold text-amber-800">
+                            En attente de validation courtage depuis le{" "}
+                            {new Date(conseillerStudyFlow.validation.submittedAt || "").toLocaleString("fr-FR")}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => refreshConseillerStudyFlow(selectedDossier!.id)}
+                            className="text-[10px] font-bold px-2 py-1 rounded-lg border border-amber-300 bg-white text-amber-900 hover:bg-amber-50"
+                          >
+                            Actualiser le statut
+                          </button>
+                        </div>
                       ) : null}
                       {conseillerStudyFlow.validation?.status === "approved" &&
                       !conseillerStudyFlow.studySent ? (
