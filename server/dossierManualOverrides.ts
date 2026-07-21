@@ -7,6 +7,11 @@ import {
   phaseRank,
 } from "./subscriptionProgress";
 
+function ts(v?: string): number {
+  const n = new Date(String(v || "")).getTime();
+  return Number.isFinite(n) ? n : 0;
+}
+
 function studyValidationRank(status?: string): number {
   if (status === "approved") return 3;
   if (status === "pending") return 2;
@@ -95,9 +100,16 @@ export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier
     incoming.studyConseillerValidation,
   );
 
-  if (existing.statusManualAt) {
-    if (existing.status) incoming.status = existing.status;
-    incoming.statusManualAt = existing.statusManualAt;
+  const existingStatusManualTs = ts(existing.statusManualAt);
+  const incomingStatusManualTs = ts(incoming.statusManualAt);
+  const incomingHasNewerManualStatus =
+    incomingStatusManualTs > 0 && incomingStatusManualTs >= existingStatusManualTs;
+
+  if (existing.statusManualAt || incoming.statusManualAt) {
+    if (!incomingHasNewerManualStatus && existing.status) {
+      incoming.status = existing.status;
+      incoming.statusManualAt = existing.statusManualAt;
+    }
 
     const existingProgress = existing.subscriptionProgress;
     const incomingProgress = incoming.subscriptionProgress;
@@ -107,13 +119,14 @@ export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier
       Boolean(existingProgress?.updatedBy) && existingProgress?.updatedBy !== "system";
 
     if (
+      !incomingHasNewerManualStatus &&
       existingProgress &&
       (existingProgressIsAdmin || existingRank > incomingRank)
     ) {
       incoming.subscriptionProgress = existingProgress;
     }
 
-    if (existing.clientAcceptedInsuranceAt) {
+    if (!incomingHasNewerManualStatus && existing.clientAcceptedInsuranceAt) {
       incoming.clientAcceptedInsuranceAt = existing.clientAcceptedInsuranceAt;
       incoming.clientAcceptedInsuranceSource = existing.clientAcceptedInsuranceSource;
       incoming.clientAcceptedInsuranceNote = existing.clientAcceptedInsuranceNote;

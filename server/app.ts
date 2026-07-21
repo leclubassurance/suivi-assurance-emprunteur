@@ -726,6 +726,23 @@ export function createApp() {
           });
         }
 
+        if (nextStatus === "DECISION_EN_ATTENTE") {
+          const { clearClientInsuranceAcceptance } = await import("./insuranceAcceptance");
+          dossier.subscriptionProgress = {
+            phase: "awaiting_decision",
+            updatedAt: new Date().toISOString(),
+            updatedBy: String((req as any).adminEmail || "admin"),
+            note: "Retour manuel en décision en attente depuis le statut CRM.",
+          };
+          clearClientInsuranceAcceptance(dossier);
+          addEvent(dossier, {
+            type: "NOTE_ADDED",
+            actor: { kind: "ADMIN" },
+            message:
+              "Dossier repositionné en décision en attente (accord client et phase souscription réinitialisés).",
+          });
+        }
+
         if (req.body.status === "EN_ATTENTE_CLIENT") {
           const hasPendingNoReply = (dossier.tasks || []).some(
             (t: any) => t.status === "PENDING" && t.type === "FOLLOWUP_NO_REPLY",

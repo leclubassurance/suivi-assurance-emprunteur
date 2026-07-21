@@ -7,6 +7,7 @@ import {
   resolveEffectiveSubscriptionPhase,
   applySubscriptionPhaseUpdate,
 } from "../server/subscriptionProgress";
+import { clearClientInsuranceAcceptance } from "../server/insuranceAcceptance";
 import { inferReferralStatusFromDossier } from "../server/apporteurStore";
 import { resolveClientPortalStatusView } from "../server/subscriptionProgress";
 
@@ -72,5 +73,52 @@ applySubscriptionPhaseUpdate(fromStatusChange, "adhesion_space_sent", {
   note: "Espace adhésion ouvert",
 });
 assert(fromStatusChange.status === "ADHESION_EN_COURS", "phase adhésion aligne statut CRM");
+
+const existingRefused: Dossier = {
+  id: "LCIF-ROST",
+  status: "REFUSÉ",
+  statusManualAt: "2026-07-21T08:00:00.000Z",
+  updatedAt: "2026-07-21T08:00:00.000Z",
+  createdAt: "2026-07-10T08:00:00.000Z",
+  formData: {},
+  communications: [{ direction: "outbound", subject: "Votre étude", date: "2026-07-20T10:00:00.000Z" }],
+  subscriptionProgress: {
+    phase: "awaiting_decision",
+    updatedAt: "2026-07-21T08:00:00.000Z",
+    updatedBy: "admin",
+  },
+} as Dossier;
+
+const incomingDecision: Dossier = {
+  ...existingRefused,
+  status: "DECISION_EN_ATTENTE",
+  statusManualAt: "2026-07-21T09:00:00.000Z",
+  updatedAt: "2026-07-21T09:00:00.000Z",
+} as Dossier;
+
+const mergedDecision = mergeManualDossierOverrides(existingRefused, incomingDecision);
+assert(mergedDecision.status === "DECISION_EN_ATTENTE", "nouveau statut manuel remplace l'ancien");
+
+const rewind = {
+  ...existingRefused,
+  status: "DECISION_EN_ATTENTE",
+  clientAcceptedInsuranceAt: "2026-07-21T08:30:00.000Z",
+  clientAcceptedInsuranceSource: "admin",
+  clientAcceptedInsuranceNote: "Accord manuel",
+  subscriptionProgress: {
+    phase: "decision_received",
+    updatedAt: "2026-07-21T08:30:00.000Z",
+    updatedBy: "admin",
+  },
+} as Dossier;
+rewind.subscriptionProgress = {
+  phase: "awaiting_decision",
+  updatedAt: "2026-07-21T09:00:00.000Z",
+  updatedBy: "admin",
+  note: "Retour décision en attente",
+};
+clearClientInsuranceAcceptance(rewind);
+assert(!rewind.clientAcceptedInsuranceAt, "retour décision en attente efface l'accord client");
+assert(rewind.subscriptionProgress?.phase === "awaiting_decision", "phase réinitialisée");
 
 console.log("\nManual status preserve OK.");

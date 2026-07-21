@@ -60,6 +60,18 @@ export function recordClientInsuranceAcceptance(
   return false;
 }
 
+export function clearClientInsuranceAcceptance(dossier: Dossier): boolean {
+  const hadValue = Boolean(
+    dossier.clientAcceptedInsuranceAt ||
+      dossier.clientAcceptedInsuranceSource ||
+      dossier.clientAcceptedInsuranceNote,
+  );
+  delete dossier.clientAcceptedInsuranceAt;
+  delete dossier.clientAcceptedInsuranceSource;
+  delete dossier.clientAcceptedInsuranceNote;
+  return hadValue;
+}
+
 /** CNI / RIB : uniquement après accord client pour la souscription. */
 export function mayRequestIdentityDocuments(dossier: Parameters<typeof clientHasAcceptedInsuranceChange>[0]): boolean {
   return clientHasAcceptedInsuranceChange(dossier);
