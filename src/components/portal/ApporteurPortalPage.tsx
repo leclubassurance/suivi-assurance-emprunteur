@@ -19,6 +19,7 @@ import PartnerClientScript from "./PartnerClientScript";
 import PartnerJourneyTimeline from "./PartnerJourneyTimeline";
 import PartnerEarningsPanel from "./PartnerEarningsPanel";
 import PartnerContractSigning from "./PartnerContractSigning";
+import PartnerConseillerMembership, { type PortalMembershipInfo } from "./PartnerConseillerMembership";
 import SiretLookupField, { type SiretLookupResult } from "./SiretLookupField";
 import { resolveCompanyNamesFromRegistryLookup } from "../../../shared/companyRegistryName";
 import PartnerContractWorkflow from "./PartnerContractWorkflow";
@@ -28,7 +29,7 @@ import ConseillerReferralCommunications from "./ConseillerReferralCommunications
 import ConseillerStudyValidation, { type StudyValidationPending } from "./ConseillerStudyValidation";
 import ConseillerFormationSection from "./ConseillerFormationSection";
 import ConseillerCommunicationDriveSection from "./ConseillerCommunicationDriveSection";
-import { CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
+import { CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC, CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
 import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
 import {
@@ -143,6 +144,7 @@ type PortalData = {
     signedAt: string | null;
     needsSignature: boolean;
   };
+  membership?: PortalMembershipInfo | null;
   conseillerClub?: {
     operatingPhase: ConseillerOperatingPhase;
     signedCount: number;
@@ -446,7 +448,7 @@ export default function ApporteurPortalPage({
   const typeLabel =
     APPORTEUR_TYPE_LABELS[data.apporteur.type as keyof typeof APPORTEUR_TYPE_LABELS] || data.apporteur.type;
   const isConseillerClub = data.apporteur.type === CONSEILLER_IMMO_CLUB_TYPE;
-  const unlocked = data.portalUnlocked !== false && data.contract?.signed !== false;
+  const unlocked = Boolean(data.portalUnlocked);
 
   const navItems: PortalNavItem[] = [
     {
@@ -537,6 +539,11 @@ export default function ApporteurPortalPage({
   ];
 
   if (!unlocked) {
+    const contractSigned = Boolean(data.contract?.signed);
+    const membership = data.membership;
+    const showMembership =
+      Boolean(isConseillerClub && contractSigned && membership?.required && membership.gate !== "open");
+
     return (
       <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
         <LcifPartnerHeader
@@ -552,12 +559,37 @@ export default function ApporteurPortalPage({
               {submitMsg}
             </p>
           ) : null}
-          <PortalSection title="Signature du contrat partenaire" description="Débloquez votre espace après signature.">
-            <PartnerContractWorkflow contractStatus={data.contract?.status || "sent"} semiAutoPreview={false} />
-            <div className="mt-4">
-              <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} previewToken={adminPreviewToken || undefined} onSigned={() => load()} />
-            </div>
-          </PortalSection>
+          {!contractSigned ? (
+            <PortalSection title="Signature du contrat partenaire" description="Débloquez votre espace après signature.">
+              <PartnerContractWorkflow contractStatus={data.contract?.status || "sent"} semiAutoPreview={false} />
+              <div className="mt-4">
+                <PartnerContractSigning portalToken={token} sessionAuth={conseillerSession} previewToken={adminPreviewToken || undefined} onSigned={() => load()} />
+              </div>
+            </PortalSection>
+          ) : showMembership && membership ? (
+            <PortalSection
+              title="Cotisation annuelle"
+              description="Dernière étape avant l'ouverture de votre espace assurance."
+            >
+              <PartnerConseillerMembership
+                membership={membership}
+                portalToken={token}
+                sessionAuth={conseillerSession}
+                previewToken={adminPreviewToken || undefined}
+                onUpdated={() => load()}
+              />
+            </PortalSection>
+          ) : (
+            <PortalSection title="Accès en cours de préparation" description="Votre contrat est signé.">
+              <p className="text-sm text-slate-600">
+                L&apos;accès à l&apos;espace n&apos;est pas encore disponible. Contactez{" "}
+                <a className="font-bold text-indigo-700 underline" href="mailto:assurance@leclubimmobilier.fr">
+                  assurance@leclubimmobilier.fr
+                </a>
+                .
+              </p>
+            </PortalSection>
+          )}
           <p className="text-xs text-slate-500 text-center">
             Une question ?{" "}
             <a className="font-bold text-indigo-700 underline" href="mailto:assurance@leclubimmobilier.fr">
@@ -593,6 +625,17 @@ export default function ApporteurPortalPage({
               <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-center">
                 Consultation admin — vous visualisez l&apos;espace du conseiller. Le partenaire n&apos;a aucun accès à
                 l&apos;administration.
+              </p>
+            ) : null}
+            {isConseillerClub && data.membership?.validUntil && data.membership.paymentStatus === "validated" ? (
+              <p className="text-xs font-medium text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center">
+                Cotisation active jusqu&apos;au{" "}
+                {new Date(data.membership.validUntil).toLocaleDateString("fr-FR", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+                {" "}({data.membership.feeEur || CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC} € TTC / an).
               </p>
             ) : null}
             {submitMsg ? (

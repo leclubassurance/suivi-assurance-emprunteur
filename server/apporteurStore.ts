@@ -357,6 +357,7 @@ export async function createApporteur(input: ApporteurProfileInput & {
   sponsorId?: string;
   contractStatus?: Apporteur["contractStatus"];
   contractSignedAt?: string;
+  stripeCheckoutUrl?: string;
 }): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const now = new Date().toISOString();
@@ -383,6 +384,11 @@ export async function createApporteur(input: ApporteurProfileInput & {
   const { isConseillerImmoClubType, isLcifStaffEmail } = await import("../shared/conseillerImmoClub");
   if (isConseillerImmoClubType(normalized.type) && !isLcifStaffEmail(email)) {
     throw new Error("Les conseillers du club doivent utiliser une adresse @leclubimmobilier.fr.");
+  }
+  let stripeCheckoutUrl: string | undefined;
+  if (input.stripeCheckoutUrl != null && String(input.stripeCheckoutUrl).trim()) {
+    const { normalizeStripeCheckoutUrl } = await import("../shared/conseillerMembership");
+    stripeCheckoutUrl = normalizeStripeCheckoutUrl(input.stripeCheckoutUrl);
   }
   const tokenCandidates = input.referralToken?.trim()
     ? [slugifyToken(input.referralToken)]
@@ -418,6 +424,11 @@ export async function createApporteur(input: ApporteurProfileInput & {
     contractSignedAt:
       input.contractSignedAt ||
       (contractStatus === "signed" ? now : undefined),
+    stripeCheckoutUrl,
+    membershipPaymentStatus: stripeCheckoutUrl ? "none" : undefined,
+    membershipFeeEur: stripeCheckoutUrl
+      ? (await import("../shared/conseillerImmoClub")).CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC
+      : undefined,
   };
   store.apporteurs.push(apporteur);
   await persistStore(store);
@@ -456,6 +467,13 @@ export async function updateApporteur(
       | "referralToken"
       | "sponsorId"
       | "publicProfile"
+      | "stripeCheckoutUrl"
+      | "membershipPaymentStatus"
+      | "membershipValidUntil"
+      | "membershipFeeEur"
+      | "membershipValidatedAt"
+      | "membershipValidatedBy"
+      | "membershipPaymentDeclaredAt"
     >
   >,
 ): Promise<Apporteur> {
@@ -542,12 +560,125 @@ export async function updateApporteur(
   if (patch.publicProfile !== undefined) {
     apporteur.publicProfile = patch.publicProfile || undefined;
   }
+  if (patch.stripeCheckoutUrl !== undefined) {
+    const { normalizeStripeCheckoutUrl } = await import("../shared/conseillerMembership");
+    apporteur.stripeCheckoutUrl = patch.stripeCheckoutUrl
+      ? normalizeStripeCheckoutUrl(patch.stripeCheckoutUrl)
+      : undefined;
+  }
+  if (patch.membershipPaymentStatus !== undefined) {
+    apporteur.membershipPaymentStatus = patch.membershipPaymentStatus || "none";
+  }
+  if (patch.membershipValidUntil !== undefined) {
+    apporteur.membershipValidUntil = String(patch.membershipValidUntil || "").trim() || undefined;
+  }
+  if (patch.membershipFeeEur !== undefined) {
+    const fee = Number(patch.membershipFeeEur);
+    apporteur.membershipFeeEur = Number.isFinite(fee) ? fee : undefined;
+  }
+  if (patch.membershipValidatedAt !== undefined) {
+    apporteur.membershipValidatedAt = String(patch.membershipValidatedAt || "").trim() || undefined;
+  }
+  if (patch.membershipValidatedBy !== undefined) {
+    apporteur.membershipValidatedBy = String(patch.membershipValidatedBy || "").trim() || undefined;
+  }
+  if (patch.membershipPaymentDeclaredAt !== undefined) {
+    apporteur.membershipPaymentDeclaredAt =
+      String(patch.membershipPaymentDeclaredAt || "").trim() || undefined;
+  }
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);
   return apporteur;
 }
 
-export async function updateApporteurProfileFromPortal(
+/** Conseiller déclare avoir payé via Stripe → attente validation admin. */
+export async function declareConseillerMembershipPayment(portalToken: string): Promise<Apporteur> {
+  const store = await loadApporteurStore();
+  const apporteur = store.apporteurs.find((a) => a.portalToken === portalToken);
+  if (!apporteur) throw new Error("Lien portail invalide.");
+  const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+  const {
+    isConseillerMembershipRequired,
+    resolveConseillerMembershipAccess,
+  } = await import("../shared/conseillerMembership");
+  if (!isConseillerImmoClubType(apporteur.type)) {
+    throw new Error("Cotisation réservée aux conseillers du club.");
+  }
+  if ((apporteur.contractStatus || "none") !== "signed") {
+    throw new Error("Signez d'abord le contrat.");
+  }
+  if (!isConseillerMembershipRequired(apporteur)) {
+    throw new Error("Aucune cotisation n'est requise pour ce profil.");
+  }
+  if (!String(apporteur.stripeCheckoutUrl || "").trim()) {
+    throw new Error("Aucun lien Stripe n'est configuré. Contactez l'administration.");
+  }
+  const access = resolveConseillerMembershipAccess(apporteur);
+  if (access.portalUnlocked) {
+    throw new Error("Votre accès est déjà actif.");
+  }
+  if (access.paymentStatus === "pending_validation") {
+    return apporteur;
+  }
+  const now = new Date().toISOString();
+  apporteur.membershipPaymentStatus = "pending_validation";
+  apporteur.membershipPaymentDeclaredAt = now;
+  apporteur.updatedAt = now;
+  await persistStore(store);
+  return apporteur;
+}
+
+/** Admin valide manuellement le paiement → accès 1 an jour pour jour. */
+export async function validateConseillerMembershipPayment(
+  id: string,
+  opts?: { validatedBy?: string; feeEur?: number },
+): Promise<Apporteur> {
+  const store = await loadApporteurStore();
+  const apporteur = store.apporteurs.find((a) => a.id === id);
+  if (!apporteur) throw new Error("Apporteur introuvable.");
+  const { isConseillerImmoClubType, CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC } = await import(
+    "../shared/conseillerImmoClub"
+  );
+  const { addOneCalendarYearIso } = await import("../shared/conseillerMembership");
+  if (!isConseillerImmoClubType(apporteur.type)) {
+    throw new Error("Cotisation réservée aux conseillers du club.");
+  }
+  if ((apporteur.contractStatus || "none") !== "signed") {
+    throw new Error("Le contrat doit être signé avant de valider la cotisation.");
+  }
+  const now = new Date().toISOString();
+  const fee =
+    typeof opts?.feeEur === "number" && Number.isFinite(opts.feeEur)
+      ? opts.feeEur
+      : CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC;
+  apporteur.membershipPaymentStatus = "validated";
+  apporteur.membershipValidatedAt = now;
+  apporteur.membershipValidatedBy = String(opts?.validatedBy || "admin").trim() || "admin";
+  apporteur.membershipValidUntil = addOneCalendarYearIso(now);
+  apporteur.membershipFeeEur = fee;
+  if (!apporteur.membershipPaymentDeclaredAt) {
+    apporteur.membershipPaymentDeclaredAt = now;
+  }
+  apporteur.updatedAt = now;
+  await persistStore(store);
+  return apporteur;
+}
+
+/** Admin marque la cotisation expirée (ou force le renouvellement). */
+export async function expireConseillerMembershipPayment(id: string): Promise<Apporteur> {
+  const store = await loadApporteurStore();
+  const apporteur = store.apporteurs.find((a) => a.id === id);
+  if (!apporteur) throw new Error("Apporteur introuvable.");
+  const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+  if (!isConseillerImmoClubType(apporteur.type)) {
+    throw new Error("Cotisation réservée aux conseillers du club.");
+  }
+  const now = new Date().toISOString();
+  apporteur.membershipPaymentStatus = "expired";
+  apporteur.updatedAt = now;
+  await persistStore(store);
+  return apporteur;
+}
   portalToken: string,
   input: ApporteurProfileInput,
 ): Promise<Apporteur> {

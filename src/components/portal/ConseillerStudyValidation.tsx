@@ -28,6 +28,8 @@ const PORTAL_ERROR_LABELS: Record<string, string> = {
   forbidden: "Accès refusé pour ce dossier.",
   dossier_not_found: "Dossier introuvable.",
   contract_required: "Signez d'abord votre contrat pour valider le courtage.",
+  membership_required: "Finalisez votre cotisation annuelle pour accéder à l'espace conseiller.",
+  portal_locked: "Votre espace n'est pas encore débloqué (contrat ou cotisation).",
   preview_unavailable: "Aperçu indisponible — le contenu de l'étude n'est pas encore prêt.",
 };
 

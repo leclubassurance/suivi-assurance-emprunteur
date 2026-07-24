@@ -5,6 +5,7 @@ import {
   ExternalLink,
   Link2,
   Mail,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -14,12 +15,17 @@ import {
 import { adminFetch } from "../../lib/adminApi";
 import type { Apporteur, ApporteurType, PartnerRecruitRequest, PartnerRecruitStatus, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
 import {
+  CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC,
   CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
   countSignedClientReferrals,
   isConseillerImmoClubType,
   resolveConseillerOperatingPhase,
   type AdminPartnersSegment,
 } from "../../../shared/conseillerImmoClub";
+import {
+  CONSEILLER_MEMBERSHIP_STATUS_LABELS,
+  resolveConseillerMembershipAccess,
+} from "../../../shared/conseillerMembership";
 import {
   PARTNER_RECRUIT_FLOW,
   PARTNER_RECRUIT_STATUS_LABELS,
@@ -38,9 +44,10 @@ import { Button } from "../ui/Button";
 import { Tabs } from "../ui/Tabs";
 import ApporteurProfileFormFields, {
   EMPTY_APPORTEUR_PROFILE_FORM,
+  apporteurToProfileForm,
   type ApporteurProfileFormState,
 } from "../portal/ApporteurProfileFormFields";
-import { resolveApporteurTypeLabel } from "../../../shared/apporteurProfile";
+import { buildContactNameFromParts, resolveApporteurTypeLabel } from "../../../shared/apporteurProfile";
 import { formatReferralGeoDetail } from "../../../shared/referralGeo";
 import AdminApporteurPublicProfileEditor from "./AdminApporteurPublicProfileEditor";
 
@@ -100,6 +107,7 @@ function emptyApporteurForm(segment: AdminPartnersSegment) {
     ...EMPTY_APPORTEUR_PROFILE_FORM,
     type: SEGMENT_UI[segment].defaultType,
     notes: "",
+    stripeCheckoutUrl: "",
   };
 }
 
@@ -132,6 +140,12 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
   const [deleting, setDeleting] = useState(false);
   const [leaderboard, setLeaderboard] = useState<ApporteurLeaderboardRow[]>([]);
   const [partnerDetailTab, setPartnerDetailTab] = useState<"contract" | "links">("contract");
+  const [editingApporteurId, setEditingApporteurId] = useState<string | null>(null);
+  const [editApporteurForm, setEditApporteurForm] = useState<ApporteurProfileFormState>(EMPTY_APPORTEUR_PROFILE_FORM);
+  const [editApporteurNotes, setEditApporteurNotes] = useState("");
+  const [editStripeCheckoutUrl, setEditStripeCheckoutUrl] = useState("");
+  const [savingApporteur, setSavingApporteur] = useState(false);
+  const [membershipBusyId, setMembershipBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -239,6 +253,115 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
     setShowNewApporteur(false);
     setNewApporteur(emptyApporteurForm(segment));
     await load();
+  };
+
+  const openEditApporteur = (a: Apporteur) => {
+    setError(null);
+    setSuccessMsg(null);
+    setEditingApporteurId(a.id);
+    setEditApporteurForm(apporteurToProfileForm(a));
+    setEditApporteurNotes(a.notes || "");
+    setEditStripeCheckoutUrl(a.stripeCheckoutUrl || "");
+  };
+
+  const saveApporteurProfile = async () => {
+    if (!editingApporteurId) return;
+    const existing = apporteurs.find((a) => a.id === editingApporteurId);
+    if (!existing) return;
+
+    const nextContactName = buildContactNameFromParts(
+      editApporteurForm.contactPrenom,
+      editApporteurForm.contactNom,
+    );
+    const previousContactName = buildContactNameFromParts(existing.contactPrenom, existing.contactNom)
+      || String(existing.contactName || "").trim();
+    const previousCompany = String(existing.companyName || "").trim();
+    // Si l'enseigne n'était que le nom de la personne (cas fréquent des conseillers),
+    // on la resynchronise automatiquement avec le nouveau prénom/nom.
+    const companyWasPersonName =
+      !previousCompany
+      || previousCompany.toLocaleLowerCase("fr") === previousContactName.toLocaleLowerCase("fr");
+    const nextCompanyName = companyWasPersonName && nextContactName
+      ? (editApporteurForm.companyName.trim() === previousCompany
+        ? nextContactName
+        : editApporteurForm.companyName.trim() || nextContactName)
+      : (editApporteurForm.companyName.trim() || previousCompany);
+
+    setSavingApporteur(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const res = await adminFetch(`/api/admin/apporteurs/${editingApporteurId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...editApporteurForm,
+          companyName: nextCompanyName,
+          notes: editApporteurNotes,
+          ...(segment === "conseiller_club"
+            ? { stripeCheckoutUrl: editStripeCheckoutUrl.trim() || null }
+            : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Modification impossible");
+        return;
+      }
+      setEditingApporteurId(null);
+      setSuccessMsg(`Identité du ${ui.entitySingular} mise à jour.`);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Erreur réseau");
+    } finally {
+      setSavingApporteur(false);
+    }
+  };
+
+  const validateMembership = async (apporteurId: string) => {
+    setMembershipBusyId(apporteurId);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}/validate-membership`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feeEur: CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Validation impossible");
+        return;
+      }
+      setSuccessMsg("Cotisation validée — accès ouvert pour 1 an jour pour jour.");
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Erreur réseau");
+    } finally {
+      setMembershipBusyId(null);
+    }
+  };
+
+  const expireMembership = async (apporteurId: string) => {
+    setMembershipBusyId(apporteurId);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const res = await adminFetch(`/api/admin/apporteurs/${apporteurId}/expire-membership`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Mise à jour impossible");
+        return;
+      }
+      setSuccessMsg("Cotisation marquée expirée — le conseiller devra renouveler.");
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Erreur réseau");
+    } finally {
+      setMembershipBusyId(null);
+    }
   };
 
   const createReferral = async () => {
@@ -596,6 +719,31 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 ) : null}
               </div>
               <div className="text-xs text-slate-500 mt-1">{a.contactName} · {resolveApporteurTypeLabel(a)}</div>
+              {segment === "conseiller_club" ? (() => {
+                const m = resolveConseillerMembershipAccess(a);
+                if (m.paymentStatus === "pending_validation") {
+                  return (
+                    <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wide text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                      Paiement à valider
+                    </span>
+                  );
+                }
+                if (m.gate === "expired") {
+                  return (
+                    <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wide text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded">
+                      Cotisation expirée
+                    </span>
+                  );
+                }
+                if (m.portalUnlocked && m.membershipValidUntil) {
+                  return (
+                    <span className="inline-block mt-1 text-[10px] font-bold text-emerald-700">
+                      Accès jusqu&apos;au {new Date(m.membershipValidUntil).toLocaleDateString("fr-FR")}
+                    </span>
+                  );
+                }
+                return null;
+              })() : null}
               <div className="text-[11px] text-slate-400 mt-1 font-mono">ref={a.referralToken}</div>
               <div className="text-[10px] text-slate-400 mt-0.5">
                 {a.referralStats?.linkClicks ?? 0} visite{(a.referralStats?.linkClicks ?? 0) !== 1 ? "s" : ""} lien
@@ -633,6 +781,10 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                     <h2 className="text-lg font-black text-slate-900 mb-1 flex flex-wrap items-center justify-between gap-2">
                       <span>{a.companyName}</span>
                       <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => openEditApporteur(a)}>
+                          <Pencil className="w-3.5 h-3.5" />
+                          Modifier l&apos;identité
+                        </Button>
                         <Button type="button" variant="outline" size="sm" onClick={() => openPortalAsAdmin(a.id)}>
                           <ExternalLink className="w-3.5 h-3.5" />
                           Consulter l&apos;espace
@@ -647,7 +799,9 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                       </div>
                     </h2>
                     <p className="text-sm text-slate-600 mb-3">
-                      {a.contactName} — {a.email}
+                      {[a.contactPrenom, a.contactNom].filter(Boolean).join(" ") || a.contactName}
+                      {" — "}
+                      {a.email}
                       {a.phone ? ` · ${a.phone}` : ""}
                     </p>
                     {segment === "conseiller_club" ? (() => {
@@ -683,6 +837,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                     />
                     <div className="space-y-4">
                       {partnerDetailTab === "contract" ? (
+                      <div className="space-y-4">
                       <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/80">
                         <p className="text-[11px] font-black uppercase text-slate-400 mb-2">Contrat partenaire (signature en ligne)</p>
                         <PartnerContractWorkflow contractStatus={a.contractStatus || "none"} semiAutoPreview />
@@ -729,6 +884,93 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                         <p className="text-[10px] text-slate-400 mt-2">
                           Le partenaire signe depuis son espace privé — le portail se débloque automatiquement.
                         </p>
+                      </div>
+                      {segment === "conseiller_club" ? (() => {
+                        const membership = resolveConseillerMembershipAccess(a);
+                        const busy = membershipBusyId === a.id;
+                        const statusLabel =
+                          CONSEILLER_MEMBERSHIP_STATUS_LABELS[membership.paymentStatus] ||
+                          membership.paymentStatus;
+                        return (
+                          <div className="border border-indigo-100 rounded-xl p-4 bg-indigo-50/50 space-y-3">
+                            <p className="text-[11px] font-black uppercase text-indigo-400">
+                              Cotisation Stripe ({CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC} € TTC / an)
+                            </p>
+                            <p className="text-xs text-slate-600">
+                              Lien Stripe optionnel : s&apos;il est renseigné, le conseiller doit payer après signature,
+                              puis vous validez manuellement pour ouvrir l&apos;accès 1 an jour pour jour.
+                            </p>
+                            <label className="text-xs font-bold text-slate-600 block">
+                              Lien Stripe (Payment Link)
+                              <input
+                                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal bg-white"
+                                placeholder="https://buy.stripe.com/..."
+                                defaultValue={a.stripeCheckoutUrl || ""}
+                                key={`stripe-${a.id}-${a.stripeCheckoutUrl || ""}`}
+                                onBlur={async (e) => {
+                                  const next = e.target.value.trim();
+                                  if (next === (a.stripeCheckoutUrl || "")) return;
+                                  setError(null);
+                                  const res = await adminFetch(`/api/admin/apporteurs/${a.id}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ stripeCheckoutUrl: next || null }),
+                                  });
+                                  const data = await res.json().catch(() => ({}));
+                                  if (!res.ok) {
+                                    setError(data.error || "Lien Stripe non enregistré");
+                                    return;
+                                  }
+                                  setSuccessMsg(next ? "Lien Stripe enregistré." : "Lien Stripe retiré.");
+                                  await load();
+                                }}
+                              />
+                            </label>
+                            <div className="text-xs text-slate-700 space-y-1">
+                              <p>
+                                <span className="font-bold">Statut :</span> {statusLabel}
+                              </p>
+                              {membership.membershipValidUntil ? (
+                                <p>
+                                  <span className="font-bold">Accès jusqu&apos;au :</span>{" "}
+                                  {new Date(membership.membershipValidUntil).toLocaleDateString("fr-FR")}
+                                </p>
+                              ) : null}
+                              {membership.membershipPaymentDeclaredAt ? (
+                                <p>
+                                  <span className="font-bold">Paiement déclaré le :</span>{" "}
+                                  {new Date(membership.membershipPaymentDeclaredAt).toLocaleDateString("fr-FR")}
+                                </p>
+                              ) : null}
+                              <p>
+                                <span className="font-bold">Espace :</span>{" "}
+                                {membership.portalUnlocked ? "Débloqué" : "Bloqué"}
+                                {membership.gate !== "open" ? ` (${membership.gate})` : ""}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={busy || (a.contractStatus || "none") !== "signed"}
+                                onClick={() => validateMembership(a.id)}
+                                className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                              >
+                                {busy ? "…" : "Valider le paiement (1 an)"}
+                              </button>
+                              {membership.membershipRequired || membership.paymentStatus === "validated" ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => expireMembership(a.id)}
+                                  className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+                                >
+                                  Marquer expiré / à renouveler
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })() : null}
                       </div>
                       ) : (
                       <div className="space-y-4">
@@ -924,6 +1166,21 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
               hideTypeField={ui.allowedTypes.length === 1}
               emailHint={ui.emailHint}
             />
+            {segment === "conseiller_club" ? (
+              <label className="text-xs font-bold text-slate-600 block">
+                Lien Stripe cotisation (optionnel)
+                <input
+                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
+                  placeholder="https://buy.stripe.com/..."
+                  value={newApporteur.stripeCheckoutUrl}
+                  onChange={(e) => setNewApporteur((s) => ({ ...s, stripeCheckoutUrl: e.target.value }))}
+                />
+                <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                  Si renseigné : après signature du contrat, le conseiller paie puis vous validez manuellement (accès 1 an).
+                  Laissez vide pour ouvrir l&apos;espace dès la signature.
+                </span>
+              </label>
+            ) : null}
             <p className="text-[10px] text-slate-500 -mt-1">
               Le lien client (?ref=) sera généré à partir du prénom et nom (ex. marie-dupont).
             </p>
@@ -937,6 +1194,55 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
             </label>
             <button type="button" onClick={createApporteur} className="mt-2 w-full py-2.5 rounded-lg bg-indigo-600 text-white font-bold">
               Créer
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {editingApporteurId ? (
+        <Modal
+          title={`Modifier l'identité — ${ui.entitySingular}`}
+          onClose={() => !savingApporteur && setEditingApporteurId(null)}
+        >
+          <div className="grid gap-3">
+            <ApporteurProfileFormFields
+              value={editApporteurForm}
+              onChange={setEditApporteurForm}
+              allowedTypes={ui.allowedTypes}
+              hideTypeField={ui.allowedTypes.length === 1}
+              emailHint={ui.emailHint}
+            />
+            {segment === "conseiller_club" ? (
+              <label className="text-xs font-bold text-slate-600 block">
+                Lien Stripe cotisation (optionnel)
+                <input
+                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
+                  placeholder="https://buy.stripe.com/..."
+                  value={editStripeCheckoutUrl}
+                  onChange={(e) => setEditStripeCheckoutUrl(e.target.value)}
+                  disabled={savingApporteur}
+                />
+              </label>
+            ) : null}
+            <label className="text-xs font-bold text-slate-600">
+              Notes internes
+              <textarea
+                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm min-h-[72px]"
+                value={editApporteurNotes}
+                onChange={(e) => setEditApporteurNotes(e.target.value)}
+                disabled={savingApporteur}
+              />
+            </label>
+            <p className="text-[10px] text-slate-500">
+              Corrigez le prénom / nom (et l&apos;enseigne si besoin). Le titre en haut de fiche se met à jour immédiatement.
+            </p>
+            <button
+              type="button"
+              onClick={saveApporteurProfile}
+              disabled={savingApporteur}
+              className="mt-2 w-full py-2.5 rounded-lg bg-indigo-600 text-white font-bold disabled:opacity-60"
+            >
+              {savingApporteur ? "Enregistrement…" : "Enregistrer"}
             </button>
           </div>
         </Modal>

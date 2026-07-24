@@ -1567,6 +1567,7 @@ export function createApp() {
         notes: body.notes,
         referralToken: body.referralToken,
         sponsorId: segment === "conseiller_club" ? undefined : body.sponsorId,
+        stripeCheckoutUrl: segment === "conseiller_club" ? body.stripeCheckoutUrl : undefined,
       });
       res.json({ success: true, apporteur });
     } catch (err: any) {
@@ -1589,6 +1590,30 @@ export function createApp() {
         body.publicProfile = profile;
       }
       const apporteur = await updateApporteur(req.params.id, body);
+      res.json({ success: true, apporteur });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/apporteurs/:id/validate-membership", async (req, res) => {
+    try {
+      const { validateConseillerMembershipPayment } = await import("./apporteurStore");
+      const body = (req.body || {}) as { feeEur?: number };
+      const apporteur = await validateConseillerMembershipPayment(req.params.id, {
+        validatedBy: "admin",
+        feeEur: body.feeEur,
+      });
+      res.json({ success: true, apporteur });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post("/api/admin/apporteurs/:id/expire-membership", async (req, res) => {
+    try {
+      const { expireConseillerMembershipPayment } = await import("./apporteurStore");
+      const apporteur = await expireConseillerMembershipPayment(req.params.id);
       res.json({ success: true, apporteur });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err?.message || String(err) });
@@ -2088,8 +2113,9 @@ export function createApp() {
       if (!isConseillerImmoClubType(apporteur.type)) {
         return res.status(403).json({ ok: false, error: "not_conseiller" });
       }
-      if ((apporteur.contractStatus || "none") !== "signed") {
-        return res.status(403).json({ ok: false, error: "contract_required" });
+      const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
+      if (!isApporteurPortalUnlocked(apporteur)) {
+        return res.status(403).json({ ok: false, error: "portal_locked" });
       }
       const parcoursRaw = await loadConseillerFormationParcours();
       const parcours = {
@@ -2170,6 +2196,13 @@ export function createApp() {
       });
       const contractStatus = apporteur.contractStatus || "none";
       const contractSigned = contractStatus === "signed";
+      const { isApporteurPortalUnlocked, resolveConseillerMembershipAccess } = await import(
+        "../shared/conseillerMembership"
+      );
+      const membership = isConseillerClub
+        ? resolveConseillerMembershipAccess(apporteur)
+        : null;
+      const portalUnlocked = isApporteurPortalUnlocked(apporteur);
       const { enrichReferralsForApporteurPortal } = await import("./apporteurPortalEnrich");
       const enrichedReferrals = isConseillerClub
         ? await (async () => {
@@ -2286,13 +2319,25 @@ export function createApp() {
           payoutPerOverride: earnings.payoutPerOverride,
         },
         payoutPerSignature: defaultPayoutDirect,
-        portalUnlocked: contractSigned,
+        portalUnlocked,
         contract: {
           status: contractStatus,
           signed: contractSigned,
           signedAt: apporteur.contractSignedAt || null,
           needsSignature: !contractSigned,
         },
+        membership: membership
+          ? {
+              required: membership.membershipRequired,
+              paymentStatus: membership.paymentStatus,
+              gate: membership.gate,
+              stripeCheckoutUrl: membership.stripeCheckoutUrl,
+              validUntil: membership.membershipValidUntil,
+              feeEur: membership.membershipFeeEur,
+              validatedAt: membership.membershipValidatedAt,
+              paymentDeclaredAt: membership.membershipPaymentDeclaredAt,
+            }
+          : null,
         conseillerClub: isConseillerClub
           ? {
               operatingPhase,
@@ -2478,6 +2523,36 @@ export function createApp() {
   });
 
   app.post(
+    "/api/apporteur-portal/:token/membership/declare-payment",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const { declareConseillerMembershipPayment } = await import("./apporteurStore");
+        const { resolveConseillerMembershipAccess } = await import("../shared/conseillerMembership");
+        const apporteur = await declareConseillerMembershipPayment(req.params.token);
+        const membership = resolveConseillerMembershipAccess(apporteur);
+        res.json({
+          ok: true,
+          membership: {
+            required: membership.membershipRequired,
+            paymentStatus: membership.paymentStatus,
+            gate: membership.gate,
+            stripeCheckoutUrl: membership.stripeCheckoutUrl,
+            validUntil: membership.membershipValidUntil,
+            feeEur: membership.membershipFeeEur,
+            validatedAt: membership.membershipValidatedAt,
+            paymentDeclaredAt: membership.membershipPaymentDeclaredAt,
+          },
+          portalUnlocked: membership.portalUnlocked,
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.post(
     "/api/apporteur-portal/:token/referrals",
     apporteurPortalPostLimiter,
     express.json(),
@@ -2486,12 +2561,28 @@ export function createApp() {
         const { findApporteurByPortalToken, createReferral } = await import("./apporteurStore");
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
-        if ((apporteur.contractStatus || "none") !== "signed") {
-          return res.status(403).json({
-            ok: false,
-            error: "contract_required",
-            message: "Le contrat partenaire doit être signé avant d'enregistrer une recommandation.",
-          });
+        {
+          const { isApporteurPortalUnlocked, resolveConseillerMembershipAccess } = await import(
+            "../shared/conseillerMembership"
+          );
+          const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+          if (!isApporteurPortalUnlocked(apporteur)) {
+            const membership = isConseillerImmoClubType(apporteur.type)
+              ? resolveConseillerMembershipAccess(apporteur)
+              : null;
+            const needsPayment =
+              membership &&
+              (membership.gate === "payment" ||
+                membership.gate === "pending_validation" ||
+                membership.gate === "expired");
+            return res.status(403).json({
+              ok: false,
+              error: needsPayment ? "membership_required" : "contract_required",
+              message: needsPayment
+                ? "Finalisez votre cotisation annuelle pour accéder à l'espace conseiller."
+                : "Le contrat partenaire doit être signé avant d'enregistrer une recommandation.",
+            });
+          }
         }
         const body = (req.body || {}) as any;
         const contact = body.contact || {};
@@ -2553,8 +2644,11 @@ export function createApp() {
         if (!isConseillerImmoClubType(apporteur.type)) {
           return res.status(403).json({ ok: false, error: "not_conseiller" });
         }
-        if ((apporteur.contractStatus || "none") !== "signed") {
-          return res.status(403).json({ ok: false, error: "contract_required" });
+        {
+          const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
+          if (!isApporteurPortalUnlocked(apporteur)) {
+            return res.status(403).json({ ok: false, error: "portal_locked" });
+          }
         }
 
         const referral = await findReferralById(req.params.referralId);
@@ -2657,8 +2751,11 @@ export function createApp() {
         if (!isConseillerImmoClubType(apporteur.type)) {
           return res.status(403).json({ ok: false, error: "not_conseiller" });
         }
-        if ((apporteur.contractStatus || "none") !== "signed") {
-          return res.status(403).json({ ok: false, error: "contract_required" });
+        {
+          const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
+          if (!isApporteurPortalUnlocked(apporteur)) {
+            return res.status(403).json({ ok: false, error: "portal_locked" });
+          }
         }
 
         const dossierId = String(req.params.dossierId || "").trim().toUpperCase();
@@ -2737,8 +2834,11 @@ export function createApp() {
         if (!isConseillerImmoClubType(apporteur.type)) {
           return res.status(403).json({ ok: false, error: "not_conseiller" });
         }
-        if ((apporteur.contractStatus || "none") !== "signed") {
-          return res.status(403).json({ ok: false, error: "contract_required" });
+        {
+          const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
+          if (!isApporteurPortalUnlocked(apporteur)) {
+            return res.status(403).json({ ok: false, error: "portal_locked" });
+          }
         }
 
         const dossierId = String(req.params.dossierId || "").trim().toUpperCase();
@@ -2792,12 +2892,15 @@ export function createApp() {
             message: "Le recrutement de partenaires n'est pas disponible pour les conseillers du club.",
           });
         }
-        if ((apporteur.contractStatus || "none") !== "signed") {
-          return res.status(403).json({
-            ok: false,
-            error: "contract_required",
-            message: "Le contrat partenaire doit être signé avant de recommander un futur partenaire.",
-          });
+        {
+          const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
+          if (!isApporteurPortalUnlocked(apporteur)) {
+            return res.status(403).json({
+              ok: false,
+              error: "contract_required",
+              message: "Le contrat partenaire doit être signé avant de recommander un futur partenaire.",
+            });
+          }
         }
         const body = (req.body || {}) as any;
         const recruit = await createPartnerRecruit({

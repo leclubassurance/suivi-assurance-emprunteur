@@ -101,6 +101,21 @@ export type Apporteur = {
   };
   /** Dossier Google Drive « Apporteurs d'affaires » (contrats archivés). */
   driveFolderId?: string;
+  /**
+   * Lien Stripe Payment Link (collé manuellement en admin).
+   * Si renseigné pour un conseiller club : cotisation requise après signature du contrat.
+   */
+  stripeCheckoutUrl?: string;
+  /** Statut cotisation annuelle plateforme (espace assurance conseiller). */
+  membershipPaymentStatus?: "none" | "pending_validation" | "validated" | "expired";
+  /** Fin d'accès jour pour jour (ISO) après validation manuelle admin. */
+  membershipValidUntil?: string;
+  /** Montant cotisation période en cours (défaut 390 € TTC). */
+  membershipFeeEur?: number;
+  membershipValidatedAt?: string;
+  membershipValidatedBy?: string;
+  /** Date à laquelle le conseiller a déclaré avoir payé (en attente validation admin). */
+  membershipPaymentDeclaredAt?: string;
   /** Statistiques lien client (?ref=) — clics page d'accueil. */
   referralStats?: {
     linkClicks: number;
