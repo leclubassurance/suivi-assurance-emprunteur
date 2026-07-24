@@ -679,6 +679,8 @@ export async function expireConseillerMembershipPayment(id: string): Promise<App
   await persistStore(store);
   return apporteur;
 }
+
+export async function updateApporteurProfileFromPortal(
   portalToken: string,
   input: ApporteurProfileInput,
 ): Promise<Apporteur> {
