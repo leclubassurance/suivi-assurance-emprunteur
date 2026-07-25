@@ -840,29 +840,30 @@ export function createApp() {
     const dossier = db.dossiers.find((d: any) => d.id === id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    const { getStudyPdfPath, buildStudyClientEmailHtml } = await import("./studyPdfFlow");
+    const { getStudyPdfPath, ensureBrandedStudyClientEmail } = await import("./studyPdfFlow");
     const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
+    if (hasStudyPdf) {
+      ensureBrandedStudyClientEmail(dossier);
+    }
     let htmlInput = String(html || "").trim();
     if (!htmlInput && emailKind === "study") {
       htmlInput = String(
         dossier.studyDraft?.html || dossier.studyConseillerValidation?.html || "",
       ).trim();
     }
+    if (emailKind === "study" && hasStudyPdf) {
+      const { isBrandedStudyClientEmailHtml, rebuildStudyClientEmailFromDossier } = await import(
+        "./studyPdfFlow"
+      );
+      if (!htmlInput || !isBrandedStudyClientEmailHtml(htmlInput)) {
+        const built = rebuildStudyClientEmailFromDossier(dossier);
+        htmlInput = built.html;
+        if (dossier.studyDraft) dossier.studyDraft.html = built.html;
+      }
+    }
     if (!htmlInput && emailKind === "study" && hasStudyPdf) {
-      const prenom = String(dossier.formData?.assures?.[0]?.prenom || "").trim();
-      const courtage =
-        dossier.studyConseillerValidation?.feesCourtageTotalEur ??
-        dossier.studyDraft?.economySummary?.feesCourtageEur ??
-        0;
-      htmlInput = buildStudyClientEmailHtml({
-        clientPrenom: prenom,
-        grossSavingsEur:
-          dossier.studyKpi?.grossSavingsEur ??
-          dossier.studyDraft?.economySummary?.grossSavingsEur ??
-          null,
-        feesCourtageTotalEur: courtage,
-        plannedChangeDate: dossier.insuranceChangePlan?.plannedDate || null,
-      }).html;
+      const built = (await import("./studyPdfFlow")).rebuildStudyClientEmailFromDossier(dossier);
+      htmlInput = built.html;
     }
     if (!subject || (!htmlInput && !(emailKind === "study" && hasStudyPdf))) {
       return res.status(400).json({ error: "Missing subject or html" });
@@ -1031,14 +1032,26 @@ export function createApp() {
     const validation = dossier.studyConseillerValidation || null;
     const draftHtml = dossier.studyDraft?.html || validation?.html || "";
     const sendSlice = dossierSliceForStudySend(dossier);
-    const { getStudyPdfPath } = await import("./studyPdfFlow");
+    const { getStudyPdfPath, ensureBrandedStudyClientEmail } = await import("./studyPdfFlow");
+    const brandedRefreshed = ensureBrandedStudyClientEmail(dossier);
+    if (brandedRefreshed) {
+      try {
+        await writeDB(db, dossier);
+      } catch {
+        /* non bloquant — on renvoie quand même le HTML brandé */
+      }
+    }
     const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
     res.json({
       requiresConseillerValidation,
       canAdminSendStudy: !gate.blocked,
       studySent: hasStudyBeenSent(dossier),
-      validation,
-      htmlForSend: resolveStudyEmailHtmlForSend({ draftHtml, validation, dossier: sendSlice }),
+      validation: dossier.studyConseillerValidation || validation,
+      htmlForSend: resolveStudyEmailHtmlForSend({
+        draftHtml: dossier.studyDraft?.html || validation?.html || draftHtml,
+        validation: dossier.studyConseillerValidation || validation,
+        dossier: sendSlice,
+      }),
       hasStudyPdf,
       studyPdfFileName:
         (dossier as any).studyPdf?.fileName ||

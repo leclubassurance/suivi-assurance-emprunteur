@@ -333,7 +333,7 @@ export async function submitStudyToConseiller(params: {
   const { dossier, subject, submittedBy, publicBaseUrl, debriefNote } = params;
   const trimmedHtml = String(params.html || "").trim();
   const trimmedSubject = String(subject || "").trim();
-  const { getStudyPdfPath, buildStudyClientEmailHtml } = await import("./studyPdfFlow");
+  const { getStudyPdfPath } = await import("./studyPdfFlow");
   const pdfPath = getStudyPdfPath(dossier);
   const hasPdf = Boolean(pdfPath) || dossier.studyDraft?.kind === "PDF_UPLOAD";
   if (!trimmedSubject) {
@@ -368,15 +368,18 @@ export async function submitStudyToConseiller(params: {
   const now = new Date().toISOString();
 
   let htmlForValidation = trimmedHtml;
-  if (!htmlForValidation && hasPdf) {
-    const prenom = String(dossier.formData?.assures?.[0]?.prenom || "").trim();
-    const built = buildStudyClientEmailHtml({
-      clientPrenom: prenom,
-      grossSavingsEur: resolvedGross,
-      feesCourtageTotalEur: 0,
-      plannedChangeDate: dossier.insuranceChangePlan?.plannedDate || null,
-    });
-    htmlForValidation = built.html;
+  if (hasPdf) {
+    const { ensureBrandedStudyClientEmail, isBrandedStudyClientEmailHtml, rebuildStudyClientEmailFromDossier } =
+      await import("./studyPdfFlow");
+    if (!htmlForValidation || !isBrandedStudyClientEmailHtml(htmlForValidation)) {
+      const built = rebuildStudyClientEmailFromDossier(dossier, 0);
+      htmlForValidation = built.html;
+      if (!trimmedSubject) {
+        /* subject already validated non-empty */
+      }
+    } else {
+      ensureBrandedStudyClientEmail(dossier);
+    }
   }
 
   const validation: StudyConseillerValidation = {
@@ -540,16 +543,12 @@ export async function approveConseillerStudyCourtage(params: {
 
   // Mail type post-validation (surtout pour flux PDF) : courtage + date + PJ annoncée.
   try {
-    const { buildStudyClientEmailHtml, getStudyPdfPath } = await import("./studyPdfFlow");
+    const { rebuildStudyClientEmailFromDossier, getStudyPdfPath, isBrandedStudyClientEmailHtml } =
+      await import("./studyPdfFlow");
     const hasPdf = Boolean(getStudyPdfPath(dossier)) || validation.studySource === "pdf";
-    if (hasPdf || !String(dossier.studyDraft?.html || validation.html || "").trim()) {
-      const prenom = String(dossier.formData?.assures?.[0]?.prenom || "").trim();
-      const built = buildStudyClientEmailHtml({
-        clientPrenom: prenom,
-        grossSavingsEur: resolveGrossSavingsForStudyValidation(dossier, dossier.studyConseillerValidation),
-        feesCourtageTotalEur: total,
-        plannedChangeDate: dossier.insuranceChangePlan?.plannedDate || null,
-      });
+    const currentHtml = String(dossier.studyDraft?.html || validation.html || "").trim();
+    if (hasPdf || !currentHtml || !isBrandedStudyClientEmailHtml(currentHtml)) {
+      const built = rebuildStudyClientEmailFromDossier(dossier, total);
       dossier.studyConseillerValidation = {
         ...dossier.studyConseillerValidation!,
         subject: dossier.studyConseillerValidation?.subject || built.subject,

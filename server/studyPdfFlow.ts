@@ -20,6 +20,274 @@ export type StudyPdfMeta = {
   mimeType?: string;
 };
 
+export type StudyClientEmailEconomics = {
+  clientPrenom?: string;
+  grossSavingsEur?: number | null;
+  netSavingsEur?: number | null;
+  feesCourtageTotalEur: number;
+  feesAssureurEur?: number | null;
+  currentInsuranceTotalEur?: number | null;
+  proposedInsuranceTotalEur?: number | null;
+  plannedChangeDate?: string | null;
+};
+
+function eurInt(n: number): string {
+  return Math.round(n).toLocaleString("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
+/** Mail type PDF brandé (bandeau navy + logo) — vs ancien plaintext. */
+export function isBrandedStudyClientEmailHtml(html: string): boolean {
+  const h = String(html || "");
+  if (!h.trim()) return false;
+  return (
+    /background-color:\s*#1E3A8A/i.test(h) &&
+    /Économie brute estimée/i.test(h) &&
+    /Comment ça marche/i.test(h) &&
+    (/cloudinary\.com/i.test(h) || /leclubimmobilier/i.test(h) || /ORIAS/i.test(h))
+  );
+}
+
+export function buildStudyClientEmailHtml(params: StudyClientEmailEconomics): {
+  subject: string;
+  html: string;
+} {
+  const prenom = String(params.clientPrenom || "").trim() || "Bonjour";
+  const greeting = prenom === "Bonjour" ? "Bonjour," : `Bonjour ${prenom},`;
+  const courtage = Math.round(Number(params.feesCourtageTotalEur) || 0);
+  const courtageLabel = eurInt(courtage);
+  const grossNum =
+    params.grossSavingsEur != null && Number.isFinite(params.grossSavingsEur)
+      ? Math.round(Number(params.grossSavingsEur))
+      : null;
+  const grossLabel = grossNum != null ? eurInt(grossNum) : null;
+  const feesAssureur =
+    params.feesAssureurEur != null && Number.isFinite(params.feesAssureurEur)
+      ? Math.round(Number(params.feesAssureurEur))
+      : null;
+  const currentTotal =
+    params.currentInsuranceTotalEur != null && Number.isFinite(params.currentInsuranceTotalEur)
+      ? Math.round(Number(params.currentInsuranceTotalEur))
+      : null;
+  const proposedTotal =
+    params.proposedInsuranceTotalEur != null && Number.isFinite(params.proposedInsuranceTotalEur)
+      ? Math.round(Number(params.proposedInsuranceTotalEur))
+      : null;
+  const planned = params.plannedChangeDate
+    ? new Date(params.plannedChangeDate + "T12:00:00").toLocaleDateString("fr-FR", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+    : null;
+
+  const subject =
+    prenom !== "Bonjour"
+      ? `${prenom}, votre étude personnalisée - Assurance Emprunteur`
+      : "Votre étude personnalisée - Assurance Emprunteur";
+
+  const comparisonRows =
+    currentTotal != null && proposedTotal != null
+      ? `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:14px 0 0 0;">
+        <tr>
+          <td style="padding:10px 0;border-bottom:1px solid #DBEAFE;color:#4B5563;">Assurance actuelle (durée restante)</td>
+          <td style="padding:10px 0;border-bottom:1px solid #DBEAFE;text-align:right;color:#1F2937;font-weight:600;">${eurInt(currentTotal)}&nbsp;€</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 0;border-bottom:1px solid #DBEAFE;color:#4B5563;">Nouvelle solution (durée restante)</td>
+          <td style="padding:10px 0;border-bottom:1px solid #DBEAFE;text-align:right;color:#1F2937;font-weight:600;">${eurInt(proposedTotal)}&nbsp;€</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 0;border-bottom:2px solid #1E3A8A;color:#1E3A8A;font-weight:700;">Économie brute</td>
+          <td style="padding:10px 0;border-bottom:2px solid #1E3A8A;text-align:right;color:#1E3A8A;font-weight:700;">${grossLabel != null ? `${grossLabel}&nbsp;€` : "—"}</td>
+        </tr>
+      </table>`
+      : "";
+
+  const economyHero = grossLabel
+    ? `<div style="background-color:#EFF6FF;border-left:4px solid #1E3A8A;padding:24px 20px;margin:0 0 22px 0;border-radius:8px;">
+      <p style="font-size:12px;margin:0 0 8px 0;color:#1E3A8A;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;">
+        Économie brute estimée (avant frais)
+      </p>
+      <p style="font-size:36px;margin:0 0 6px 0;color:#1E3A8A;font-weight:700;line-height:1.1;">
+        ${grossLabel}&nbsp;€
+      </p>
+      <p style="font-size:13px;margin:0;color:#6B7280;font-style:italic;">
+        Les frais éventuels (si applicables) sont à déduire une seule fois à la mise en place.
+      </p>
+      ${comparisonRows}
+      <div style="margin-top:14px;font-size:13px;color:#374151;">
+        <div style="margin:6px 0;">
+          <span style="font-weight:600;">Frais de dossier de la nouvelle assurance :</span>
+          <span>${feesAssureur != null ? `${eurInt(feesAssureur)}&nbsp;€` : "selon devis"}</span>
+        </div>
+        <div style="margin:6px 0;">
+          <span style="font-weight:600;">Frais de courtage :</span>
+          <strong>${courtageLabel}&nbsp;€</strong>
+        </div>
+      </div>
+    </div>`
+    : `<div style="background-color:#EFF6FF;border-left:4px solid #1E3A8A;padding:18px 16px;margin:0 0 22px 0;border-radius:8px;">
+      <p style="margin:0;color:#1E3A8A;font-weight:700;">Votre étude personnalisée est prête</p>
+      <p style="margin:8px 0 0 0;color:#374151;font-size:14px;">Le détail complet se trouve en pièce jointe (PDF).</p>
+      <p style="margin:10px 0 0 0;font-size:14px;color:#1F2937;">Frais de courtage : <strong>${courtageLabel}&nbsp;€</strong></p>
+    </div>`;
+
+  const plannedBlock = planned
+    ? `<p style="font-size:14px;margin:0 0 12px 0;color:#1F2937;">Date de changement prévue : <strong>${planned}</strong></p>`
+    : "";
+
+  const html = `<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background-color:#F8FAFC;color:#1F2937;line-height:1.6;">
+<div style="max-width:640px;margin:0 auto;background-color:#FFFFFF;border:1px solid #E5E7EB;">
+  <div style="background-color:#1E3A8A;padding:32px 24px;text-align:center;">
+    ${LCIF_EMAIL_LOGO_HEADER_IMG}
+    <p style="margin:14px 0 0 0;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.88);">
+      Étude d'économies — Assurance emprunteur
+    </p>
+  </div>
+
+  <div style="padding:32px 28px;">
+    <p style="font-size:16px;margin:0 0 16px 0;color:#111827;"><strong>${greeting}</strong></p>
+    <p style="font-size:15px;margin:0 0 20px 0;color:#374151;">
+      Nous avons finalisé votre <strong>étude d'économies</strong> sur l'assurance emprunteur.
+      Les garanties de la solution proposée sont <strong>équivalentes</strong> à votre contrat actuel.
+    </p>
+
+    ${economyHero}
+
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-left:4px solid #16A34A;border-radius:8px;padding:16px 16px;margin:0 0 22px 0;">
+      <p style="margin:0 0 4px 0;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#166534;">Pièce jointe</p>
+      <p style="margin:0;font-size:14px;color:#14532D;line-height:1.5;">
+        Le détail complet de l'étude (comparaison, cotisations, garanties) est <strong>en pièce jointe (PDF)</strong>.
+      </p>
+    </div>
+
+    <h3 style="font-size:17px;margin:0 0 10px 0;color:#1E3A8A;">Comment ça marche</h3>
+    <ol style="margin:0 0 18px 18px;padding:0;color:#1F2937;font-size:14px;">
+      <li style="margin:6px 0;">Vous confirmez par retour de mail que vous souhaitez activer le changement.</li>
+      <li style="margin:6px 0;">Nous constituons et soumettons le dossier à votre banque.</li>
+      <li style="margin:6px 0;">Votre banque dispose de 10 jours ouvrés pour accepter, obligation légale, et résilie automatiquement votre contrat actuel.</li>
+    </ol>
+
+    ${plannedBlock}
+
+    <div style="background-color:#1E3A8A;border-radius:8px;text-align:center;padding:14px 16px;margin:8px 0 22px 0;">
+      <p style="margin:0;color:#FFFFFF;font-weight:700;font-size:15px;">Répondez à ce mail pour donner suite</p>
+    </div>
+
+    <p style="font-size:14px;margin:0;color:#374151;">
+      Une question ? Répondez à ce message — nous resterons à vos côtés jusqu'à la prise d'effet.
+    </p>
+
+    <p style="font-size:14px;margin:28px 0 0 0;color:#111827;">Bien cordialement,<br/>
+      <strong>Charles Victor</strong><br/>
+      <span style="color:#6B7280;">Conseiller en assurance emprunteur</span><br/>
+      <span style="color:#6B7280;">Le Club Immobilier Français</span>
+    </p>
+  </div>
+
+  <div style="background-color:#F8FAFC;padding:18px 28px;border-top:1px solid #E5E7EB;">
+    <p style="font-size:11px;margin:0;color:#9CA3AF;line-height:1.5;">
+      Le Club Immobilier Français — 17 Passage Leroy, 44000 Nantes<br/>
+      N° ORIAS : 24002253 | Courtier en assurance emprunteur, indépendant de tout assureur<br/>
+      Cette proposition est établie à titre indicatif et n'a pas de valeur contractuelle.
+    </p>
+  </div>
+</div>
+</body>
+</html>`;
+
+  return { subject, html };
+}
+
+/** Reconstruit le mail client brandé depuis les KPI / PDF extraits. */
+export function rebuildStudyClientEmailFromDossier(
+  dossier: Dossier,
+  feesCourtageTotalEur?: number | null,
+): { subject: string; html: string } {
+  const extracted = (dossier.studyDraft?.extracted || {}) as Record<string, unknown>;
+  const summary = dossier.studyDraft?.economySummary;
+  const courtage =
+    feesCourtageTotalEur != null && Number.isFinite(feesCourtageTotalEur)
+      ? Math.round(Number(feesCourtageTotalEur))
+      : Math.round(
+          Number(
+            dossier.studyConseillerValidation?.feesCourtageTotalEur ??
+              summary?.feesCourtageEur ??
+              0,
+          ) || 0,
+        );
+  const built = buildStudyClientEmailHtml({
+    clientPrenom: String(dossier.formData?.assures?.[0]?.prenom || "").trim(),
+    grossSavingsEur:
+      summary?.grossSavingsEur ??
+      dossier.studyKpi?.grossSavingsEur ??
+      (extracted.grossSavingsEur as number | undefined) ??
+      null,
+    netSavingsEur: (extracted.netSavingsEur as number | undefined) ?? null,
+    feesCourtageTotalEur: courtage,
+    feesAssureurEur:
+      summary?.feesAssureurEur ??
+      dossier.studyKpi?.feesAssureurEur ??
+      (extracted.feesAssureurEur as number | undefined) ??
+      null,
+    currentInsuranceTotalEur: (extracted.currentInsuranceTotalEur as number | undefined) ?? null,
+    proposedInsuranceTotalEur: (extracted.proposedInsuranceTotalEur as number | undefined) ?? null,
+    plannedChangeDate:
+      dossier.insuranceChangePlan?.plannedDate ||
+      (extracted.plannedChangeDate as string | undefined) ||
+      null,
+  });
+  return built;
+}
+
+/**
+ * Pour un dossier PDF : force le HTML brandé si absent ou encore en version plaintext.
+ * Retourne true si le HTML a été mis à jour.
+ */
+export function ensureBrandedStudyClientEmail(
+  dossier: Dossier,
+  feesCourtageTotalEur?: number | null,
+): boolean {
+  const hasPdf =
+    Boolean(getStudyPdfPath(dossier)) ||
+    dossier.studyDraft?.kind === "PDF_UPLOAD" ||
+    dossier.studyConseillerValidation?.studySource === "pdf";
+  if (!hasPdf) return false;
+
+  const current = String(
+    dossier.studyDraft?.html || dossier.studyConseillerValidation?.html || "",
+  ).trim();
+  if (current && isBrandedStudyClientEmailHtml(current) && feesCourtageTotalEur == null) {
+    return false;
+  }
+
+  const built = rebuildStudyClientEmailFromDossier(dossier, feesCourtageTotalEur);
+  if (!dossier.studyDraft) {
+    dossier.studyDraft = {
+      kind: "PDF_UPLOAD",
+      computedAt: new Date().toISOString(),
+      reliability: "HIGH",
+      subject: built.subject,
+      html: built.html,
+    };
+  } else {
+    dossier.studyDraft.subject = dossier.studyDraft.subject || built.subject;
+    dossier.studyDraft.html = built.html;
+  }
+  if (dossier.studyConseillerValidation) {
+    dossier.studyConseillerValidation.html = built.html;
+    if (!dossier.studyConseillerValidation.subject) {
+      dossier.studyConseillerValidation.subject = built.subject;
+    }
+  }
+  return true;
+}
+
 export async function ingestStudyPdfForDossier(params: {
   dossier: Dossier;
   filePath: string;
@@ -105,19 +373,12 @@ export async function ingestStudyPdfForDossier(params: {
     },
   };
 
-  // Brouillon mail court (PJ PDF) — prêt pour envoi / soumission conseiller.
-  if (!String(dossier.studyDraft.html || "").trim()) {
-    const built = buildStudyClientEmailHtml({
-      clientPrenom: String(dossier.formData?.assures?.[0]?.prenom || "").trim(),
-      grossSavingsEur: parsed.grossSavingsEur,
-      feesCourtageTotalEur: dossier.studyDraft.economySummary?.feesCourtageEur ?? 0,
-      plannedChangeDate: parsed.plannedChangeDate,
-    });
-    dossier.studyDraft.subject = dossier.studyDraft.subject || built.subject;
-    dossier.studyDraft.html = built.html;
-  }
-
   (dossier as any).studyPdf = pdfMeta;
+
+  // Toujours régénérer le mail brandé à l'import PDF (écrase l'ancien plaintext).
+  const built = rebuildStudyClientEmailFromDossier(dossier);
+  dossier.studyDraft.subject = built.subject;
+  dossier.studyDraft.html = built.html;
 
   applyStudyKpiFromStudyDraft(dossier);
   if (dossier.studyKpi && parsed.loanCapitalEur != null && parsed.loanCapitalEur > 0) {
@@ -180,135 +441,4 @@ export function getStudyPdfPath(dossier: Dossier): string | null {
   const p = String(fromRoot || fromDraft || "").trim();
   if (p && fs.existsSync(p)) return p;
   return null;
-}
-
-export function buildStudyClientEmailHtml(params: {
-  clientPrenom?: string;
-  grossSavingsEur?: number | null;
-  feesCourtageTotalEur: number;
-  plannedChangeDate?: string | null;
-}): { subject: string; html: string } {
-  const prenom = String(params.clientPrenom || "").trim() || "Bonjour";
-  const greeting = prenom === "Bonjour" ? "Bonjour," : `Bonjour ${prenom},`;
-  const courtage = Math.round(Number(params.feesCourtageTotalEur) || 0);
-  const courtageLabel = courtage.toLocaleString("fr-FR", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
-  const grossNum =
-    params.grossSavingsEur != null && Number.isFinite(params.grossSavingsEur)
-      ? Math.round(Number(params.grossSavingsEur))
-      : null;
-  const grossLabel =
-    grossNum != null
-      ? grossNum.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-      : null;
-  const planned = params.plannedChangeDate
-    ? new Date(params.plannedChangeDate + "T12:00:00").toLocaleDateString("fr-FR", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : null;
-
-  const subject =
-    prenom !== "Bonjour"
-      ? `${prenom}, votre étude personnalisée - Assurance Emprunteur`
-      : "Votre étude personnalisée - Assurance Emprunteur";
-
-  const economyHero = grossLabel
-    ? `<div style="background-color:#EFF6FF;border-left:4px solid #1E3A8A;padding:22px 20px;margin:0 0 22px 0;border-radius:6px;">
-      <p style="font-size:12px;margin:0 0 8px 0;color:#1E3A8A;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;">
-        Économie brute estimée
-      </p>
-      <p style="font-size:34px;margin:0 0 6px 0;color:#1E3A8A;font-weight:700;line-height:1.15;">
-        ${grossLabel}&nbsp;€
-      </p>
-      <p style="font-size:13px;margin:0;color:#6B7280;">
-        Avant frais — détail complet dans le PDF joint.
-      </p>
-    </div>`
-    : `<div style="background-color:#EFF6FF;border-left:4px solid #1E3A8A;padding:18px 16px;margin:0 0 22px 0;border-radius:6px;">
-      <p style="margin:0;color:#1E3A8A;font-weight:700;">Votre étude personnalisée est prête</p>
-      <p style="margin:8px 0 0 0;color:#374151;font-size:14px;">Le détail complet se trouve en pièce jointe (PDF).</p>
-    </div>`;
-
-  const plannedBlock = planned
-    ? `<p style="font-size:14px;margin:0 0 12px 0;color:#1F2937;">Date de changement prévue : <strong>${planned}</strong></p>`
-    : "";
-
-  const html = `<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background-color:#F8FAFC;color:#1F2937;line-height:1.6;">
-<div style="max-width:640px;margin:0 auto;background-color:#FFFFFF;border:1px solid #E5E7EB;">
-  <div style="background-color:#1E3A8A;padding:28px 24px;text-align:center;">
-    ${LCIF_EMAIL_LOGO_HEADER_IMG}
-    <p style="margin:14px 0 0 0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.88);">
-      Étude d'économies — Assurance emprunteur
-    </p>
-  </div>
-
-  <div style="padding:32px 28px;">
-    <p style="font-size:16px;margin:0 0 16px 0;color:#111827;"><strong>${greeting}</strong></p>
-    <p style="font-size:15px;margin:0 0 20px 0;color:#374151;">
-      Nous avons finalisé votre <strong>étude d'économies</strong> sur l'assurance emprunteur.
-      Les garanties de la solution proposée sont <strong>équivalentes</strong> à votre contrat actuel.
-    </p>
-
-    ${economyHero}
-
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;border-spacing:0 10px;margin:0 0 8px 0;">
-      <tr>
-        <td style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:14px 16px;">
-          <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#166534;">Pièce jointe</p>
-          <p style="margin:0;font-size:14px;color:#14532D;line-height:1.45;">
-            Le détail complet de l'étude est <strong>en pièce jointe (PDF)</strong>.
-          </p>
-        </td>
-      </tr>
-      <tr>
-        <td style="background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:14px 16px;">
-          <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#64748B;">Accompagnement</p>
-          <p style="margin:0;font-size:14px;color:#1F2937;">
-            Frais de courtage : <strong>${courtageLabel}&nbsp;€</strong>
-          </p>
-          <p style="margin:6px 0 0 0;font-size:12px;color:#6B7280;">
-            Pour l'accompagnement de votre dossier de changement d'assurance.
-          </p>
-        </td>
-      </tr>
-    </table>
-
-    ${plannedBlock}
-    <p style="font-size:14px;margin:0 0 16px 0;color:#374151;">
-      Votre banque dispose de 10 jours ouvrés pour accepter, obligation légale, et résilie automatiquement votre contrat actuel.
-    </p>
-
-    <div style="background-color:#1E3A8A;border-radius:8px;text-align:center;padding:14px 16px;margin:8px 0 22px 0;">
-      <p style="margin:0;color:#FFFFFF;font-weight:700;font-size:15px;">Répondez à ce mail pour donner suite</p>
-    </div>
-
-    <p style="font-size:14px;margin:0 0 0 0;color:#374151;">
-      Si vous souhaitez avancer, répondez simplement à ce message. Nous resterons à vos côtés jusqu'à la prise d'effet.
-    </p>
-
-    <p style="font-size:14px;margin:28px 0 0 0;color:#111827;">Bien cordialement,<br/>
-      <strong>Charles Victor</strong><br/>
-      <span style="color:#6B7280;">Conseiller en assurance emprunteur</span><br/>
-      <span style="color:#6B7280;">Le Club Immobilier Français</span>
-    </p>
-  </div>
-
-  <div style="background-color:#F8FAFC;padding:18px 28px;border-top:1px solid #E5E7EB;">
-    <p style="font-size:11px;margin:0;color:#9CA3AF;line-height:1.5;">
-      Le Club Immobilier Français — 17 Passage Leroy, 44000 Nantes<br/>
-      N° ORIAS : 24002253 | Courtier en assurance emprunteur, indépendant de tout assureur<br/>
-      Cette proposition est établie à titre indicatif et n'a pas de valeur contractuelle.
-    </p>
-  </div>
-</div>
-</body>
-</html>`;
-
-  return { subject, html };
 }

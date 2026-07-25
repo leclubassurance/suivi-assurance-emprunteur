@@ -178,6 +178,13 @@ export default function AdminDashboard({
         const data = await res.json().catch(() => ({}));
         if (cancelled || !res.ok) return;
         setConseillerStudyFlow(data);
+        if (typeof data.htmlForSend === "string" && data.htmlForSend.trim() && data.hasStudyPdf) {
+          setEmailHtml((prev) => {
+            const prevIsPlain = Boolean(prev?.trim()) && !/background-color:\s*#1E3A8A/i.test(prev);
+            if (!prev?.trim() || prevIsPlain) return data.htmlForSend;
+            return prev;
+          });
+        }
         if (data.validation) {
           setSelectedDossier((prev) => {
             if (!prev || prev.id !== dossierId) return prev;
@@ -192,6 +199,9 @@ export default function AdminDashboard({
             return {
               ...prev,
               studyConseillerValidation: data.validation,
+              studyDraft: data.htmlForSend
+                ? { ...(prev as any).studyDraft, html: data.htmlForSend }
+                : (prev as any).studyDraft,
             } as Dossier;
           });
         }
@@ -230,6 +240,13 @@ export default function AdminDashboard({
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setConseillerStudyFlow(data);
+        if (typeof data.htmlForSend === "string" && data.htmlForSend.trim() && data.hasStudyPdf) {
+          setEmailHtml((prev) => {
+            const prevIsPlain = Boolean(prev?.trim()) && !/background-color:\s*#1E3A8A/i.test(prev);
+            if (!prev?.trim() || prevIsPlain) return data.htmlForSend;
+            return prev;
+          });
+        }
         if (data.validation) {
           setSelectedDossier((prev) =>
             prev?.id === dossierId

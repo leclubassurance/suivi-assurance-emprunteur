@@ -97,7 +97,9 @@ function aggressivelyShrinkForFirestore(d: Record<string, unknown>, pass: number
       }));
     }
     const studyDraft = d.studyDraft as Record<string, unknown> | undefined;
-    if (studyDraft?.html) studyDraft.html = truncate(studyDraft.html, 2000);
+    const studyValidation = d.studyConseillerValidation as Record<string, unknown> | undefined;
+    if (studyDraft?.html) studyDraft.html = truncate(studyDraft.html, MAX_COMM_HTML);
+    if (studyValidation?.html) studyValidation.html = truncate(studyValidation.html, MAX_COMM_HTML);
     return;
   }
 

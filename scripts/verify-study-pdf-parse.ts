@@ -42,18 +42,28 @@ async function main() {
     clientPrenom: "Martin",
     grossSavingsEur: parsed.grossSavingsEur,
     feesCourtageTotalEur: 400,
+    feesAssureurEur: parsed.feesAssureurEur,
+    currentInsuranceTotalEur: parsed.currentInsuranceTotalEur,
+    proposedInsuranceTotalEur: parsed.proposedInsuranceTotalEur,
     plannedChangeDate: parsed.plannedChangeDate,
   });
-  assert(/Frais de courtage\s*:\s*<strong>400/.test(mail.html), "courtage patchable");
+  assert(/Frais de courtage\s*:\s*<strong>400/.test(mail.html) || /Frais de courtage\s*:<\/span>\s*<strong>400/.test(mail.html) || /Frais de courtage\s*:[\s\S]{0,40}<strong>400/.test(mail.html), "courtage patchable");
   assert(/8\s*268/.test(mail.html) || /8268/.test(mail.html), "économie dans mail type");
   assert(/pièce jointe/i.test(mail.html), "mention PJ");
   assert(/1E3A8A/.test(mail.html), "bandeau marque");
   assert(/Charles Victor/.test(mail.html), "signature");
   assert(/Date de changement prévue\s*:\s*<strong>/i.test(mail.html), "date patchable");
+  assert(/Comment ça marche/i.test(mail.html), "étapes");
+  assert(/Assurance actuelle/i.test(mail.html), "comparaison coûts");
 
   const { patchStudyHtmlBrokerageFee } = await import("../shared/studyHtmlPatch");
   const patched = patchStudyHtmlBrokerageFee(mail.html, 550);
   assert(patched.patched && /550/.test(patched.html), "patch courtage OK");
+
+  const plainLegacy = `<div style="font-family:Arial"><p>Bonjour</p><p>Frais de courtage : <strong>0 €</strong></p></div>`;
+  const { isBrandedStudyClientEmailHtml } = await import("../server/studyPdfFlow");
+  assert(!isBrandedStudyClientEmailHtml(plainLegacy), "détecte plaintext");
+  assert(isBrandedStudyClientEmailHtml(mail.html), "détecte brandé");
 
   console.log("\nParse PDF étude OK.");
 }
