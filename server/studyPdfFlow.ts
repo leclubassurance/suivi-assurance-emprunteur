@@ -221,13 +221,28 @@ export function rebuildStudyClientEmailFromDossier(
               0,
           ) || 0,
         );
+
+  let current =
+    (extracted.currentInsuranceTotalEur as number | undefined) ?? null;
+  let proposed =
+    (extracted.proposedInsuranceTotalEur as number | undefined) ?? null;
+  const gross =
+    summary?.grossSavingsEur ??
+    dossier.studyKpi?.grossSavingsEur ??
+    (extracted.grossSavingsEur as number | undefined) ??
+    null;
+  if (
+    (proposed == null || !Number.isFinite(proposed)) &&
+    current != null &&
+    gross != null &&
+    Number(current) >= Number(gross)
+  ) {
+    proposed = Math.round((Number(current) - Number(gross)) * 100) / 100;
+  }
+
   const built = buildStudyClientEmailHtml({
     clientPrenom: String(dossier.formData?.assures?.[0]?.prenom || "").trim(),
-    grossSavingsEur:
-      summary?.grossSavingsEur ??
-      dossier.studyKpi?.grossSavingsEur ??
-      (extracted.grossSavingsEur as number | undefined) ??
-      null,
+    grossSavingsEur: gross,
     netSavingsEur: (extracted.netSavingsEur as number | undefined) ?? null,
     feesCourtageTotalEur: courtage,
     feesAssureurEur:
@@ -235,8 +250,8 @@ export function rebuildStudyClientEmailFromDossier(
       dossier.studyKpi?.feesAssureurEur ??
       (extracted.feesAssureurEur as number | undefined) ??
       null,
-    currentInsuranceTotalEur: (extracted.currentInsuranceTotalEur as number | undefined) ?? null,
-    proposedInsuranceTotalEur: (extracted.proposedInsuranceTotalEur as number | undefined) ?? null,
+    currentInsuranceTotalEur: current,
+    proposedInsuranceTotalEur: proposed,
     plannedChangeDate:
       dossier.insuranceChangePlan?.plannedDate ||
       (extracted.plannedChangeDate as string | undefined) ||

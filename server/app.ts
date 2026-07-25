@@ -1033,14 +1033,8 @@ export function createApp() {
     const draftHtml = dossier.studyDraft?.html || validation?.html || "";
     const sendSlice = dossierSliceForStudySend(dossier);
     const { getStudyPdfPath, ensureBrandedStudyClientEmail } = await import("./studyPdfFlow");
-    const brandedRefreshed = ensureBrandedStudyClientEmail(dossier);
-    if (brandedRefreshed) {
-      try {
-        await writeDB(db, dossier);
-      } catch {
-        /* non bloquant — on renvoie quand même le HTML brandé */
-      }
-    }
+    // Régénère le HTML en mémoire pour l'aperçu — pas d'écriture Firestore sur un GET.
+    ensureBrandedStudyClientEmail(dossier);
     const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
     res.json({
       requiresConseillerValidation,

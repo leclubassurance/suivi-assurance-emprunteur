@@ -32,12 +32,33 @@ function parseEuroToken(raw: string): number | null {
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
 }
 
-function amountAfterLabel(text: string, labelRe: RegExp, windowChars = 80): number | null {
+function amountAfterLabel(text: string, labelRe: RegExp, windowChars = 120): number | null {
   const m = text.match(labelRe);
   if (!m || m.index == null) return null;
   const tail = text.slice(m.index + m[0].length, m.index + m[0].length + windowChars);
   const amt = tail.match(/(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/);
   return amt ? parseEuroToken(amt[1]) : null;
+}
+
+/** Ligne Total / ventilation : actuelle | nouvelle | économie. */
+function parseTotalsRow(text: string): {
+  current: number | null;
+  proposed: number | null;
+  economy: number | null;
+} {
+  const row =
+    text.match(
+      /Total\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+    ) ||
+    text.match(
+      /Prêt\s+[^\n]{0,80}?(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+    );
+  if (!row) return { current: null, proposed: null, economy: null };
+  return {
+    current: parseEuroToken(row[1]),
+    proposed: parseEuroToken(row[2]),
+    economy: parseEuroToken(row[3]),
+  };
 }
 
 function parseFrDateToIso(raw: string): string | null {
@@ -58,28 +79,54 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n");
 
-  const gross =
+  const totals = parseTotalsRow(text);
+
+  let gross =
+    amountAfterLabel(text, /Économie\s+brute\b/i) ??
     amountAfterLabel(text, /ÉCONOMIE\s+BRUTE\b/i) ??
-    amountAfterLabel(text, /Économie\s+brute\b/i);
+    totals.economy;
   const net =
-    amountAfterLabel(text, /ÉCONOMIE\s+NETTE(?:\s+ESTIMÉE)?\b/i) ??
-    amountAfterLabel(text, /Économie\s+nette\b/i);
+    amountAfterLabel(text, /Économie\s+nette(?:\s+estimée)?\b/i) ??
+    amountAfterLabel(text, /ÉCONOMIE\s+NETTE(?:\s+ESTIMÉE)?\b/i);
   const feesAssureur =
     amountAfterLabel(text, /Frais\s+de\s+dossier\b/i) ??
-    amountAfterLabel(text, /frais\s+assureur\b/i);
-  const currentTotal =
+    amountAfterLabel(text, /frais\s+assureur\b/i) ??
+    amountAfterLabel(text, /Aucun\s+frais\s+de\s+dossier/i);
+  let currentTotal =
+    totals.current ??
     amountAfterLabel(text, /CO[ÛU]T\s+ACTUEL\s+RESTANT\b/i) ??
-    amountAfterLabel(text, /Assurance\s+actuelle\b/i);
-  const proposedTotal =
+    amountAfterLabel(text, /Assurance\s+actuelle(?:\s*\([^)]*\))?\b/i);
+  let proposedTotal =
+    totals.proposed ??
     amountAfterLabel(text, /NOUVELLE\s+SOLUTION\b/i) ??
-    amountAfterLabel(text, /Nouvelle\s+solution\b/i);
+    amountAfterLabel(text, /Nouvelle\s+solution\b/i) ??
+    amountAfterLabel(text, /Solution\s+propos[ée]e\b/i) ??
+    amountAfterLabel(text, /Co[ûu]t\s+propos[ée]\b/i);
+
+  // Si le PDF n'expose que actuel + économie brute → déduire la nouvelle solution.
+  if (
+    proposedTotal == null &&
+    currentTotal != null &&
+    gross != null &&
+    currentTotal >= gross
+  ) {
+    proposedTotal = Math.round((currentTotal - gross) * 100) / 100;
+  }
+  if (gross == null && currentTotal != null && proposedTotal != null && currentTotal >= proposedTotal) {
+    gross = Math.round((currentTotal - proposedTotal) * 100) / 100;
+  }
 
   let proposedMonthlyYear1: number | null = null;
-  const year1 = text.match(
+  const year1Patterns = [
     /Ann[ée]e\s*1\s+(\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
-  );
-  if (year1?.[2]) {
-    proposedMonthlyYear1 = parseEuroToken(year1[2]);
+    /Ann[ée]e\s*1[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?)\s*€[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+  ];
+  for (const re of year1Patterns) {
+    const year1 = text.match(re);
+    if (year1?.[2]) {
+      proposedMonthlyYear1 = parseEuroToken(year1[2]);
+      if (proposedMonthlyYear1 != null) break;
+    }
   }
 
   const annualPremiumEur =
@@ -87,8 +134,9 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
 
   let loanCapitalEur: number | null = null;
   const capital =
-    text.match(/Prêt\s+immobilier\s*[—–\-]\s*(\d{1,3}(?:[\s.]\d{3})+)\s*€/i) ||
-    text.match(/capital\s+(?:initial|emprunté)\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+)\s*€/i);
+    text.match(/Prêt\s+immobilier\s*[—–\-]\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
+    text.match(/capital\s+(?:initial|emprunté|restant)\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
+    text.match(/montant\s+(?:du\s+)?prêt\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i);
   if (capital?.[1]) {
     const n = Number(capital[1].replace(/[\s.]/g, ""));
     if (Number.isFinite(n) && n > 0) loanCapitalEur = n;
@@ -97,7 +145,9 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
   let plannedChangeDate: string | null = null;
   const dateM =
     text.match(/date\s+d['’]effet\s+du\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i) ||
-    text.match(/à\s+compter\s+de\s+la\s+date\s+d['’]effet\s+du\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i);
+    text.match(/à\s+compter\s+de\s+la\s+date\s+d['’]effet\s+du\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i) ||
+    text.match(/prise\s+d['’]effet\s*[:=]?\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i) ||
+    text.match(/effectif(?:ve)?\s+(?:au|le)\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i);
   if (dateM?.[1]) plannedChangeDate = parseFrDateToIso(dateM[1]);
 
   let savingsPercent: number | null = null;
@@ -105,6 +155,8 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
   if (pct?.[1]) {
     const n = Number(pct[1].replace(",", "."));
     if (Number.isFinite(n)) savingsPercent = Math.abs(n);
+  } else if (gross != null && currentTotal != null && currentTotal > 0) {
+    savingsPercent = Math.round((gross / currentTotal) * 1000) / 10;
   }
 
   const filled = [gross, feesAssureur, currentTotal, proposedTotal, annualPremiumEur].filter(
