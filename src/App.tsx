@@ -10,6 +10,7 @@ import {
   INITIAL_FORM_DATA,
   CLIENT_PORTAL_URL_KEY,
   APPORTEUR_REF_SESSION_KEY,
+  APPORTEUR_REF_STORAGE_KEY,
   STATUT_PRO_OPTIONS,
 } from './constants';
 import LandingStep from './components/steps/LandingStep';
@@ -40,6 +41,50 @@ const STORAGE_KEY = 'insurance-form-draft';
 const STATUT_PRO_DRAFT_VALUES = new Set(
   STATUT_PRO_OPTIONS.flatMap((option) => [option.value, option.label]),
 );
+
+function readStoredApporteurRef(): string | undefined {
+  try {
+    const fromSession = sessionStorage.getItem(APPORTEUR_REF_SESSION_KEY)?.trim();
+    if (fromSession) return fromSession.toLowerCase();
+  } catch {
+    /* ignore */
+  }
+  try {
+    const fromPersistent = localStorage.getItem(APPORTEUR_REF_STORAGE_KEY)?.trim();
+    if (fromPersistent) return fromPersistent.toLowerCase();
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+function persistApporteurRef(raw: string): string {
+  const normalized = raw.trim().toLowerCase();
+  try {
+    sessionStorage.setItem(APPORTEUR_REF_SESSION_KEY, normalized);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.setItem(APPORTEUR_REF_STORAGE_KEY, normalized);
+  } catch {
+    /* ignore */
+  }
+  return normalized;
+}
+
+function clearStoredApporteurRef(): void {
+  try {
+    sessionStorage.removeItem(APPORTEUR_REF_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.removeItem(APPORTEUR_REF_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 function sanitizeAssuresDraft(assures: any[] = []) {
   return assures.map((assure) => {
@@ -165,8 +210,7 @@ export default function App() {
     try {
       const ref = new URLSearchParams(window.location.search).get("ref");
       if (ref && ref.trim()) {
-        const normalized = ref.trim().toLowerCase();
-        sessionStorage.setItem(APPORTEUR_REF_SESSION_KEY, normalized);
+        const normalized = persistApporteurRef(ref);
         try {
           const sessionKey = "lcif_ref_click_session";
           let sessionId = sessionStorage.getItem(sessionKey);
@@ -357,7 +401,7 @@ export default function App() {
       });
       let apporteurRefToken: string | undefined;
       try {
-        apporteurRefToken = sessionStorage.getItem(APPORTEUR_REF_SESSION_KEY) || undefined;
+        apporteurRefToken = readStoredApporteurRef();
       } catch {
         apporteurRefToken = undefined;
       }
@@ -416,6 +460,7 @@ export default function App() {
       
       goToStep(Step.SUCCESS);
       localStorage.removeItem(STORAGE_KEY);
+      clearStoredApporteurRef();
       showToast("Votre dossier a été soumis avec succès !", "success");
     } catch (error: any) {
       console.error("Erreur critique soumission:", error);

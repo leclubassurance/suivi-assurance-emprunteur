@@ -477,13 +477,29 @@ export function createApp() {
         const refToken = apporteurRefToken || "";
         if (refToken) {
           const { attachNetworkToNewDossier, syncNetworkReferralFromDossier } = await import("./networkStore");
-          const { attachApporteurToNewDossier, syncReferralFromDossier } = await import("./apporteurStore");
+          const { attachApporteurToNewDossier, syncReferralFromDossier, findApporteurByToken } = await import(
+            "./apporteurStore"
+          );
           const attachedNetwork = await attachNetworkToNewDossier(newDossier, refToken);
           if (!attachedNetwork) {
-            await attachApporteurToNewDossier(newDossier, refToken);
+            const matched = await findApporteurByToken(refToken);
+            if (!matched) {
+              appendLog(
+                `[Apporteur] Token ?ref=${refToken} introuvable/inactif pour ${newDossier.id} — dossier non rattaché.`,
+              );
+            } else {
+              await attachApporteurToNewDossier(newDossier, refToken);
+              appendLog(
+                `[Apporteur] Dossier ${newDossier.id} rattaché à ${matched.contactName || matched.companyName} (${matched.id}).`,
+              );
+            }
+          } else {
+            appendLog(`[Apporteur] Dossier ${newDossier.id} rattaché au réseau (token ${refToken}).`);
           }
           await syncNetworkReferralFromDossier(newDossier, "formulaire");
           await syncReferralFromDossier(newDossier, "formulaire");
+        } else {
+          appendLog(`[Apporteur] Aucun ?ref= reçu à la création de ${newDossier.id} — dossier non rattaché.`);
         }
       } catch (apErr: any) {
         appendLog(`[Apporteur] Attribution (${newDossier.id}): ${apErr?.message || apErr}`);

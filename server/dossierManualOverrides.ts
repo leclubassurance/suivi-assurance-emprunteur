@@ -133,6 +133,11 @@ export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier
     }
   }
 
+  // Ne jamais perdre un rattachement conseiller/apporteur sur une sync partielle.
+  if (existing.apporteur && !incoming.apporteur) {
+    incoming.apporteur = existing.apporteur;
+  }
+
   return incoming;
 }
 
