@@ -1,14 +1,62 @@
 import type { Dossier } from "./dossierModel";
 import { getStudySentAtMs } from "./dossierLifecycle";
 
-/** Accord explicite du client pour activer le changement d'assurance (souscription). */
+/**
+ * Signaux de REFUS — prioritaires sur tout motif d'accord.
+ * Évite les faux positifs du type « je n'accepte pas » / citation d'un mail LCIF.
+ */
+export const INSURANCE_CHANGE_REFUSAL_RE =
+  /ne\s+(souhaite|souhaitons|veux|veut|voulons)\s+(toutefois\s+)?pas|pas\s+donner\s+suite|donner\s+suite\s+[àa]\s+votre\s+proposition|conserver\s+(notre|mon|l['']?)\s*assureur|n['’]accepte\s+pas|pas\s+d['’]accord|je\s+refuse|nous\s+refusons|sans\s+suite|d[eé]cline|ne\s+donnerai\s+pas\s+suite|pr[eé]f[eè]re(?:nt)?\s+finalement\s+conserver/i;
+
+/**
+ * Accord explicite uniquement — pas de motif trop large (« accepte », « changement d'assurance »)
+ * qui matchent les citations de nos propres mails.
+ */
 export const INSURANCE_CHANGE_ACCEPTANCE_RE =
-  /d.accord|je\s+suis\s+d.accord|ok\s+pour|j.?accepte|accepte|changement\s+d.assurance|faire\s+le\s+changement|activer\s+le\s+changement|souhaite\s+activer|oui\s+pour\s+(le\s+)?changement|je\s+confirme|on\s+part\s+l[aà]-dessus/i;
+  /(?:^|[^\wàâäéèêëïîôùûüç])(?:je\s+suis\s+d['’]accord|nous\s+sommes\s+d['’]accord|ok\s+pour\s+(?:le\s+)?changement|j['’]accepte(?:\s+(?:votre|la|le|cette|pour))?(?:\s+(?:proposition|offre|changement))?|accepte(?:\s+(?:votre|la|le|cette))?\s+(?:proposition|offre|changement)|faire\s+le\s+changement|activer\s+le\s+changement|souhaite(?:nt)?\s+(?:activer|proc[eé]der|avancer)|oui\s+pour\s+(?:le\s+)?changement|je\s+confirme\s+(?:le\s+)?changement|nous\s+confirmons\s+(?:le\s+)?changement|on\s+part\s+l[aà]-dessus|go\s+pour\s+(?:le\s+)?changement)(?:$|[^\wàâäéèêëïîôùûüç])/i;
 
 export type ClientAcceptanceSource = "mail" | "admin" | "conseiller" | "system";
 
+/** Isole le message client en retirant la citation du mail LCIF. */
+export function extractClientAuthoredEmailText(raw: string): string {
+  let text = String(raw || "").replace(/\r\n/g, "\n");
+  if (!text.trim()) return "";
+
+  const cutMarkers = [
+    /\n[-–_]{2,}\s*\n/,
+    /\nOn\s.+wrote:\s*\n/i,
+    /\nLe\s.+a\s+[eé]crit\s*:\s*\n/i,
+    /\nFrom:\s*.+\nSent:/i,
+    /\nDe\s*:\s*.+\nEnvoy[eé]\s*:/i,
+    /\n_{5,}\s*\n/,
+  ];
+  for (const re of cutMarkers) {
+    const idx = text.search(re);
+    if (idx > 40) {
+      text = text.slice(0, idx);
+      break;
+    }
+  }
+
+  const lines = text.split("\n");
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (/^\s*>/.test(line)) continue;
+    if (/^\s*\|/.test(line) && kept.length > 3) continue;
+    kept.push(line);
+  }
+  return kept.join("\n").trim();
+}
+
+export function textSignalsInsuranceChangeRefusal(text: string): boolean {
+  return INSURANCE_CHANGE_REFUSAL_RE.test(String(text || ""));
+}
+
 export function textSignalsInsuranceChangeAcceptance(text: string): boolean {
-  return INSURANCE_CHANGE_ACCEPTANCE_RE.test(String(text || ""));
+  const authored = extractClientAuthoredEmailText(text);
+  if (!authored) return false;
+  if (textSignalsInsuranceChangeRefusal(authored)) return false;
+  return INSURANCE_CHANGE_ACCEPTANCE_RE.test(authored);
 }
 
 /** Détecte un accord explicite dans les mails reçus après l'étude. */
