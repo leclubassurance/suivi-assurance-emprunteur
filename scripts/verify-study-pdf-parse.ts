@@ -44,9 +44,16 @@ async function main() {
     feesCourtageTotalEur: 400,
     plannedChangeDate: parsed.plannedChangeDate,
   });
-  assert(/400/.test(mail.html), "courtage dans mail type");
+  assert(/Frais de courtage\s*:\s*<strong>400/.test(mail.html), "courtage patchable");
   assert(/8\s*268/.test(mail.html) || /8268/.test(mail.html), "économie dans mail type");
   assert(/pièce jointe/i.test(mail.html), "mention PJ");
+  assert(/1E3A8A/.test(mail.html), "bandeau marque");
+  assert(/Charles Victor/.test(mail.html), "signature");
+  assert(/Date de changement prévue\s*:\s*<strong>/i.test(mail.html), "date patchable");
+
+  const { patchStudyHtmlBrokerageFee } = await import("../shared/studyHtmlPatch");
+  const patched = patchStudyHtmlBrokerageFee(mail.html, 550);
+  assert(patched.patched && /550/.test(patched.html), "patch courtage OK");
 
   console.log("\nParse PDF étude OK.");
 }

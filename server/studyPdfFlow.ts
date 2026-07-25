@@ -10,6 +10,7 @@ import {
   formatInsuranceChangePlanLabel,
   getInsuranceChangePlan,
 } from "./insuranceChangePlan";
+import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
 
 export type StudyPdfMeta = {
   fileName: string;
@@ -190,9 +191,17 @@ export function buildStudyClientEmailHtml(params: {
   const prenom = String(params.clientPrenom || "").trim() || "Bonjour";
   const greeting = prenom === "Bonjour" ? "Bonjour," : `Bonjour ${prenom},`;
   const courtage = Math.round(Number(params.feesCourtageTotalEur) || 0);
-  const gross =
+  const courtageLabel = courtage.toLocaleString("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+  const grossNum =
     params.grossSavingsEur != null && Number.isFinite(params.grossSavingsEur)
-      ? Math.round(Number(params.grossSavingsEur)).toLocaleString("fr-FR")
+      ? Math.round(Number(params.grossSavingsEur))
+      : null;
+  const grossLabel =
+    grossNum != null
+      ? grossNum.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
       : null;
   const planned = params.plannedChangeDate
     ? new Date(params.plannedChangeDate + "T12:00:00").toLocaleDateString("fr-FR", {
@@ -202,25 +211,104 @@ export function buildStudyClientEmailHtml(params: {
       })
     : null;
 
-  const subject = prenom !== "Bonjour"
-    ? `${prenom}, votre étude personnalisée - Assurance Emprunteur`
-    : "Votre étude personnalisée - Assurance Emprunteur";
+  const subject =
+    prenom !== "Bonjour"
+      ? `${prenom}, votre étude personnalisée - Assurance Emprunteur`
+      : "Votre étude personnalisée - Assurance Emprunteur";
 
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a;max-width:640px">
-  <p>${greeting}</p>
-  <p>Nous avons finalisé votre <strong>étude d'économies</strong> sur l'assurance emprunteur.${
-    gross ? ` L'économie brute estimée s'élève à <strong>${gross}&nbsp;€</strong>.` : ""
-  }</p>
-  <p>Vous trouverez le détail complet de l'étude <strong>en pièce jointe (PDF)</strong>.</p>
-  <p>Pour l'accompagnement sur votre dossier de changement d'assurance, nos frais de courtage s'élèvent à <strong>${courtage.toLocaleString("fr-FR")}&nbsp;€</strong>.</p>
-  ${
-    planned
-      ? `<p>Date de changement envisagée : <strong>${planned}</strong>. Votre banque dispose de 10 jours ouvrés pour accepter, obligation légale, et résilie automatiquement votre contrat actuel.</p>`
-      : `<p>Votre banque dispose de 10 jours ouvrés pour accepter, obligation légale, et résilie automatiquement votre contrat actuel.</p>`
-  }
-  <p>Si vous souhaitez donner suite, répondez simplement à ce mail. Nous resterons à vos côtés jusqu'à la prise d'effet.</p>
-  <p style="margin-top:24px">Bien cordialement,<br/><strong>Charles Victor</strong><br/>Le Club Immobilier Français · ORIAS 24002253</p>
-</div>`;
+  const economyHero = grossLabel
+    ? `<div style="background-color:#EFF6FF;border-left:4px solid #1E3A8A;padding:22px 20px;margin:0 0 22px 0;border-radius:6px;">
+      <p style="font-size:12px;margin:0 0 8px 0;color:#1E3A8A;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;">
+        Économie brute estimée
+      </p>
+      <p style="font-size:34px;margin:0 0 6px 0;color:#1E3A8A;font-weight:700;line-height:1.15;">
+        ${grossLabel}&nbsp;€
+      </p>
+      <p style="font-size:13px;margin:0;color:#6B7280;">
+        Avant frais — détail complet dans le PDF joint.
+      </p>
+    </div>`
+    : `<div style="background-color:#EFF6FF;border-left:4px solid #1E3A8A;padding:18px 16px;margin:0 0 22px 0;border-radius:6px;">
+      <p style="margin:0;color:#1E3A8A;font-weight:700;">Votre étude personnalisée est prête</p>
+      <p style="margin:8px 0 0 0;color:#374151;font-size:14px;">Le détail complet se trouve en pièce jointe (PDF).</p>
+    </div>`;
+
+  const plannedBlock = planned
+    ? `<p style="font-size:14px;margin:0 0 12px 0;color:#1F2937;">Date de changement prévue : <strong>${planned}</strong></p>`
+    : "";
+
+  const html = `<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background-color:#F8FAFC;color:#1F2937;line-height:1.6;">
+<div style="max-width:640px;margin:0 auto;background-color:#FFFFFF;border:1px solid #E5E7EB;">
+  <div style="background-color:#1E3A8A;padding:28px 24px;text-align:center;">
+    ${LCIF_EMAIL_LOGO_HEADER_IMG}
+    <p style="margin:14px 0 0 0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.88);">
+      Étude d'économies — Assurance emprunteur
+    </p>
+  </div>
+
+  <div style="padding:32px 28px;">
+    <p style="font-size:16px;margin:0 0 16px 0;color:#111827;"><strong>${greeting}</strong></p>
+    <p style="font-size:15px;margin:0 0 20px 0;color:#374151;">
+      Nous avons finalisé votre <strong>étude d'économies</strong> sur l'assurance emprunteur.
+      Les garanties de la solution proposée sont <strong>équivalentes</strong> à votre contrat actuel.
+    </p>
+
+    ${economyHero}
+
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;border-spacing:0 10px;margin:0 0 8px 0;">
+      <tr>
+        <td style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:14px 16px;">
+          <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#166534;">Pièce jointe</p>
+          <p style="margin:0;font-size:14px;color:#14532D;line-height:1.45;">
+            Le détail complet de l'étude est <strong>en pièce jointe (PDF)</strong>.
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:14px 16px;">
+          <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#64748B;">Accompagnement</p>
+          <p style="margin:0;font-size:14px;color:#1F2937;">
+            Frais de courtage : <strong>${courtageLabel}&nbsp;€</strong>
+          </p>
+          <p style="margin:6px 0 0 0;font-size:12px;color:#6B7280;">
+            Pour l'accompagnement de votre dossier de changement d'assurance.
+          </p>
+        </td>
+      </tr>
+    </table>
+
+    ${plannedBlock}
+    <p style="font-size:14px;margin:0 0 16px 0;color:#374151;">
+      Votre banque dispose de 10 jours ouvrés pour accepter, obligation légale, et résilie automatiquement votre contrat actuel.
+    </p>
+
+    <div style="background-color:#1E3A8A;border-radius:8px;text-align:center;padding:14px 16px;margin:8px 0 22px 0;">
+      <p style="margin:0;color:#FFFFFF;font-weight:700;font-size:15px;">Répondez à ce mail pour donner suite</p>
+    </div>
+
+    <p style="font-size:14px;margin:0 0 0 0;color:#374151;">
+      Si vous souhaitez avancer, répondez simplement à ce message. Nous resterons à vos côtés jusqu'à la prise d'effet.
+    </p>
+
+    <p style="font-size:14px;margin:28px 0 0 0;color:#111827;">Bien cordialement,<br/>
+      <strong>Charles Victor</strong><br/>
+      <span style="color:#6B7280;">Conseiller en assurance emprunteur</span><br/>
+      <span style="color:#6B7280;">Le Club Immobilier Français</span>
+    </p>
+  </div>
+
+  <div style="background-color:#F8FAFC;padding:18px 28px;border-top:1px solid #E5E7EB;">
+    <p style="font-size:11px;margin:0;color:#9CA3AF;line-height:1.5;">
+      Le Club Immobilier Français — 17 Passage Leroy, 44000 Nantes<br/>
+      N° ORIAS : 24002253 | Courtier en assurance emprunteur, indépendant de tout assureur<br/>
+      Cette proposition est établie à titre indicatif et n'a pas de valeur contractuelle.
+    </p>
+  </div>
+</div>
+</body>
+</html>`;
 
   return { subject, html };
 }
