@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { CheckCircle2, Eye, Loader2, X } from "lucide-react";
+import { CheckCircle2, Eye, FileText, Loader2, X } from "lucide-react";
 import { getApiUrl, apiFetch } from "../../lib/utils";
 
 export type StudyValidationPending = {
@@ -17,6 +17,9 @@ export type StudyValidationPending = {
   maxPerAssuredEur: number;
   payoutSharePercent: number;
   lowSavingsException?: boolean;
+  hasStudyPdf?: boolean;
+  studyPdfFileName?: string | null;
+  studySource?: string | null;
 };
 
 const PORTAL_ERROR_LABELS: Record<string, string> = {
@@ -68,6 +71,8 @@ export default function ConseillerStudyValidation({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewSubject, setPreviewSubject] = useState(validation.subject);
+  const [previewHasPdf, setPreviewHasPdf] = useState(Boolean(validation.hasStudyPdf));
+  const [previewPdfName, setPreviewPdfName] = useState(validation.studyPdfFileName || null);
 
   const summary = useMemo(() => {
     const total = Math.round(feesPerAssured * validation.assuredCount);
@@ -101,6 +106,8 @@ export default function ConseillerStudyValidation({
       }
       setPreviewSubject(String(json.subject || validation.subject));
       setPreviewHtml(String(json.html || ""));
+      setPreviewHasPdf(Boolean(json.hasStudyPdf || validation.hasStudyPdf));
+      setPreviewPdfName(json.studyPdfFileName || validation.studyPdfFileName || null);
     } catch {
       setPreviewError("Erreur réseau");
       setPreviewHtml(null);
@@ -176,6 +183,13 @@ export default function ConseillerStudyValidation({
             {validation.debriefNote}
           </p>
         ) : null}
+        {validation.hasStudyPdf ? (
+          <p className="text-xs text-emerald-800 mb-3 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            Étude fournie en PDF
+            {validation.studyPdfFileName ? ` (${validation.studyPdfFileName})` : ""}. Vous pouvez
+            ouvrir le fichier et prévisualiser le mail client (courtage inclus).
+          </p>
+        ) : null}
         <div className="grid sm:grid-cols-2 gap-2 text-xs mb-3">
           <div className="bg-white/80 rounded-lg px-3 py-2 border border-indigo-100">
             <span className="text-slate-500">Économie brute estimée</span>
@@ -226,6 +240,21 @@ export default function ConseillerStudyValidation({
         {error ? <p className="text-xs text-red-700 mb-2">{error}</p> : null}
 
         <div className="flex flex-col gap-2">
+          {validation.hasStudyPdf ? (
+            <a
+              href={getApiUrl(
+                withPreview(
+                  `/api/apporteur-portal/${encodeURIComponent(portalToken)}/study-validation/${encodeURIComponent(validation.dossierId)}/study-pdf`,
+                ),
+              )}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-2.5 rounded-lg border-2 border-emerald-700 bg-white text-emerald-800 font-bold text-sm inline-flex items-center justify-center gap-2 hover:bg-emerald-50"
+            >
+              <FileText className="w-4 h-4" />
+              Ouvrir le PDF d&apos;étude
+            </a>
+          ) : null}
           <button
             type="button"
             disabled={previewLoading}
@@ -233,7 +262,7 @@ export default function ConseillerStudyValidation({
             className="w-full py-2.5 rounded-lg border-2 border-[#1E3A8A] bg-white text-[#1E3A8A] font-bold text-sm inline-flex items-center justify-center gap-2 hover:bg-indigo-50 disabled:opacity-60"
           >
             {previewLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
-            Prévisualiser l&apos;étude
+            Prévisualiser le mail client
           </button>
           <button
             type="button"
@@ -271,6 +300,9 @@ export default function ConseillerStudyValidation({
                 <p className="text-sm font-bold text-slate-900 truncate">{previewSubject}</p>
                 <p className="text-[11px] text-slate-500 mt-0.5">
                   Courtage affiché : {summary.total} € ({feesPerAssured} € × {validation.assuredCount})
+                  {previewHasPdf
+                    ? ` · PDF joint à l'envoi${previewPdfName ? ` (${previewPdfName})` : ""}`
+                    : ""}
                 </p>
               </div>
               <button

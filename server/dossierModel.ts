@@ -117,14 +117,25 @@ export interface Dossier {
       annualPremiumEur?: number;
     };
   };
+  /** PDF d'étude importé (chemin local + métadonnées). */
+  studyPdf?: {
+    fileName: string;
+    localPath: string;
+    size: number;
+    uploadedAt: string;
+    mimeType?: string;
+  };
   /** Validation conseiller : débrief courtage puis envoi manuel admin. */
   studyConseillerValidation?: {
     status: "pending" | "approved" | "cancelled";
     submittedAt: string;
     submittedBy?: string;
     subject: string;
-    html: string;
+    /** HTML optionnel si l'étude est fournie en PDF. */
+    html?: string;
     debriefNote?: string;
+    studySource?: "html" | "pdf";
+    studyPdfFileName?: string;
     grossSavingsEur?: number;
     feesAssureurEur?: number;
     assuredCount: number;
@@ -315,6 +326,7 @@ export function ensureDossierShape(d: any): Dossier {
     camilleEscalation: d.camilleEscalation,
     camilleStaffHandledUntil: d.camilleStaffHandledUntil,
     studyDraft: d.studyDraft,
+    studyPdf: d.studyPdf,
     studyConseillerValidation: d.studyConseillerValidation,
     studyKpi: d.studyKpi,
     insuranceChangePlan: d.insuranceChangePlan,

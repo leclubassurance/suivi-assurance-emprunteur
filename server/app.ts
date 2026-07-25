@@ -759,6 +759,28 @@ export function createApp() {
           });
         }
 
+        if (nextStatus === "REFUSÉ" || nextStatus === "REFUSE") {
+          const { clearClientInsuranceAcceptance } = await import("./insuranceAcceptance");
+          clearClientInsuranceAcceptance(dossier);
+          if (
+            !dossier.subscriptionProgress ||
+            dossier.subscriptionProgress.updatedBy === "system" ||
+            dossier.subscriptionProgress.phase === "decision_received"
+          ) {
+            dossier.subscriptionProgress = {
+              phase: "awaiting_decision",
+              updatedAt: new Date().toISOString(),
+              updatedBy: String((req as any).adminEmail || "admin"),
+              note: "Refus client — accord auto éventuel annulé.",
+            };
+          }
+          addEvent(dossier, {
+            type: "NOTE_ADDED",
+            actor: { kind: "ADMIN" },
+            message: "Statut REFUSÉ — accord client auto (mail) effacé si présent.",
+          });
+        }
+
         if (req.body.status === "EN_ATTENTE_CLIENT") {
           const hasPendingNoReply = (dossier.tasks || []).some(
             (t: any) => t.status === "PENDING" && t.type === "FOLLOWUP_NO_REPLY",
@@ -812,12 +834,39 @@ export function createApp() {
     const { id } = req.params;
     const { to, subject, html, saveAsPlaybook, forceDirect, emailKind: rawEmailKind } =
       (req.body || {}) as any;
-    if (!subject || !html) return res.status(400).json({ error: "Missing subject or html" });
     const emailKind = rawEmailKind === "message" ? "message" : "study";
 
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { getStudyPdfPath, buildStudyClientEmailHtml } = await import("./studyPdfFlow");
+    const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
+    let htmlInput = String(html || "").trim();
+    if (!htmlInput && emailKind === "study") {
+      htmlInput = String(
+        dossier.studyDraft?.html || dossier.studyConseillerValidation?.html || "",
+      ).trim();
+    }
+    if (!htmlInput && emailKind === "study" && hasStudyPdf) {
+      const prenom = String(dossier.formData?.assures?.[0]?.prenom || "").trim();
+      const courtage =
+        dossier.studyConseillerValidation?.feesCourtageTotalEur ??
+        dossier.studyDraft?.economySummary?.feesCourtageEur ??
+        0;
+      htmlInput = buildStudyClientEmailHtml({
+        clientPrenom: prenom,
+        grossSavingsEur:
+          dossier.studyKpi?.grossSavingsEur ??
+          dossier.studyDraft?.economySummary?.grossSavingsEur ??
+          null,
+        feesCourtageTotalEur: courtage,
+        plannedChangeDate: dossier.insuranceChangePlan?.plannedDate || null,
+      }).html;
+    }
+    if (!subject || (!htmlInput && !(emailKind === "study" && hasStudyPdf))) {
+      return res.status(400).json({ error: "Missing subject or html" });
+    }
 
     const { getConseillerStudySendGate } = await import("./studyConseillerValidation");
     const gate = await getConseillerStudySendGate(dossier);
@@ -828,7 +877,6 @@ export function createApp() {
       });
     }
 
-    const htmlInput = String(html);
     let finalHtml = htmlInput;
     if (emailKind === "study") {
       const { resolveStudyEmailHtmlForSend, dossierSliceForStudySend } = await import(
@@ -983,12 +1031,21 @@ export function createApp() {
     const validation = dossier.studyConseillerValidation || null;
     const draftHtml = dossier.studyDraft?.html || validation?.html || "";
     const sendSlice = dossierSliceForStudySend(dossier);
+    const { getStudyPdfPath } = await import("./studyPdfFlow");
+    const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
     res.json({
       requiresConseillerValidation,
       canAdminSendStudy: !gate.blocked,
       studySent: hasStudyBeenSent(dossier),
       validation,
       htmlForSend: resolveStudyEmailHtmlForSend({ draftHtml, validation, dossier: sendSlice }),
+      hasStudyPdf,
+      studyPdfFileName:
+        (dossier as any).studyPdf?.fileName ||
+        (dossier.studyDraft as any)?.extracted?.pdf?.fileName ||
+        null,
+      studyDraftSummary: dossier.studyDraft?.economySummary || null,
+      studyKpi: dossier.studyKpi || null,
     });
   });
 
@@ -1078,6 +1135,77 @@ export function createApp() {
     }
 
     res.json({ success: true, computation: comp, draft });
+  });
+
+  // Upload PDF d'étude → extraction KPI + brouillon
+  app.post("/api/admin/dossiers/:id/study-pdf", quoteUpload.single("studyPdf"), async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const { id } = req.params;
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) return res.status(400).json({ error: "Fichier PDF manquant (champ studyPdf)." });
+    if (!/\.pdf$/i.test(file.originalname || "") && file.mimetype !== "application/pdf") {
+      return res.status(400).json({ error: "Seuls les fichiers PDF sont acceptés." });
+    }
+
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { ingestStudyPdfForDossier } = await import("./studyPdfFlow");
+    const result = await ingestStudyPdfForDossier({
+      dossier,
+      filePath: file.path,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+      uploadsDir: UPLOADS_DIR,
+      actorLabel: String((req as any).adminEmail || "Admin"),
+    });
+    if (!result.ok) {
+      return res.status(400).json({
+        error: result.error,
+        parsed: result.parsed || null,
+        pdfTextPreview: result.pdfTextPreview || null,
+      });
+    }
+
+    try {
+      await writeDB(db, dossier);
+    } catch (err: any) {
+      console.error("[study-pdf] Persistance:", err?.message || err);
+      return res.json({
+        success: true,
+        warning: "PDF importé localement — persistance Firestore incomplète.",
+        studyDraft: dossier.studyDraft,
+        studyKpi: dossier.studyKpi,
+        studyPdf: (dossier as any).studyPdf,
+        parsed: result.parsed,
+      });
+    }
+
+    return res.json({
+      success: true,
+      studyDraft: dossier.studyDraft,
+      studyKpi: dossier.studyKpi,
+      studyPdf: (dossier as any).studyPdf,
+      insuranceChangePlan: dossier.insuranceChangePlan,
+      parsed: result.parsed,
+    });
+  });
+
+  app.get("/api/admin/dossiers/:id/study-pdf", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { getStudyPdfPath } = await import("./studyPdfFlow");
+    const pdfPath = getStudyPdfPath(dossier);
+    if (!pdfPath) return res.status(404).json({ error: "Aucun PDF d'étude sur ce dossier." });
+    const fileName =
+      String((dossier as any).studyPdf?.fileName || "etude-economies.pdf").trim() || "etude-economies.pdf";
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${fileName.replace(/"/g, "")}"`);
+    return res.sendFile(pdfPath);
   });
 
   // Upload/replace a single active quote ("devis") PDF for the dossier (admin only workflow)
@@ -2787,7 +2915,11 @@ export function createApp() {
         if (!validation || !["pending", "approved"].includes(String(validation.status || ""))) {
           return res.status(404).json({ ok: false, error: "no_pending_validation" });
         }
-        if (!String(validation.html || "").trim()) {
+
+        const { getStudyPdfPath, buildStudyClientEmailHtml } = await import("./studyPdfFlow");
+        const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
+        const draftHtml = String(validation.html || dossier.studyDraft?.html || "").trim();
+        if (!draftHtml && !hasStudyPdf) {
           return res.status(404).json({ ok: false, error: "preview_unavailable" });
         }
 
@@ -2810,16 +2942,27 @@ export function createApp() {
         }
 
         const total = Math.round(feesPerAssuredEur * Number(validation.assuredCount || 1));
-        const html = resolveStudyEmailHtmlForSend({
-          draftHtml: validation.html,
-          validation: {
-            status: validation.status,
-            html: validation.html,
+        let html = draftHtml;
+        if (!html && hasStudyPdf) {
+          const prenom = String(dossier.formData?.assures?.[0]?.prenom || "").trim();
+          html = buildStudyClientEmailHtml({
+            clientPrenom: prenom,
+            grossSavingsEur: resolveGrossSavingsForStudyValidation(dossier, validation),
             feesCourtageTotalEur: total,
-          },
-          dossier,
-          feesCourtageEur: total,
-        });
+            plannedChangeDate: dossier.insuranceChangePlan?.plannedDate || null,
+          }).html;
+        } else {
+          html = resolveStudyEmailHtmlForSend({
+            draftHtml,
+            validation: {
+              status: validation.status,
+              html: draftHtml,
+              feesCourtageTotalEur: total,
+            },
+            dossier,
+            feesCourtageEur: total,
+          });
+        }
 
         res.json({
           ok: true,
@@ -2827,7 +2970,60 @@ export function createApp() {
           html,
           feesCourtageTotalEur: total,
           feesPerAssuredEur,
+          hasStudyPdf,
+          studyPdfFileName:
+            validation.studyPdfFileName ||
+            (dossier as any).studyPdf?.fileName ||
+            null,
+          studySource: validation.studySource || (hasStudyPdf ? "pdf" : "html"),
         });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.get(
+    "/api/apporteur-portal/:token/study-validation/:dossierId/study-pdf",
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken, listReferrals } = await import("./apporteurStore");
+        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (!isConseillerImmoClubType(apporteur.type)) {
+          return res.status(403).json({ ok: false, error: "not_conseiller" });
+        }
+        {
+          const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
+          if (!isApporteurPortalUnlocked(apporteur)) {
+            return res.status(403).json({ ok: false, error: "portal_locked" });
+          }
+        }
+        const dossierId = String(req.params.dossierId || "").trim().toUpperCase();
+        const referrals = await listReferrals({ apporteurId: apporteur.id });
+        if (!referrals.some((r) => r.dossierId === dossierId)) {
+          return res.status(403).json({ ok: false, error: "forbidden" });
+        }
+        const db = await readDBAsync();
+        const dossier = db.dossiers.find((d: any) => d.id === dossierId);
+        if (!dossier) return res.status(404).json({ ok: false, error: "dossier_not_found" });
+        const validation = dossier.studyConseillerValidation;
+        if (!validation || !["pending", "approved"].includes(String(validation.status || ""))) {
+          return res.status(404).json({ ok: false, error: "no_pending_validation" });
+        }
+        const { getStudyPdfPath } = await import("./studyPdfFlow");
+        const pdfPath = getStudyPdfPath(dossier);
+        if (!pdfPath) return res.status(404).json({ ok: false, error: "pdf_unavailable" });
+        const fileName =
+          String(
+            validation.studyPdfFileName ||
+              (dossier as any).studyPdf?.fileName ||
+              "etude-economies.pdf",
+          ).trim() || "etude-economies.pdf";
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `inline; filename="${fileName.replace(/"/g, "")}"`);
+        return res.sendFile(pdfPath);
       } catch (err: any) {
         res.status(400).json({ ok: false, error: err?.message || String(err) });
       }

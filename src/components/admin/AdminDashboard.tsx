@@ -59,6 +59,14 @@ export default function AdminDashboard({
     requiresConseillerValidation: boolean;
     canAdminSendStudy?: boolean;
     studySent?: boolean;
+    hasStudyPdf?: boolean;
+    studyPdfFileName?: string | null;
+    studyDraftSummary?: {
+      grossSavingsEur?: number;
+      feesCourtageEur?: number;
+      feesAssureurEur?: number;
+      annualPremiumEur?: number;
+    } | null;
     validation: {
       status: string;
       submittedAt?: string;
@@ -66,8 +74,10 @@ export default function AdminDashboard({
       feesPerAssuredEur?: number;
       feesCourtageTotalEur?: number;
       assuredCount?: number;
+      studySource?: string;
     } | null;
   } | null>(null);
+  const [studyPdfUploading, setStudyPdfUploading] = useState(false);
   const [debriefNote, setDebriefNote] = useState("");
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
@@ -466,6 +476,45 @@ export default function AdminDashboard({
       loadDossiers();
     } catch {
       showToast("Erreur calcul économies", "error");
+    }
+  };
+
+  const handleUploadStudyPdf = async (file: File) => {
+    if (!selectedDossier) return;
+    if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
+      showToast("Seuls les fichiers PDF sont acceptés", "error");
+      return;
+    }
+    try {
+      setStudyPdfUploading(true);
+      showToast("Extraction des données du PDF…", "info");
+      const fd = new FormData();
+      fd.append("studyPdf", file);
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/study-pdf`, {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Erreur import PDF", "error");
+        return;
+      }
+      if (data?.studyDraft?.subject) setEmailSubject(data.studyDraft.subject);
+      if (data?.studyDraft?.html) setEmailHtml(data.studyDraft.html);
+      const gross = data?.parsed?.grossSavingsEur ?? data?.studyDraft?.economySummary?.grossSavingsEur;
+      showToast(
+        gross != null
+          ? `PDF importé — économie brute ${Math.round(gross).toLocaleString("fr-FR")} € (KPI mis à jour).`
+          : "PDF d'étude importé.",
+        "success",
+      );
+      loadDossiers();
+      reloadMetrics();
+      await refreshConseillerStudyFlow(selectedDossier.id);
+    } catch {
+      showToast("Erreur réseau lors de l'import PDF", "error");
+    } finally {
+      setStudyPdfUploading(false);
     }
   };
 
@@ -938,8 +987,8 @@ export default function AdminDashboard({
       showToast("Veuillez saisir l'objet du mail", "error");
       return;
     }
-    if (!emailHtml.trim()) {
-      showToast("Veuillez coller le HTML du mail", "error");
+    if (!emailHtml.trim() && !conseillerStudyFlow?.hasStudyPdf) {
+      showToast("Importez un PDF d'étude ou collez le HTML du mail", "error");
       return;
     }
 
@@ -952,7 +1001,7 @@ export default function AdminDashboard({
           headers: await authHeaders(),
           body: JSON.stringify({
             subject: emailSubject,
-            html: emailHtml,
+            html: emailHtml.trim() || undefined,
             debriefNote: debriefNote.trim() || undefined,
           }),
         },
@@ -1013,8 +1062,8 @@ export default function AdminDashboard({
       showToast("Veuillez saisir l'objet du mail", "error");
       return;
     }
-    if (!studyEmailHtmlResolved.trim()) {
-      showToast("Veuillez coller le HTML du mail", "error");
+    if (!studyEmailHtmlResolved.trim() && !conseillerStudyFlow?.hasStudyPdf) {
+      showToast("Importez un PDF d'étude ou collez le HTML du mail", "error");
       return;
     }
 
@@ -1025,13 +1074,20 @@ export default function AdminDashboard({
         headers: await authHeaders(),
         body: JSON.stringify({
           subject: emailSubject,
-          html: studyEmailHtmlResolved,
+          html: studyEmailHtmlResolved || emailHtml,
           emailKind: "study",
         }),
       });
       const errData = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast(errData.channel === "gmail" ? "Email client envoyé via Gmail" : "Email client envoyé", "success");
+        showToast(
+          errData.channel === "gmail"
+            ? conseillerStudyFlow?.hasStudyPdf
+              ? "Étude + PDF envoyés via Gmail"
+              : "Email client envoyé via Gmail"
+            : "Email client envoyé",
+          "success",
+        );
         setEmailHtml("");
         setPreviewActive(false);
         loadDossiers();
@@ -2176,7 +2232,8 @@ export default function AdminDashboard({
                       <Mail className="w-5 h-5 text-indigo-600"/> Envoi au client
                     </h3>
                     <p className="text-xs text-slate-500 mt-1">
-                      Collez le HTML du mail. L’envoi se fait via votre compte Gmail connecté (assurance@leclubimmobilier.fr).
+                      Importez le PDF d&apos;étude (extraction auto des KPI) ou collez un HTML.
+                      L&apos;envoi se fait via Gmail ; le PDF est joint automatiquement s&apos;il est présent.
                     </p>
                     {selectedDossier && (() => {
                       const email = String(selectedDossier.formData?.assures?.[0]?.email || "")
@@ -2234,7 +2291,22 @@ export default function AdminDashboard({
                   </div>
 
                   <div className="flex flex-col gap-3">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-colors inline-flex items-center gap-2 cursor-pointer">
+                        <Upload className="w-4 h-4" />
+                        {studyPdfUploading ? "Import PDF…" : "Importer PDF d'étude"}
+                        <input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          className="hidden"
+                          disabled={studyPdfUploading}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = "";
+                            if (f) void handleUploadStudyPdf(f);
+                          }}
+                        />
+                      </label>
                       <button
                         onClick={handleComputeEconomyDraft}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-colors inline-flex items-center gap-2"
@@ -2248,6 +2320,46 @@ export default function AdminDashboard({
                         </span>
                       )}
                     </div>
+                    {conseillerStudyFlow?.hasStudyPdf ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+                        <p className="font-bold">PDF d&apos;étude importé</p>
+                        <p className="text-xs mt-1">
+                          {conseillerStudyFlow.studyPdfFileName || "etude.pdf"}
+                          {conseillerStudyFlow.studyDraftSummary?.grossSavingsEur != null
+                            ? ` — économie brute ${Math.round(conseillerStudyFlow.studyDraftSummary.grossSavingsEur).toLocaleString("fr-FR")} €`
+                            : ""}
+                          {conseillerStudyFlow.studyDraftSummary?.annualPremiumEur != null
+                            ? ` · prime annuelle ~${Math.round(conseillerStudyFlow.studyDraftSummary.annualPremiumEur).toLocaleString("fr-FR")} €`
+                            : ""}
+                          {conseillerStudyFlow.studyDraftSummary?.feesAssureurEur != null
+                            ? ` · frais dossier ${Math.round(conseillerStudyFlow.studyDraftSummary.feesAssureurEur).toLocaleString("fr-FR")} €`
+                            : ""}
+                        </p>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 underline mt-2"
+                          onClick={async () => {
+                            try {
+                              const res = await adminFetch(
+                                `/api/admin/dossiers/${selectedDossier!.id}/study-pdf`,
+                              );
+                              if (!res.ok) {
+                                showToast("PDF introuvable", "error");
+                                return;
+                              }
+                              const blob = await res.blob();
+                              const url = URL.createObjectURL(blob);
+                              window.open(url, "_blank", "noopener,noreferrer");
+                              setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                            } catch {
+                              showToast("Erreur ouverture PDF", "error");
+                            }
+                          }}
+                        >
+                          <FileText className="w-3.5 h-3.5" /> Voir le PDF
+                        </button>
+                      </div>
+                    ) : null}
                     {economyStatus?.reasons?.length ? (
                       <div className="text-xs text-slate-500">
                         {economyStatus.reasons.slice(0, 2).join(" · ")}
@@ -2259,9 +2371,9 @@ export default function AdminDashboard({
                     <div className="mb-1 p-4 rounded-xl border border-indigo-200 bg-indigo-50 text-sm text-indigo-950">
                       <p className="font-bold mb-1">Dossier conseiller LCIF</p>
                       <p className="text-xs text-indigo-800 leading-relaxed">
-                        Collez votre étude HTML, ajoutez un débrief optionnel, puis soumettez au conseiller
-                        pour validation du courtage. Après validation, les frais retenus sont appliqués
-                        automatiquement dans l&apos;aperçu et à l&apos;envoi.
+                        Importez le PDF d&apos;étude (recommandé) ou collez un HTML, ajoutez un débrief
+                        optionnel, puis soumettez au conseiller pour validation du courtage. Après
+                        validation, le mail type + PDF joint sont prêts à l&apos;envoi.
                       </p>
                       {conseillerStudyFlow.validation?.status === "pending" ? (
                         <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -2340,11 +2452,17 @@ export default function AdminDashboard({
                   </div>
 
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Coller le HTML du mail ici</label>
+                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                      Mail client (HTML){conseillerStudyFlow?.hasStudyPdf ? " — optionnel si PDF" : ""}
+                    </label>
                     <textarea 
                       className="border border-slate-200 rounded-xl p-4 text-xs font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:font-sans placeholder:text-slate-400"
                       style={{ height: "400px" }}
-                      placeholder="<div style='font-family: Arial, sans-serif;'>...</div>"
+                      placeholder={
+                        conseillerStudyFlow?.hasStudyPdf
+                          ? "Brouillon généré automatiquement après import PDF (modifiable). Le PDF sera joint à l'envoi."
+                          : "<div style='font-family: Arial, sans-serif;'>...</div>"
+                      }
                       value={emailHtml}
                       onChange={e => setEmailHtml(e.target.value)}
                     />

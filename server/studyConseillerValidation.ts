@@ -23,7 +23,10 @@ export type StudyConseillerValidation = {
   submittedAt: string;
   submittedBy?: string;
   subject: string;
-  html: string;
+  /** HTML optionnel si l'étude est fournie en PDF. */
+  html?: string;
+  studySource?: "html" | "pdf";
+  studyPdfFileName?: string;
   grossSavingsEur?: number;
   feesAssureurEur?: number;
   assuredCount: number;
@@ -230,6 +233,14 @@ export function buildStudyValidationSummaryForPortal(
     maxPerAssuredEur: config.maxPerAssuredEur,
     payoutSharePercent: config.apporteurShareOfBrokerage,
     lowSavingsException: minPerAssuredEur < config.minPerAssuredEur,
+    studySource: validation.studySource || null,
+    studyPdfFileName: validation.studyPdfFileName || null,
+    hasStudyPdf: Boolean(
+      validation.studySource === "pdf" ||
+        validation.studyPdfFileName ||
+        (dossier as any)?.studyPdf?.localPath ||
+        (dossier as any)?.studyDraft?.extracted?.pdf?.localPath,
+    ),
   };
 }
 
@@ -311,7 +322,7 @@ export async function notifyAdminStudyCourtageApproved(params: {
 export async function submitStudyToConseiller(params: {
   dossier: Dossier;
   subject: string;
-  html: string;
+  html?: string;
   submittedBy?: string;
   publicBaseUrl: string;
   debriefNote?: string;
@@ -319,11 +330,17 @@ export async function submitStudyToConseiller(params: {
   | { ok: true; validation: StudyConseillerValidation }
   | { ok: false; error: string }
 > {
-  const { dossier, subject, html, submittedBy, publicBaseUrl, debriefNote } = params;
-  const trimmedHtml = String(html || "").trim();
+  const { dossier, subject, submittedBy, publicBaseUrl, debriefNote } = params;
+  const trimmedHtml = String(params.html || "").trim();
   const trimmedSubject = String(subject || "").trim();
-  if (!trimmedSubject || !trimmedHtml) {
-    return { ok: false, error: "Objet et HTML requis." };
+  const { getStudyPdfPath, buildStudyClientEmailHtml } = await import("./studyPdfFlow");
+  const pdfPath = getStudyPdfPath(dossier);
+  const hasPdf = Boolean(pdfPath) || dossier.studyDraft?.kind === "PDF_UPLOAD";
+  if (!trimmedSubject) {
+    return { ok: false, error: "Objet du mail requis." };
+  }
+  if (!trimmedHtml && !hasPdf) {
+    return { ok: false, error: "HTML ou PDF d'étude requis." };
   }
 
   const apporteur = await resolveDossierConseillerApporteur(dossier);
@@ -349,14 +366,35 @@ export async function submitStudyToConseiller(params: {
     subject: trimmedSubject,
   });
   const now = new Date().toISOString();
+
+  let htmlForValidation = trimmedHtml;
+  if (!htmlForValidation && hasPdf) {
+    const prenom = String(dossier.formData?.assures?.[0]?.prenom || "").trim();
+    const built = buildStudyClientEmailHtml({
+      clientPrenom: prenom,
+      grossSavingsEur: resolvedGross,
+      feesCourtageTotalEur: 0,
+      plannedChangeDate: dossier.insuranceChangePlan?.plannedDate || null,
+    });
+    htmlForValidation = built.html;
+  }
+
   const validation: StudyConseillerValidation = {
     status: "pending",
     submittedAt: now,
     submittedBy,
     subject: trimmedSubject,
-    html: trimmedHtml,
+    html: htmlForValidation || undefined,
+    studySource: hasPdf && !trimmedHtml ? "pdf" : trimmedHtml ? "html" : hasPdf ? "pdf" : "html",
+    studyPdfFileName:
+      (dossier as any).studyPdf?.fileName ||
+      (dossier.studyDraft as any)?.extracted?.pdf?.fileName ||
+      undefined,
     grossSavingsEur: resolvedGross ?? undefined,
-    feesAssureurEur: ctx.feesAssureurEur ?? undefined,
+    feesAssureurEur:
+      ctx.feesAssureurEur ??
+      dossier.studyDraft?.economySummary?.feesAssureurEur ??
+      undefined,
     assuredCount: ctx.assuredCount,
     suggestedFeePerAssuredEur: ctx.suggestedFeePerAssuredEur,
     debriefNote: debriefNote?.trim() || undefined,
@@ -365,30 +403,39 @@ export async function submitStudyToConseiller(params: {
   (dossier as Dossier & { studyConseillerValidation?: StudyConseillerValidation }).studyConseillerValidation =
     validation;
 
+  const prevDraft = dossier.studyDraft;
   dossier.studyDraft = {
-    kind: "MANUAL",
+    kind: hasPdf && !trimmedHtml ? "PDF_UPLOAD" : prevDraft?.kind === "PDF_UPLOAD" ? "PDF_UPLOAD" : "MANUAL",
     computedAt: now,
-    reliability: "MANUAL",
+    reliability: prevDraft?.reliability || "MANUAL",
     subject: trimmedSubject,
-    html: trimmedHtml,
+    html: htmlForValidation || prevDraft?.html || null,
+    extracted: prevDraft?.extracted,
     economySummary:
       resolvedGross != null
         ? {
             grossSavingsEur: Math.round(resolvedGross),
-            feesCourtageEur: 0,
-            feesAssureurEur: ctx.feesAssureurEur ?? undefined,
+            feesCourtageEur: prevDraft?.economySummary?.feesCourtageEur ?? 0,
+            feesAssureurEur:
+              ctx.feesAssureurEur ??
+              prevDraft?.economySummary?.feesAssureurEur ??
+              undefined,
+            annualPremiumEur: prevDraft?.economySummary?.annualPremiumEur,
           }
-        : undefined,
+        : prevDraft?.economySummary,
   };
 
   addEvent(dossier, {
     type: "NOTE_ADDED",
     actor: { kind: "ADMIN", label: submittedBy || "Admin" },
-    message: "Débrief soumis au conseiller pour validation du courtage.",
+    message: hasPdf && !trimmedHtml
+      ? "PDF d'étude soumis au conseiller pour validation du courtage."
+      : "Débrief soumis au conseiller pour validation du courtage.",
     meta: {
       template: "STUDY_CONSEILLER_SUBMIT",
       grossSavingsEur: resolvedGross,
       assuredCount: ctx.assuredCount,
+      studySource: validation.studySource,
     },
   });
 
@@ -489,6 +536,32 @@ export async function approveConseillerStudyCourtage(params: {
   };
   if (dossier.studyDraft?.economySummary) {
     dossier.studyDraft.economySummary.feesCourtageEur = total;
+  }
+
+  // Mail type post-validation (surtout pour flux PDF) : courtage + date + PJ annoncée.
+  try {
+    const { buildStudyClientEmailHtml, getStudyPdfPath } = await import("./studyPdfFlow");
+    const hasPdf = Boolean(getStudyPdfPath(dossier)) || validation.studySource === "pdf";
+    if (hasPdf || !String(dossier.studyDraft?.html || validation.html || "").trim()) {
+      const prenom = String(dossier.formData?.assures?.[0]?.prenom || "").trim();
+      const built = buildStudyClientEmailHtml({
+        clientPrenom: prenom,
+        grossSavingsEur: resolveGrossSavingsForStudyValidation(dossier, dossier.studyConseillerValidation),
+        feesCourtageTotalEur: total,
+        plannedChangeDate: dossier.insuranceChangePlan?.plannedDate || null,
+      });
+      dossier.studyConseillerValidation = {
+        ...dossier.studyConseillerValidation!,
+        subject: dossier.studyConseillerValidation?.subject || built.subject,
+        html: built.html,
+      };
+      if (dossier.studyDraft) {
+        dossier.studyDraft.subject = dossier.studyDraft.subject || built.subject;
+        dossier.studyDraft.html = built.html;
+      }
+    }
+  } catch {
+    /* non bloquant */
   }
 
   addEvent(dossier, {

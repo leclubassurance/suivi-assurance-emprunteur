@@ -59,7 +59,11 @@ export function resolveStudyEconomicsSnapshot(dossier: Dossier): StudyEconomicsS
 
   const draft = dossier.studyDraft?.economySummary;
   const draftExtracted = dossier.studyDraft?.extracted as
-    | { proposedMonthlyByYear?: Array<{ year: number; monthly: number }> }
+    | {
+        proposedMonthlyByYear?: Array<{ year: number; monthly: number }>;
+        proposedMonthlyYear1Eur?: number;
+        annualPremiumEur?: number;
+      }
     | undefined;
   const validation = dossier.studyConseillerValidation;
 
@@ -160,10 +164,21 @@ export function resolveStudyEconomicsSnapshot(dossier: Dossier): StudyEconomicsS
 
   const y1Monthly =
     draftExtracted?.proposedMonthlyByYear?.find((r) => r.year === 1)?.monthly ??
-    draftExtracted?.proposedMonthlyByYear?.[0]?.monthly;
+    draftExtracted?.proposedMonthlyByYear?.[0]?.monthly ??
+    (draftExtracted?.proposedMonthlyYear1Eur != null
+      ? Number(draftExtracted.proposedMonthlyYear1Eur)
+      : undefined);
   if (y1Monthly != null && y1Monthly > 0 && annualPremiumEur <= 0) {
     proposedMonthlyYear1Eur = y1Monthly;
     annualPremiumEur = Math.round(y1Monthly * 12);
+    if (source === "study_email") source = "study_draft";
+  }
+  if (
+    draftExtracted?.annualPremiumEur != null &&
+    draftExtracted.annualPremiumEur > 0 &&
+    annualPremiumEur <= 0
+  ) {
+    annualPremiumEur = Math.round(Number(draftExtracted.annualPremiumEur));
     if (source === "study_email") source = "study_draft";
   }
 

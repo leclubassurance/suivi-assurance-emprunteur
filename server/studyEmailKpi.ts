@@ -209,7 +209,12 @@ export function getLoanCapitalFromDossier(dossier: Dossier | any): number {
     const n = Number(String(raw).replace(/\s/g, "").replace(",", "."));
     if (Number.isFinite(n) && n > 0) sum += n;
   }
-  return Math.round(sum);
+  if (sum > 0) return Math.round(sum);
+  const fromPdf = Number(dossier?.studyDraft?.extracted?.loanCapitalEur);
+  if (Number.isFinite(fromPdf) && fromPdf > 0) return Math.round(fromPdf);
+  const fromKpi = Number(dossier?.studyKpi?.loanCapitalEur);
+  if (Number.isFinite(fromKpi) && fromKpi > 0) return Math.round(fromKpi);
+  return 0;
 }
 
 export function isGrossSavingsPlausible(gross: number, loanCapitalEur: number): boolean {

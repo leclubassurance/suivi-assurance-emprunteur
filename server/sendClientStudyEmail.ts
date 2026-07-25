@@ -25,6 +25,8 @@ export async function sendClientStudyEmail(params: {
   actorKind?: "ADMIN" | "SYSTEM";
   /** study = étude économique (KPI, statut, courtage). message = texte libre tel quel. */
   emailKind?: ClientEmailKind;
+  /** Forcer ou désactiver la PJ PDF d'étude (défaut: auto si fichier présent et emailKind=study). */
+  attachStudyPdf?: boolean;
 }): Promise<SendClientStudyEmailResult> {
   const { dossier, subject, html } = params;
   const emailKind: ClientEmailKind = params.emailKind === "message" ? "message" : "study";
@@ -40,6 +42,30 @@ export async function sendClientStudyEmail(params: {
     .map((a: any) => String(a?.email || "").trim())
     .filter((e: string) => e && e.toLowerCase() !== toEmail.toLowerCase());
 
+  let studyAttachments: Array<{ filename: string; mimeType: string; content: Buffer }> = [];
+  if (emailKind === "study" && params.attachStudyPdf !== false) {
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const { getStudyPdfPath } = await import("./studyPdfFlow");
+      const pdfPath = getStudyPdfPath(dossier);
+      if (pdfPath && fs.existsSync(pdfPath)) {
+        const fileName =
+          String((dossier as any).studyPdf?.fileName || path.basename(pdfPath) || "etude-economies.pdf").trim() ||
+          "etude-economies.pdf";
+        studyAttachments = [
+          {
+            filename: fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`,
+            mimeType: "application/pdf",
+            content: fs.readFileSync(pdfPath),
+          },
+        ];
+      }
+    } catch (attErr: any) {
+      console.warn(`[send-study] PJ PDF: ${attErr?.message || attErr}`);
+    }
+  }
+
   let providerId: string | null = null;
   let channel: "gmail" | "smtp" | "simulated" = "simulated";
   const googleToken = params.googleToken ?? null;
@@ -49,6 +75,7 @@ export async function sendClientStudyEmail(params: {
     const gmailResult = await sendEmailReplyWithGmailAPI(token, toEmail, subject, html, {
       cc: ccEmails,
       dossier,
+      attachments: studyAttachments,
     });
     if (gmailResult.ok) {
       providerId = gmailResult.messageId || null;
@@ -83,7 +110,18 @@ export async function sendClientStudyEmail(params: {
     }
   } else if (isEmailConfigured()) {
     const bccFinal = await appendConseillerBccForDossier(dossier);
-    const result = await sendEmail({ to: toEmail, cc: ccEmails, bcc: bccFinal, subject, html });
+    const result = await sendEmail({
+      to: toEmail,
+      cc: ccEmails,
+      bcc: bccFinal,
+      subject,
+      html,
+      attachments: studyAttachments.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.mimeType,
+      })),
+    });
     if ("error" in result) {
       addEvent(dossier, {
         type: "EMAIL_FAILED",
@@ -128,11 +166,20 @@ export async function sendClientStudyEmail(params: {
   addEvent(dossier, {
     type: "EMAIL_SENT",
     actor: { kind: params.actorKind || "ADMIN", label: params.actorLabel || "Admin" },
-    meta: { to: toEmail, subject, providerId, channel, emailKind },
+    meta: {
+      to: toEmail,
+      subject,
+      providerId,
+      channel,
+      emailKind,
+      studyPdfAttached: studyAttachments.length > 0,
+    },
     message:
       emailKind === "message"
         ? `Message libre envoyé au client (${channel}).`
-        : `Étude envoyée au client (${channel}).`,
+        : studyAttachments.length
+          ? `Étude envoyée au client avec PDF joint (${channel}).`
+          : `Étude envoyée au client (${channel}).`,
   });
   acknowledgeStaffOutboundToClient(dossier, {
     source: params.actorLabel || "admin_send_email",
