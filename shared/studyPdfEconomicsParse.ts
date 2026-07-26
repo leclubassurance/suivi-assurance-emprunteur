@@ -174,13 +174,22 @@ function parseYear1Row(text: string): { current: number | null; proposed: number
 }
 
 function year1LooksAnnual(text: string, year1Proposed: number | null, template: string): boolean {
+  // Nouveau tableau comparatif : colonnes « / mois »
+  if (
+    /Tableau\s+comparatif\s+mensuel/i.test(text) ||
+    /Éco\.\s*nette\s*\/\s*mois/i.test(text) ||
+    /Actuelle\s*\/\s*mois/i.test(text) ||
+    /Nouvelle\s*\/\s*mois/i.test(text) ||
+    /cotisations\s*\/\s*mois|propos[ée]e\s*\/\s*mois|par\s+mois/i.test(text)
+  ) {
+    return false;
+  }
   if (template === "v2_personnalisee") return true;
   if (template === "v1_legacy") {
     // Ancien modèle ADE : cotisations mensuelles dans le tableau.
     return /Évolution\s+annuelle|année\s+contractuelle/i.test(text);
   }
   if (/Évolution\s+annuelle/i.test(text) || /année\s+contractuelle/i.test(text)) return true;
-  if (/cotisations\s*\/\s*mois|propos[ée]e\s*\/\s*mois|par\s+mois/i.test(text)) return false;
   // Inconnu : > 400 € en année 1 → plutôt annuel.
   if (year1Proposed != null && year1Proposed > 400) return true;
   return false;

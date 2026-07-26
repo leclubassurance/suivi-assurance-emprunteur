@@ -248,6 +248,115 @@ function normalizeComputation(
   };
 }
 
+function applyAnchors(
+  comp: AdeStudyComputation,
+  anchors?: {
+    currentTotalEur?: number | null;
+    proposedTotalEur?: number | null;
+    feesAssureurEur?: number | null;
+    remainingMonths?: number | null;
+    currentMonthlyByYear?: Array<{ year: number; monthly: number; total?: number }> | null;
+    proposedMonthlyByYear?: Array<{ year: number; monthly: number }> | null;
+  },
+): AdeStudyComputation {
+  if (!anchors) return comp;
+  let currentTotalEur = comp.currentTotalEur;
+  let proposedTotalEur = comp.proposedTotalEur;
+  let feesAssureurEur = comp.feesAssureurEur;
+  let monthsCompared = comp.monthsCompared;
+  let years = comp.years;
+
+  if (anchors.currentTotalEur != null && anchors.currentTotalEur > 0) {
+    currentTotalEur = round2(anchors.currentTotalEur);
+  }
+  if (anchors.proposedTotalEur != null && anchors.proposedTotalEur > 0) {
+    proposedTotalEur = round2(anchors.proposedTotalEur);
+  }
+  if (anchors.feesAssureurEur != null && anchors.feesAssureurEur >= 0) {
+    feesAssureurEur = round2(anchors.feesAssureurEur);
+  }
+  if (anchors.remainingMonths != null && anchors.remainingMonths > 0) {
+    monthsCompared = Math.round(anchors.remainingMonths);
+  }
+
+  // Reconstruire les années depuis les mensuelles extraites si disponibles
+  const curY = anchors.currentMonthlyByYear || [];
+  const propY = anchors.proposedMonthlyByYear || [];
+  if (curY.length >= 3 && propY.length >= 3 && monthsCompared > 0) {
+    const rebuilt: AdeYearRow[] = [];
+    let left = monthsCompared;
+    let cumul = 0;
+    const maxYear = Math.max(
+      ...curY.map((r) => r.year),
+      ...propY.map((r) => r.year),
+      Math.ceil(monthsCompared / 12),
+    );
+    const curMap = new Map(curY.map((r) => [r.year, r.monthly]));
+    const propMap = new Map(propY.map((r) => [r.year, r.monthly]));
+    for (let y = 1; y <= maxYear && left > 0; y++) {
+      const m = Math.min(12, left);
+      const curM = curMap.get(y) ?? curMap.get(Math.max(...curMap.keys())) ?? 0;
+      const propM = propMap.get(y) ?? propMap.get(Math.max(...propMap.keys())) ?? 0;
+      const currentEur = round2(curM * m);
+      const proposedEur = round2(propM * m);
+      const fee = y === 1 ? feesAssureurEur : 0;
+      const netSavingEur = round2(currentEur - proposedEur - fee);
+      cumul = round2(cumul + netSavingEur);
+      rebuilt.push({ year: y, currentEur, proposedEur, netSavingEur, cumulNetEur: cumul });
+      left -= m;
+    }
+    if (rebuilt.length) years = rebuilt;
+  } else if (
+    Math.abs(currentTotalEur - comp.currentTotalEur) > 1 ||
+    Math.abs(proposedTotalEur - comp.proposedTotalEur) > 1
+  ) {
+    // Rescale Gemini year rows to match forced totals
+    const sumCur = years.reduce((a, r) => a + r.currentEur, 0) || 1;
+    const sumProp = years.reduce((a, r) => a + r.proposedEur, 0) || 1;
+    years = rebuildYears(
+      years.map((r) => ({
+        year: r.year,
+        currentEur: round2((r.currentEur * currentTotalEur) / sumCur),
+        proposedEur: round2((r.proposedEur * proposedTotalEur) / sumProp),
+      })),
+      feesAssureurEur,
+    );
+  } else {
+    years = rebuildYears(years, feesAssureurEur);
+  }
+
+  const grossSavingsEur = round2(currentTotalEur - proposedTotalEur);
+  const netSavingsEur = round2(grossSavingsEur - feesAssureurEur);
+  if (years.length) {
+    const drift = round2(netSavingsEur - years[years.length - 1].cumulNetEur);
+    if (Math.abs(drift) >= 0.01) {
+      years[years.length - 1].netSavingEur = round2(years[years.length - 1].netSavingEur + drift);
+      years[years.length - 1].cumulNetEur = netSavingsEur;
+    }
+  }
+
+  const first8 = years.slice(0, 8);
+  return {
+    ...comp,
+    currentTotalEur,
+    proposedTotalEur,
+    feesAssureurEur,
+    monthsCompared,
+    years,
+    grossSavingsEur,
+    netSavingsEur,
+    savingsPercent:
+      currentTotalEur > 0 ? round2((netSavingsEur / currentTotalEur) * 1000) / 10 : 0,
+    year1ProposedEur: years[0]?.proposedEur || proposedTotalEur,
+    first8CurrentEur: round2(first8.reduce((a, r) => a + r.currentEur, 0)),
+    first8ProposedEur: round2(first8.reduce((a, r) => a + r.proposedEur, 0)),
+    assumptions: [
+      ...(comp.assumptions || []),
+      "Totaux actuelle/proposée ancrés sur l'extraction locale échéancier+devis.",
+    ].slice(0, 10),
+  };
+}
+
 export async function computeAdeStudyWithSkillGemini(params: {
   clientName: string;
   effectDateIso: string;
@@ -255,6 +364,17 @@ export async function computeAdeStudyWithSkillGemini(params: {
   scheduleText: string;
   devisText: string;
   offerText?: string;
+  /** Totaux déjà extraits localement — Gemini doit s'y caler (évite les approximations). */
+  anchors?: {
+    currentTotalEur?: number | null;
+    proposedTotalEur?: number | null;
+    feesAssureurEur?: number | null;
+    remainingMonths?: number | null;
+    proposedInsuredTotals?: number[] | null;
+    proposedEffectiveDate?: string | null;
+    currentMonthlyByYear?: Array<{ year: number; monthly: number; total?: number }> | null;
+    proposedMonthlyByYear?: Array<{ year: number; monthly: number }> | null;
+  };
 }): Promise<{ ok: true; computation: AdeStudyComputation } | { ok: false; error: string }> {
   if (!geminiReady()) {
     return { ok: false, error: "GEMINI_API_KEY manquante — génération skill indisponible." };
@@ -270,6 +390,36 @@ export async function computeAdeStudyWithSkillGemini(params: {
   }
 
   const skill = readSkillBundle();
+  const a = params.anchors || {};
+  const anchorBlock = [
+    a.currentTotalEur != null && a.currentTotalEur > 0
+      ? `- currentTotalEur OBLIGATOIRE = ${a.currentTotalEur} (somme assurance restante lue sur l'échéancier après date d'effet — NE PAS approximer, NE PAS lisser)`
+      : null,
+    a.proposedTotalEur != null && a.proposedTotalEur > 0
+      ? `- proposedTotalEur OBLIGATOIRE = ${a.proposedTotalEur} (totaux devis cumulés — NE PAS réestimer)`
+      : null,
+    a.feesAssureurEur != null && a.feesAssureurEur >= 0
+      ? `- feesAssureurEur OBLIGATOIRE = ${a.feesAssureurEur}`
+      : null,
+    a.remainingMonths != null && a.remainingMonths > 0
+      ? `- monthsCompared OBLIGATOIRE = ${a.remainingMonths} (pas ${a.remainingMonths + 5} ni durée initiale du prêt)`
+      : null,
+    a.proposedInsuredTotals?.length
+      ? `- Totaux devis par assuré (dans l'ordre) : ${a.proposedInsuredTotals.join(" + ")}`
+      : null,
+    a.proposedEffectiveDate
+      ? `- Date d'effet devis : ${a.proposedEffectiveDate}`
+      : null,
+    a.currentMonthlyByYear?.length
+      ? `- Mensuelles actuelles déjà extraites par année : ${JSON.stringify(a.currentMonthlyByYear.slice(0, 30))}`
+      : null,
+    a.proposedMonthlyByYear?.length
+      ? `- Mensuelles proposées déjà extraites par année : ${JSON.stringify(a.proposedMonthlyByYear.slice(0, 30))}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   const prompt = `Tu es l'agent du skill « présentation PDF économies ADE » du Club Immobilier Français.
 Applique STRICTEMENT les règles du skill ci-dessous pour analyser les documents et produire les données d'une étude client 7 pages.
 
@@ -282,6 +432,9 @@ CONTEXTE DOSSIER
 - Client : ${params.clientName}
 - Assurés connus : ${params.assuresSummary || params.clientName}
 - Date d'effet de repli (si absente du devis) : ${params.effectDateIso}
+
+ANCRAGES EXTRAITS LOCALEMENT (priorité absolue sur toute approximation) :
+${anchorBlock || "- (aucun ancrage fiable — calcule depuis les documents)"}
 
 DOCUMENTS (textes extraits des PDF)
 --- TABLEAU D'AMORTISSEMENT ---
@@ -301,12 +454,14 @@ ${offer || "(non fournie)"}
 
 TÂCHE
 1. Reconstitue les coûts restants actuels vs proposés après la date d'effet.
-2. Si plusieurs assurés / plusieurs prêts dans le devis, cumule correctement SANS double compter (attention aux totaux « pour l'ensemble des prêts » déjà consolidés).
-3. Frais retenus = adhésion + constitution de dossier par assuré. EXCLURE frais de distribution / courtage.
-4. Produis une ligne par année contractuelle restante (pas 295 lignes mensuelles).
-5. Année 1 : déduire les frais une seule fois dans l'économie nette.
-6. Garanties : ne rien inventer ; « Conditions à vérifier » si absent.
-7. Lemoine : un profil par assuré (tone green|orange).
+2. Si des ANCRAGES sont fournis pour currentTotalEur / proposedTotalEur / monthsCompared / feesAssureurEur, tu DOIS les reprendre tels quels. Les lignes "years" doivent sommer exactement à ces totaux.
+3. Erreur fréquente à éviter : ne jamais remplacer le coût actuel restant (somme mois par mois de la colonne assurance après effet) par une moyenne forfaitaire × durée initiale (ex. 55,50 × 300 = 16 650).
+4. Si plusieurs assurés / plusieurs prêts dans le devis, cumule correctement SANS double compter (attention aux totaux « pour l'ensemble des prêts » déjà consolidés).
+5. Frais retenus = adhésion + constitution de dossier par assuré. EXCLURE frais de distribution / courtage.
+6. Produis une ligne par année contractuelle restante (pas 295 lignes mensuelles). Les currentEur/proposedEur de chaque année sont des TOTAUX ANNUELS.
+7. Année 1 : déduire les frais une seule fois dans l'économie nette.
+8. Garanties : ne rien inventer ; « Conditions à vérifier » si absent.
+9. Lemoine : un profil par assuré (tone green|orange).
 
 JSON UNIQUEMENT (pas de markdown) :
 {
@@ -364,7 +519,9 @@ Ne jamais inventer un montant absent des documents.`;
         error: "Gemini n'a pas pu extraire des totaux actuelle/proposée exploitables.",
       };
     }
-    return { ok: true, computation };
+    // Force les ancrages locaux même si Gemini a approximé
+    const forced = applyAnchors(computation, params.anchors);
+    return { ok: true, computation: forced };
   } catch (e: any) {
     console.error("[ade-skill-gemini]", e?.message || e);
     return { ok: false, error: e?.message || "Erreur Gemini lors du calcul d'étude." };

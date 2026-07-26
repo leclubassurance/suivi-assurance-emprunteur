@@ -123,7 +123,7 @@ async function main() {
     "Votre assurance",
     "Votre économie en un regard",
     "Évolution annuelle",
-    "Tableau complet sur les 25 années",
+    "Tableau comparatif mensuel",
     "Une protection complète du crédit",
     "Changer d'assurance, simplement",
     "Un changement accompagné de bout en bout",
@@ -132,7 +132,8 @@ async function main() {
   }
   assert(/7 713,32 €/.test(text), "montants au format français avec espaces normales");
   assert(!/\u202f|\u00a0/.test(text), "aucune espace fine / insécable dans le PDF");
-  assert(/Année 25 17,33 € 2,17 €/.test(text), "tableau annuel complet (25 lignes)");
+  assert(/Éco\. nette \/ mois/.test(text), "colonnes mensuelles du tableau comparatif");
+  assert(/Année 1 /.test(text) && /Année 25 /.test(text), "tableau 25 années présent");
   assert(/Prévue sans condition d'hospitalisation/.test(text), "garanties par défaut (référence skill)");
   assert(!/sans frais/i.test(text), "aucune mention « sans frais »");
   assert(!/(l[ée]gifrance|service-public|AERAS|droit à l'oubli)/i.test(text), "aucune source juridique en page Lemoine");
@@ -151,8 +152,16 @@ async function main() {
     parsed.proposedInsuranceTotalEur != null && Math.abs(parsed.proposedInsuranceTotalEur - 11834.89) < 0.02,
     "nouvelles cotisations",
   );
-  assert(parsed.year1ValuesAreAnnual === true, "année 1 annuelle");
-  assert(parsed.proposedYear1RawEur != null && Math.abs(parsed.proposedYear1RawEur - 443.16) < 0.02, "année 1 443,16");
+  // Tableau page 4 en mensuel moyen → année 1 proposée ≈ 443,16 / 12
+  assert(parsed.year1ValuesAreAnnual === false, "année 1 lue comme mensuelle");
+  assert(
+    parsed.proposedYear1RawEur != null && Math.abs(parsed.proposedYear1RawEur - 36.93) < 0.05,
+    `année 1 mensuelle ~36,93 (got ${parsed.proposedYear1RawEur})`,
+  );
+  assert(
+    parsed.annualPremiumEur != null && Math.abs(parsed.annualPremiumEur - 443.16) < 0.5,
+    "prime annuelle dérivée ~443",
+  );
   assert(parsed.plannedChangeDate === "2026-10-27", "prise d'effet 27 octobre 2026");
   assert(parsed.savingsPercent != null && Math.abs(parsed.savingsPercent - 39.1) < 0.05, "% économie nette 39,1");
   assert(parsed.loanCapitalEur === 195000, "capital prêt 195 000 €");

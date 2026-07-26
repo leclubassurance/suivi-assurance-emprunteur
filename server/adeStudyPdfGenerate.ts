@@ -725,7 +725,16 @@ function pageEvolution(doc: PDFKit.PDFDocument, d: StudyView, logo: string | nul
   pageFooter(doc);
 }
 
-// ---------------------------------------------------------------- page 4 : détail annuel
+// ---------------------------------------------------------------- page 4 : détail (gains mensuels moyens)
+
+function monthsInContractYear(year: number, totalMonths: number): number {
+  if (!(totalMonths > 0)) return 12;
+  const full = Math.floor(totalMonths / 12);
+  const rem = totalMonths % 12;
+  if (year <= full) return 12;
+  if (rem > 0 && year === full + 1) return rem;
+  return 12;
+}
 
 function pageAnnualDetail(doc: PDFKit.PDFDocument, d: StudyView, logo: string | null) {
   pageHeader(doc, "Le détail de votre économie", 4, logo);
@@ -733,17 +742,22 @@ function pageAnnualDetail(doc: PDFKit.PDFDocument, d: StudyView, logo: string | 
   const period = d.comparisonEndLabel
     ? `du ${d.comparisonStartLabel} au ${d.comparisonEndLabel}`
     : `à compter du ${d.comparisonStartLabel}`;
-  pageIntro(doc, `Tableau complet sur les ${count} années`, `Une ligne par année contractuelle, ${period}.`, 16);
+  pageIntro(
+    doc,
+    `Tableau comparatif mensuel sur ${count} années`,
+    `Montants mensuels moyens par année contractuelle, ${period}.`,
+    16,
+  );
 
   const x0 = 42;
-  const widths = [80, 105, 105, 105, 115];
+  const widths = [72, 108, 108, 108, 114];
   const tableWidth = widths.reduce((a, b) => a + b, 0);
-  const headers = ["Année", "Assurance actuelle", "Nouvelle assurance", "Économie nette", "Cumul net"];
+  const headers = ["Année", "Actuelle / mois", "Nouvelle / mois", "Éco. nette / mois", "Cumul net"];
   roundedBox(doc, x0, 168, tableWidth, 24, { fill: BLUE, radius: 6 });
   let hx = x0;
   headers.forEach((label, i) => {
-    if (i === 0) drawText(doc, label, hx + 8, 184, { size: 6.7, color: WHITE });
-    else drawTextRight(doc, label, hx + widths[i] - 8, 184, { size: 6.7, color: WHITE });
+    if (i === 0) drawText(doc, label, hx + 8, 184, { size: 6.5, color: WHITE });
+    else drawTextRight(doc, label, hx + widths[i] - 8, 184, { size: 6.5, color: WHITE });
     hx += widths[i];
   });
 
@@ -754,21 +768,28 @@ function pageAnnualDetail(doc: PDFKit.PDFDocument, d: StudyView, logo: string | 
   const shown = d.years.slice(0, maxRows);
   const rowH = Math.max(9, Math.min(19, available / Math.max(1, shown.length)));
   const size = Math.max(5.6, Math.min(6.7, rowH * 0.42));
+  const totalMonths = Math.max(1, Number(d.monthsCompared) || count * 12);
 
   let yy = bodyTop;
   shown.forEach((row, index) => {
     rectFill(doc, x0, yy, tableWidth, rowH, index % 2 ? LIGHT_BLUE : WHITE);
     const baseline = yy + rowH * 0.68;
+    const m = monthsInContractYear(row.year, totalMonths);
+    const curM = round2(row.currentEur / m);
+    const propM = round2(row.proposedEur / m);
+    // Éco. nette mensuelle hors lissage des frais : (actuelle - nouvelle) / mois
+    // Les frais restent visibles en note année 1 ; le cumul conserve l'économie nette totale.
+    const gainM = round2((row.currentEur - row.proposedEur) / m);
     const values = [
       `Année ${row.year}`,
-      eur(row.currentEur),
-      eur(row.proposedEur),
-      eur(row.netSavingEur),
+      eur(curM),
+      eur(propM),
+      eur(gainM),
       eur(row.cumulNetEur),
     ];
     let cx = x0;
     values.forEach((value, j) => {
-      const color = j === 3 && row.netSavingEur < 0 ? RED : j === 4 ? GREEN : BLACK;
+      const color = j === 3 && gainM < 0 ? RED : j === 4 ? GREEN : BLACK;
       if (j === 0) drawText(doc, value, cx + 8, baseline, { size, color: BLACK });
       else drawTextRight(doc, value, cx + widths[j] - 8, baseline, { size, color });
       cx += widths[j];
@@ -782,15 +803,15 @@ function pageAnnualDetail(doc: PDFKit.PDFDocument, d: StudyView, logo: string | 
       color: GREY,
     });
   }
-  if (d.fees > 0) {
-    drawText(
-      doc,
-      `L'économie nette de la première année intègre ${eur(d.fees)} de frais de dossier.`,
-      42,
-      696.89,
-      { size: 6.7, color: GREY },
-    );
-  }
+  drawText(
+    doc,
+    d.fees > 0
+      ? `Gains mensuels moyens (hors frais). Les frais de dossier ${eur(d.fees)} sont déduits une fois dans le cumul / total net.`
+      : `Gains mensuels moyens par année contractuelle. Le cumul net reste l'économie totale.`,
+    42,
+    696.89,
+    { size: 6.5, color: GREY },
+  );
 
   roundedBox(doc, 42, 711.89, W - 84, 34, { fill: LIGHT_GREEN, stroke: BORDER_GREEN, radius: 7 });
   drawText(doc, "ÉCONOMIE NETTE TOTALE", 58, 732.89, { size: 8.5, font: "Helvetica-Bold", color: GREEN });

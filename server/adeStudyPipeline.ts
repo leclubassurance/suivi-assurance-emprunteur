@@ -517,7 +517,21 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   let computation: AdeStudyComputation | null = null;
   const skillReasons: string[] = [...resolveWarnings];
 
-  // 1) Chemin principal : Gemini + skill présentation ADE (robuste multi-prêts / Cardif / couple)
+  // Extraction locale d'abord (ancrages fiables : échéancier CE + totaux devis)
+  const eco = await computeEconomyFromDossierDocs(dossier);
+  const heuristic = economyToAdeComputation(eco, dossier, effectFallback);
+  const anchors = {
+    currentTotalEur: eco.extracted.currentTotalRemaining ?? null,
+    proposedTotalEur: eco.extracted.proposedTotalRemaining ?? null,
+    feesAssureurEur: eco.extracted.feesAssureurTotal ?? null,
+    remainingMonths: eco.extracted.remainingMonths ?? null,
+    proposedInsuredTotals: eco.extracted.proposedInsuredTotals ?? null,
+    proposedEffectiveDate: eco.extracted.proposedEffectiveDate ?? null,
+    currentMonthlyByYear: eco.extracted.currentMonthlyByYear ?? null,
+    proposedMonthlyByYear: eco.extracted.proposedMonthlyByYear ?? null,
+  };
+
+  // 1) Gemini + skill, calé sur les ancrages locaux
   const skill = await computeAdeStudyWithSkillGemini({
     clientName: clientNameFromDossier(dossier),
     effectDateIso: effectFallback,
@@ -527,23 +541,61 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     scheduleText,
     devisText,
     offerText,
+    anchors,
   });
   if (skill.ok) {
     computation = enrichComputationFromDossier(skill.computation, dossier);
-    skillReasons.push("Étude calculée par Gemini selon le skill présentation ADE LCIF.");
+    skillReasons.push("Étude calculée par Gemini selon le skill présentation ADE LCIF (ancrages locaux).");
   } else if ("error" in skill) {
     skillReasons.push(`Gemini skill: ${skill.error}`);
   }
 
-  // 2) Fallback heuristique local (économieFromDocs) si Gemini indisponible / insuffisant
+  // Si heuristique HIGH, imposer ses totaux / années économiques (Gemini garde garanties & Lemoine)
+  if (heuristic && heuristic.confidence === "high") {
+    if (computation) {
+      computation = {
+        ...heuristic,
+        guarantees: computation.guarantees?.length ? computation.guarantees : heuristic.guarantees,
+        lemoineProfiles: computation.lemoineProfiles?.length
+          ? computation.lemoineProfiles
+          : heuristic.lemoineProfiles,
+        insuredBreakdown: computation.insuredBreakdown?.length
+          ? computation.insuredBreakdown.map((row, i) => {
+              const h = heuristic.insuredBreakdown?.[i];
+              return h
+                ? {
+                    ...row,
+                    currentEur: h.currentEur,
+                    proposedEur: h.proposedEur,
+                    feesEur: h.feesEur,
+                    netEur: h.netEur,
+                  }
+                : row;
+            })
+          : heuristic.insuredBreakdown,
+        clientName: computation.clientName || heuristic.clientName,
+        studyDateLabel: computation.studyDateLabel || heuristic.studyDateLabel,
+        comparisonStartLabel: computation.comparisonStartLabel || heuristic.comparisonStartLabel,
+        comparisonEndLabel: computation.comparisonEndLabel || heuristic.comparisonEndLabel,
+        assumptions: [
+          ...(heuristic.assumptions || []),
+          "Économie : extraction locale HIGH ; rédaction garanties/Lemoine : Gemini skill.",
+        ].slice(0, 10),
+        provider: "mixed",
+      };
+      skillReasons.push("Économie forcée sur extraction locale HIGH (évite approximation Gemini du coût actuel).");
+    } else {
+      computation = heuristic;
+      skillReasons.push(...(eco.reasons || []).slice(0, 4));
+    }
+  }
+
+  // 2) Fallback heuristique si Gemini a échoué
   if (!computation || computation.confidence === "low") {
-    const eco = await computeEconomyFromDossierDocs(dossier);
-    const heuristic = economyToAdeComputation(eco, dossier, effectFallback);
     if (
       heuristic &&
       heuristic.currentTotalEur > 0 &&
-      heuristic.proposedTotalEur > 0 &&
-      (!computation || heuristic.confidence === "high")
+      heuristic.proposedTotalEur > 0
     ) {
       computation = heuristic;
       skillReasons.push(...(eco.reasons || []).slice(0, 4));
