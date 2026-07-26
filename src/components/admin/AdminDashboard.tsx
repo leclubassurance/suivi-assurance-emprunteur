@@ -2468,7 +2468,7 @@ export default function AdminDashboard({
                       <ol className="text-xs text-slate-600 leading-relaxed list-decimal pl-4 space-y-1">
                         <li>Préparer / copier la fiche Kereis</li>
                         <li>Uploader le devis assureur (PDF)</li>
-                        <li>Générer le PDF comparatif (ou importer un PDF déjà produit)</li>
+                        <li>Générer le PDF comparatif via Gemini + skill ADE (ou importer un PDF déjà produit)</li>
                       </ol>
                       <div className="flex flex-wrap items-center gap-2">
                         <button

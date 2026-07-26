@@ -13,6 +13,7 @@ import { generateAdeStudyPdfBuffer, DEFAULT_ADE_GUARANTEES } from "./adeStudyPdf
 import { ingestStudyPdfForDossier } from "./studyPdfFlow";
 import { defaultEffectDateIso } from "./kereisDraftBuild";
 import { extractDocsByCategories } from "./documentTextForAnalysis";
+import { computeAdeStudyWithSkillGemini } from "./adeStudySkillGemini";
 
 export type AdeStudyGenerateResult =
   | {
@@ -508,14 +509,49 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   const effectFallback =
     /^\d{4}-\d{2}-\d{2}$/.test(effectFromKereis) ? effectFromKereis : defaultEffectDateIso();
 
-  const eco = await computeEconomyFromDossierDocs(dossier);
-  let computation = economyToAdeComputation(eco, dossier, effectFallback);
+  const texts = await extractDocsByCategories(dossier, uploadsDir, ["tableau", "devis", "offre"]);
+  const scheduleText = texts.filter((d) => d.category === "tableau").map((d) => d.text).join("\n\n");
+  const devisText = texts.filter((d) => d.category === "devis").map((d) => d.text).join("\n\n");
+  const offerText = texts.filter((d) => d.category === "offre").map((d) => d.text).join("\n\n");
 
-  // Fallback Gemini / heuristiques texte si parse échéancier CE a marché mais devis faible, ou inverse
+  let computation: AdeStudyComputation | null = null;
+  const skillReasons: string[] = [...resolveWarnings];
+
+  // 1) Chemin principal : Gemini + skill présentation ADE (robuste multi-prêts / Cardif / couple)
+  const skill = await computeAdeStudyWithSkillGemini({
+    clientName: clientNameFromDossier(dossier),
+    effectDateIso: effectFallback,
+    assuresSummary: assuresFromDossier(dossier)
+      .map((a) => (a.birthIso ? `${a.name} (né(e) ${a.birthIso})` : a.name))
+      .join(" · "),
+    scheduleText,
+    devisText,
+    offerText,
+  });
+  if (skill.ok) {
+    computation = enrichComputationFromDossier(skill.computation, dossier);
+    skillReasons.push("Étude calculée par Gemini selon le skill présentation ADE LCIF.");
+  } else if ("error" in skill) {
+    skillReasons.push(`Gemini skill: ${skill.error}`);
+  }
+
+  // 2) Fallback heuristique local (économieFromDocs) si Gemini indisponible / insuffisant
   if (!computation || computation.confidence === "low") {
-    const texts = await extractDocsByCategories(dossier, uploadsDir, ["tableau", "devis"]);
-    const scheduleText = texts.filter((d) => d.category === "tableau").map((d) => d.text).join("\n\n");
-    const devisText = texts.filter((d) => d.category === "devis").map((d) => d.text).join("\n\n");
+    const eco = await computeEconomyFromDossierDocs(dossier);
+    const heuristic = economyToAdeComputation(eco, dossier, effectFallback);
+    if (
+      heuristic &&
+      heuristic.currentTotalEur > 0 &&
+      heuristic.proposedTotalEur > 0 &&
+      (!computation || heuristic.confidence === "high")
+    ) {
+      computation = heuristic;
+      skillReasons.push(...(eco.reasons || []).slice(0, 4));
+    }
+  }
+
+  // 3) Fallback Gemini léger (ancien extracteur) si toujours insuffisant
+  if (!computation || computation.confidence === "low") {
     if (scheduleText.length >= 40 && devisText.length >= 40) {
       const alt = await computeAdeStudyEconomics({
         clientName: clientNameFromDossier(dossier),
@@ -529,6 +565,7 @@ export async function generateAndIngestAdeStudyForDossier(params: {
         (!computation || alt.confidence === "high" || alt.grossSavingsEur > (computation?.grossSavingsEur || 0))
       ) {
         computation = enrichComputationFromDossier(alt, dossier);
+        skillReasons.push("Fallback extracteur Gemini devis/échéancier.");
       }
     }
   }
@@ -538,13 +575,18 @@ export async function generateAndIngestAdeStudyForDossier(params: {
       ok: false,
       code: "extraction_failed",
       error:
-        "Impossible d'extraire les montants depuis le tableau et/ou le devis.",
+        "Impossible de calculer l'étude à partir du tableau et du devis (Gemini + heuristiques).",
       hint:
-        "Vérifiez que le tableau a une colonne assurance lisible et que le devis Kereis contient « Total des cotisations ». Pour un couple, le PDF doit inclure les deux profils (souvent dans le même fichier).",
+        "Vérifiez que le tableau et le devis sont bien lisibles, réuploadez-les si besoin, puis régénérez. Les devis Cardif multi-prêts nécessitent GEMINI_API_KEY côté serveur.",
       computation: computation || undefined,
-      reasons: [...resolveWarnings, ...(eco.reasons || [])],
+      reasons: skillReasons,
     };
   }
+
+  computation = {
+    ...computation,
+    assumptions: [...(computation.assumptions || []), ...skillReasons.filter((r) => /Gemini skill|Fallback/i.test(r))].slice(0, 10),
+  };
 
   const pdfBuf = await generateAdeStudyPdfBuffer(computation);
   const dossierDir = path.join(uploadsDir, dossier.id);
@@ -556,8 +598,8 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   (dossier as any).adeStudyComputation = {
     computedAt: new Date().toISOString(),
     ...computation,
-    economyReliability: eco.reliability,
-    economyReasons: eco.reasons,
+    economyReliability: computation.provider === "gemini" ? "HIGH" : computation.confidence,
+    economyReasons: skillReasons,
   };
 
   const ingest = await ingestStudyPdfForDossier({
