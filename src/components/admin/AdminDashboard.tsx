@@ -637,7 +637,7 @@ export default function AdminDashboard({
         showToast(data.error || "Erreur upload devis", "error");
         return;
       }
-      showToast("Devis ajouté (un seul devis actif).", "success");
+      showToast("Devis ajouté (cumul possible si plusieurs assurés).", "success");
       loadDossiers();
     } catch {
       showToast("Erreur upload devis", "error");
@@ -2439,21 +2439,28 @@ export default function AdminDashboard({
                             }}
                           />
                         </label>
-                        {((selectedDossier as any)?.formData?.documents || []).some(
-                          (d: any) => String(d?.category || "").toLowerCase() === "devis",
-                        ) ? (
-                          <span className="text-xs font-bold text-teal-800">
-                            Devis présent :{" "}
-                            {
-                              ((selectedDossier as any)?.formData?.documents || []).find(
-                                (d: any) => String(d?.category || "").toLowerCase() === "devis",
-                              )?.name
-                            }
-                          </span>
-                        ) : (
-                          <span className="text-xs text-amber-700">Aucun devis sur le dossier</span>
-                        )}
+                        {(() => {
+                          const devisDocs = ((selectedDossier as any)?.formData?.documents || []).filter(
+                            (d: any) => String(d?.category || "").toLowerCase() === "devis",
+                          );
+                          const assuresN = ((selectedDossier as any)?.formData?.assures || []).length || 1;
+                          if (!devisDocs.length) {
+                            return <span className="text-xs text-amber-700">Aucun devis sur le dossier</span>;
+                          }
+                          return (
+                            <span className="text-xs font-bold text-teal-800">
+                              {devisDocs.length} devis — {devisDocs.map((d: any) => d.name).join(", ")}
+                              {assuresN > 1 && devisDocs.length < assuresN
+                                ? ` (il manque ${assuresN - devisDocs.length} pour ${assuresN} assurés)`
+                                : ""}
+                            </span>
+                          );
+                        })()}
                       </div>
+                      <p className="text-[11px] text-slate-500">
+                        Couple / co-emprunteurs : uploadez un devis par assuré (les totaux sont cumulés).
+                        Si le tableau a disparu après un déploiement, réimportez-le aussi dans Documents.
+                      </p>
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"

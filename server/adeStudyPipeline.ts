@@ -240,12 +240,36 @@ export async function generateAndIngestAdeStudyForDossier(params: {
       reasons: resolveWarnings,
     };
   }
+  // Improve pipeline error when Drive files missing
   if (!hasTableau) {
     return {
       ok: false,
       error: "Tableau d'amortissement manquant sur le dossier.",
       reasons: resolveWarnings,
     };
+  }
+
+  const missingFiles = resolveWarnings.filter((w) => /manquant|missing|drive/i.test(w));
+  if (missingFiles.length) {
+    // Continue if at least one tableau+devis resolved locally; otherwise fail clearly.
+    const docsNow = (dossier.formData?.documents || []) as any[];
+    const tableauOk = docsNow.some(
+      (d) => String(d?.category || "") === "tableau" && d?.localPath && fs.existsSync(String(d.localPath)),
+    );
+    const devisOk = docsNow.some(
+      (d) =>
+        (String(d?.category || "") === "devis" || /devis/i.test(String(d?.name || ""))) &&
+        d?.localPath &&
+        fs.existsSync(String(d.localPath)),
+    );
+    if (!tableauOk || !devisOk) {
+      return {
+        ok: false,
+        error:
+          "Fichiers introuvables sur le serveur (disque Railway vidé après déploiement). Réuploadez le tableau et le(s) devis dans les étapes ci-dessus, puis regénérez.",
+        reasons: resolveWarnings,
+      };
+    }
   }
 
   const effectFromKereis = String((dossier as any).kereisDraft?.effectDateIso || "");

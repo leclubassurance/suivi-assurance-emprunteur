@@ -135,14 +135,59 @@ function sumFirstN(rows: number[], n: number) {
   return rows.slice(0, n).reduce((a, c) => a + c, 0);
 }
 
+function pickDocs(docs: any[], category: string): any[] {
+  return docs.filter((d) => String(d?.category || "") === category);
+}
+
 function pickDoc(docs: any[], category: string): any | null {
-  const cands = docs.filter((d) => String(d?.category || "") === category);
-  // prefer PDFs with a loanSignal ok
+  const cands = pickDocs(docs, category);
   const okSig = cands.find((d) => d?.loanSignal?.ok);
   if (okSig) return okSig;
-  // else any pdf
-  const pdfCand = cands.find((d) => String(d?.type || "").includes("pdf") || String(d?.name || "").toLowerCase().endsWith(".pdf"));
+  const pdfCand = cands.find(
+    (d) => String(d?.type || "").includes("pdf") || String(d?.name || "").toLowerCase().endsWith(".pdf"),
+  );
   return pdfCand || cands[0] || null;
+}
+
+/** Montant juste AU-DESSUS d'un libellé (layout colonnes Kereis). */
+function amountAboveLabel(text: string, labelRe: RegExp): number | null {
+  const m = text.match(labelRe);
+  if (!m || m.index == null) return null;
+  const head = text.slice(Math.max(0, m.index - 80), m.index);
+  const amounts = [...head.matchAll(/(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*€?/g)];
+  if (!amounts.length) return null;
+  return toNumberFR(amounts[amounts.length - 1][1]);
+}
+
+function dedupeYearMonthlies(
+  rows: Array<{ year: number; monthly: number }>,
+): Array<{ year: number; monthly: number }> {
+  const map = new Map<number, number>();
+  for (const r of rows) {
+    if (!map.has(r.year)) map.set(r.year, r.monthly);
+  }
+  return [...map.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([year, monthly]) => ({ year, monthly }));
+}
+
+function sumProposedFromYearTable(
+  yearMonthlies: Array<{ year: number; monthly: number }>,
+  remainingMonths: number,
+): number {
+  let left = remainingMonths;
+  let total = 0;
+  for (const row of yearMonthlies) {
+    if (left <= 0) break;
+    const months = Math.min(12, left);
+    total += row.monthly * months;
+    left -= months;
+  }
+  // Si la table est plus courte que la durée, prolonger le dernier taux
+  if (left > 0 && yearMonthlies.length) {
+    total += yearMonthlies[yearMonthlies.length - 1].monthly * left;
+  }
+  return Math.round(total * 100) / 100;
 }
 
 export async function computeEconomyFromDossierDocs(dossier: any): Promise<EconomyComputation> {
@@ -151,17 +196,19 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
 
   const offre = pickDoc(docs, "offre");
   const tableau = pickDoc(docs, "tableau");
-  const devis = pickDoc(docs, "devis"); // we'll add later, for now allow any "devis" category if user uploads as such
-
-  // If devis not categorized, fallback to "autre" with filename containing devis
-  const devisFallback =
-    devis ||
-    docs.find((d) => /devis/i.test(String(d?.name || ""))) ||
-    null;
+  const devisList = [
+    ...pickDocs(docs, "devis"),
+    ...docs.filter(
+      (d) =>
+        String(d?.category || "") !== "devis" &&
+        /devis/i.test(String(d?.name || "")) &&
+        String(d?.category || "") !== "cni",
+    ),
+  ].filter((d, i, arr) => arr.findIndex((x) => x === d || x?.localPath === d?.localPath) === i);
 
   let offerText = "";
   let tableauText = "";
-  let devisText = "";
+  const devisTexts: string[] = [];
   try {
     offerText = await extractPdfText(offre?.localPath);
   } catch {
@@ -172,26 +219,49 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   } catch {
     reasons.push("Tableau d'amortissement: lecture PDF impossible");
   }
-  try {
-    devisText = await extractPdfText(devisFallback?.localPath);
-  } catch {
-    reasons.push("Devis: lecture PDF impossible");
+  for (const devis of devisList) {
+    try {
+      const t = await extractPdfText(devis?.localPath);
+      if (t.trim()) devisTexts.push(t);
+    } catch {
+      reasons.push(`Devis (${devis?.name || "?"}): lecture PDF impossible`);
+    }
   }
+  const devisText = devisTexts.join("\n\n---\n\n");
+  const devisN = norm(devisText);
 
   if (tableau?.localPath && tableauText.trim().length < 40) {
     reasons.push("Tableau d'amortissement: contenu PDF vide (probable scan image)");
   }
-  if (devisFallback?.localPath && devisText.trim().length < 40) {
+  if (devisList.length && devisText.trim().length < 40) {
     reasons.push("Devis: contenu PDF vide (probable scan image)");
+  }
+  if (!devisList.length) {
+    reasons.push("Aucun devis (catégorie devis) sur le dossier");
   }
 
   const offerN = norm(offerText);
-  const devisN = norm(devisText);
   const tableauN = norm(tableauText);
 
-  // ÉTAPE 2.A (skill): assurance actuelle = somme des échéances "Assurance groupe et frais / Autres frais (dont assurance)"
-  const amortRows = parseAmortizationRowsFromText(tableauText);
-  const amortValues = amortRows.map((r) => r.insuranceAndFees).filter((v) => Number.isFinite(v) && v >= 0);
+  // ÉTAPE 2.A : assurance actuelle = colonne assurance de l'échéancier
+  let amortRows = parseAmortizationRowsFromText(tableauText);
+  let amortValues = amortRows.map((r) => r.insuranceAndFees).filter((v) => Number.isFinite(v) && v >= 0);
+
+  // Durée restante annoncée sur le devis (ex. 295 mois) → garder les dernières N lignes
+  const mDuree = devisText.match(/(\d{2,3})\s*mois\s+Dur[ée]e/i) || devisText.match(/Dur[ée]e\s*[:=]?\s*(\d{2,3})\s*mois/i);
+  const devisRemainingMonths = mDuree?.[1] ? Number(mDuree[1]) : null;
+  if (
+    devisRemainingMonths &&
+    amortValues.length > devisRemainingMonths &&
+    devisRemainingMonths >= 12
+  ) {
+    const skip = amortValues.length - devisRemainingMonths;
+    amortValues = amortValues.slice(skip);
+    amortRows = amortRows.slice(skip);
+    reasons.push(
+      `Échéancier aligné sur la durée devis (${devisRemainingMonths} mois, ${skip} échéance(s) antérieures écartées).`,
+    );
+  }
 
   const remainingMonths = amortValues.length || null;
   const currentTotalRemaining = amortValues.length ? amortValues.reduce((a, c) => a + c, 0) : null;
@@ -215,7 +285,6 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   let currentMonthlyInsurance: number | null = currentMonthlyByYear[0]?.monthly ?? null;
 
   if (!amortValues.length) {
-    // fallback from offer only if schedule parsing failed
     const mAss = offerN.match(/assurance\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
     if (mAss?.[1]) {
       const n = toNumberFR(mAss[1]);
@@ -227,52 +296,98 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
       reasons.push("Tableau d'amortissement: impossible d'extraire la colonne assurance");
     }
   }
-  if (!currentTotalRemaining && currentMonthlyInsurance == null) reasons.push("Assurance actuelle introuvable (échéancier requis)");
+  if (!currentTotalRemaining && currentMonthlyInsurance == null) {
+    reasons.push("Assurance actuelle introuvable (échéancier requis)");
+  }
 
-  // Proposed total from devis ("Total des cotisations ... 10 393,48 €")
-  let proposedTotalRemaining: number | null = null;
-  const mTot =
-    devisN.match(/total\s+(?:des\s+)?cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
-    devisN.match(/cout\s+total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
-    devisN.match(/montant\s+total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
-    devisN.match(/total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
-  if (mTot?.[1]) proposedTotalRemaining = toNumberFR(mTot[1]);
-  if (!proposedTotalRemaining) reasons.push("Total cotisations devis introuvable");
+  // --- Devis : totaux (montant souvent AU-DESSUS du libellé Kereis) ---
+  let proposedTotalRemaining =
+    amountAboveLabel(devisText, /Total\s+des\s+cotisations\s+pour/i) ||
+    amountAboveLabel(devisText, /Total\s+des\s+cotisations/i);
+  if (proposedTotalRemaining == null) {
+    const mTot =
+      devisN.match(/total\s+(?:des\s+)?cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
+      devisN.match(/cout\s+total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i);
+    if (mTot?.[1]) proposedTotalRemaining = toNumberFR(mTot[1]);
+  }
 
-  // Proposed total on first 8y (if present in devis)
-  let proposedTotal8y: number | null = null;
-  const mTot8y =
-    devisN.match(/cotisations[\s\S]{0,60}(?:8\s+ans|huit\s+ans)[\s\S]{0,60}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
-    devisN.match(/sur\s+8\s+ans[\s\S]{0,60}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
-  if (mTot8y?.[1]) proposedTotal8y = toNumberFR(mTot8y[1]);
+  let proposedTotal8y =
+    amountAboveLabel(devisText, /Co[uû]t\s+sur\s+les\s+8\s+premi[eè]res\s+ann[ée]es/i) || null;
+  if (proposedTotal8y == null) {
+    const mTot8y =
+      devisN.match(/cotisations[\s\S]{0,60}(?:8\s+ans|huit\s+ans)[\s\S]{0,60}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
+      devisN.match(/sur\s+8\s+ans[\s\S]{0,60}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
+    if (mTot8y?.[1]) proposedTotal8y = toNumberFR(mTot8y[1]);
+  }
 
-  // Proposed monthly by year table: "1 307 687,64 € 19,56 €" pattern; we only want the last number per line
-  const proposedMonthlyByYear: Array<{ year: number; monthly: number }> = [];
+  // Table annuelle : « 1 131 288,66 € 15,03 € »
+  let proposedMonthlyByYear: Array<{ year: number; monthly: number }> = [];
   const yearLines = devisText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   for (const line of yearLines) {
-    const m = line.match(/^(\d{1,2})\s+[\d\s.,]+(?:€|eur)?\s+([\d\s.,]+)\s*(?:€|eur)?$/i);
+    const m = line.match(
+      /^(\d{1,2})\s+(\d{1,3}(?:[\s.]\d{3})+,\d{2}|\d+,\d{2})\s*€?\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2}|\d+,\d{2})\s*€?\s*$/i,
+    );
     if (!m) continue;
     const y = Number(m[1]);
-    const monthly = toNumberFR(m[2]);
-    if (Number.isFinite(y) && monthly != null) proposedMonthlyByYear.push({ year: y, monthly });
+    const monthly = toNumberFR(m[3]);
+    if (Number.isFinite(y) && monthly != null && monthly < 5000) {
+      proposedMonthlyByYear.push({ year: y, monthly });
+    }
   }
-  if (proposedMonthlyByYear.length === 0) {
-    // fallback: try looser
-    const rx = /(\d{1,2})\s+[\d\s.,]+(?:€|eur)?\s+(\d{1,3},\d{2})\s*(?:€|eur)?/gi;
-    let mm;
-    while ((mm = rx.exec(devisN))) {
-      const y = Number(mm[1]);
-      const monthly = toNumberFR(mm[2]);
-      if (Number.isFinite(y) && monthly != null) proposedMonthlyByYear.push({ year: y, monthly });
+  proposedMonthlyByYear = dedupeYearMonthlies(proposedMonthlyByYear);
+
+  // Si plusieurs devis (co-emprunteurs), sommer les tables / totaux
+  if (devisTexts.length > 1) {
+    // Totaux déjà lus sur devisText concaténé peuvent sous-compter :
+    // recalculer somme des montants au-dessus de chaque bloc.
+    let sumTot = 0;
+    let found = 0;
+    for (const block of devisTexts) {
+      const t =
+        amountAboveLabel(block, /Total\s+des\s+cotisations\s+pour/i) ||
+        amountAboveLabel(block, /Total\s+des\s+cotisations/i);
+      if (t != null) {
+        sumTot += t;
+        found += 1;
+      }
+    }
+    if (found >= 2) {
+      proposedTotalRemaining = Math.round(sumTot * 100) / 100;
+      reasons.push(`${found} devis cumulés pour le total proposé.`);
     }
   }
 
-  // Effective date in devis: "Date d'effet ... 17 août 2026"
-  let proposedEffectiveDate: string | undefined;
-  const mDate = devisText.match(/Date d'effet des garanties\s*\n?\s*([0-9]{1,2}\s+[^\n]+\s+[0-9]{4})/i);
-  if (mDate?.[1]) proposedEffectiveDate = mDate[1].trim();
+  // Recalcul proposé depuis table annuelle × durée restante (plus fiable que le mauvais total 8 ans)
+  if (proposedMonthlyByYear.length >= 5 && remainingMonths) {
+    const fromTable = sumProposedFromYearTable(proposedMonthlyByYear, remainingMonths);
+    if (
+      proposedTotalRemaining == null ||
+      // Si le "total" collé est en fait le coût 8 ans (très inférieur à la table)
+      (proposedTotal8y != null && Math.abs(proposedTotalRemaining - proposedTotal8y) < 0.02) ||
+      fromTable > (proposedTotalRemaining || 0) * 1.15
+    ) {
+      if (proposedTotalRemaining != null && proposedTotal8y == null) {
+        proposedTotal8y = proposedTotalRemaining;
+      }
+      proposedTotalRemaining = fromTable;
+      reasons.push("Total proposé recalculé depuis le tableau annuel du devis × durée restante.");
+    }
+  }
 
-  // Fees: never invent, only extract if clearly present.
+  if (!proposedTotalRemaining) reasons.push("Total cotisations devis introuvable");
+
+  // Date d'effet (souvent au-dessus du libellé)
+  let proposedEffectiveDate: string | undefined;
+  const mDateAbove = devisText.match(
+    /(\d{1,2}\s+(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)\s+\d{4})\s*\n+\s*Date d['']effet des garanties/i,
+  );
+  if (mDateAbove?.[1]) proposedEffectiveDate = mDateAbove[1].trim();
+  if (!proposedEffectiveDate) {
+    const mDate = devisText.match(/Date d'effet des garanties\s*\n?\s*([0-9]{1,2}\s+[^\n]+\s+[0-9]{4})/i);
+    if (mDate?.[1]) proposedEffectiveDate = mDate[1].trim();
+  }
+
+  // Fees
   let feesAssureurTotal: number | null = null;
   let feesCourtierTotal: number | null = null;
 
@@ -283,7 +398,6 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
     devisN.match(/frais\s+retenus[\s\S]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
   if (mFeesAssureur?.[1]) feesAssureurTotal = toNumberFR(mFeesAssureur[1]);
 
-  // Adhésion association souvent 10 € × n assurés — additionner si trouvé séparément
   if (feesAssureurTotal == null) {
     const mAdhesion = [...devisN.matchAll(/adhesion[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/gi)];
     const mDossier = [...devisN.matchAll(/frais\s+de\s+dossier[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/gi)];
@@ -298,15 +412,26 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
     devisN.match(/total\s+frais\s+(?:lcif|distribution|courtage)[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
   if (mFeesCourtier?.[1]) feesCourtierTotal = toNumberFR(mFeesCourtier[1]);
 
+  const assuresCount = Array.isArray(dossier?.formData?.assures) ? dossier.formData.assures.length : 1;
+  if (assuresCount > 1 && devisTexts.length < assuresCount) {
+    reasons.push(
+      `Attention: ${assuresCount} assurés mais ${devisTexts.length} devis — uploadez un devis par assuré pour un total complet.`,
+    );
+  }
+
   const extracted = {
     currentMonthlyInsurance: currentMonthlyInsurance ?? undefined,
     currentMonthlyByYear: currentMonthlyByYear.length ? currentMonthlyByYear : undefined,
     remainingMonths: remainingMonths ?? undefined,
-    currentTotalRemaining: currentTotalRemaining ?? (currentMonthlyInsurance != null && remainingMonths != null ? currentMonthlyInsurance * remainingMonths : undefined),
+    currentTotalRemaining:
+      currentTotalRemaining ??
+      (currentMonthlyInsurance != null && remainingMonths != null
+        ? currentMonthlyInsurance * remainingMonths
+        : undefined),
     currentTotal8y: currentTotal8y ?? undefined,
     proposedTotalRemaining: proposedTotalRemaining ?? undefined,
     proposedTotal8y: proposedTotal8y ?? undefined,
-    proposedMonthlyByYear: proposedMonthlyByYear.length ? proposedMonthlyByYear.slice(0, 30) : undefined,
+    proposedMonthlyByYear: proposedMonthlyByYear.length ? proposedMonthlyByYear.slice(0, 40) : undefined,
     proposedEffectiveDate,
     feesAssureurTotal: feesAssureurTotal ?? undefined,
     feesCourtierTotal: feesCourtierTotal ?? undefined,
@@ -338,7 +463,6 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   const grossSavings8y =
     extracted.currentTotal8y != null && proposedTotal8y != null ? extracted.currentTotal8y - proposedTotal8y : undefined;
 
-  // Build evolution table (grouped bands)
   const currentByYear = new Map<number, number>();
   for (const row of extracted.currentMonthlyByYear || []) currentByYear.set(row.year, row.monthly);
   const proposedByYear = new Map<number, number>();

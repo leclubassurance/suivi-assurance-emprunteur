@@ -1246,8 +1246,13 @@ export function createApp() {
         if (file) {
           if (!dossier.formData) dossier.formData = {};
           if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
+          const incomingName = String(file.originalname || "").toLowerCase();
           dossier.formData.documents = dossier.formData.documents.filter(
-            (d: any) => d?.category !== "devis",
+            (d: any) =>
+              !(
+                d?.category === "devis" &&
+                String(d?.name || "").toLowerCase() === incomingName
+              ),
           );
           const doc = {
             id: `devis-${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
@@ -1332,8 +1337,16 @@ export function createApp() {
     if (!dossier.formData) dossier.formData = {};
     if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
 
-    // Remove existing active quote docs (single active)
-    dossier.formData.documents = dossier.formData.documents.filter((d: any) => d?.category !== "devis");
+    // Keep existing devis docs (co-emprunteurs = 1 devis par assuré).
+    // Dedup by identical filename.
+    const incomingName = String(file.originalname || "").toLowerCase();
+    dossier.formData.documents = dossier.formData.documents.filter(
+      (d: any) =>
+        !(
+          d?.category === "devis" &&
+          String(d?.name || "").toLowerCase() === incomingName
+        ),
+    );
 
     const doc = {
       id: `devis-${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
