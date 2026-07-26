@@ -81,13 +81,21 @@ export default function AdminDashboard({
   const [kereisDraft, setKereisDraft] = useState<any | null>(null);
   const [kereisBusy, setKereisBusy] = useState(false);
   const [generateStudyBusy, setGenerateStudyBusy] = useState(false);
+  const [feasibilityBusy, setFeasibilityBusy] = useState(false);
   const [studyGenerateFeedback, setStudyGenerateFeedback] = useState<{
-    type: "error" | "success";
+    type: "error" | "success" | "manual";
     title: string;
     message: string;
     hint?: string;
     reasons?: string[];
     fileName?: string;
+    feasibility?: {
+      score: number;
+      max: number;
+      pass: boolean;
+      threshold: number;
+      checks?: { id: string; label: string; ok: boolean; earned: number; points: number; detail?: string }[];
+    };
   } | null>(null);
   const [debriefNote, setDebriefNote] = useState("");
   const [newNote, setNewNote] = useState("");
@@ -621,6 +629,45 @@ export default function AdminDashboard({
     }
   };
 
+  const handleAssessAdeFeasibility = async () => {
+    if (!selectedDossier) return;
+    try {
+      setFeasibilityBusy(true);
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/ade-feasibility`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.feasibility) {
+        showToast(data.error || "Score impossible", "error");
+        return;
+      }
+      const f = data.feasibility;
+      setStudyGenerateFeedback({
+        type: f.pass ? "success" : "manual",
+        title: f.pass
+          ? `Score ${f.score}/${f.max} — génération auto possible`
+          : `Score ${f.score}/${f.max} — à faire manuellement`,
+        message: f.pass
+          ? "Les documents sont assez fiables pour générer le PDF automatiquement."
+          : "Sous le seuil de 8/10 : ne générez pas en auto. Faites l'étude à la main puis importez le PDF si besoin.",
+        hint: f.pass
+          ? "Vous pouvez cliquer sur « Générer étude depuis devis »."
+          : Array.isArray(f.blockers) && f.blockers[0]
+            ? String(f.blockers[0])
+            : undefined,
+        reasons: (f.checks || [])
+          .map((c: any) => `${c.ok ? "✓" : "✗"} ${c.label}${c.detail ? ` — ${c.detail}` : ""} (+${c.earned}/${c.points})`)
+          .slice(0, 10),
+        feasibility: f,
+      });
+      loadDossiers();
+    } catch {
+      showToast("Erreur score faisabilité", "error");
+    } finally {
+      setFeasibilityBusy(false);
+    }
+  };
+
   const handleGenerateStudyFromDevis = async (file?: File | null) => {
     if (!selectedDossier) return;
     const dossierId = selectedDossier.id;
@@ -642,14 +689,24 @@ export default function AdminDashboard({
         const reasons = Array.isArray(data.reasons)
           ? data.reasons.map((r: unknown) => String(r)).filter(Boolean)
           : [];
+        const isManual = data.code === "low_feasibility";
         setStudyGenerateFeedback({
-          type: "error",
-          title: "Génération de l'étude impossible",
+          type: isManual ? "manual" : "error",
+          title: isManual
+            ? `Score insuffisant — étude à faire manuellement`
+            : "Génération de l'étude impossible",
           message: String(data.error || "La génération a échoué."),
           hint: data.hint ? String(data.hint) : undefined,
-          reasons: reasons.slice(0, 6),
+          reasons: reasons.slice(0, 8),
+          feasibility: data.feasibility || undefined,
         });
-        showToast(String(data.error || "Génération étude impossible"), "error");
+        showToast(
+          isManual
+            ? `Score ${data.feasibility?.score ?? "?"}/10 — à faire à la main`
+            : String(data.error || "Génération étude impossible"),
+          "error",
+        );
+        loadDossiers();
         return;
       }
       if (data?.studyDraft?.subject) setEmailSubject(data.studyDraft.subject);
@@ -657,14 +714,19 @@ export default function AdminDashboard({
       const gross = data?.computation?.grossSavingsEur ?? data?.parsed?.grossSavingsEur;
       const fileName =
         String(data?.studyPdf?.fileName || "").trim() || `etude-${dossierId}.pdf`;
+      const scoreLabel =
+        data?.feasibility?.score != null
+          ? ` Score faisabilité ${data.feasibility.score}/${data.feasibility.max}.`
+          : "";
       setStudyGenerateFeedback({
         type: "success",
         title: "Étude PDF générée",
         message:
           gross != null
-            ? `Économie brute estimée : ${Math.round(gross).toLocaleString("fr-FR")} €.`
-            : "Le PDF comparatif est prêt.",
+            ? `Économie brute estimée : ${Math.round(gross).toLocaleString("fr-FR")} €.${scoreLabel}`
+            : `Le PDF comparatif est prêt.${scoreLabel}`,
         fileName,
+        feasibility: data.feasibility || undefined,
       });
       showToast(
         gross != null
@@ -679,9 +741,8 @@ export default function AdminDashboard({
     } catch {
       setStudyGenerateFeedback({
         type: "error",
-        title: "Génération de l'étude impossible",
-        message: "Erreur réseau pendant la génération.",
-        hint: "Vérifiez votre connexion, puis réessayez.",
+        title: "Erreur réseau",
+        message: "La génération a échoué (réseau ou serveur).",
       });
       showToast("Erreur génération étude", "error");
     } finally {
@@ -2532,8 +2593,16 @@ export default function AdminDashboard({
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
+                          onClick={() => void handleAssessAdeFeasibility()}
+                          disabled={generateStudyBusy || feasibilityBusy}
+                          className="border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                        >
+                          {feasibilityBusy ? "Score…" : "Vérifier score /10"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => void handleGenerateStudyFromDevis()}
-                          disabled={generateStudyBusy}
+                          disabled={generateStudyBusy || feasibilityBusy}
                           className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
                         >
                           <FileText className="w-4 h-4" />
@@ -2546,7 +2615,7 @@ export default function AdminDashboard({
                             type="file"
                             accept="application/pdf,.pdf"
                             className="hidden"
-                            disabled={generateStudyBusy}
+                            disabled={generateStudyBusy || feasibilityBusy}
                             onChange={(e) => {
                               const f = e.target.files?.[0];
                               e.target.value = "";
@@ -2554,24 +2623,54 @@ export default function AdminDashboard({
                             }}
                           />
                         </label>
+                        {(() => {
+                          const f = (selectedDossier as any)?.adeStudyFeasibility;
+                          if (!f || f.score == null) return null;
+                          const pass = Boolean(f.pass);
+                          return (
+                            <span
+                              className={`text-xs font-bold px-2.5 py-1.5 rounded-lg ${
+                                pass
+                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                  : "bg-amber-50 text-amber-900 border border-amber-200"
+                              }`}
+                            >
+                              Dernier score {f.score}/{f.max ?? 10}
+                              {pass ? " · auto OK" : " · manuel"}
+                            </span>
+                          );
+                        })()}
                       </div>
+                      <p className="text-[11px] text-slate-500">
+                        Score ≥ 8/10 : génération auto. En dessous : faites l&apos;étude à la main (pas
+                        d&apos;édition dans l&apos;app), puis importez le PDF si besoin.
+                      </p>
                       {studyGenerateFeedback ? (
                         <div
                           className={`rounded-xl border px-4 py-3 text-sm ${
                             studyGenerateFeedback.type === "error"
                               ? "border-red-200 bg-red-50 text-red-950"
-                              : "border-emerald-200 bg-emerald-50 text-emerald-950"
+                              : studyGenerateFeedback.type === "manual"
+                                ? "border-amber-200 bg-amber-50 text-amber-950"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-950"
                           }`}
                           role="status"
                         >
                           <p className="font-bold inline-flex items-center gap-2">
-                            {studyGenerateFeedback.type === "error" ? (
-                              <AlertTriangle className="w-4 h-4 shrink-0" />
-                            ) : (
+                            {studyGenerateFeedback.type === "success" ? (
                               <CheckCircle className="w-4 h-4 shrink-0" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 shrink-0" />
                             )}
                             {studyGenerateFeedback.title}
                           </p>
+                          {studyGenerateFeedback.feasibility?.score != null ? (
+                            <p className="text-xs mt-1 font-bold">
+                              Faisabilité {studyGenerateFeedback.feasibility.score}/
+                              {studyGenerateFeedback.feasibility.max} (seuil{" "}
+                              {studyGenerateFeedback.feasibility.threshold ?? 8})
+                            </p>
+                          ) : null}
                           <p className="text-xs mt-1 leading-relaxed">{studyGenerateFeedback.message}</p>
                           {studyGenerateFeedback.hint ? (
                             <p className="text-xs mt-2 font-medium leading-relaxed">
@@ -2585,7 +2684,7 @@ export default function AdminDashboard({
                               ))}
                             </ul>
                           ) : null}
-                          {studyGenerateFeedback.type === "success" ? (
+                          {studyGenerateFeedback.type === "success" && studyGenerateFeedback.fileName ? (
                             <button
                               type="button"
                               className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-xs font-bold"

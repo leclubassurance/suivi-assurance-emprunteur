@@ -121,6 +121,8 @@ export interface Dossier {
   kereisDraft?: import("../shared/kereisDraftTypes").KereisDraft;
   /** Dernier calcul d'étude ADE auto (avant PDF). */
   adeStudyComputation?: Record<string, unknown>;
+  /** Dernier score de faisabilité génération auto ADE (/10). */
+  adeStudyFeasibility?: Record<string, unknown>;
   /** PDF d'étude importé (chemin local + métadonnées). */
   studyPdf?: {
     fileName: string;

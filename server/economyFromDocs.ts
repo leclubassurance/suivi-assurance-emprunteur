@@ -88,11 +88,12 @@ function parseAmortizationRowsFromText(tableauText: string): AmortRow[] {
       const idx = Number(mCe[1]);
       const payment = toNumberFR(mCe[2]);
       const insuranceAndFees = toNumberFR(mCe[5]); // COUT ASSURANCES
+      // PTZ / différé : échéance souvent ~10 € (= assurance seule) → pas de plancher à 50 €
       if (
         Number.isFinite(idx) &&
         payment != null &&
         insuranceAndFees != null &&
-        payment > 50 &&
+        payment > 1 &&
         payment < 30_000 &&
         insuranceAndFees >= 0 &&
         insuranceAndFees < 5_000
@@ -313,8 +314,9 @@ function countKereisInsuredBlocks(text: string): number {
 }
 
 /**
- * Frais retenus étude : adhésion (10 €) + constitution dossier (75 €) par assuré.
- * Exclut explicitement les frais de distribution (250 €) — courtage séparé.
+ * Frais retenus étude : adhésion / dossier assureur + constitution dossier.
+ * Ex. Cardif : 35 € dossier assureur + 75 € constitution = 110 €.
+ * Exclut explicitement les frais de distribution (courtage).
  */
 function extractKereisAssureurFees(text: string): number | null {
   const n = norm(text);
@@ -332,6 +334,15 @@ function extractKereisAssureurFees(text: string): number | null {
     .map((m) => parseEuroInt(m[1]))
     .filter((v): v is number => v != null && v > 0 && v <= 50);
 
+  // « frais de dossier assureur de 35 euros » (Cardif) — distinct de la constitution
+  const dossierAssureur = [
+    ...n.matchAll(
+      /frais\s+de\s+dossier\s+assureur[^\d]{0,40}?(\d+(?:[.,]\d{2})?)\s*(?:euros?|€)?/gi,
+    ),
+  ]
+    .map((m) => parseEuroInt(m[1]))
+    .filter((v): v is number => v != null && v > 0 && v <= 100);
+
   const dossiers = [
     ...n.matchAll(
       /(?:frais\s+de\s+)?constitution\s+de\s+dossier[^\d]{0,40}?(\d+(?:[.,]\d{2})?)\s*(?:euros?|€)?/gi,
@@ -340,20 +351,102 @@ function extractKereisAssureurFees(text: string): number | null {
     .map((m) => parseEuroInt(m[1]))
     .filter((v): v is number => v != null && v >= 20 && v <= 200);
 
-  // Fallback libellé court « frais de dossier de 75 euros »
-  if (!dossiers.length) {
+  // Fallback libellé court « frais de dossier de 75 euros » (sans « assureur »)
+  if (!dossiers.length && !dossierAssureur.length) {
     dossiers.push(
       ...[
-        ...n.matchAll(/frais\s+de\s+dossier[^\d]{0,40}?(\d+(?:[.,]\d{2})?)\s*(?:euros?|€)?/gi),
+        ...n.matchAll(/frais\s+de\s+dossier(?!\s+assureur)[^\d]{0,40}?(\d+(?:[.,]\d{2})?)\s*(?:euros?|€)?/gi),
       ]
         .map((m) => parseEuroInt(m[1]))
         .filter((v): v is number => v != null && v >= 20 && v <= 200),
     );
   }
 
-  const parts = [...adhesions, ...dossiers];
+  // Un montant par type (les libellés se répètent souvent à chaque prêt du PDF)
+  const parts: number[] = [];
+  if (adhesions.length) parts.push(adhesions[0]);
+  if (dossierAssureur.length) parts.push(dossierAssureur[0]);
+  if (dossiers.length) parts.push(dossiers[0]);
   if (!parts.length) return null;
   return Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100;
+}
+
+type DevisLoanSpec = { durationMonths: number; capital: number };
+
+/** « 222 mois Durée » puis « 58 538,92 € Capital emprunté » — un bloc par prêt. */
+function extractDevisLoanSpecs(devisText: string): DevisLoanSpec[] {
+  const out: DevisLoanSpec[] = [];
+  const re =
+    /(\d{2,3})\s*mois\s+Dur[ée]e[\s\S]{0,120}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*€?\s*\n?\s*Capital emprunt/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(devisText)) !== null) {
+    const durationMonths = Number(m[1]);
+    const capital = toNumberFR(m[2]);
+    if (durationMonths >= 12 && durationMonths <= 600 && capital != null && capital > 0) {
+      out.push({ durationMonths, capital });
+    }
+  }
+  return out;
+}
+
+/** Aligne un échéancier sur la durée devis du prêt (tronque la fin passée ou prolonge au taux initial). */
+function alignInsuranceToDuration(values: number[], targetMonths: number): number[] {
+  if (!values.length || !(targetMonths >= 12)) return values;
+  if (values.length === targetMonths) return values;
+  if (values.length > targetMonths) {
+    return values.slice(values.length - targetMonths);
+  }
+  const pad = targetMonths - values.length;
+  const seed = values[0] ?? 0;
+  return [...Array(pad).fill(seed), ...values];
+}
+
+function initialBalanceFromRows(rows: AmortRow[], tableauText: string): number | null {
+  // CRD en fin de ligne CE : dernier montant
+  for (const r of rows.slice(0, 5)) {
+    const amounts = [...r.raw.matchAll(/(\d{1,3}(?:[\s.]\d{3})*,\d{2})/g)]
+      .map((mm) => toNumberFR(mm[1]))
+      .filter((v): v is number => v != null);
+    if (amounts.length >= 2) {
+      const bal = amounts[amounts.length - 1];
+      if (bal > 1000) return bal;
+    }
+  }
+  const mTot = tableauText.match(
+    /Total\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i,
+  );
+  if (mTot?.[2]) return toNumberFR(mTot[2]);
+  return null;
+}
+
+function matchLoanDuration(
+  balance: number | null,
+  loanSpecs: DevisLoanSpec[],
+  used: Set<number>,
+  fallbackMonths: number | null,
+): number | null {
+  if (loanSpecs.length && balance != null) {
+    let bestIdx = -1;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < loanSpecs.length; i++) {
+      if (used.has(i)) continue;
+      const dist = Math.abs(loanSpecs[i].capital - balance);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+    // Tolère un écart fort (CRD initial vs capital restant devis, ex. Primolis)
+    if (bestIdx >= 0) {
+      used.add(bestIdx);
+      return loanSpecs[bestIdx].durationMonths;
+    }
+  }
+  if (loanSpecs.length === 1 && !used.has(0)) {
+    used.add(0);
+    return loanSpecs[0].durationMonths;
+  }
+  return fallbackMonths;
 }
 
 function sumProposedFromYearTable(
@@ -380,7 +473,11 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   const docs = (dossier?.formData?.documents || []) as any[];
 
   const offre = pickDoc(docs, "offre");
-  const tableau = pickDoc(docs, "tableau");
+  const tableaux = pickDocs(docs, "tableau").filter(
+    (d, i, arr) =>
+      arr.findIndex((x) => x === d || (x?.localPath && x.localPath === d?.localPath)) === i,
+  );
+  const tableau = tableaux[0] || pickDoc(docs, "tableau");
   const devisList = [
     ...pickDocs(docs, "devis"),
     ...docs.filter(
@@ -392,18 +489,23 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   ].filter((d, i, arr) => arr.findIndex((x) => x === d || x?.localPath === d?.localPath) === i);
 
   let offerText = "";
-  let tableauText = "";
+  const tableauTexts: string[] = [];
   const devisTexts: string[] = [];
   try {
     offerText = await extractPdfText(offre?.localPath);
   } catch {
     reasons.push("Offre de prêt: lecture PDF impossible");
   }
-  try {
-    tableauText = await extractPdfText(tableau?.localPath);
-  } catch {
-    reasons.push("Tableau d'amortissement: lecture PDF impossible");
+  for (const tab of tableaux.length ? tableaux : tableau ? [tableau] : []) {
+    try {
+      const t = await extractPdfText(tab?.localPath);
+      if (t.trim()) tableauTexts.push(t);
+      else reasons.push(`Tableau (${tab?.name || "?"}): contenu PDF vide`);
+    } catch {
+      reasons.push(`Tableau (${tab?.name || "?"}): lecture PDF impossible`);
+    }
   }
+  const tableauText = tableauTexts.join("\n\n---\n\n");
   for (const devis of devisList) {
     try {
       const t = await extractPdfText(devis?.localPath);
@@ -415,7 +517,7 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   const devisText = devisTexts.join("\n\n---\n\n");
   const devisN = norm(devisText);
 
-  if (tableau?.localPath && tableauText.trim().length < 40) {
+  if (tableaux.length && tableauTexts.length === 0) {
     reasons.push("Tableau d'amortissement: contenu PDF vide (probable scan image)");
   }
   if (devisList.length && devisText.trim().length < 40) {
@@ -426,25 +528,60 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   }
 
   const offerN = norm(offerText);
-  const tableauN = norm(tableauText);
 
-  // ÉTAPE 2.A : assurance actuelle = colonne assurance de l'échéancier
-  let amortRows = parseAmortizationRowsFromText(tableauText);
-  let amortValues = amortRows.map((r) => r.insuranceAndFees).filter((v) => Number.isFinite(v) && v >= 0);
-
-  // Durée restante annoncée sur le devis (ex. 295 mois) → garder les dernières N lignes
+  // Durées / capitaux par prêt sur le devis (ex. 222 / 248 / 248)
+  const loanSpecs = extractDevisLoanSpecs(devisText);
   const mDuree = devisText.match(/(\d{2,3})\s*mois\s+Dur[ée]e/i) || devisText.match(/Dur[ée]e\s*[:=]?\s*(\d{2,3})\s*mois/i);
   const devisRemainingMonths = mDuree?.[1] ? Number(mDuree[1]) : null;
-  if (
-    devisRemainingMonths &&
-    amortValues.length > devisRemainingMonths &&
-    devisRemainingMonths >= 12
-  ) {
-    const skip = amortValues.length - devisRemainingMonths;
-    amortValues = amortValues.slice(skip);
-    amortRows = amortRows.slice(skip);
+  if (loanSpecs.length >= 2) {
     reasons.push(
-      `Échéancier aligné sur la durée devis (${devisRemainingMonths} mois, ${skip} échéance(s) antérieures écartées).`,
+      `${loanSpecs.length} prêts détectés sur le devis (durées ${loanSpecs.map((l) => l.durationMonths).join("/")} mois).`,
+    );
+  }
+
+  // ÉTAPE 2.A : assurance actuelle = somme des colonnes assurance de TOUS les échéanciers
+  const usedLoanIdx = new Set<number>();
+  const perScheduleValues: number[][] = [];
+  const scheduleTotals: number[] = [];
+
+  for (const text of tableauTexts) {
+    let rows = parseAmortizationRowsFromText(text);
+    let values = rows.map((r) => r.insuranceAndFees).filter((v) => Number.isFinite(v) && v >= 0);
+    if (!values.length) continue;
+
+    const balance = initialBalanceFromRows(rows, text);
+    const targetMonths = matchLoanDuration(balance, loanSpecs, usedLoanIdx, devisRemainingMonths);
+    if (targetMonths && values.length !== targetMonths && targetMonths >= 12) {
+      const before = values.length;
+      values = alignInsuranceToDuration(values, targetMonths);
+      if (before > targetMonths) {
+        reasons.push(
+          `Échéancier aligné sur durée devis (${targetMonths} mois, ${before - targetMonths} échéance(s) antérieures écartées).`,
+        );
+      } else if (before < targetMonths) {
+        reasons.push(
+          `Échéancier prolongé au taux initial jusqu'à la durée devis (${before} → ${targetMonths} mois).`,
+        );
+      }
+    }
+    perScheduleValues.push(values);
+    scheduleTotals.push(Math.round(values.reduce((a, c) => a + c, 0) * 100) / 100);
+  }
+
+  if (perScheduleValues.length >= 2) {
+    reasons.push(
+      `${perScheduleValues.length} tableaux d'amortissement cumulés (actuelles: ${scheduleTotals.map((t) => t.toFixed(2)).join(" + ")} €).`,
+    );
+  }
+
+  // Fusion mois par mois (horizon = max des échéanciers)
+  const horizon = perScheduleValues.reduce((m, v) => Math.max(m, v.length), 0);
+  let amortValues: number[] = [];
+  if (horizon > 0) {
+    amortValues = Array.from({ length: horizon }, (_, i) =>
+      Math.round(
+        perScheduleValues.reduce((sum, vals) => sum + (vals[i] ?? 0), 0) * 100,
+      ) / 100,
     );
   }
 

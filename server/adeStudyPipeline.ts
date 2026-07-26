@@ -23,6 +23,7 @@ export type AdeStudyGenerateResult =
       studyKpi: Dossier["studyKpi"];
       studyPdf: any;
       parsed: any;
+      feasibility?: import("./adeStudyFeasibility").AdeFeasibilityAssessment;
     }
   | {
       ok: false;
@@ -32,11 +33,13 @@ export type AdeStudyGenerateResult =
         | "missing_tableau"
         | "files_unavailable"
         | "extraction_failed"
+        | "low_feasibility"
         | "ingest_failed"
         | "unknown";
       hint?: string;
       computation?: AdeStudyComputation;
       reasons?: string[];
+      feasibility?: import("./adeStudyFeasibility").AdeFeasibilityAssessment;
     };
 
 type AssureLite = { name: string; birthIso: string | null };
@@ -505,6 +508,31 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     }
   }
 
+  // Score faisabilité : < 8/10 → pas de PDF auto (étude manuelle)
+  const { assessAdeStudyFeasibility, ADE_FEASIBILITY_PASS_SCORE } = await import(
+    "./adeStudyFeasibility"
+  );
+  const feasibility = await assessAdeStudyFeasibility(dossier);
+  (dossier as any).adeStudyFeasibility = feasibility;
+
+  if (!feasibility.pass) {
+    return {
+      ok: false,
+      code: "low_feasibility",
+      error: `Score faisabilité ${feasibility.score}/${feasibility.max} — génération auto refusée.`,
+      hint:
+        feasibility.score < ADE_FEASIBILITY_PASS_SCORE
+          ? `Sous ${ADE_FEASIBILITY_PASS_SCORE}/10 : faites l'étude manuellement (PDF hors app), puis importez-la si besoin.`
+          : "Documents incomplets ou montants illisibles — complétez tableaux/devis ou passez en manuel.",
+      reasons: [
+        ...feasibility.blockers,
+        ...feasibility.checks.filter((c) => !c.ok).map((c) => `✗ ${c.label}${c.detail ? ` (${c.detail})` : ""}`),
+        ...resolveWarnings.slice(0, 3),
+      ].slice(0, 10),
+      feasibility,
+    };
+  }
+
   const effectFromKereis = String((dossier as any).kereisDraft?.effectDateIso || "");
   const effectFallback =
     /^\d{4}-\d{2}-\d{2}$/.test(effectFromKereis) ? effectFromKereis : defaultEffectDateIso();
@@ -515,7 +543,10 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   const offerText = texts.filter((d) => d.category === "offre").map((d) => d.text).join("\n\n");
 
   let computation: AdeStudyComputation | null = null;
-  const skillReasons: string[] = [...resolveWarnings];
+  const skillReasons: string[] = [
+    ...resolveWarnings,
+    `Faisabilité ADE ${feasibility.score}/${feasibility.max} (≥ ${ADE_FEASIBILITY_PASS_SCORE} → auto).`,
+  ];
 
   // Extraction locale d'abord (ancrages fiables : échéancier CE + totaux devis)
   const eco = await computeEconomyFromDossierDocs(dossier);
@@ -652,6 +683,7 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     ...computation,
     economyReliability: computation.provider === "gemini" ? "HIGH" : computation.confidence,
     economyReasons: skillReasons,
+    feasibilityScore: feasibility.score,
   };
 
   const ingest = await ingestStudyPdfForDossier({
@@ -672,17 +704,19 @@ export async function generateAndIngestAdeStudyForDossier(params: {
       hint: "Réessayez, ou importez le PDF manuellement via « Importer PDF d'étude ».",
       computation,
       reasons: resolveWarnings,
+      feasibility,
     };
   }
 
   addEvent(dossier, {
     type: "AI_DECISION",
     actor: { kind: "SYSTEM", label: params.actorLabel || "ADE study" },
-    message: `Étude PDF générée automatiquement — économie brute ${computation.grossSavingsEur} € (confiance ${computation.confidence}).`,
+    message: `Étude PDF générée automatiquement — économie brute ${computation.grossSavingsEur} € (confiance ${computation.confidence}, faisabilité ${feasibility.score}/10).`,
     meta: {
       template: "ADE_STUDY_GENERATE",
       gross: computation.grossSavingsEur,
       confidence: computation.confidence,
+      feasibilityScore: feasibility.score,
     },
   });
 
@@ -693,5 +727,6 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     studyKpi: dossier.studyKpi,
     studyPdf: (dossier as any).studyPdf,
     parsed: ingest.parsed,
+    feasibility,
   };
 }

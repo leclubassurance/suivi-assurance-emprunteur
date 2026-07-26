@@ -1285,6 +1285,7 @@ export function createApp() {
           uploadsDir: UPLOADS_DIR,
           actorLabel: String((req as any).adminEmail || "Admin"),
         });
+        await writeDB(db, dossier);
         if (!result.ok) {
           return res.status(400).json({
             error: result.error,
@@ -1292,9 +1293,9 @@ export function createApp() {
             hint: result.hint || null,
             computation: result.computation || null,
             reasons: result.reasons || null,
+            feasibility: result.feasibility || (dossier as any).adeStudyFeasibility || null,
           });
         }
-        await writeDB(db, dossier);
         return res.json({
           success: true,
           computation: result.computation,
@@ -1302,6 +1303,7 @@ export function createApp() {
           studyKpi: result.studyKpi,
           studyPdf: result.studyPdf,
           parsed: result.parsed,
+          feasibility: result.feasibility || null,
           downloadUrl: `/api/admin/dossiers/${dossier.id}/study-pdf?download=1`,
         });
       } catch (err: any) {
@@ -1314,6 +1316,23 @@ export function createApp() {
       }
     },
   );
+
+  /** Score faisabilité ADE (/10) sans générer le PDF. */
+  app.post("/api/admin/dossiers/:id/ade-feasibility", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    try {
+      const { assessAdeStudyFeasibility } = await import("./adeStudyFeasibility");
+      const feasibility = await assessAdeStudyFeasibility(dossier);
+      (dossier as any).adeStudyFeasibility = feasibility;
+      await writeDB(db, dossier);
+      return res.json({ success: true, feasibility });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || "Erreur score faisabilité" });
+    }
+  });
 
   app.get("/api/admin/dossiers/:id/study-pdf", async (req, res) => {
     await ensureBackgroundServicesStarted();
