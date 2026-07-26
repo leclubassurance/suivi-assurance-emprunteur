@@ -56,9 +56,14 @@ function parseAmortizationRowsFromText(tableauText: string): AmortRow[] {
 
   // Strategy:
   // 1) Try strict known layout (idx + date + many € columns)
-  // 2) Fallback: detect idx+date, then extract amounts from the line and take amount[1] as insurance+fees
+  // 2) Caisse d'Épargne / sans date : Rang | Montant | Capital amorti | Intérêt | Assurance | Autres | CRD
+  // 3) Fallback: detect idx+date, then extract amounts from the line and take amount[1] as insurance+fees
   const strictRx =
     /^(\d{1,4})\s+(\d{2}[./-]\d{2}[./-]\d{4})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})/;
+
+  // Ex: 13 723,74 256,62 355,09 112,03 0,00 129 261,32
+  const ceNoDateRx =
+    /^(\d{1,4})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})+,\d{2}|\d+,\d{2})\s*$/;
 
   const looseHeadRx = /^(\d{1,4})\s+(\d{2}[./-]\d{2}[./-]\d{2,4})\b/;
   const moneyRx = /(\d{1,3}(?:[\s.]\d{3})*,\d{2})/g;
@@ -76,6 +81,25 @@ function parseAmortizationRowsFromText(tableauText: string): AmortRow[] {
       continue;
     }
 
+    const mCe = line.match(ceNoDateRx);
+    if (mCe) {
+      const idx = Number(mCe[1]);
+      const payment = toNumberFR(mCe[2]);
+      const insuranceAndFees = toNumberFR(mCe[5]); // COUT ASSURANCES
+      if (
+        Number.isFinite(idx) &&
+        payment != null &&
+        insuranceAndFees != null &&
+        payment > 50 &&
+        payment < 30_000 &&
+        insuranceAndFees >= 0 &&
+        insuranceAndFees < 5_000
+      ) {
+        rows.push({ idx, date: "", payment, insuranceAndFees, raw: line });
+      }
+      continue;
+    }
+
     const mHead = line.match(looseHeadRx);
     if (!mHead) continue;
     const idx = Number(mHead[1]);
@@ -89,7 +113,8 @@ function parseAmortizationRowsFromText(tableauText: string): AmortRow[] {
     if (amounts.length < 2) continue;
 
     const payment = amounts[0];
-    const insuranceAndFees = amounts[1];
+    // Si 5+ montants (layout CE aplati), assurance = 4e montant (index 3)
+    const insuranceAndFees = amounts.length >= 5 ? amounts[3] : amounts[1];
     // basic sanity: payment should be "large" vs insurance "small-ish"
     if (!(payment > 200 && payment < 20000)) continue;
     if (!(insuranceAndFees >= 0 && insuranceAndFees < 2000)) continue;
@@ -253,8 +278,20 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
 
   const mFeesAssureur =
     devisN.match(/total\s+frais\s+assureur[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
-    devisN.match(/frais\s+assureur[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
+    devisN.match(/frais\s+assureur[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
+    devisN.match(/frais\s+de\s+dossier[\s\S]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
+    devisN.match(/frais\s+retenus[\s\S]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
   if (mFeesAssureur?.[1]) feesAssureurTotal = toNumberFR(mFeesAssureur[1]);
+
+  // Adhésion association souvent 10 € × n assurés — additionner si trouvé séparément
+  if (feesAssureurTotal == null) {
+    const mAdhesion = [...devisN.matchAll(/adhesion[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/gi)];
+    const mDossier = [...devisN.matchAll(/frais\s+de\s+dossier[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/gi)];
+    const parts = [...mAdhesion, ...mDossier]
+      .map((m) => toNumberFR(m[1]))
+      .filter((n): n is number => n != null && n > 0 && n < 2000);
+    if (parts.length) feesAssureurTotal = Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100;
+  }
 
   const mFeesCourtier =
     devisN.match(/frais\s+(?:de\s+distribution|de\s+courtage|courtage)[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
@@ -275,16 +312,25 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
     feesCourtierTotal: feesCourtierTotal ?? undefined,
   };
 
-  // Reliability
+  // Reliability — il faut les DEUX côtés (actuelle + proposée)
   let reliability: EconomyReliability = "LOW";
-  if (extracted.currentTotalRemaining != null && remainingMonths != null && proposedTotalRemaining != null) {
+  if (
+    extracted.currentTotalRemaining != null &&
+    extracted.currentTotalRemaining > 0 &&
+    remainingMonths != null &&
+    proposedTotalRemaining != null &&
+    proposedTotalRemaining > 0
+  ) {
     reliability = proposedMonthlyByYear.length ? "HIGH" : "MEDIUM";
-  } else if ((extracted.currentTotalRemaining != null && remainingMonths != null) || proposedTotalRemaining != null) {
+  } else if (
+    (extracted.currentTotalRemaining != null && remainingMonths != null) ||
+    proposedTotalRemaining != null
+  ) {
     reliability = "MEDIUM";
   }
 
-  if (reliability === "LOW") {
-    return { ok: false, reliability, reasons, extracted };
+  if (reliability === "LOW" || !(extracted.currentTotalRemaining != null && proposedTotalRemaining != null)) {
+    return { ok: false, reliability: "LOW", reasons, extracted };
   }
 
   const curTotal = extracted.currentTotalRemaining ?? 0;

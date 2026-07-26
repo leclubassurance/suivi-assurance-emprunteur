@@ -1231,38 +1231,77 @@ export function createApp() {
   });
 
   // Devis + échéancier → PDF étude comparatif → ingest KPI
-  app.post("/api/admin/dossiers/:id/generate-study-pdf", async (req, res) => {
-    await ensureBackgroundServicesStarted();
-    const db = await readDBAsync();
-    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
-    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    try {
-      const { generateAndIngestAdeStudyForDossier } = await import("./adeStudyPipeline");
-      const result = await generateAndIngestAdeStudyForDossier({
-        dossier,
-        uploadsDir: UPLOADS_DIR,
-        actorLabel: String((req as any).adminEmail || "Admin"),
-      });
-      if (!result.ok) {
-        return res.status(400).json({
-          error: result.error,
-          computation: "computation" in result ? result.computation || null : null,
+  // Accepte aussi un upload devis optionnel (champ "quote") dans la même requête.
+  app.post(
+    "/api/admin/dossiers/:id/generate-study-pdf",
+    quoteUpload.single("quote"),
+    async (req, res) => {
+      await ensureBackgroundServicesStarted();
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      const file = (req as any).file as Express.Multer.File | undefined;
+      try {
+        if (file) {
+          if (!dossier.formData) dossier.formData = {};
+          if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
+          dossier.formData.documents = dossier.formData.documents.filter(
+            (d: any) => d?.category !== "devis",
+          );
+          const doc = {
+            id: `devis-${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            category: "devis",
+            name: file.originalname,
+            size: file.size,
+            type: file.mimetype,
+            localPath: file.path,
+            source: "admin",
+            uploadedAt: new Date().toISOString(),
+          };
+          try {
+            const dossierDir = path.join(UPLOADS_DIR, dossier.id);
+            if (!fs.existsSync(dossierDir)) fs.mkdirSync(dossierDir, { recursive: true });
+            const base = path.basename(doc.localPath);
+            const nextPath = path.join(dossierDir, base);
+            if (doc.localPath !== nextPath && fs.existsSync(doc.localPath)) {
+              fs.renameSync(doc.localPath, nextPath);
+              doc.localPath = nextPath;
+            }
+          } catch {
+            /* keep temp path */
+          }
+          dossier.formData.documents.push(doc);
+        }
+
+        const { generateAndIngestAdeStudyForDossier } = await import("./adeStudyPipeline");
+        const result = await generateAndIngestAdeStudyForDossier({
+          dossier,
+          uploadsDir: UPLOADS_DIR,
+          actorLabel: String((req as any).adminEmail || "Admin"),
         });
+        if (!result.ok) {
+          return res.status(400).json({
+            error: result.error,
+            computation: "computation" in result ? result.computation || null : null,
+            reasons: "reasons" in result ? result.reasons || null : null,
+          });
+        }
+        await writeDB(db, dossier);
+        return res.json({
+          success: true,
+          computation: result.computation,
+          studyDraft: result.studyDraft,
+          studyKpi: result.studyKpi,
+          studyPdf: result.studyPdf,
+          parsed: result.parsed,
+        });
+      } catch (err: any) {
+        console.error("[generate-study-pdf]", err?.message || err);
+        return res.status(500).json({ error: err?.message || "Erreur génération étude PDF" });
       }
-      await writeDB(db, dossier);
-      return res.json({
-        success: true,
-        computation: result.computation,
-        studyDraft: result.studyDraft,
-        studyKpi: result.studyKpi,
-        studyPdf: result.studyPdf,
-        parsed: result.parsed,
-      });
-    } catch (err: any) {
-      console.error("[generate-study-pdf]", err?.message || err);
-      return res.status(500).json({ error: err?.message || "Erreur génération étude PDF" });
-    }
-  });
+    },
+  );
 
   app.get("/api/admin/dossiers/:id/study-pdf", async (req, res) => {
     await ensureBackgroundServicesStarted();

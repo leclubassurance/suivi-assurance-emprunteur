@@ -44,18 +44,34 @@ function parseEuroLoose(raw: string): number | null {
 export function extractMonthlyInsuranceFromScheduleText(text: string): number[] {
   const lines = String(text || "").split(/\r?\n/);
   const amounts: number[] = [];
-  // Lignes type : N  capital  intérêts  assurance  …  ou colonnes avec €
+  // Avec date : N date payment interest insurance …
+  const rowWithDate =
+    /^\s*(\d{1,4})\s+\d{2}[./-]\d{2}[./-]\d{2,4}\s+[\d\s]+[,.]\d{2}\s+[\d\s]+[,.]\d{2}\s+([\d\s]+[,.]\d{2})/;
+  // Caisse d'Épargne sans date : Rang paiement amorti intérêt assurance autres CRD
+  const rowCe =
+    /^\s*(\d{1,4})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s+/;
+  // Ancien heuristique (3 montants)
   const rowRe =
     /^\s*(\d{1,3})\s+[\d\s]+[,.]\d{2}\s+[\d\s]+[,.]\d{2}\s+([\d\s]+[,.]\d{2})/;
   for (const line of lines) {
+    const mDate = line.match(rowWithDate);
+    if (mDate) {
+      const ass = parseEuroLoose(mDate[2]);
+      if (ass != null && ass >= 0 && ass < 50_000) amounts.push(ass);
+      continue;
+    }
+    const mCe = line.match(rowCe);
+    if (mCe) {
+      const ass = parseEuroLoose(mCe[5]);
+      if (ass != null && ass >= 0 && ass < 5_000) amounts.push(ass);
+      continue;
+    }
     const m = line.match(rowRe);
     if (m) {
       const ass = parseEuroLoose(m[2]);
       if (ass != null && ass >= 0 && ass < 50_000) amounts.push(ass);
-      continue;
     }
   }
-  // Fallback : lignes « assurance » isolées peu fiables — ignorer si trop peu
   return amounts;
 }
 

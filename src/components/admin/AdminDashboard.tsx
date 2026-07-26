@@ -582,17 +582,26 @@ export default function AdminDashboard({
     }
   };
 
-  const handleGenerateStudyFromDevis = async () => {
+  const handleGenerateStudyFromDevis = async (file?: File | null) => {
     if (!selectedDossier) return;
     try {
       setGenerateStudyBusy(true);
-      showToast("Calcul + génération PDF d'étude…", "info");
+      showToast(
+        file ? "Upload devis + génération PDF d'étude…" : "Calcul + génération PDF d'étude…",
+        "info",
+      );
+      const fd = new FormData();
+      if (file) fd.append("quote", file);
       const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/generate-study-pdf`, {
         method: "POST",
+        body: file ? fd : undefined,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        showToast(data.error || "Génération étude impossible", "error");
+        const detail = Array.isArray(data.reasons) && data.reasons.length
+          ? ` — ${data.reasons.slice(0, 2).join(" · ")}`
+          : "";
+        showToast((data.error || "Génération étude impossible") + detail, "error");
         return;
       }
       if (data?.studyDraft?.subject) setEmailSubject(data.studyDraft.subject);
@@ -2390,10 +2399,11 @@ export default function AdminDashboard({
                   <div className="flex flex-col gap-3">
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-3">
                       <p className="text-sm font-bold text-slate-900">Parcours étude (Kereis → devis → PDF)</p>
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        1) Générer la fiche à saisir dans Kereis · 2) Déposer le devis (onglet Documents) ·
-                        3) Générer le PDF comparatif (ou importer un PDF déjà produit).
-                      </p>
+                      <ol className="text-xs text-slate-600 leading-relaxed list-decimal pl-4 space-y-1">
+                        <li>Préparer / copier la fiche Kereis</li>
+                        <li>Uploader le devis assureur (PDF)</li>
+                        <li>Générer le PDF comparatif (ou importer un PDF déjà produit)</li>
+                      </ol>
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
@@ -2402,7 +2412,7 @@ export default function AdminDashboard({
                           className="bg-slate-800 hover:bg-slate-900 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
                         >
                           <Sparkles className="w-4 h-4" />
-                          {kereisBusy ? "Extraction…" : "Préparer fiche Kereis"}
+                          {kereisBusy ? "Extraction…" : "1. Préparer fiche Kereis"}
                         </button>
                         <button
                           type="button"
@@ -2412,6 +2422,39 @@ export default function AdminDashboard({
                         >
                           Copier la fiche
                         </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="border border-teal-300 bg-white hover:bg-teal-50 text-teal-900 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2 cursor-pointer">
+                          <Upload className="w-4 h-4" />
+                          2. Uploader le devis
+                          <input
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            className="hidden"
+                            disabled={generateStudyBusy}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = "";
+                              if (f) void handleUploadQuote(f);
+                            }}
+                          />
+                        </label>
+                        {((selectedDossier as any)?.formData?.documents || []).some(
+                          (d: any) => String(d?.category || "").toLowerCase() === "devis",
+                        ) ? (
+                          <span className="text-xs font-bold text-teal-800">
+                            Devis présent :{" "}
+                            {
+                              ((selectedDossier as any)?.formData?.documents || []).find(
+                                (d: any) => String(d?.category || "").toLowerCase() === "devis",
+                              )?.name
+                            }
+                          </span>
+                        ) : (
+                          <span className="text-xs text-amber-700">Aucun devis sur le dossier</span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() => void handleGenerateStudyFromDevis()}
@@ -2419,8 +2462,23 @@ export default function AdminDashboard({
                           className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
                         >
                           <FileText className="w-4 h-4" />
-                          {generateStudyBusy ? "Génération…" : "Générer étude depuis devis"}
+                          {generateStudyBusy ? "Génération…" : "3. Générer étude depuis devis"}
                         </button>
+                        <label className="border border-teal-600 bg-teal-50 hover:bg-teal-100 text-teal-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2 cursor-pointer">
+                          <Upload className="w-4 h-4" />
+                          Devis + générer
+                          <input
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            className="hidden"
+                            disabled={generateStudyBusy}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = "";
+                              if (f) void handleGenerateStudyFromDevis(f);
+                            }}
+                          />
+                        </label>
                       </div>
                       {kereisDraft ? (
                         <div className="text-xs text-slate-700 space-y-1">
