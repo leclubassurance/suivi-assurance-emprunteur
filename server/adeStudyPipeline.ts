@@ -26,6 +26,14 @@ export type AdeStudyGenerateResult =
   | {
       ok: false;
       error: string;
+      code?:
+        | "missing_devis"
+        | "missing_tableau"
+        | "files_unavailable"
+        | "extraction_failed"
+        | "ingest_failed"
+        | "unknown";
+      hint?: string;
       computation?: AdeStudyComputation;
       reasons?: string[];
     };
@@ -236,22 +244,24 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   if (!hasDevis) {
     return {
       ok: false,
-      error: "Déposez le devis assureur (PDF) dans l'étape « Uploader le devis » ci-dessus.",
+      code: "missing_devis",
+      error: "Aucun devis assureur sur ce dossier.",
+      hint: "Étape 2 : uploadez le PDF du devis Kereis (un par assuré si couple).",
       reasons: resolveWarnings,
     };
   }
-  // Improve pipeline error when Drive files missing
   if (!hasTableau) {
     return {
       ok: false,
+      code: "missing_tableau",
       error: "Tableau d'amortissement manquant sur le dossier.",
+      hint: "Dans Documents, ajoutez le tableau (catégorie « tableau »), puis réessayez.",
       reasons: resolveWarnings,
     };
   }
 
   const missingFiles = resolveWarnings.filter((w) => /manquant|missing|drive/i.test(w));
   if (missingFiles.length) {
-    // Continue if at least one tableau+devis resolved locally; otherwise fail clearly.
     const docsNow = (dossier.formData?.documents || []) as any[];
     const tableauOk = docsNow.some(
       (d) => String(d?.category || "") === "tableau" && d?.localPath && fs.existsSync(String(d.localPath)),
@@ -265,8 +275,12 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     if (!tableauOk || !devisOk) {
       return {
         ok: false,
+        code: "files_unavailable",
         error:
-          "Fichiers introuvables sur le serveur (disque Railway vidé après déploiement). Réuploadez le tableau et le(s) devis dans les étapes ci-dessus, puis regénérez.",
+          "Fichiers introuvables sur le serveur (souvent après un redéploiement Railway).",
+        hint: !tableauOk
+          ? "Réimportez le tableau d'amortissement + le(s) devis, puis cliquez à nouveau sur Générer."
+          : "Réimportez le(s) devis PDF, puis cliquez à nouveau sur Générer.",
         reasons: resolveWarnings,
       };
     }
@@ -304,8 +318,11 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   if (!computation || computation.currentTotalEur <= 0 || computation.proposedTotalEur <= 0) {
     return {
       ok: false,
+      code: "extraction_failed",
       error:
-        "Extraction insuffisante (échéancier ou devis). Vérifiez que le tableau a une colonne assurance lisible et que le devis contient le total des cotisations.",
+        "Impossible d'extraire les montants depuis le tableau et/ou le devis.",
+      hint:
+        "Vérifiez que le tableau a une colonne assurance lisible et que le devis Kereis contient « Total des cotisations ». Pour un couple, uploadez un devis par assuré.",
       computation: computation || undefined,
       reasons: [...resolveWarnings, ...(eco.reasons || [])],
     };
@@ -338,7 +355,9 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   if (!ingest.ok) {
     return {
       ok: false,
-      error: ingest.error || "PDF généré mais ingest KPI échoué.",
+      code: "ingest_failed",
+      error: ingest.error || "PDF généré mais enregistrement KPI échoué.",
+      hint: "Réessayez, ou importez le PDF manuellement via « Importer PDF d'étude ».",
       computation,
       reasons: resolveWarnings,
     };

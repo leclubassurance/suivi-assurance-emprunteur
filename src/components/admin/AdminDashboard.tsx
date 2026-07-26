@@ -81,6 +81,14 @@ export default function AdminDashboard({
   const [kereisDraft, setKereisDraft] = useState<any | null>(null);
   const [kereisBusy, setKereisBusy] = useState(false);
   const [generateStudyBusy, setGenerateStudyBusy] = useState(false);
+  const [studyGenerateFeedback, setStudyGenerateFeedback] = useState<{
+    type: "error" | "success";
+    title: string;
+    message: string;
+    hint?: string;
+    reasons?: string[];
+    fileName?: string;
+  } | null>(null);
   const [debriefNote, setDebriefNote] = useState("");
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
@@ -130,6 +138,10 @@ export default function AdminDashboard({
       }),
     [emailHtml, studyConseillerValidation, studySendSlice],
   );
+
+  useEffect(() => {
+    setStudyGenerateFeedback(null);
+  }, [selectedDossier?.id]);
 
   useEffect(() => {
     if (!selectedDossier) return;
@@ -582,41 +594,95 @@ export default function AdminDashboard({
     }
   };
 
+  const downloadStudyPdfForDossier = async (
+    dossierId: string,
+    preferredName?: string,
+  ): Promise<boolean> => {
+    try {
+      const res = await adminFetch(`/api/admin/dossiers/${dossierId}/study-pdf?download=1`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || "PDF introuvable", "error");
+        return false;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = preferredName || `etude-${dossierId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      return true;
+    } catch {
+      showToast("Erreur téléchargement PDF", "error");
+      return false;
+    }
+  };
+
   const handleGenerateStudyFromDevis = async (file?: File | null) => {
     if (!selectedDossier) return;
+    const dossierId = selectedDossier.id;
     try {
       setGenerateStudyBusy(true);
+      setStudyGenerateFeedback(null);
       showToast(
         file ? "Upload devis + génération PDF d'étude…" : "Calcul + génération PDF d'étude…",
         "info",
       );
       const fd = new FormData();
       if (file) fd.append("quote", file);
-      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/generate-study-pdf`, {
+      const res = await adminFetch(`/api/admin/dossiers/${dossierId}/generate-study-pdf`, {
         method: "POST",
         body: file ? fd : undefined,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const detail = Array.isArray(data.reasons) && data.reasons.length
-          ? ` — ${data.reasons.slice(0, 2).join(" · ")}`
-          : "";
-        showToast((data.error || "Génération étude impossible") + detail, "error");
+        const reasons = Array.isArray(data.reasons)
+          ? data.reasons.map((r: unknown) => String(r)).filter(Boolean)
+          : [];
+        setStudyGenerateFeedback({
+          type: "error",
+          title: "Génération de l'étude impossible",
+          message: String(data.error || "La génération a échoué."),
+          hint: data.hint ? String(data.hint) : undefined,
+          reasons: reasons.slice(0, 6),
+        });
+        showToast(String(data.error || "Génération étude impossible"), "error");
         return;
       }
       if (data?.studyDraft?.subject) setEmailSubject(data.studyDraft.subject);
       if (data?.studyDraft?.html) setEmailHtml(data.studyDraft.html);
       const gross = data?.computation?.grossSavingsEur ?? data?.parsed?.grossSavingsEur;
+      const fileName =
+        String(data?.studyPdf?.fileName || "").trim() || `etude-${dossierId}.pdf`;
+      setStudyGenerateFeedback({
+        type: "success",
+        title: "Étude PDF générée",
+        message:
+          gross != null
+            ? `Économie brute estimée : ${Math.round(gross).toLocaleString("fr-FR")} €.`
+            : "Le PDF comparatif est prêt.",
+        fileName,
+      });
       showToast(
         gross != null
           ? `Étude générée — économie brute ${Math.round(gross).toLocaleString("fr-FR")} €`
           : "Étude PDF générée.",
         "success",
       );
+      await downloadStudyPdfForDossier(dossierId, fileName);
       loadDossiers();
       reloadMetrics();
-      await refreshConseillerStudyFlow(selectedDossier.id);
+      await refreshConseillerStudyFlow(dossierId);
     } catch {
+      setStudyGenerateFeedback({
+        type: "error",
+        title: "Génération de l'étude impossible",
+        message: "Erreur réseau pendant la génération.",
+        hint: "Vérifiez votre connexion, puis réessayez.",
+      });
       showToast("Erreur génération étude", "error");
     } finally {
       setGenerateStudyBusy(false);
@@ -2487,6 +2553,53 @@ export default function AdminDashboard({
                           />
                         </label>
                       </div>
+                      {studyGenerateFeedback ? (
+                        <div
+                          className={`rounded-xl border px-4 py-3 text-sm ${
+                            studyGenerateFeedback.type === "error"
+                              ? "border-red-200 bg-red-50 text-red-950"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-950"
+                          }`}
+                          role="status"
+                        >
+                          <p className="font-bold inline-flex items-center gap-2">
+                            {studyGenerateFeedback.type === "error" ? (
+                              <AlertTriangle className="w-4 h-4 shrink-0" />
+                            ) : (
+                              <CheckCircle className="w-4 h-4 shrink-0" />
+                            )}
+                            {studyGenerateFeedback.title}
+                          </p>
+                          <p className="text-xs mt-1 leading-relaxed">{studyGenerateFeedback.message}</p>
+                          {studyGenerateFeedback.hint ? (
+                            <p className="text-xs mt-2 font-medium leading-relaxed">
+                              {studyGenerateFeedback.hint}
+                            </p>
+                          ) : null}
+                          {studyGenerateFeedback.reasons?.length ? (
+                            <ul className="mt-2 text-xs list-disc pl-4 space-y-0.5 opacity-90">
+                              {studyGenerateFeedback.reasons.map((r) => (
+                                <li key={r}>{r}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          {studyGenerateFeedback.type === "success" ? (
+                            <button
+                              type="button"
+                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-xs font-bold"
+                              onClick={() =>
+                                void downloadStudyPdfForDossier(
+                                  selectedDossier!.id,
+                                  studyGenerateFeedback.fileName,
+                                )
+                              }
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Télécharger le PDF
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {kereisDraft ? (
                         <div className="text-xs text-slate-700 space-y-1">
                           <p>
@@ -2549,29 +2662,43 @@ export default function AdminDashboard({
                             ? ` · frais dossier ${Math.round(conseillerStudyFlow.studyDraftSummary.feesAssureurEur).toLocaleString("fr-FR")} €`
                             : ""}
                         </p>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 underline mt-2"
-                          onClick={async () => {
-                            try {
-                              const res = await adminFetch(
-                                `/api/admin/dossiers/${selectedDossier!.id}/study-pdf`,
-                              );
-                              if (!res.ok) {
-                                showToast("PDF introuvable", "error");
-                                return;
+                        <div className="flex flex-wrap items-center gap-3 mt-2">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 underline"
+                            onClick={async () => {
+                              try {
+                                const res = await adminFetch(
+                                  `/api/admin/dossiers/${selectedDossier!.id}/study-pdf`,
+                                );
+                                if (!res.ok) {
+                                  showToast("PDF introuvable", "error");
+                                  return;
+                                }
+                                const blob = await res.blob();
+                                const url = URL.createObjectURL(blob);
+                                window.open(url, "_blank", "noopener,noreferrer");
+                                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                              } catch {
+                                showToast("Erreur ouverture PDF", "error");
                               }
-                              const blob = await res.blob();
-                              const url = URL.createObjectURL(blob);
-                              window.open(url, "_blank", "noopener,noreferrer");
-                              setTimeout(() => URL.revokeObjectURL(url), 60_000);
-                            } catch {
-                              showToast("Erreur ouverture PDF", "error");
+                            }}
+                          >
+                            <FileText className="w-3.5 h-3.5" /> Voir le PDF
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 underline"
+                            onClick={() =>
+                              void downloadStudyPdfForDossier(
+                                selectedDossier!.id,
+                                conseillerStudyFlow.studyPdfFileName || undefined,
+                              )
                             }
-                          }}
-                        >
-                          <FileText className="w-3.5 h-3.5" /> Voir le PDF
-                        </button>
+                          >
+                            <Download className="w-3.5 h-3.5" /> Télécharger
+                          </button>
+                        </div>
                       </div>
                     ) : null}
                     {economyStatus?.reasons?.length ? (

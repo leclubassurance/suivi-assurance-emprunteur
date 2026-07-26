@@ -1288,8 +1288,10 @@ export function createApp() {
         if (!result.ok) {
           return res.status(400).json({
             error: result.error,
-            computation: "computation" in result ? result.computation || null : null,
-            reasons: "reasons" in result ? result.reasons || null : null,
+            code: result.code || "unknown",
+            hint: result.hint || null,
+            computation: result.computation || null,
+            reasons: result.reasons || null,
           });
         }
         await writeDB(db, dossier);
@@ -1300,10 +1302,15 @@ export function createApp() {
           studyKpi: result.studyKpi,
           studyPdf: result.studyPdf,
           parsed: result.parsed,
+          downloadUrl: `/api/admin/dossiers/${dossier.id}/study-pdf?download=1`,
         });
       } catch (err: any) {
         console.error("[generate-study-pdf]", err?.message || err);
-        return res.status(500).json({ error: err?.message || "Erreur génération étude PDF" });
+        return res.status(500).json({
+          error: err?.message || "Erreur génération étude PDF",
+          code: "unknown",
+          hint: "Erreur serveur inattendue. Réessayez, ou importez un PDF d'étude manuellement.",
+        });
       }
     },
   );
@@ -1318,8 +1325,14 @@ export function createApp() {
     if (!pdfPath) return res.status(404).json({ error: "Aucun PDF d'étude sur ce dossier." });
     const fileName =
       String((dossier as any).studyPdf?.fileName || "etude-economies.pdf").trim() || "etude-economies.pdf";
+    const asDownload =
+      String(req.query.download || "") === "1" ||
+      String(req.query.download || "").toLowerCase() === "true";
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="${fileName.replace(/"/g, "")}"`);
+    res.setHeader(
+      "Content-Disposition",
+      `${asDownload ? "attachment" : "inline"}; filename="${fileName.replace(/"/g, "")}"`,
+    );
     return res.sendFile(pdfPath);
   });
 
