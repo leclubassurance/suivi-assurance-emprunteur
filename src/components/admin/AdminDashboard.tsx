@@ -2516,16 +2516,18 @@ export default function AdminDashboard({
                           return (
                             <span className="text-xs font-bold text-teal-800">
                               {devisDocs.length} devis — {devisDocs.map((d: any) => d.name).join(", ")}
-                              {assuresN > 1 && devisDocs.length < assuresN
-                                ? ` (il manque ${assuresN - devisDocs.length} pour ${assuresN} assurés)`
+                              {assuresN > 1
+                                ? ` (${assuresN} assurés — un PDF Kereis couple suffit souvent)`
                                 : ""}
                             </span>
                           );
                         })()}
                       </div>
                       <p className="text-[11px] text-slate-500">
-                        Couple / co-emprunteurs : uploadez un devis par assuré (les totaux sont cumulés).
-                        Si le tableau a disparu après un déploiement, réimportez-le aussi dans Documents.
+                        Couple / co-emprunteurs : le PDF Kereis contient souvent les deux assurés dans
+                        le même fichier (totaux cumulés automatiquement). Vous pouvez aussi uploader
+                        plusieurs devis. Si le tableau a disparu après un déploiement, réimportez-le
+                        aussi dans Documents.
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
                         <button

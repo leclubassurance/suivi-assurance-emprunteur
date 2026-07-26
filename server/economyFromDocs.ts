@@ -16,6 +16,8 @@ export type EconomyComputation = {
     proposedTotalRemaining?: number;
     proposedTotal8y?: number;
     proposedMonthlyByYear?: Array<{ year: number; monthly: number }>;
+    /** Totaux individuels avant somme (un par assuré / bloc devis), ex. [3420.92, 8413.97]. */
+    proposedInsuredTotals?: number[];
     proposedEffectiveDate?: string;
     feesAssureurTotal?: number;
     feesCourtierTotal?: number;
@@ -151,24 +153,106 @@ function pickDoc(docs: any[], category: string): any | null {
 
 /** Montant juste AU-DESSUS d'un libellé (layout colonnes Kereis). */
 function amountAboveLabel(text: string, labelRe: RegExp): number | null {
-  const m = text.match(labelRe);
-  if (!m || m.index == null) return null;
-  const head = text.slice(Math.max(0, m.index - 80), m.index);
-  const amounts = [...head.matchAll(/(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*€?/g)];
-  if (!amounts.length) return null;
-  return toNumberFR(amounts[amounts.length - 1][1]);
+  const all = amountsAboveAllLabels(text, labelRe);
+  return all.length ? all[0] : null;
 }
 
-function dedupeYearMonthlies(
+/** Tous les montants au-dessus de chaque occurrence du libellé (couple = 2 blocs dans 1 PDF). */
+function amountsAboveAllLabels(text: string, labelRe: RegExp): number[] {
+  const flags = labelRe.flags.includes("g") ? labelRe.flags : `${labelRe.flags}g`;
+  const re = new RegExp(labelRe.source, flags);
+  const out: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const head = text.slice(Math.max(0, m.index - 100), m.index);
+    const amounts = [...head.matchAll(/(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*€?/g)];
+    if (!amounts.length) continue;
+    const n = toNumberFR(amounts[amounts.length - 1][1]);
+    if (n != null && n > 0) out.push(n);
+  }
+  return out;
+}
+
+/** « Total des cotisations du prêt 3 420,92 € » — un par assuré en fin de bloc Kereis. */
+function totalsInlinePret(text: string): number[] {
+  const out: number[] = [];
+  const re = /Total\s+des\s+cotisations\s+du\s+pr[eê]t\s+(\d{1,3}(?:[\s.]\d{3})*,\d{2})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const n = toNumberFR(m[1]);
+    if (n != null && n > 0) out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Fusionne les tableaux annuels : même année sur 2 assurés → somme des mensuelles.
+ * (Un PDF Kereis couple contient deux grilles 1..N.)
+ */
+function mergeYearMonthlies(
   rows: Array<{ year: number; monthly: number }>,
 ): Array<{ year: number; monthly: number }> {
   const map = new Map<number, number>();
   for (const r of rows) {
-    if (!map.has(r.year)) map.set(r.year, r.monthly);
+    const prev = map.get(r.year) || 0;
+    map.set(r.year, Math.round((prev + r.monthly) * 100) / 100);
   }
   return [...map.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([year, monthly]) => ({ year, monthly }));
+}
+
+function countKereisInsuredBlocks(text: string): number {
+  // « Référence dossier » = 1 par assuré. « PROJET D'ASSURANCE » peut se répéter
+  // sur les pages d'équivalence → moins fiable.
+  const refs = (text.match(/R[ée]f[ée]rence\s+dossier/gi) || []).length;
+  if (refs >= 1) return refs;
+  const projets = (text.match(/PROJET\s+D['\u2019']ASSURANCE/gi) || []).length;
+  return Math.max(1, projets);
+}
+
+/**
+ * Frais retenus étude : adhésion (10 €) + constitution dossier (75 €) par assuré.
+ * Exclut explicitement les frais de distribution (250 €) — courtage séparé.
+ */
+function extractKereisAssureurFees(text: string): number | null {
+  const n = norm(text);
+  const parseEuroInt = (raw: string): number | null => {
+    const cleaned = raw.replace(/\s/g, "").replace(",", ".");
+    const v = Number(cleaned);
+    return Number.isFinite(v) ? v : null;
+  };
+
+  const adhesions = [
+    ...n.matchAll(
+      /frais\s+d['']?adhesion[^\d]{0,90}?(\d+(?:[.,]\d{2})?)\s*(?:euros?|€)?/gi,
+    ),
+  ]
+    .map((m) => parseEuroInt(m[1]))
+    .filter((v): v is number => v != null && v > 0 && v <= 50);
+
+  const dossiers = [
+    ...n.matchAll(
+      /(?:frais\s+de\s+)?constitution\s+de\s+dossier[^\d]{0,40}?(\d+(?:[.,]\d{2})?)\s*(?:euros?|€)?/gi,
+    ),
+  ]
+    .map((m) => parseEuroInt(m[1]))
+    .filter((v): v is number => v != null && v >= 20 && v <= 200);
+
+  // Fallback libellé court « frais de dossier de 75 euros »
+  if (!dossiers.length) {
+    dossiers.push(
+      ...[
+        ...n.matchAll(/frais\s+de\s+dossier[^\d]{0,40}?(\d+(?:[.,]\d{2})?)\s*(?:euros?|€)?/gi),
+      ]
+        .map((m) => parseEuroInt(m[1]))
+        .filter((v): v is number => v != null && v >= 20 && v <= 200),
+    );
+  }
+
+  const parts = [...adhesions, ...dossiers];
+  if (!parts.length) return null;
+  return Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100;
 }
 
 function sumProposedFromYearTable(
@@ -264,7 +348,9 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   }
 
   const remainingMonths = amortValues.length || null;
-  const currentTotalRemaining = amortValues.length ? amortValues.reduce((a, c) => a + c, 0) : null;
+  const currentTotalRemaining = amortValues.length
+    ? Math.round(amortValues.reduce((a, c) => a + c, 0) * 100) / 100
+    : null;
   const currentTotal8y = amortValues.length ? sumFirstN(amortValues, Math.min(96, amortValues.length)) : null;
 
   const currentMonthlyByYear: Array<{ year: number; monthly: number; total: number }> = [];
@@ -301,18 +387,49 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
   }
 
   // --- Devis : totaux (montant souvent AU-DESSUS du libellé Kereis) ---
-  let proposedTotalRemaining =
-    amountAboveLabel(devisText, /Total\s+des\s+cotisations\s+pour/i) ||
-    amountAboveLabel(devisText, /Total\s+des\s+cotisations/i);
-  if (proposedTotalRemaining == null) {
-    const mTot =
-      devisN.match(/total\s+(?:des\s+)?cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
-      devisN.match(/cout\s+total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i);
-    if (mTot?.[1]) proposedTotalRemaining = toNumberFR(mTot[1]);
+  // Un seul PDF Kereis peut contenir plusieurs assurés (blocs « PROJET D'ASSURANCE »).
+  const pourTotals = amountsAboveAllLabels(devisText, /Total\s+des\s+cotisations\s+pour/i);
+  const pretTotals = totalsInlinePret(devisText);
+  const insuredBlocks = countKereisInsuredBlocks(devisText);
+
+  // Totaux individuels (un par assuré) conservés avant somme — utile pour la
+  // ventilation par assuré dans l'étude PDF.
+  let proposedInsuredTotals: number[] =
+    pourTotals.length >= 2 ? [...pourTotals] : pretTotals.length >= 2 ? [...pretTotals] : [];
+
+  let proposedTotalRemaining: number | null = null;
+  if (pourTotals.length >= 2) {
+    proposedTotalRemaining = Math.round(pourTotals.reduce((a, b) => a + b, 0) * 100) / 100;
+    reasons.push(
+      `${pourTotals.length} totaux « cotisations pour l'ensemble » cumulés dans le(s) devis.`,
+    );
+  } else if (pretTotals.length >= 2) {
+    proposedTotalRemaining = Math.round(pretTotals.reduce((a, b) => a + b, 0) * 100) / 100;
+    reasons.push(`${pretTotals.length} totaux « cotisations du prêt » cumulés dans le(s) devis.`);
+  } else if (pourTotals.length === 1) {
+    proposedTotalRemaining = pourTotals[0];
+  } else if (pretTotals.length === 1) {
+    proposedTotalRemaining = pretTotals[0];
+  } else {
+    proposedTotalRemaining =
+      amountAboveLabel(devisText, /Total\s+des\s+cotisations\s+pour/i) ||
+      amountAboveLabel(devisText, /Total\s+des\s+cotisations/i);
+    if (proposedTotalRemaining == null) {
+      const mTot =
+        devisN.match(/total\s+(?:des\s+)?cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i) ||
+        devisN.match(/cout\s+total[\s\S]{0,80}cotisations[\s\S]{0,200}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})\s*(?:€|eur)?/i);
+      if (mTot?.[1]) proposedTotalRemaining = toNumberFR(mTot[1]);
+    }
   }
 
-  let proposedTotal8y =
-    amountAboveLabel(devisText, /Co[uû]t\s+sur\s+les\s+8\s+premi[eè]res\s+ann[ée]es/i) || null;
+  const eightYAmounts = amountsAboveAllLabels(
+    devisText,
+    /Co[uû]t\s+sur\s+les\s+8\s+premi[eè]res\s+ann[ée]es/i,
+  );
+  let proposedTotal8y: number | null =
+    eightYAmounts.length >= 1
+      ? Math.round(eightYAmounts.reduce((a, b) => a + b, 0) * 100) / 100
+      : null;
   if (proposedTotal8y == null) {
     const mTot8y =
       devisN.match(/cotisations[\s\S]{0,60}(?:8\s+ans|huit\s+ans)[\s\S]{0,60}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
@@ -320,7 +437,7 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
     if (mTot8y?.[1]) proposedTotal8y = toNumberFR(mTot8y[1]);
   }
 
-  // Table annuelle : « 1 131 288,66 € 15,03 € »
+  // Table annuelle : « 1 131 288,66 € 15,03 € » — plusieurs grilles si couple
   let proposedMonthlyByYear: Array<{ year: number; monthly: number }> = [];
   const yearLines = devisText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   for (const line of yearLines) {
@@ -334,26 +451,31 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
       proposedMonthlyByYear.push({ year: y, monthly });
     }
   }
-  proposedMonthlyByYear = dedupeYearMonthlies(proposedMonthlyByYear);
+  proposedMonthlyByYear = mergeYearMonthlies(proposedMonthlyByYear);
 
-  // Si plusieurs devis (co-emprunteurs), sommer les tables / totaux
+  // Si plusieurs fichiers devis (upload séparés), sommer aussi leurs totaux
   if (devisTexts.length > 1) {
-    // Totaux déjà lus sur devisText concaténé peuvent sous-compter :
-    // recalculer somme des montants au-dessus de chaque bloc.
     let sumTot = 0;
     let found = 0;
+    const perFileTotals: number[] = [];
     for (const block of devisTexts) {
+      const blockPour = amountsAboveAllLabels(block, /Total\s+des\s+cotisations\s+pour/i);
+      const blockPret = totalsInlinePret(block);
       const t =
+        blockPour.reduce((a, b) => a + b, 0) ||
+        blockPret.reduce((a, b) => a + b, 0) ||
         amountAboveLabel(block, /Total\s+des\s+cotisations\s+pour/i) ||
         amountAboveLabel(block, /Total\s+des\s+cotisations/i);
-      if (t != null) {
+      if (t != null && t > 0) {
         sumTot += t;
         found += 1;
+        perFileTotals.push(Math.round(t * 100) / 100);
       }
     }
     if (found >= 2) {
       proposedTotalRemaining = Math.round(sumTot * 100) / 100;
-      reasons.push(`${found} devis cumulés pour le total proposé.`);
+      proposedInsuredTotals = perFileTotals;
+      reasons.push(`${found} fichiers devis cumulés pour le total proposé.`);
     }
   }
 
@@ -387,36 +509,39 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
     if (mDate?.[1]) proposedEffectiveDate = mDate[1].trim();
   }
 
-  // Fees
-  let feesAssureurTotal: number | null = null;
+  // Fees — adhésion + constitution dossier ; jamais les frais de distribution
+  let feesAssureurTotal: number | null = extractKereisAssureurFees(devisText);
   let feesCourtierTotal: number | null = null;
 
-  const mFeesAssureur =
-    devisN.match(/total\s+frais\s+assureur[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
-    devisN.match(/frais\s+assureur[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
-    devisN.match(/frais\s+de\s+dossier[\s\S]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
-    devisN.match(/frais\s+retenus[\s\S]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
-  if (mFeesAssureur?.[1]) feesAssureurTotal = toNumberFR(mFeesAssureur[1]);
-
   if (feesAssureurTotal == null) {
-    const mAdhesion = [...devisN.matchAll(/adhesion[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/gi)];
-    const mDossier = [...devisN.matchAll(/frais\s+de\s+dossier[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/gi)];
-    const parts = [...mAdhesion, ...mDossier]
-      .map((m) => toNumberFR(m[1]))
-      .filter((n): n is number => n != null && n > 0 && n < 2000);
-    if (parts.length) feesAssureurTotal = Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100;
+    const mFeesAssureur =
+      devisN.match(/total\s+frais\s+assureur[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
+      devisN.match(/frais\s+assureur[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
+      devisN.match(/frais\s+retenus[\s\S]{0,40}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
+    if (mFeesAssureur?.[1]) feesAssureurTotal = toNumberFR(mFeesAssureur[1]);
   }
 
   const mFeesCourtier =
-    devisN.match(/frais\s+(?:de\s+distribution|de\s+courtage|courtage)[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i) ||
-    devisN.match(/total\s+frais\s+(?:lcif|distribution|courtage)[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2})/i);
-  if (mFeesCourtier?.[1]) feesCourtierTotal = toNumberFR(mFeesCourtier[1]);
+    devisN.match(/frais\s+(?:de\s+distribution|de\s+courtage|courtage)[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2}|\d+)\s*(?:euros?|€)?/i) ||
+    devisN.match(/total\s+frais\s+(?:lcif|distribution|courtage)[\s\S]{0,80}?(\d{1,3}(?:[\s.]\d{3})*,\d{2}|\d+)/i);
+  if (mFeesCourtier?.[1]) {
+    const raw = mFeesCourtier[1];
+    feesCourtierTotal = toNumberFR(raw.includes(",") ? raw : `${raw},00`);
+  }
 
   const assuresCount = Array.isArray(dossier?.formData?.assures) ? dossier.formData.assures.length : 1;
-  if (assuresCount > 1 && devisTexts.length < assuresCount) {
+  const proposedInsuredCount = Math.max(
+    pourTotals.length,
+    pretTotals.length,
+    insuredBlocks,
+    devisTexts.length > 1 ? devisTexts.length : 0,
+  ) || 1;
+  if (assuresCount > 1 && proposedInsuredCount < assuresCount) {
     reasons.push(
-      `Attention: ${assuresCount} assurés mais ${devisTexts.length} devis — uploadez un devis par assuré pour un total complet.`,
+      `Attention: ${assuresCount} assurés sur le dossier mais seulement ${proposedInsuredCount} profil(s) trouvé(s) dans le devis — vérifiez que le PDF Kereis contient bien tous les co-emprunteurs.`,
     );
+  } else if (proposedInsuredCount >= 2) {
+    reasons.push(`${proposedInsuredCount} assurés détectés dans le devis Kereis.`);
   }
 
   const extracted = {
@@ -432,6 +557,7 @@ export async function computeEconomyFromDossierDocs(dossier: any): Promise<Econo
     proposedTotalRemaining: proposedTotalRemaining ?? undefined,
     proposedTotal8y: proposedTotal8y ?? undefined,
     proposedMonthlyByYear: proposedMonthlyByYear.length ? proposedMonthlyByYear.slice(0, 40) : undefined,
+    proposedInsuredTotals: proposedInsuredTotals.length ? proposedInsuredTotals : undefined,
     proposedEffectiveDate,
     feesAssureurTotal: feesAssureurTotal ?? undefined,
     feesCourtierTotal: feesCourtierTotal ?? undefined,

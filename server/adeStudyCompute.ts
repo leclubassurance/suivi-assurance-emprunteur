@@ -25,6 +25,27 @@ export type AdeStudyComputation = {
   confidence: "high" | "partial" | "low";
   clientName: string;
   provider: "gemini" | "heuristic" | "mixed";
+  /** Date de l'étude affichée en couverture (ex. « 26 juillet 2026 »). */
+  studyDateLabel?: string;
+  /** Début de la période comparée (première échéance pleine après la prise d'effet). */
+  comparisonStartLabel?: string;
+  /** Dernière échéance comparée. */
+  comparisonEndLabel?: string;
+  /** Ventilation par assuré pour le tableau de synthèse. */
+  insuredBreakdown?: Array<{
+    name: string;
+    currentEur: number;
+    proposedEur: number;
+    feesEur: number;
+    netEur: number;
+  }>;
+  /** Situation loi Lemoine par assuré (page 6). */
+  lemoineProfiles?: Array<{ name: string; tone: "green" | "orange"; text: string }>;
+  /** Coût des 8 premières années (encadré page 3). */
+  first8CurrentEur?: number;
+  first8ProposedEur?: number;
+  /** Capital du prêt (affiché en synthèse + repris par le parseur PDF). */
+  loanCapitalEur?: number;
 };
 
 function round2(n: number) {
