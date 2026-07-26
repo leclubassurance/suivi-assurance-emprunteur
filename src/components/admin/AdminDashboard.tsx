@@ -78,6 +78,9 @@ export default function AdminDashboard({
     } | null;
   } | null>(null);
   const [studyPdfUploading, setStudyPdfUploading] = useState(false);
+  const [kereisDraft, setKereisDraft] = useState<any | null>(null);
+  const [kereisBusy, setKereisBusy] = useState(false);
+  const [generateStudyBusy, setGenerateStudyBusy] = useState(false);
   const [debriefNote, setDebriefNote] = useState("");
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
@@ -148,6 +151,7 @@ export default function AdminDashboard({
       }),
     );
     setPreviewActive(false);
+    setKereisDraft((selectedDossier as any)?.kereisDraft || null);
   }, [
     selectedDossier?.id,
     (selectedDossier as any)?.studyDraft?.computedAt,
@@ -159,6 +163,7 @@ export default function AdminDashboard({
     (selectedDossier as any)?.clubRevenueKpi?.feesCourtageOverrideEur,
     (selectedDossier as any)?.insuranceChangePlan?.plannedDate,
     (selectedDossier as any)?.insuranceChangePlan?.source,
+    (selectedDossier as any)?.kereisDraft?.computedAt,
   ]);
 
   useEffect(() => {
@@ -532,6 +537,80 @@ export default function AdminDashboard({
       showToast("Erreur réseau lors de l'import PDF", "error");
     } finally {
       setStudyPdfUploading(false);
+    }
+  };
+
+  const handleGenerateKereisDraft = async () => {
+    if (!selectedDossier) return;
+    try {
+      setKereisBusy(true);
+      showToast("Extraction fiche Kereis…", "info");
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/kereis-draft`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Erreur fiche Kereis", "error");
+        return;
+      }
+      setKereisDraft(data.kereisDraft || null);
+      showToast(
+        data.kereisDraft?.missing?.length
+          ? `Fiche Kereis prête — ${data.kereisDraft.missing.length} champ(s) à compléter.`
+          : "Fiche Kereis prête.",
+        "success",
+      );
+      loadDossiers();
+    } catch {
+      showToast("Erreur réseau fiche Kereis", "error");
+    } finally {
+      setKereisBusy(false);
+    }
+  };
+
+  const handleCopyKereisDraft = async () => {
+    const text = String(kereisDraft?.copyText || (selectedDossier as any)?.kereisDraft?.copyText || "");
+    if (!text) {
+      showToast("Générez d'abord la fiche Kereis", "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Fiche Kereis copiée", "success");
+    } catch {
+      showToast("Impossible de copier", "error");
+    }
+  };
+
+  const handleGenerateStudyFromDevis = async () => {
+    if (!selectedDossier) return;
+    try {
+      setGenerateStudyBusy(true);
+      showToast("Calcul + génération PDF d'étude…", "info");
+      const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/generate-study-pdf`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Génération étude impossible", "error");
+        return;
+      }
+      if (data?.studyDraft?.subject) setEmailSubject(data.studyDraft.subject);
+      if (data?.studyDraft?.html) setEmailHtml(data.studyDraft.html);
+      const gross = data?.computation?.grossSavingsEur ?? data?.parsed?.grossSavingsEur;
+      showToast(
+        gross != null
+          ? `Étude générée — économie brute ${Math.round(gross).toLocaleString("fr-FR")} €`
+          : "Étude PDF générée.",
+        "success",
+      );
+      loadDossiers();
+      reloadMetrics();
+      await refreshConseillerStudyFlow(selectedDossier.id);
+    } catch {
+      showToast("Erreur génération étude", "error");
+    } finally {
+      setGenerateStudyBusy(false);
     }
   };
 
@@ -2109,7 +2188,8 @@ export default function AdminDashboard({
                       </button>
                     </div>
                     <div className="text-xs text-slate-500">
-                      Ajoutez ici le PDF du devis. Il sert au suivi interne et au contexte de Camille (sans citer l’assureur au client).
+                      Ajoutez ici le PDF du devis. Ensuite, dans Envoi mail → « Générer étude depuis devis ».
+                      Il sert aussi au contexte Camille (sans citer l&apos;assureur au client).
                     </div>
                   </div>
                   <div className="mb-6 p-4 rounded-xl border border-dashed border-slate-300 bg-slate-50">
@@ -2308,6 +2388,58 @@ export default function AdminDashboard({
                   </div>
 
                   <div className="flex flex-col gap-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-3">
+                      <p className="text-sm font-bold text-slate-900">Parcours étude (Kereis → devis → PDF)</p>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        1) Générer la fiche à saisir dans Kereis · 2) Déposer le devis (onglet Documents) ·
+                        3) Générer le PDF comparatif (ou importer un PDF déjà produit).
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleGenerateKereisDraft()}
+                          disabled={kereisBusy}
+                          className="bg-slate-800 hover:bg-slate-900 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          {kereisBusy ? "Extraction…" : "Préparer fiche Kereis"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyKereisDraft()}
+                          disabled={!kereisDraft?.copyText}
+                          className="border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 px-3 py-2 rounded-xl font-bold text-sm"
+                        >
+                          Copier la fiche
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleGenerateStudyFromDevis()}
+                          disabled={generateStudyBusy}
+                          className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                        >
+                          <FileText className="w-4 h-4" />
+                          {generateStudyBusy ? "Génération…" : "Générer étude depuis devis"}
+                        </button>
+                      </div>
+                      {kereisDraft ? (
+                        <div className="text-xs text-slate-700 space-y-1">
+                          <p>
+                            Effet <strong>{kereisDraft.effectDateLabel}</strong>
+                            {kereisDraft.missing?.length
+                              ? ` · ${kereisDraft.missing.length} champ(s) manquant(s)`
+                              : " · champs principaux OK"}
+                            {` · source ${kereisDraft.provider}`}
+                          </p>
+                          {kereisDraft.warnings?.length ? (
+                            <p className="text-amber-800">{kereisDraft.warnings.slice(0, 2).join(" · ")}</p>
+                          ) : null}
+                          <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-white border border-slate-200 p-2 text-[10px] whitespace-pre-wrap font-mono text-slate-800">
+                            {String(kereisDraft.copyText || "").slice(0, 2500)}
+                          </pre>
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="flex flex-wrap items-center gap-3">
                       <label className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-colors inline-flex items-center gap-2 cursor-pointer">
                         <Upload className="w-4 h-4" />

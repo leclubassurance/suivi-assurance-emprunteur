@@ -1200,6 +1200,70 @@ export function createApp() {
     });
   });
 
+  // Fiche Kereis (extraction docs → champs à saisir)
+  app.post("/api/admin/dossiers/:id/kereis-draft", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    try {
+      const { buildKereisDraftForDossier } = await import("./kereisDraftBuild");
+      const draft = await buildKereisDraftForDossier({
+        dossier,
+        uploadsDir: UPLOADS_DIR,
+        actorLabel: String((req as any).adminEmail || "Admin"),
+      });
+      await writeDB(db, dossier);
+      return res.json({ success: true, kereisDraft: draft });
+    } catch (err: any) {
+      console.error("[kereis-draft]", err?.message || err);
+      return res.status(500).json({ error: err?.message || "Erreur génération fiche Kereis" });
+    }
+  });
+
+  app.get("/api/admin/dossiers/:id/kereis-draft", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const draft = (dossier as any).kereisDraft || null;
+    return res.json({ success: true, kereisDraft: draft });
+  });
+
+  // Devis + échéancier → PDF étude comparatif → ingest KPI
+  app.post("/api/admin/dossiers/:id/generate-study-pdf", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    try {
+      const { generateAndIngestAdeStudyForDossier } = await import("./adeStudyPipeline");
+      const result = await generateAndIngestAdeStudyForDossier({
+        dossier,
+        uploadsDir: UPLOADS_DIR,
+        actorLabel: String((req as any).adminEmail || "Admin"),
+      });
+      if (!result.ok) {
+        return res.status(400).json({
+          error: result.error,
+          computation: "computation" in result ? result.computation || null : null,
+        });
+      }
+      await writeDB(db, dossier);
+      return res.json({
+        success: true,
+        computation: result.computation,
+        studyDraft: result.studyDraft,
+        studyKpi: result.studyKpi,
+        studyPdf: result.studyPdf,
+        parsed: result.parsed,
+      });
+    } catch (err: any) {
+      console.error("[generate-study-pdf]", err?.message || err);
+      return res.status(500).json({ error: err?.message || "Erreur génération étude PDF" });
+    }
+  });
+
   app.get("/api/admin/dossiers/:id/study-pdf", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();

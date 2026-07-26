@@ -51,7 +51,9 @@ function parseEuroToken(raw: string): number | null {
     .replace(/[^\d,.\s]/g, "")
     .trim();
   if (!s) return null;
-  const m = s.match(/(\d{1,3}(?:[\s.]\d{3})*|\d+)(?:[,.](\d{2}))?/);
+  // Préférer « 7 883,32 » (groupes de milliers) OU « 7883,32 » (entier libre).
+  // Évite le piège \d{1,3} qui matchait « 883 » dans « 7883,32 ».
+  const m = s.match(/(\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.](\d{2}))?/);
   if (!m) return null;
   const whole = m[1].replace(/[\s.]/g, "");
   const cents = m[2] ?? "00";
@@ -63,7 +65,7 @@ function amountAfterLabel(text: string, labelRe: RegExp, windowChars = 120): num
   const m = text.match(labelRe);
   if (!m || m.index == null) return null;
   const tail = text.slice(m.index + m[0].length, m.index + m[0].length + windowChars);
-  const amt = tail.match(/(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/);
+  const amt = tail.match(/((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/);
   return amt ? parseEuroToken(amt[1]) : null;
 }
 
@@ -73,7 +75,7 @@ function amountsNearLabel(text: string, labelRe: RegExp, windowChars = 160): num
   if (!m || m.index == null) return [];
   const tail = text.slice(m.index + m[0].length, m.index + m[0].length + windowChars);
   const out: number[] = [];
-  const re = /(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/g;
+  const re = /((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/g;
   let hit: RegExpExecArray | null;
   while ((hit = re.exec(tail))) {
     const n = parseEuroToken(hit[1]);
@@ -135,7 +137,7 @@ function parseTotalsRow(text: string): {
   const hasFeesColumn = /Assur[ée]e?\s+Actuelle.*Cotisations.*Frais.*Économie/i.test(text);
   if (hasFeesColumn) {
     const v2 = text.match(
-      /TOTAL\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+      /TOTAL\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
     );
     if (v2) {
       return {
@@ -148,7 +150,7 @@ function parseTotalsRow(text: string): {
   }
   // Ancien : Total 16 503,39 € 8 235,02 € 8 268,37 €
   const v1 = text.match(
-    /Total\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+    /Total\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
   );
   if (v1) {
     return {
@@ -165,7 +167,7 @@ function parseYear1Row(text: string): { current: number | null; proposed: number
   // Année 1 1 348,29 € 443,16 € 735,13 € 735,13 €  (v2 annuel)
   // Année 1 849,96 € 790,42 € 59,54 € 59,54 €     (v1 mensuel possible)
   const m = text.match(
-    /Ann[ée]e\s*1\s+(\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?)\s*€\s+(\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?)\s*€/i,
+    /Ann[ée]e\s*1\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
   );
   if (!m) return { current: null, proposed: null };
   return { current: parseEuroToken(m[1]), proposed: parseEuroToken(m[2]) };

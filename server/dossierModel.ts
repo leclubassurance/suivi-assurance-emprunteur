@@ -117,6 +117,10 @@ export interface Dossier {
       annualPremiumEur?: number;
     };
   };
+  /** Fiche de saisie Kereis (génération auto depuis docs). */
+  kereisDraft?: import("../shared/kereisDraftTypes").KereisDraft;
+  /** Dernier calcul d'étude ADE auto (avant PDF). */
+  adeStudyComputation?: Record<string, unknown>;
   /** PDF d'étude importé (chemin local + métadonnées). */
   studyPdf?: {
     fileName: string;
