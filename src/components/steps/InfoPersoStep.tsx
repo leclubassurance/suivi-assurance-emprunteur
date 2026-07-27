@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { InsuranceFormData, FormErrors } from '../../types';
-import { QUALITE_OPTIONS, STATUT_PRO_OPTIONS, PROFESSION_RISQUE_OPTIONS, DEPLACEMENTS_PRO_OPTIONS, SPORTS_RISQUE_CATEGORIES } from '../../constants';
+import { QUALITE_OPTIONS, STATUT_PRO_OPTIONS, PROFESSION_RISQUE_OPTIONS, DEPLACEMENTS_PRO_OPTIONS, SPORTS_RISQUE_CATEGORIES, PROFESSION_MANUELLE_HELP } from '../../constants';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Checkbox } from '../ui/Checkbox';
-import { X, Search, ArrowRight } from 'lucide-react';
+import { X, Search, ArrowRight, Info } from 'lucide-react';
 
 interface Props {
   formData: InsuranceFormData;
@@ -160,11 +160,17 @@ export default function InfoPersoStep({ formData, setFormData, errors, onNext }:
               </div>
               
               <div className="space-y-4 md:col-span-2 bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                <Checkbox 
-                  label="Exercer une profession manuelle"
-                  checked={assure.professionManuelle}
-                  onChange={(e) => updateAssure(index, 'professionManuelle', e.target.checked)}
-                />
+                <div className="space-y-2">
+                  <Checkbox 
+                    label="Exercer une profession manuelle"
+                    checked={assure.professionManuelle}
+                    onChange={(e) => updateAssure(index, 'professionManuelle', e.target.checked)}
+                  />
+                  <div className="flex gap-2 rounded-xl border border-dashed border-slate-300 bg-white/80 px-3 py-2.5 text-[12px] text-slate-600 leading-relaxed">
+                    <Info className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                    <p>{PROFESSION_MANUELLE_HELP}</p>
+                  </div>
+                </div>
                 <Checkbox 
                   label="Effectuer des travaux en hauteur (> 2m d'altitude)"
                   checked={assure.travauxHauteur}

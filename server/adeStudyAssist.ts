@@ -7,15 +7,18 @@ import type { AdeFeasibilityAssessment } from "./adeStudyFeasibility";
 import type {
   AdeAssistFieldId,
   AdeAssistMode,
+  AdeAssistThread,
   AdeStudyAssistMessage,
   AdeStudyAssistOverrides,
   AdeStudyAssistState,
   AdeStudyAssistStatus,
 } from "./adeStudyAssistTypes";
+import { emptyThread } from "./adeStudyAssistTypes";
 
 export type {
   AdeAssistFieldId,
   AdeAssistMode,
+  AdeAssistThread,
   AdeStudyAssistMessage,
   AdeStudyAssistOverrides,
   AdeStudyAssistState,
@@ -38,29 +41,91 @@ function msg(role: "assistant" | "user", content: string): AdeStudyAssistMessage
   return { role, content, at: nowIso() };
 }
 
+function syncActiveFromThread(state: AdeStudyAssistState): AdeStudyAssistState {
+  const thread = state.threads[state.mode] || emptyThread();
+  return {
+    ...state,
+    messages: thread.messages.slice(-120),
+    status: thread.status,
+    pendingField: thread.pendingField ?? null,
+    openQuestions: thread.openQuestions || [],
+  };
+}
+
+function commitActiveToThreads(state: AdeStudyAssistState): AdeStudyAssistState {
+  return {
+    ...state,
+    threads: {
+      ...state.threads,
+      [state.mode]: {
+        messages: state.messages.slice(-120),
+        status: state.status,
+        pendingField: state.pendingField ?? null,
+        openQuestions: state.openQuestions || [],
+      },
+    },
+    updatedAt: nowIso(),
+  };
+}
+
 export function getAdeStudyAssist(dossier: any): AdeStudyAssistState {
   const raw = (dossier as any)?.adeStudyAssist;
   if (!raw || typeof raw !== "object") {
-    return {
+    const base: AdeStudyAssistState = {
       mode: "study",
       overrides: {},
       kereisPatches: {},
+      threads: { kereis: emptyThread(), study: emptyThread() },
       messages: [],
       status: "idle",
       pendingField: null,
       openQuestions: [],
     };
+    return base;
   }
-  return {
-    mode: raw.mode === "kereis" ? "kereis" : "study",
+
+  const mode: AdeAssistMode = raw.mode === "kereis" ? "kereis" : "study";
+  let threads = raw.threads;
+  if (!threads || typeof threads !== "object") {
+    // Migration : anciennes conversations → thread du mode courant
+    const legacy: AdeAssistThread = {
+      messages: Array.isArray(raw.messages) ? raw.messages.slice(-120) : [],
+      status: (raw.status as AdeStudyAssistStatus) || "idle",
+      pendingField: (raw.pendingField as AdeAssistFieldId | null) ?? null,
+      openQuestions: Array.isArray(raw.openQuestions) ? raw.openQuestions : [],
+    };
+    threads = {
+      kereis: mode === "kereis" ? legacy : emptyThread(),
+      study: mode === "study" ? legacy : emptyThread(),
+    };
+  } else {
+    threads = {
+      kereis: {
+        messages: Array.isArray(threads.kereis?.messages) ? threads.kereis.messages.slice(-120) : [],
+        status: (threads.kereis?.status as AdeStudyAssistStatus) || "idle",
+        pendingField: threads.kereis?.pendingField ?? null,
+        openQuestions: Array.isArray(threads.kereis?.openQuestions) ? threads.kereis.openQuestions : [],
+      },
+      study: {
+        messages: Array.isArray(threads.study?.messages) ? threads.study.messages.slice(-120) : [],
+        status: (threads.study?.status as AdeStudyAssistStatus) || "idle",
+        pendingField: threads.study?.pendingField ?? null,
+        openQuestions: Array.isArray(threads.study?.openQuestions) ? threads.study.openQuestions : [],
+      },
+    };
+  }
+
+  return syncActiveFromThread({
+    mode,
     overrides: { ...(raw.overrides || {}) },
     kereisPatches: { ...(raw.kereisPatches || {}) },
-    messages: Array.isArray(raw.messages) ? raw.messages.slice(-80) : [],
-    status: (raw.status as AdeStudyAssistStatus) || "idle",
-    pendingField: (raw.pendingField as AdeAssistFieldId | null) ?? null,
-    openQuestions: Array.isArray(raw.openQuestions) ? raw.openQuestions : [],
+    threads,
+    messages: [],
+    status: "idle",
+    pendingField: null,
+    openQuestions: [],
     updatedAt: raw.updatedAt,
-  };
+  });
 }
 
 export function getAdeAssistOverrides(dossier: any): AdeStudyAssistOverrides {
@@ -452,20 +517,31 @@ export async function startAdeStudyAssist(params: {
   const { computeEconomyFromDossierDocs } = await import("./economyFromDocs");
   const eco = await computeEconomyFromDossierDocs(params.dossier);
   const prev = getAdeStudyAssist(params.dossier);
+  const existingThread = prev.threads[mode] || emptyThread();
 
   let state: AdeStudyAssistState = {
+    ...prev,
     mode,
     overrides: { ...prev.overrides },
     kereisPatches: { ...prev.kereisPatches },
-    messages: mode === prev.mode ? [...prev.messages] : [],
-    status: "needs_input",
-    pendingField: null,
-    openQuestions: [],
+    threads: {
+      kereis: { ...prev.threads.kereis, messages: [...(prev.threads.kereis?.messages || [])] },
+      study: { ...prev.threads.study, messages: [...(prev.threads.study?.messages || [])] },
+    },
+    messages: [...existingThread.messages],
+    status: existingThread.status || "needs_input",
+    pendingField: existingThread.pendingField ?? null,
+    openQuestions: [...(existingThread.openQuestions || [])],
     updatedAt: nowIso(),
   };
 
+  // Si une conversation existe déjà pour ce mode, on la reprend (pas de wipe)
+  if (existingThread.messages.length > 0 && existingThread.status !== "idle") {
+    state = commitActiveToThreads(state);
+    return { assist: state, eco };
+  }
+
   if (mode === "kereis") {
-    // S'assurer qu'une fiche existe
     if (!(params.dossier as any).kereisDraft && params.uploadsDir) {
       try {
         const { buildKereisDraftForDossier } = await import("./kereisDraftBuild");
@@ -506,11 +582,10 @@ export async function startAdeStudyAssist(params: {
 
     state.status = missing.length ? "needs_input" : "ready";
     state.messages = [...state.messages, msg("assistant", intro)];
-    state.updatedAt = nowIso();
+    state = commitActiveToThreads(state);
     return { assist: state, eco };
   }
 
-  // Mode étude
   const agenda = buildAssistAgenda(eco, state.overrides, params.feasibility);
   state = finalizeState(state, eco);
 
@@ -523,6 +598,7 @@ export async function startAdeStudyAssist(params: {
         `**Mode Étude** — ancrages complets. Vous pouvez générer le PDF.\n\n${snapshotLines(eco, state.overrides)}\n\nÉconomie brute estimée : ${formatEur((a.currentTotalEur || 0) - (a.proposedTotalEur || 0))}.\n\nPosez-moi une question si vous voulez un contrôle STOP & DEMANDER (multi-devis, CRD, Lemoine…).`,
       ),
     ];
+    state = commitActiveToThreads(state);
     return { assist: state, eco };
   }
 
@@ -536,12 +612,14 @@ export async function startAdeStudyAssist(params: {
 
   if (!next) {
     state.messages = [...state.messages, msg("assistant", intro + "Que souhaitez-vous clarifier ?")];
+    state = commitActiveToThreads(state);
     return { assist: state, eco };
   }
 
   state.pendingField = next.id;
   state.status = "needs_input";
   state.messages = [...state.messages, msg("assistant", intro + next.question)];
+  state = commitActiveToThreads(state);
   return { assist: state, eco };
 }
 
@@ -578,6 +656,8 @@ export async function handleAdeStudyAssistMessage(params: {
   const eco = await computeEconomyFromDossierDocs(params.dossier);
   let state = getAdeStudyAssist(params.dossier);
   const mode: AdeAssistMode = params.mode || state.mode || "study";
+  // Charger le bon fil avant d'ajouter le message
+  state = syncActiveFromThread({ ...state, mode });
   state = {
     ...state,
     mode,
@@ -587,8 +667,13 @@ export async function handleAdeStudyAssistMessage(params: {
     openQuestions: [...(state.openQuestions || [])],
   };
 
+  const done = (s: AdeStudyAssistState) => ({
+    assist: commitActiveToThreads(s),
+    eco,
+  });
+
   if (/^(reset|recommencer|reinitialiser|réinitialiser)$/i.test(userText)) {
-    state = resetAdeStudyAssist(mode);
+    state = resetAdeStudyAssist(mode, state);
     const restarted = await startAdeStudyAssist({
       dossier: { ...params.dossier, adeStudyAssist: state },
       feasibility: params.feasibility,
@@ -616,12 +701,11 @@ export async function handleAdeStudyAssistMessage(params: {
       } else if (parsed.value != null && !parsed.ambiguous) {
         if (field.unit === "months" && (parsed.value < 12 || parsed.value > 600)) {
           state.messages.push(msg("assistant", "La durée doit être entre 12 et 600 mois. Réessayez."));
-          state.updatedAt = nowIso();
-          return { assist: state, eco };
+          return done(state);
         }
         if (field.unit === "eur" && field.required && parsed.value <= 0) {
           state.messages.push(msg("assistant", "Le montant doit être strictement positif. Réessayez."));
-          return { assist: state, eco };
+          return done(state);
         }
         state.overrides = { ...state.overrides, [field.id]: parsed.value };
         state.messages.push(
@@ -640,8 +724,7 @@ export async function handleAdeStudyAssistMessage(params: {
             state.status = "needs_input";
             state.pendingField = soft.id;
             state.messages.push(msg("assistant", soft.question));
-            state.updatedAt = nowIso();
-            return { assist: state, eco };
+            return done(state);
           }
           const a = resolveEffectiveEconomyAnchors(eco, state.overrides);
           state.messages.push(
@@ -650,15 +733,13 @@ export async function handleAdeStudyAssistMessage(params: {
               `Parfait — ancrages complets. Cliquez sur **Générer étude depuis devis**.\n\n${snapshotLines(eco, state.overrides)}\n\nÉconomie brute : **${formatEur((a.currentTotalEur || 0) - (a.proposedTotalEur || 0))}**.`,
             ),
           );
-          state.updatedAt = nowIso();
-          return { assist: state, eco };
+          return done(state);
         }
         const next = nextAgenda[0];
         if (next) {
           state.pendingField = next.id;
           state.messages.push(msg("assistant", `${snapshotLines(eco, state.overrides)}\n\n${next.question}`));
-          state.updatedAt = nowIso();
-          return { assist: state, eco };
+          return done(state);
         }
       } else if (parsed.ambiguous && parsed.value != null) {
         state.messages.push(
@@ -667,8 +748,7 @@ export async function handleAdeStudyAssistMessage(params: {
             `J'ai lu **${field.unit === "eur" ? formatEur(parsed.value) : `${parsed.value} mois`}**. Confirmez avec uniquement ce chiffre, ou corrigez.`,
           ),
         );
-        state.updatedAt = nowIso();
-        return { assist: state, eco };
+        return done(state);
       }
       // sinon : tombe dans le chat Gemini
     }
@@ -699,7 +779,7 @@ export async function handleAdeStudyAssistMessage(params: {
 
   let reply = chat.reply;
   if (chat.openQuestion) {
-    state.openQuestions = [...(state.openQuestions || []), chat.openQuestion].slice(-10);
+    state.openQuestions = [...(state.openQuestions || []), chat.openQuestion].slice(-20);
   }
   if (chat.stopAndAsk && chat.openQuestion && !reply.includes(chat.openQuestion)) {
     reply = `${reply}\n\n**STOP & DEMANDER** — ${chat.openQuestion}`;
@@ -735,24 +815,38 @@ export async function handleAdeStudyAssistMessage(params: {
     }
   } else {
     const missing = (params.dossier as any).kereisDraft?.missing || [];
-    state.status = chat.kereisReady || missing.length === 0 ? "ready" : chat.stopAndAsk ? "awaiting_clarification" : "needs_input";
+    state.status =
+      chat.kereisReady || missing.length === 0
+        ? "ready"
+        : chat.stopAndAsk
+          ? "awaiting_clarification"
+          : "needs_input";
   }
 
-  state.updatedAt = nowIso();
-  return { assist: state, eco };
+  return done(state);
 }
 
-export function resetAdeStudyAssist(mode: AdeAssistMode = "study"): AdeStudyAssistState {
-  return {
+export function resetAdeStudyAssist(
+  mode: AdeAssistMode = "study",
+  prev?: AdeStudyAssistState,
+): AdeStudyAssistState {
+  const other: AdeAssistMode = mode === "kereis" ? "study" : "kereis";
+  const keepOther = prev?.threads?.[other] || emptyThread();
+  const cleared = emptyThread();
+  const state: AdeStudyAssistState = {
     mode,
-    overrides: {},
-    kereisPatches: {},
+    overrides: mode === "study" ? {} : { ...(prev?.overrides || {}) },
+    kereisPatches: mode === "kereis" ? {} : { ...(prev?.kereisPatches || {}) },
+    threads: {
+      kereis: mode === "kereis" ? cleared : keepOther,
+      study: mode === "study" ? cleared : keepOther,
+    },
     messages: [
       msg(
         "assistant",
         mode === "kereis"
-          ? "Assistant Kereis réinitialisé. Cliquez sur Démarrer / ouvrez l'assistant pour reprendre."
-          : "Assistant étude réinitialisé. Cliquez sur Démarrer pour reprendre.",
+          ? "Fil Kereis réinitialisé. L'historique étude est conservé."
+          : "Fil étude réinitialisé. L'historique Kereis est conservé.",
       ),
     ],
     status: "idle",
@@ -760,6 +854,7 @@ export function resetAdeStudyAssist(mode: AdeAssistMode = "study"): AdeStudyAssi
     openQuestions: [],
     updatedAt: nowIso(),
   };
+  return commitActiveToThreads(state);
 }
 
 /** Pour le pipeline : overrides complets autorisent le bypass score. */

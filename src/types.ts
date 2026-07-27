@@ -23,6 +23,10 @@ export interface InsuranceFormData {
   assures: any[];
   prets: any[];
   documents: AppFile[];
+  /** Autres crédits immobiliers hors du/des prêt(s) déclarés (loi Lemoine / Kereis). */
+  autresCreditsImmobiliers?: "" | "oui" | "non";
+  /** Montant total des autres crédits si oui (€). */
+  autresCreditsMontant?: string;
 }
 
 export interface FormErrors {

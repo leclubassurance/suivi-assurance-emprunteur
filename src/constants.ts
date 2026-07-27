@@ -53,7 +53,12 @@ export const INITIAL_FORM_DATA: InsuranceFormData = {
   assures: [{ ...INITIAL_ASSURE, id: '1' }],
   prets: [{ ...INITIAL_PRET, id: '1' }],
   documents: [] as AppFile[],
+  autresCreditsImmobiliers: '',
+  autresCreditsMontant: '',
 };
+
+export const PROFESSION_MANUELLE_HELP =
+  "Le postulant exerce une « profession manuelle » s'il utilise des machines ou des outils pour lesquels le port d'équipement de sécurité est obligatoire, ou s'il fait de la manutention de charges de plus de 15 kilos.";
 
 export const QUALITE_OPTIONS = [
   { value: 'EMPRUNTEUR', label: 'Emprunteur' },

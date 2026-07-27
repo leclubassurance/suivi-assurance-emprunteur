@@ -373,14 +373,34 @@ export async function buildKereisDraftForDossier(params: {
       professionRaw && professionRaw !== professionKereis ? `Brut : ${professionRaw}` : undefined,
     ),
     field("Profession à risque", "N'exerce aucune de ces professions", "low", "défaut", "À confirmer avec le client"),
-    field("Profession manuelle", "Non", "low", "défaut"),
-    field("Travaux en hauteur", "Non", "low", "défaut"),
-    field("Déplacements pro / an", "< 20 000 km", "low", "défaut"),
+    field(
+      "Profession manuelle",
+      a0.professionManuelle ? "Oui" : "Non",
+      a0.professionManuelle != null ? "high" : "low",
+      "formulaire",
+      "Machines/outils avec EPI obligatoire, ou manutention > 15 kg",
+    ),
+    field(
+      "Travaux en hauteur",
+      a0.travauxHauteur ? "Oui (> 2 m)" : "Non",
+      a0.travauxHauteur != null ? "high" : "low",
+      "formulaire",
+    ),
+    field(
+      "Déplacements pro / an",
+      str(a0.deplacementsPro) || "< 20 000 km",
+      a0.deplacementsPro ? "high" : "low",
+      "formulaire",
+    ),
     field(
       "Fumeur",
-      ai?.fumeur == null ? null : ai.fumeur ? "Oui" : "Non",
-      ai?.fumeur == null ? "missing" : "medium",
-      "ia",
+      a0.fumeur == null && ai?.fumeur == null
+        ? null
+        : (a0.fumeur ?? ai?.fumeur)
+          ? "Oui"
+          : "Non",
+      a0.fumeur != null || ai?.fumeur != null ? "high" : "missing",
+      a0.fumeur != null ? "formulaire" : "ia",
       "Fumeur = tabac dans les 2 dernières années",
     ),
   ];
@@ -424,7 +444,20 @@ export async function buildKereisDraftForDossier(params: {
       capital != null ? "medium" : "low",
       "règle Lemoine",
     ),
-    field("Autres crédits immobiliers en cours", "NON (sauf indication contraire)", "low", "défaut"),
+    field(
+      "Autres crédits immobiliers en cours",
+      (() => {
+        const flag = String((dossier as any).formData?.autresCreditsImmobiliers || "").toLowerCase();
+        if (flag === "non") return "NON";
+        if (flag === "oui") {
+          const m = num((dossier as any).formData?.autresCreditsMontant);
+          return m != null ? `OUI — ${m.toLocaleString("fr-FR")} €` : "OUI (montant à préciser)";
+        }
+        return null;
+      })(),
+      (dossier as any).formData?.autresCreditsImmobiliers ? "high" : "missing",
+      "formulaire client",
+    ),
   ];
 
   const missing: string[] = [];

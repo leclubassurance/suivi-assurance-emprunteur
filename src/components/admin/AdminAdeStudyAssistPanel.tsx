@@ -88,7 +88,7 @@ export default function AdminAdeStudyAssistPanel({
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
   };
 
-  const applyPayload = (data: any) => {
+  const applyPayload = (data: any, forceRefresh = false) => {
     if (data?.assist) {
       setAssist(data.assist);
       if (data.assist.mode === "kereis" || data.assist.mode === "study") {
@@ -98,7 +98,8 @@ export default function AdminAdeStudyAssistPanel({
     if (data?.economyPreview) setPreview(data.economyPreview);
     if (data?.kereisDraft && onKereisDraft) onKereisDraft(data.kereisDraft);
     if (data?.assist?.status === "ready") onReady?.(data.assist.mode || mode);
-    onDossierUpdated?.();
+    // Ne pas recharger tout le dashboard à chaque message (évite de perdre le scroll / re-fetch)
+    if (data?.assist?.status === "ready" || forceRefresh) onDossierUpdated?.();
     scrollDown();
   };
 
@@ -118,7 +119,7 @@ export default function AdminAdeStudyAssistPanel({
         return;
       }
       startedKey.current = `${dossierId}:${m}`;
-      applyPayload(data);
+      applyPayload(data, true);
     } catch {
       setError("Erreur réseau");
     } finally {

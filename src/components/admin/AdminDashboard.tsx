@@ -2402,6 +2402,18 @@ export default function AdminDashboard({
                     <div className="bg-slate-50 border rounded-xl p-4 text-sm">
                       <span className="text-slate-500 block text-xs font-bold uppercase">Objet de financement</span>
                       <span className="text-slate-900 font-semibold">{selectedDossier.formData?.objetFinancement || "-"}</span>
+                      <div className="mt-3 text-sm">
+                        <span className="text-slate-500 block text-xs">Autres crédits immobiliers</span>
+                        {String((selectedDossier.formData as any)?.autresCreditsImmobiliers || "") === "oui"
+                          ? `Oui${
+                              (selectedDossier.formData as any)?.autresCreditsMontant
+                                ? ` — ${Number((selectedDossier.formData as any).autresCreditsMontant).toLocaleString("fr-FR")} €`
+                                : ""
+                            }`
+                          : String((selectedDossier.formData as any)?.autresCreditsImmobiliers || "") === "non"
+                            ? "Non"
+                            : "—"}
+                      </div>
                     </div>
 
                     {selectedDossier.formData?.assures?.map((assure: any, idx: number) => (

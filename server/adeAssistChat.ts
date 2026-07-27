@@ -82,9 +82,9 @@ export async function runAdeAssistChatTurn(params: {
   }
 
   const { generateContentWithRetry } = await import("./geminiClient");
-  const historySlice = params.history.slice(-12);
+  const historySlice = params.history.slice(-30);
   const historyText = historySlice
-    .map((m) => `${m.role === "user" ? "RÉMI" : "ASSISTANT"}: ${m.content}`)
+    .map((m) => `${m.role === "user" ? "RÉMI" : "ASSISTANT"}: ${m.content.slice(0, 4000)}`)
     .join("\n\n");
 
   const prompt = `${ADE_BROKER_SYSTEM_PROMPT}
@@ -126,7 +126,7 @@ Règles JSON :
     const response = await generateContentWithRetry({
       model: process.env.ADE_ASSIST_MODEL || process.env.ADE_STUDY_MODEL || "gemini-2.5-flash",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: { temperature: 0.2, maxOutputTokens: 2048 },
+      config: { temperature: 0.2, maxOutputTokens: 8192 },
     });
     const text = String(response?.text || "").trim();
     const parsed = extractJsonObject(text);

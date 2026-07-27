@@ -135,6 +135,73 @@ export default function ProjetStep({ formData, setFormData, errors, onNext }: Pr
             <Plus className="w-5 h-5" />
             Ajouter un autre prêt
           </button>
+
+          <div className="p-5 md:p-6 border border-emerald-200/80 rounded-[20px] bg-emerald-50/40 space-y-4">
+            <div>
+              <p className="text-[13px] font-bold text-emerald-900 uppercase tracking-wide">Loi Lemoine</p>
+              <p className="text-[14px] font-bold text-slate-800 mt-2">
+                Autres crédits immobiliers en cours ? *
+              </p>
+              <p className="text-[12px] text-slate-500 mt-1 leading-relaxed">
+                Hors le(s) prêt(s) déclaré(s) ci-dessus — autres crédits immobiliers encore en cours (autre banque, autre bien…).
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(["oui", "non"] as const).map((opt) => {
+                const selected = formData.autresCreditsImmobiliers === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        autresCreditsImmobiliers: opt,
+                        autresCreditsMontant: opt === "non" ? "" : prev.autresCreditsMontant,
+                      }))
+                    }
+                    className={`min-w-[96px] px-5 py-3 rounded-xl text-[14px] font-bold transition-all ${
+                      selected
+                        ? "bg-emerald-600 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                  >
+                    {opt === "oui" ? "Oui" : "Non"}
+                  </button>
+                );
+              })}
+            </div>
+            {errors.autresCreditsImmobiliers ? (
+              <p className="text-red-500 text-xs font-medium">{errors.autresCreditsImmobiliers}</p>
+            ) : null}
+            {formData.autresCreditsImmobiliers === "oui" ? (
+              <div>
+                <label className="text-[13px] font-bold text-slate-700 block mb-2">
+                  Si oui, préciser le montant total *
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="Ex: 85000"
+                  value={formData.autresCreditsMontant || ""}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, autresCreditsMontant: e.target.value }))
+                  }
+                  className={`bento-input bg-white ${
+                    errors.autresCreditsMontant ? "border-red-300 ring-1 ring-red-100" : ""
+                  }`}
+                />
+                {errors.autresCreditsMontant ? (
+                  <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.autresCreditsMontant}</p>
+                ) : (
+                  <p className="text-[12px] text-slate-500 mt-1.5">
+                    Capital restant dû cumulé de ces autres crédits (en euros).
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex justify-end pt-6">

@@ -1441,8 +1441,8 @@ export function createApp() {
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     try {
       const mode = String(req.body?.mode || "study") === "kereis" ? "kereis" : "study";
-      const { resetAdeStudyAssist } = await import("./adeStudyAssist");
-      (dossier as any).adeStudyAssist = resetAdeStudyAssist(mode);
+      const { resetAdeStudyAssist, getAdeStudyAssist } = await import("./adeStudyAssist");
+      (dossier as any).adeStudyAssist = resetAdeStudyAssist(mode, getAdeStudyAssist(dossier));
       await writeDB(db, dossier);
       return res.json({ success: true, assist: (dossier as any).adeStudyAssist });
     } catch (err: any) {

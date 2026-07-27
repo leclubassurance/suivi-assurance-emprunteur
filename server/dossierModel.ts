@@ -123,7 +123,7 @@ export interface Dossier {
   adeStudyComputation?: Record<string, unknown>;
   /** Dernier score de faisabilité génération auto ADE (/10). */
   adeStudyFeasibility?: Record<string, unknown>;
-  /** Assistant ADE : ancrages manuels + fil de discussion (Kereis + étude). */
+  /** Assistant ADE : ancrages manuels + fils de discussion Kereis / étude. */
   adeStudyAssist?: {
     mode?: "kereis" | "study";
     overrides?: {
@@ -134,6 +134,20 @@ export interface Dossier {
       notes?: string;
     };
     kereisPatches?: Record<string, string | number | boolean>;
+    threads?: {
+      kereis?: {
+        messages?: Array<{ role: "assistant" | "user"; content: string; at: string }>;
+        status?: "idle" | "needs_input" | "ready" | "awaiting_clarification";
+        pendingField?: string | null;
+        openQuestions?: string[];
+      };
+      study?: {
+        messages?: Array<{ role: "assistant" | "user"; content: string; at: string }>;
+        status?: "idle" | "needs_input" | "ready" | "awaiting_clarification";
+        pendingField?: string | null;
+        openQuestions?: string[];
+      };
+    };
     messages?: Array<{ role: "assistant" | "user"; content: string; at: string }>;
     status?: "idle" | "needs_input" | "ready" | "awaiting_clarification";
     pendingField?: string | null;

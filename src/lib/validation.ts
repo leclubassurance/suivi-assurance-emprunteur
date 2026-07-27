@@ -8,6 +8,15 @@ export const validateProjet = (formData: InsuranceFormData): FormErrors => {
     }
   });
 
+  if (!formData.autresCreditsImmobiliers) {
+    errors.autresCreditsImmobiliers = "Indiquez si vous avez d'autres crédits immobiliers en cours.";
+  } else if (formData.autresCreditsImmobiliers === "oui") {
+    const montant = Number(String(formData.autresCreditsMontant || "").replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(montant) || montant <= 0) {
+      errors.autresCreditsMontant = "Précisez le montant total des autres crédits (€).";
+    }
+  }
+
   return errors;
 };
 
