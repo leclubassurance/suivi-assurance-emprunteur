@@ -1364,77 +1364,65 @@ export function createApp() {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;
     const file = (req as any).file as Express.Multer.File | undefined;
-    if (!file) return res.status(400).json({ error: "Missing quote file" });
+    if (!file) return res.status(400).json({ error: "Fichier devis manquant" });
 
-    const db = await readDBAsync();
-    const dossier = db.dossiers.find((d: any) => d.id === id);
-    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-
-    if (!dossier.formData) dossier.formData = {};
-    if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
-
-    // Keep existing devis docs (co-emprunteurs = 1 devis par assuré).
-    // Dedup by identical filename.
-    const incomingName = String(file.originalname || "").toLowerCase();
-    dossier.formData.documents = dossier.formData.documents.filter(
-      (d: any) =>
-        !(
-          d?.category === "devis" &&
-          String(d?.name || "").toLowerCase() === incomingName
-        ),
-    );
-
-    const doc = {
-      id: `devis-${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-      category: "devis",
-      name: file.originalname,
-      size: file.size,
-      type: file.mimetype,
-      localPath: file.path,
-      source: "admin",
-      uploadedAt: new Date().toISOString(),
-    };
-
-    // Move under dossier folder
     try {
-      const dossierDir = path.join(UPLOADS_DIR, dossier.id);
-      if (!fs.existsSync(dossierDir)) fs.mkdirSync(dossierDir, { recursive: true });
-      const base = path.basename(doc.localPath);
-      const nextPath = path.join(dossierDir, base);
-      if (doc.localPath !== nextPath && fs.existsSync(doc.localPath)) {
-        fs.renameSync(doc.localPath, nextPath);
-        doc.localPath = nextPath;
-      }
-    } catch (e) {
-      // ignore
-    }
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    dossier.formData.documents.push(doc);
+      if (!dossier.formData) dossier.formData = {};
+      if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
 
-    // Upload to Drive if folder exists (best effort) using OAuth server token
-    try {
-      if (dossier.workspaceFolderId) {
+      // Remplace le devis du même nom (garde les autres si couple / multi-fichiers)
+      const incomingName = String(file.originalname || "").toLowerCase();
+      dossier.formData.documents = dossier.formData.documents.filter(
+        (d: any) =>
+          !(
+            d?.category === "devis" &&
+            String(d?.name || "").toLowerCase() === incomingName
+          ),
+      );
+
+      const { addFileToDossier } = await import("./dossierDocuments");
+      let driveToken: string | null = null;
+      try {
         const { getServerAccessToken } = await import("./googleOAuthServer");
-        const { uploadBufferToDriveFolder } = await import("./gmailDriveUpload");
-        const buf = fs.readFileSync(doc.localPath);
-        const uploaded = await uploadBufferToDriveFolder(
-          dossier.workspaceFolderId,
-          doc.name,
-          doc.type || "application/pdf",
-          buf,
-          await getServerAccessToken(),
-        );
-        if (uploaded) {
-          (doc as any).driveFileId = uploaded.fileId;
-          (doc as any).driveLink = uploaded.webViewLink || undefined;
-        }
+        driveToken = await getServerAccessToken();
+      } catch {
+        driveToken = null;
       }
-    } catch {
-      // ignore
-    }
 
-    await writeDB(db, dossier);
-    res.json({ success: true, dossier });
+      const doc = await addFileToDossier(dossier, file, {
+        uploadsDir: UPLOADS_DIR,
+        category: "devis",
+        source: "admin",
+        driveAccessToken: driveToken,
+        analyzeLoan: false,
+      });
+
+      dossier.updatedAt = new Date().toISOString();
+      await writeDB(db, dossier);
+
+      res.json({
+        success: true,
+        document: {
+          id: doc.id,
+          name: doc.name,
+          category: "devis",
+          size: doc.size,
+          driveLink: doc.driveLink || null,
+        },
+        documentsCount: dossier.formData.documents.length,
+        devisCount: dossier.formData.documents.filter((d: any) => d?.category === "devis").length,
+        driveWarning: dossier.workspaceFolderId && !doc.driveLink
+          ? "Devis enregistré ; copie Drive non confirmée (timeout ou Google)."
+          : undefined,
+      });
+    } catch (err: any) {
+      console.error("[admin quote upload]", id, err?.message || err);
+      return res.status(500).json({ error: err?.message || "Erreur upload devis" });
+    }
   });
 
   // Ajouter un document au dossier (admin) — copié sur Drive si le dossier existe
@@ -1504,14 +1492,26 @@ export function createApp() {
   app.delete("/api/admin/dossiers/:id/quote", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const { id } = req.params;
-    const db = await readDBAsync();
-    const dossier = db.dossiers.find((d: any) => d.id === id);
-    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    if (!dossier.formData) dossier.formData = {};
-    if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
-    dossier.formData.documents = dossier.formData.documents.filter((d: any) => d?.category !== "devis");
-    await writeDB(db, dossier);
-    res.json({ success: true, dossier });
+    try {
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+      if (!dossier.formData) dossier.formData = {};
+      if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
+      const before = dossier.formData.documents.length;
+      dossier.formData.documents = dossier.formData.documents.filter((d: any) => d?.category !== "devis");
+      const removed = before - dossier.formData.documents.length;
+      dossier.updatedAt = new Date().toISOString();
+      await writeDB(db, dossier);
+      res.json({
+        success: true,
+        removed,
+        documentsCount: dossier.formData.documents.length,
+      });
+    } catch (err: any) {
+      console.error("[admin quote delete]", id, err?.message || err);
+      return res.status(500).json({ error: err?.message || "Erreur suppression devis" });
+    }
   });
 
   app.post("/api/admin/run-scheduler", async (_req, res) => {
@@ -5030,8 +5030,7 @@ export function createApp() {
       if (!doc) return res.status(404).json({ error: "Document introuvable" });
 
       doc.category = category;
-      const { reanalyzeDossierLoanDocuments } = await import("./reanalyzeLoanDocuments");
-      await reanalyzeDossierLoanDocuments(dossier, UPLOADS_DIR);
+      // Pas de réanalyse OCR synchrone (bloquait le reclassement sur dossiers multi-tableaux).
 
       dossier.updatedAt = new Date().toISOString();
       addEvent(dossier, {
@@ -5044,10 +5043,16 @@ export function createApp() {
       const { computeDocumentChecklistForDossier } = await import("../shared/documentChecklist");
       res.json({
         success: true,
-        document: doc,
+        document: {
+          id: doc.id,
+          name: doc.name,
+          category: doc.category,
+          size: doc.size,
+        },
         checklist: computeDocumentChecklistForDossier(dossier),
       });
     } catch (err: any) {
+      console.error("[admin documents patch]", err?.message || err);
       res.status(500).json({ error: err?.message || String(err) });
     }
   });
@@ -5085,8 +5090,8 @@ export function createApp() {
         setAdminChecklistOverride(dossier, removedCategory, null, { author: "admin" });
       }
 
-      const { reanalyzeDossierLoanDocuments } = await import("./reanalyzeLoanDocuments");
-      await reanalyzeDossierLoanDocuments(dossier, UPLOADS_DIR);
+      // Pas de réanalyse OCR ici : elle bloquait les suppressions (plusieurs tableaux).
+      // Utiliser « Réanalyser documents » si besoin.
 
       dossier.updatedAt = new Date().toISOString();
       addEvent(dossier, {
@@ -5100,9 +5105,11 @@ export function createApp() {
       res.json({
         success: true,
         removed: { id: doc.id, name: doc.name, category: doc.category },
+        documentsCount: docs.length,
         checklist: computeDocumentChecklistForDossier(dossier),
       });
     } catch (err: any) {
+      console.error("[admin documents delete]", err?.message || err);
       res.status(500).json({ error: err?.message || String(err) });
     }
   });
