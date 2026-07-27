@@ -123,6 +123,23 @@ export interface Dossier {
   adeStudyComputation?: Record<string, unknown>;
   /** Dernier score de faisabilité génération auto ADE (/10). */
   adeStudyFeasibility?: Record<string, unknown>;
+  /** Assistant ADE : ancrages manuels + fil de discussion (Kereis + étude). */
+  adeStudyAssist?: {
+    mode?: "kereis" | "study";
+    overrides?: {
+      currentTotalEur?: number;
+      proposedTotalEur?: number;
+      remainingMonths?: number;
+      feesAssureurEur?: number;
+      notes?: string;
+    };
+    kereisPatches?: Record<string, string | number | boolean>;
+    messages?: Array<{ role: "assistant" | "user"; content: string; at: string }>;
+    status?: "idle" | "needs_input" | "ready" | "awaiting_clarification";
+    pendingField?: string | null;
+    openQuestions?: string[];
+    updatedAt?: string;
+  };
   /** PDF d'étude importé (chemin local + métadonnées). */
   studyPdf?: {
     fileName: string;

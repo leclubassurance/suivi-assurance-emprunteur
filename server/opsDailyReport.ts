@@ -16,6 +16,7 @@ import { messageRequestsMissingLoanDocs } from "./camilleClientMessage";
 import { getAiAuditTrail } from "./aiAuditLog";
 import { sendEmail, isEmailConfigured } from "./emailProvider";
 import { getAllowedChatIdsForNotify, isTelegramEnabled, sendTelegramRaw } from "./telegramCamille";
+import { isArchivedDossier } from "../shared/dossierInactive";
 
 const PARIS = "Europe/Paris";
 
@@ -298,7 +299,7 @@ function scanDossierIncidents(params: {
   const out: OpsIncident[] = [];
   const name = clientName(d);
   const checklist = computeDocumentChecklistForDossier(d);
-  const inactive = ["CLOS", "REFUSE", "REFUSÉ"].includes(String(d.status || "").toUpperCase());
+  const inactive = isArchivedDossier(d);
 
   if (!inactive || hadActivity) {
     for (const item of checklist) {

@@ -8,6 +8,7 @@ import {
   REFERRAL_STATUS_LABELS,
 } from "../../../shared/apporteurTypes";
 import type { ApporteurTeamKpis } from "../../../shared/apporteurKpis";
+import { isArchivedReferral } from "../../../shared/apporteurKpis";
 import type { RemunerationConfig } from "../../../shared/apporteurRemuneration";
 import { computeApporteurPayoutEur, estimatePartnerEarnings } from "../../../shared/apporteurRemuneration";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
@@ -41,6 +42,7 @@ import {
 import PortalSection from "./layout/PortalSection";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
+import { Tabs } from "../ui/Tabs";
 
 type PortalReferralTracking = {
   dossierId: string;
@@ -207,6 +209,7 @@ export default function ApporteurPortalPage({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [referralListMode, setReferralListMode] = useState<"active" | "archived">("active");
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
   const [form, setForm] = useState({ prenom: "", nom: "", email: "", phone: "", notes: "" });
@@ -254,6 +257,12 @@ export default function ApporteurPortalPage({
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("etude");
   }, []);
+
+  useEffect(() => {
+    if (!highlightDossierId || !data?.referrals?.length) return;
+    const hit = data.referrals.find((r) => r.tracking?.dossierId === highlightDossierId);
+    if (hit && isArchivedReferral(hit.status)) setReferralListMode("archived");
+  }, [highlightDossierId, data?.referrals]);
 
   const adminPreviewToken = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -352,6 +361,16 @@ export default function ApporteurPortalPage({
       payoutPerSignatureEur: payoutPerSignature,
     });
   }, [data, simDossiers, simConversion, payoutPerSignature]);
+
+  const activeReferrals = useMemo(
+    () => (data?.referrals || []).filter((r) => !isArchivedReferral(r.status)),
+    [data?.referrals],
+  );
+  const archivedReferrals = useMemo(
+    () => (data?.referrals || []).filter((r) => isArchivedReferral(r.status)),
+    [data?.referrals],
+  );
+  const visibleReferrals = referralListMode === "archived" ? archivedReferrals : activeReferrals;
 
   const copyText = async (text: string, label = "Copié !") => {
     try {
@@ -1062,7 +1081,23 @@ export default function ApporteurPortalPage({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {data.referrals.map((r) => {
+                  <Tabs
+                    value={referralListMode}
+                    onChange={setReferralListMode}
+                    items={[
+                      { key: "active", label: "En cours", count: activeReferrals.length },
+                      { key: "archived", label: "Archivés", count: archivedReferrals.length || undefined },
+                    ]}
+                    className="w-full sm:w-auto"
+                  />
+                  {visibleReferrals.length === 0 ? (
+                    <p className="text-sm text-slate-500 py-6 text-center">
+                      {referralListMode === "archived"
+                        ? "Aucun dossier refusé ou perdu pour le moment."
+                        : "Aucun dossier en cours — les refusés sont dans Archivés."}
+                    </p>
+                  ) : (
+                    visibleReferrals.map((r) => {
                     const name = [r.contact.prenom, r.contact.nom].filter(Boolean).join(" ") || "Contact";
                     const statusVariant =
                       r.status === "SIGNE"
@@ -1122,7 +1157,8 @@ export default function ApporteurPortalPage({
                         ) : null}
                       </article>
                     );
-                  })}
+                  })
+                  )}
                 </div>
               )}
             </div>

@@ -1,12 +1,10 @@
 import { getDossierClientEmails } from "./gmailAttachments";
 import { inferDocumentCategory } from "../shared/documentClassifier";
 import { formatDossierPhaseLabel, normalizeEmailSubject } from "./gmailDossierRouting";
-
-const INACTIVE_STATUSES = new Set(["CLOS", "REFUSE", "REFUSÉ"]);
+import { isArchivedDossier } from "../shared/dossierInactive";
 
 export function isDossierActiveForClient(dossier: any): boolean {
-  const st = String(dossier?.status || "").toUpperCase();
-  return !INACTIVE_STATUSES.has(st);
+  return !isArchivedDossier(dossier);
 }
 
 function normalizeIdentityPart(value: unknown): string {

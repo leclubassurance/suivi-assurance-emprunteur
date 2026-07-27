@@ -23,8 +23,10 @@ import {
 } from "./AdminOpsPanel";
 import AdminClubRevenueChart from "./AdminClubRevenueChart";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
+import AdminAdeStudyAssistPanel from "./AdminAdeStudyAssistPanel";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
+import { isArchivedDossier } from "../../../shared/dossierInactive";
 import { resolveStudyEmailHtmlForSend, dossierSliceForStudySend } from "../../../shared/studyEmailForSend";
 import { Button } from "../ui/Button";
 import { Tabs } from "../ui/Tabs";
@@ -82,6 +84,8 @@ export default function AdminDashboard({
   const [kereisBusy, setKereisBusy] = useState(false);
   const [generateStudyBusy, setGenerateStudyBusy] = useState(false);
   const [feasibilityBusy, setFeasibilityBusy] = useState(false);
+  const [adeAssistOpen, setAdeAssistOpen] = useState(false);
+  const [adeAssistMode, setAdeAssistMode] = useState<"kereis" | "study">("study");
   const [uploadDocBusy, setUploadDocBusy] = useState(false);
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [studyGenerateFeedback, setStudyGenerateFeedback] = useState<{
@@ -102,7 +106,7 @@ export default function AdminDashboard({
   const [debriefNote, setDebriefNote] = useState("");
   const [newNote, setNewNote] = useState("");
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
-  const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers">("dossiers");
+  const [sidebarMode, setSidebarMode] = useState<"queue" | "prospects" | "dossiers" | "archived">("dossiers");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { metrics, reloadMetrics, metricsPeriodDays, setMetricsPeriodDays } = useAdminOpsData();
@@ -325,6 +329,10 @@ export default function AdminDashboard({
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    setAdeAssistOpen(false);
+  }, [selectedDossier?.id]);
+
   // Auto Gmail sync (dashboard ouvert) — 2 min, 24h/24
   useEffect(() => {
     if (!autoSyncGmail) return;
@@ -349,8 +357,20 @@ export default function AdminDashboard({
       await loadDossiers();
       if (json.dossier && selectedDossier?.id === id) {
         setSelectedDossier(json.dossier);
+        setSidebarMode(
+          isLeadDossier(json.dossier)
+            ? "prospects"
+            : isArchivedDossier(json.dossier)
+              ? "archived"
+              : "dossiers",
+        );
       }
-      showToast("Statut dossier mis à jour", "success");
+      showToast(
+        isArchivedDossier({ status: newStatus })
+          ? "Dossier classé — déplacé dans Archivés"
+          : "Statut dossier mis à jour",
+        "success",
+      );
     } catch (e) {
       showToast("Erreur status", "error");
     }
@@ -648,10 +668,10 @@ export default function AdminDashboard({
         type: f.pass ? "success" : "manual",
         title: f.pass
           ? `Score ${f.score}/${f.max} — génération auto possible`
-          : `Score ${f.score}/${f.max} — à faire manuellement`,
+          : `Score ${f.score}/${f.max} — assistant ADE recommandé`,
         message: f.pass
           ? "Les documents sont assez fiables pour générer le PDF automatiquement."
-          : "Sous le seuil de 8/10 : ne générez pas en auto. Faites l'étude à la main puis importez le PDF si besoin.",
+          : "Sous le seuil de 8/10 : ouvrez l'assistant ADE pour compléter les montants manquants, puis générez le PDF.",
         hint: f.pass
           ? "Vous pouvez cliquer sur « Générer étude depuis devis »."
           : Array.isArray(f.blockers) && f.blockers[0]
@@ -662,6 +682,10 @@ export default function AdminDashboard({
           .slice(0, 10),
         feasibility: f,
       });
+      if (!f.pass) {
+        setAdeAssistMode("study");
+        setAdeAssistOpen(true);
+      }
       loadDossiers();
     } catch {
       showToast("Erreur score faisabilité", "error");
@@ -695,16 +719,24 @@ export default function AdminDashboard({
         setStudyGenerateFeedback({
           type: isManual ? "manual" : "error",
           title: isManual
-            ? `Score insuffisant — étude à faire manuellement`
+            ? `Score insuffisant — ouvrez l'assistant ADE`
             : "Génération de l'étude impossible",
           message: String(data.error || "La génération a échoué."),
-          hint: data.hint ? String(data.hint) : undefined,
+          hint: data.hint
+            ? String(data.hint)
+            : isManual
+              ? "Complétez les montants avec l'assistant ADE, puis cliquez à nouveau sur Générer."
+              : undefined,
           reasons: reasons.slice(0, 8),
           feasibility: data.feasibility || undefined,
         });
+        if (isManual) {
+          setAdeAssistMode("study");
+          setAdeAssistOpen(true);
+        }
         showToast(
           isManual
-            ? `Score ${data.feasibility?.score ?? "?"}/10 — à faire à la main`
+            ? `Score ${data.feasibility?.score ?? "?"}/10 — assistant ADE`
             : String(data.error || "Génération étude impossible"),
           "error",
         );
@@ -1414,29 +1446,50 @@ export default function AdminDashboard({
     }
   };
 
-  const filteredDossiers = dossiers.filter(d => {
+  const matchesSearch = (d: Dossier) => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    const p = d.formData?.assures?.[0];
+    return (
+      p?.nom?.toLowerCase().includes(s) ||
+      p?.prenom?.toLowerCase().includes(s) ||
+      d.id.toLowerCase().includes(s)
+    );
+  };
+
+  const filteredDossiers = dossiers.filter((d) => {
     if (!isVisibleAdminDossier(d.id)) return false;
     if (isProspectDossier(d)) return false;
-    if (!search) return true;
-    const s = search.toLowerCase();
-    const p = d.formData?.assures?.[0];
-    return (p?.nom?.toLowerCase().includes(s) || p?.prenom?.toLowerCase().includes(s) || d.id.toLowerCase().includes(s));
+    if (isArchivedDossier(d)) return false;
+    return matchesSearch(d);
   });
 
-  const filteredProspects = dossiers.filter(d => {
+  const filteredArchived = dossiers.filter((d) => {
+    if (!isVisibleAdminDossier(d.id)) return false;
+    if (isProspectDossier(d)) return false;
+    if (!isArchivedDossier(d)) return false;
+    return matchesSearch(d);
+  });
+
+  const filteredProspects = dossiers.filter((d) => {
     if (!isVisibleAdminDossier(d.id)) return false;
     if (!isProspectDossier(d)) return false;
-    if (!search) return true;
-    const s = search.toLowerCase();
-    const p = d.formData?.assures?.[0];
-    return (p?.nom?.toLowerCase().includes(s) || p?.prenom?.toLowerCase().includes(s) || d.id.toLowerCase().includes(s));
+    return matchesSearch(d);
   });
 
-  const renderDossierList = (items: Dossier[], accent: "indigo" | "amber") =>
+  const renderDossierList = (items: Dossier[], accent: "indigo" | "amber" | "slate") =>
     items.map(d => (
       <div key={d.id}
         onClick={() => { setSelectedDossier(d); setMobileNavOpen(false); }}
-        className={`p-4 border-b cursor-pointer transition flex flex-col gap-1 ${selectedDossier?.id === d.id ? (accent === "amber" ? "bg-amber-50 border-amber-100" : "bg-indigo-50 border-indigo-100") : "hover:bg-slate-50"}`}>
+        className={`p-4 border-b cursor-pointer transition flex flex-col gap-1 ${
+          selectedDossier?.id === d.id
+            ? accent === "amber"
+              ? "bg-amber-50 border-amber-100"
+              : accent === "slate"
+                ? "bg-slate-100 border-slate-200"
+                : "bg-indigo-50 border-indigo-100"
+            : "hover:bg-slate-50"
+        }`}>
         <div className="font-bold flex justify-between items-center gap-2">
           <span>{d.formData?.assures?.[0]?.prenom} {d.formData?.assures?.[0]?.nom}</span>
           {isProspectDossier(d) && (
@@ -1444,10 +1497,21 @@ export default function AdminDashboard({
               Prospect
             </span>
           )}
+          {isArchivedDossier(d) && (
+            <span className="text-[10px] font-black uppercase bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full shrink-0">
+              Archivé
+            </span>
+          )}
         </div>
         <div className="flex justify-between items-center text-xs">
           <span className="text-slate-400 font-mono">{d.id}</span>
-          <span className={`px-2 py-0.5 rounded-full font-bold ${isProspectDossier(d) ? "bg-amber-100 text-amber-900" : "bg-slate-200 text-slate-700"}`}>
+          <span className={`px-2 py-0.5 rounded-full font-bold ${
+            isProspectDossier(d)
+              ? "bg-amber-100 text-amber-900"
+              : isArchivedDossier(d)
+                ? "bg-slate-300 text-slate-800"
+                : "bg-slate-200 text-slate-700"
+          }`}>
             {d.status}
           </span>
         </div>
@@ -1623,9 +1687,10 @@ export default function AdminDashboard({
               items={[
                 { key: "queue", label: "À traiter" },
                 { key: "prospects", label: "Prospects", count: filteredProspects.length || undefined },
-                { key: "dossiers", label: "Dossiers" },
+                { key: "dossiers", label: "Dossiers", count: filteredDossiers.length || undefined },
+                { key: "archived", label: "Archivés", count: filteredArchived.length || undefined },
               ]}
-              className="w-full"
+              className="w-full flex-wrap"
             />
           </div>
           {user.role === "ADMIN" && (onOpenApporteurs || onOpenConseillersClub) ? (
@@ -1650,7 +1715,13 @@ export default function AdminDashboard({
                 const d = dossiers.find((x) => x.id === id);
                 if (d) {
                   setSelectedDossier(d);
-                  setSidebarMode(isProspectDossier(d) ? "prospects" : "dossiers");
+                  setSidebarMode(
+                    isProspectDossier(d)
+                      ? "prospects"
+                      : isArchivedDossier(d)
+                        ? "archived"
+                        : "dossiers",
+                  );
                   setMobileNavOpen(false);
                 }
               }}
@@ -1662,7 +1733,13 @@ export default function AdminDashboard({
               <Search className="w-4 h-4 text-slate-400" />
               <input 
                 className="bg-transparent border-none outline-none text-sm w-full"
-                placeholder={sidebarMode === "prospects" ? "Rechercher un prospect..." : "Rechercher (nom, prénom, dossier)..."}
+                placeholder={
+                  sidebarMode === "prospects"
+                    ? "Rechercher un prospect..."
+                    : sidebarMode === "archived"
+                      ? "Rechercher un dossier archivé..."
+                      : "Rechercher (nom, prénom, dossier)..."
+                }
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -1676,8 +1753,19 @@ export default function AdminDashboard({
                   après la synchro Gmail (pas de réponse automatique Camille).
                 </p>
               )
+            ) : sidebarMode === "archived" ? (
+              filteredArchived.length ? renderDossierList(filteredArchived, "slate") : (
+                <p className="p-4 text-sm text-slate-500">
+                  Aucun dossier archivé. Les dossiers passés en « REFUSÉ / SANS SUITE » (ou CLOS) apparaissent ici
+                  pour ne pas encombrer la colonne Dossiers.
+                </p>
+              )
             ) : (
-              renderDossierList(filteredDossiers, "indigo")
+              filteredDossiers.length ? renderDossierList(filteredDossiers, "indigo") : (
+                <p className="p-4 text-sm text-slate-500">
+                  Aucun dossier actif. Les refusés sont dans l’onglet Archivés.
+                </p>
+              )
             )}
           </div>
             </>
@@ -2628,6 +2716,28 @@ export default function AdminDashboard({
                         <li>Uploader le devis assureur (PDF)</li>
                         <li>Générer le PDF comparatif via Gemini + skill ADE (ou importer un PDF déjà produit)</li>
                       </ol>
+                      {adeAssistOpen && selectedDossier ? (
+                        <AdminAdeStudyAssistPanel
+                          dossierId={selectedDossier.id}
+                          open={adeAssistOpen}
+                          initialMode={adeAssistMode}
+                          onClose={() => setAdeAssistOpen(false)}
+                          adminFetch={adminFetch}
+                          onReady={(m) => {
+                            showToast(
+                              m === "kereis"
+                                ? "Fiche Kereis prête — vous pouvez copier"
+                                : "Ancrages ADE prêts — vous pouvez générer l'étude",
+                              "success",
+                            );
+                            loadDossiers();
+                          }}
+                          onDossierUpdated={() => loadDossiers()}
+                          onKereisDraft={(draft) => {
+                            if (draft) setKereisDraft(draft);
+                          }}
+                        />
+                      ) : null}
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
@@ -2637,6 +2747,17 @@ export default function AdminDashboard({
                         >
                           <Sparkles className="w-4 h-4" />
                           {kereisBusy ? "Extraction…" : "1. Préparer fiche Kereis"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdeAssistMode("kereis");
+                            setAdeAssistOpen(true);
+                          }}
+                          className="border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          Assistant Kereis
                         </button>
                         <button
                           type="button"
@@ -2734,27 +2855,39 @@ export default function AdminDashboard({
                             }}
                           />
                         </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdeAssistMode("study");
+                            setAdeAssistOpen(true);
+                          }}
+                          className="border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          Assistant étude
+                        </button>
                         {(() => {
                           const f = (selectedDossier as any)?.adeStudyFeasibility;
                           if (!f || f.score == null) return null;
                           const pass = Boolean(f.pass);
+                          const assistReady = (selectedDossier as any)?.adeStudyAssist?.status === "ready";
                           return (
                             <span
                               className={`text-xs font-bold px-2.5 py-1.5 rounded-lg ${
-                                pass
+                                pass || assistReady
                                   ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
                                   : "bg-amber-50 text-amber-900 border border-amber-200"
                               }`}
                             >
                               Dernier score {f.score}/{f.max ?? 10}
-                              {pass ? " · auto OK" : " · manuel"}
+                              {pass ? " · auto OK" : assistReady ? " · assist OK" : " · assist"}
                             </span>
                           );
                         })()}
                       </div>
                       <p className="text-[11px] text-slate-500">
-                        Score ≥ 8/10 : génération auto. En dessous : faites l&apos;étude à la main (pas
-                        d&apos;édition dans l&apos;app), puis importez le PDF si besoin.
+                        Score ≥ 8/10 : génération auto. En dessous : utilisez l&apos;assistant étude pour
+                        compléter les montants, puis générez le PDF dans l&apos;app.
                       </p>
                       {studyGenerateFeedback ? (
                         <div
@@ -2794,6 +2927,19 @@ export default function AdminDashboard({
                                 <li key={r}>{r}</li>
                               ))}
                             </ul>
+                          ) : null}
+                          {studyGenerateFeedback.type === "manual" ? (
+                            <button
+                              type="button"
+                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold"
+                              onClick={() => {
+                                setAdeAssistMode("study");
+                                setAdeAssistOpen(true);
+                              }}
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              Ouvrir l&apos;assistant étude
+                            </button>
                           ) : null}
                           {studyGenerateFeedback.type === "success" && studyGenerateFeedback.fileName ? (
                             <button

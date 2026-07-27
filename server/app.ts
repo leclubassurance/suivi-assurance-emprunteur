@@ -1070,7 +1070,11 @@ export function createApp() {
 
     const { computeEconomyFromDossierDocs } = await import("./economyFromDocs");
     const { buildEconomyHtmlDraft } = await import("./economyMailDraft");
-    const comp = await computeEconomyFromDossierDocs(dossier);
+    const { applyAdeAssistOverrides, getAdeAssistOverrides } = await import("./adeStudyAssist");
+    const comp = applyAdeAssistOverrides(
+      await computeEconomyFromDossierDocs(dossier),
+      getAdeAssistOverrides(dossier),
+    );
 
     const draft = comp.ok ? buildEconomyHtmlDraft(dossier, comp) : null;
     const now = new Date().toISOString();
@@ -1336,6 +1340,145 @@ export function createApp() {
     } catch (err: any) {
       return res.status(500).json({ error: err?.message || "Erreur score faisabilité" });
     }
+  });
+
+  /** Démarre / relance l'assistant ADE (chat ancrages si score < 8). */
+  app.post("/api/admin/dossiers/:id/ade-assist/start", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    try {
+      const mode = String(req.body?.mode || "study") === "kereis" ? "kereis" : "study";
+      const { assessAdeStudyFeasibility } = await import("./adeStudyFeasibility");
+      const { startAdeStudyAssist } = await import("./adeStudyAssist");
+      const feasibility = await assessAdeStudyFeasibility(dossier);
+      (dossier as any).adeStudyFeasibility = feasibility;
+      const { assist, eco } = await startAdeStudyAssist({
+        dossier,
+        feasibility,
+        mode,
+        uploadsDir: UPLOADS_DIR,
+      });
+      (dossier as any).adeStudyAssist = assist;
+      await writeDB(db, dossier);
+      return res.json({
+        success: true,
+        assist,
+        feasibility,
+        kereisDraft: (dossier as any).kereisDraft || null,
+        economyPreview: {
+          ok: eco.ok,
+          reliability: eco.reliability,
+          currentTotalEur: assist.overrides.currentTotalEur ?? eco.extracted.currentTotalRemaining ?? null,
+          proposedTotalEur: assist.overrides.proposedTotalEur ?? eco.extracted.proposedTotalRemaining ?? null,
+          remainingMonths: assist.overrides.remainingMonths ?? eco.extracted.remainingMonths ?? null,
+          feesAssureurEur: assist.overrides.feesAssureurEur ?? eco.extracted.feesAssureurTotal ?? null,
+          grossSavingsEur:
+            (assist.overrides.currentTotalEur ?? eco.extracted.currentTotalRemaining ?? 0) -
+            (assist.overrides.proposedTotalEur ?? eco.extracted.proposedTotalRemaining ?? 0),
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || "Erreur démarrage assistant ADE" });
+    }
+  });
+
+  /** Message utilisateur → assistant ADE. */
+  app.post("/api/admin/dossiers/:id/ade-assist/message", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const text = String(req.body?.message || req.body?.text || "").trim();
+    if (!text) return res.status(400).json({ error: "Message requis" });
+    try {
+      const mode =
+        String(req.body?.mode || (dossier as any).adeStudyAssist?.mode || "study") === "kereis"
+          ? "kereis"
+          : "study";
+      const { assessAdeStudyFeasibility } = await import("./adeStudyFeasibility");
+      const { handleAdeStudyAssistMessage, applyAdeAssistOverrides, getAdeAssistOverrides } =
+        await import("./adeStudyAssist");
+      const feasibility =
+        (dossier as any).adeStudyFeasibility || (await assessAdeStudyFeasibility(dossier));
+      const { assist, eco, error } = await handleAdeStudyAssistMessage({
+        dossier,
+        userText: text,
+        feasibility,
+        mode,
+        uploadsDir: UPLOADS_DIR,
+      });
+      if (error) return res.status(400).json({ error });
+      (dossier as any).adeStudyAssist = assist;
+      const merged = applyAdeAssistOverrides(eco, getAdeAssistOverrides({ adeStudyAssist: assist }));
+      await writeDB(db, dossier);
+      return res.json({
+        success: true,
+        assist,
+        feasibility,
+        kereisDraft: (dossier as any).kereisDraft || null,
+        economyPreview: {
+          ok: merged.ok,
+          reliability: merged.reliability,
+          currentTotalEur: merged.extracted.currentTotalRemaining ?? null,
+          proposedTotalEur: merged.extracted.proposedTotalRemaining ?? null,
+          remainingMonths: merged.extracted.remainingMonths ?? null,
+          feesAssureurEur: merged.extracted.feesAssureurTotal ?? null,
+          grossSavingsEur: merged.result?.grossSavings ?? null,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || "Erreur message assistant ADE" });
+    }
+  });
+
+  /** Réinitialise l'assistant ADE. */
+  app.post("/api/admin/dossiers/:id/ade-assist/reset", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    try {
+      const mode = String(req.body?.mode || "study") === "kereis" ? "kereis" : "study";
+      const { resetAdeStudyAssist } = await import("./adeStudyAssist");
+      (dossier as any).adeStudyAssist = resetAdeStudyAssist(mode);
+      await writeDB(db, dossier);
+      return res.json({ success: true, assist: (dossier as any).adeStudyAssist });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || "Erreur reset assistant ADE" });
+    }
+  });
+
+  /** État courant assistant ADE. */
+  app.get("/api/admin/dossiers/:id/ade-assist", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    const { getAdeStudyAssist, applyAdeAssistOverrides, getAdeAssistOverrides } = await import(
+      "./adeStudyAssist"
+    );
+    const { computeEconomyFromDossierDocs } = await import("./economyFromDocs");
+    const assist = getAdeStudyAssist(dossier);
+    const eco = applyAdeAssistOverrides(
+      await computeEconomyFromDossierDocs(dossier),
+      getAdeAssistOverrides(dossier),
+    );
+    return res.json({
+      success: true,
+      assist,
+      feasibility: (dossier as any).adeStudyFeasibility || null,
+      economyPreview: {
+        ok: eco.ok,
+        reliability: eco.reliability,
+        currentTotalEur: eco.extracted.currentTotalRemaining ?? null,
+        proposedTotalEur: eco.extracted.proposedTotalRemaining ?? null,
+        remainingMonths: eco.extracted.remainingMonths ?? null,
+        feesAssureurEur: eco.extracted.feesAssureurTotal ?? null,
+        grossSavingsEur: eco.result?.grossSavings ?? null,
+      },
+    });
   });
 
   app.get("/api/admin/dossiers/:id/study-pdf", async (req, res) => {

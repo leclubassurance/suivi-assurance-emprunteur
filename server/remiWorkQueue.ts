@@ -2,6 +2,7 @@ import type { Dossier } from "./dossierModel";
 import { computeDocumentChecklist } from "../shared/documentChecklist";
 import { resolveLoanDocPresence } from "./loanDocPresence";
 import { isDossierStale } from "./rules";
+import { isArchivedDossier } from "../shared/dossierInactive";
 import {
   hasStudyBeenSent,
   needsStatusStudySent,
@@ -73,6 +74,7 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
   for (const d of dossiers) {
     if (isSnoozed(d)) continue;
     if ((d as any).isLead) continue;
+    if (isArchivedDossier(d)) continue;
 
     const { name, email } = borrower(d);
     const esc = d.camilleEscalation;

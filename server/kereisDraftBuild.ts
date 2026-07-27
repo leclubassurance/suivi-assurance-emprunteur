@@ -209,6 +209,71 @@ function buildCopyText(draft: Omit<KereisDraft, "copyText">): string {
   return lines.join("\n");
 }
 
+/** Applique des patches manuels (libellé → valeur) et recalcule missing + copyText. */
+export function applyKereisDraftPatches(
+  draft: KereisDraft,
+  patches: Record<string, string | number | boolean>,
+): KereisDraft {
+  if (!draft || !patches || !Object.keys(patches).length) return draft;
+
+  const norm = (s: string) =>
+    String(s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+
+  const patchEntries = Object.entries(patches).map(([k, v]) => [norm(k), v, k] as const);
+
+  const patchField = (f: KereisField): KereisField => {
+    const fn = norm(f.label);
+    const hit = patchEntries.find(([pn]) => pn === fn || fn.includes(pn) || pn.includes(fn));
+    if (!hit) return f;
+    const value = hit[1];
+    return {
+      ...f,
+      value,
+      confidence: "high",
+      source: "assistant ADE",
+      note: f.note ? `${f.note} · confirmé assistant` : "Confirmé via assistant ADE",
+    };
+  };
+
+  const next: Omit<KereisDraft, "copyText"> = {
+    ...draft,
+    steps: {
+      coordonnees: draft.steps.coordonnees.map(patchField),
+      infosPerso: draft.steps.infosPerso.map(patchField),
+      prets: draft.steps.prets.map((loan) => ({
+        ...loan,
+        fields: loan.fields.map(patchField),
+      })),
+      preteur: draft.steps.preteur.map(patchField),
+      simulations: draft.steps.simulations.map(patchField),
+    },
+    missing: [],
+    warnings: [...(draft.warnings || [])],
+  };
+
+  const missing: string[] = [];
+  for (const group of [
+    next.steps.coordonnees,
+    next.steps.infosPerso,
+    ...next.steps.prets.map((p) => p.fields),
+    next.steps.preteur,
+    next.steps.simulations,
+  ]) {
+    for (const f of group) {
+      if (f.confidence === "missing" || f.value == null || f.value === "") missing.push(f.label);
+    }
+  }
+  next.missing = [...new Set(missing)];
+  next.computedAt = new Date().toISOString();
+
+  return { ...next, copyText: buildCopyText(next) };
+}
+
 /** Construit la fiche Kereis à partir du dossier + documents. */
 export async function buildKereisDraftForDossier(params: {
   dossier: Dossier;

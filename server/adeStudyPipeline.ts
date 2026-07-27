@@ -508,22 +508,28 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     }
   }
 
-  // Score faisabilité : < 8/10 → pas de PDF auto (étude manuelle)
+  // Score faisabilité : < 8/10 → pas de PDF auto, sauf ancrages assistant ADE complets
   const { assessAdeStudyFeasibility, ADE_FEASIBILITY_PASS_SCORE } = await import(
     "./adeStudyFeasibility"
   );
+  const {
+    dossierHasAdeAssistBypass,
+    getAdeAssistOverrides,
+    applyAdeAssistOverrides,
+  } = await import("./adeStudyAssist");
   const feasibility = await assessAdeStudyFeasibility(dossier);
   (dossier as any).adeStudyFeasibility = feasibility;
+  const assistBypass = dossierHasAdeAssistBypass(dossier);
 
-  if (!feasibility.pass) {
+  if (!feasibility.pass && !assistBypass) {
     return {
       ok: false,
       code: "low_feasibility",
       error: `Score faisabilité ${feasibility.score}/${feasibility.max} — génération auto refusée.`,
       hint:
         feasibility.score < ADE_FEASIBILITY_PASS_SCORE
-          ? `Sous ${ADE_FEASIBILITY_PASS_SCORE}/10 : faites l'étude manuellement (PDF hors app), puis importez-la si besoin.`
-          : "Documents incomplets ou montants illisibles — complétez tableaux/devis ou passez en manuel.",
+          ? `Sous ${ADE_FEASIBILITY_PASS_SCORE}/10 : ouvrez l'assistant ADE dans l'admin pour compléter les montants, puis régénérez.`
+          : "Documents incomplets ou montants illisibles — complétez via l'assistant ADE ou les documents.",
       reasons: [
         ...feasibility.blockers,
         ...feasibility.checks.filter((c) => !c.ok).map((c) => `✗ ${c.label}${c.detail ? ` (${c.detail})` : ""}`),
@@ -545,11 +551,14 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   let computation: AdeStudyComputation | null = null;
   const skillReasons: string[] = [
     ...resolveWarnings,
-    `Faisabilité ADE ${feasibility.score}/${feasibility.max} (≥ ${ADE_FEASIBILITY_PASS_SCORE} → auto).`,
+    assistBypass
+      ? `Faisabilité ADE ${feasibility.score}/${feasibility.max} — génération via ancrages manuels assistant ADE.`
+      : `Faisabilité ADE ${feasibility.score}/${feasibility.max} (≥ ${ADE_FEASIBILITY_PASS_SCORE} → auto).`,
   ];
 
-  // Extraction locale d'abord (ancrages fiables : échéancier CE + totaux devis)
-  const eco = await computeEconomyFromDossierDocs(dossier);
+  // Extraction locale + overrides assistant ADE (ancrages)
+  const ecoRaw = await computeEconomyFromDossierDocs(dossier);
+  const eco = applyAdeAssistOverrides(ecoRaw, getAdeAssistOverrides(dossier));
   const heuristic = economyToAdeComputation(eco, dossier, effectFallback);
   const anchors = {
     currentTotalEur: eco.extracted.currentTotalRemaining ?? null,

@@ -3,6 +3,13 @@ import type { Referral, ReferralStatus } from "./apporteurTypes";
 const CLOSED: ReferralStatus[] = ["SIGNE", "REFUSE", "PERDU"];
 const OPEN_EXCLUDE: ReferralStatus[] = ["SIGNE", "REFUSE", "PERDU"];
 
+/** Refusé / perdu — hors liste active portail conseiller. */
+export const ARCHIVED_REFERRAL_STATUSES: ReferralStatus[] = ["REFUSE", "PERDU"];
+
+export function isArchivedReferral(status: ReferralStatus | string): boolean {
+  return ARCHIVED_REFERRAL_STATUSES.includes(status as ReferralStatus);
+}
+
 export type ReferralKpis = {
   total: number;
   open: number;

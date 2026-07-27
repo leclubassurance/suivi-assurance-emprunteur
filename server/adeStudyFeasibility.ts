@@ -1,7 +1,7 @@
 /**
  * Score de faisabilité étude ADE auto (/10).
  * ≥ ADE_FEASIBILITY_PASS_SCORE → génération PDF autorisée
- * &lt; seuil → blocage : étude à faire manuellement (pas d'édition in-app).
+ * &lt; seuil → assistant ADE (ancrages manuels) ou étude hors app.
  */
 import fs from "fs";
 import { extractPdfTextFromBuffer } from "./pdfTextExtract";
@@ -244,9 +244,9 @@ export async function assessAdeStudyFeasibility(dossier: any): Promise<AdeFeasib
     );
   }
 
-  if (!pass && score < ADE_FEASIBILITY_PASS_SCORE && !blockers.some((b) => /manuelle/i.test(b))) {
+  if (!pass && score < ADE_FEASIBILITY_PASS_SCORE && !blockers.some((b) => /manuelle|assistant/i.test(b))) {
     blockers.push(
-      `Score ${score}/${ADE_FEASIBILITY_MAX} < ${ADE_FEASIBILITY_PASS_SCORE} — génération auto refusée, faites l'étude manuellement.`,
+      `Score ${score}/${ADE_FEASIBILITY_MAX} < ${ADE_FEASIBILITY_PASS_SCORE} — ouvrez l'assistant ADE pour compléter les montants.`,
     );
   }
 
