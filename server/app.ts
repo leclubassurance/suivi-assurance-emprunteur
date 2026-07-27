@@ -1486,9 +1486,17 @@ export function createApp() {
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    const { getStudyPdfPath } = await import("./studyPdfFlow");
-    const pdfPath = getStudyPdfPath(dossier);
-    if (!pdfPath) return res.status(404).json({ error: "Aucun PDF d'étude sur ce dossier." });
+    const { ensureStudyPdfLocalFile } = await import("./studyPdfFlow");
+    const ensured = await ensureStudyPdfLocalFile(dossier, UPLOADS_DIR);
+    if (!ensured.localPath) {
+      return res.status(404).json({
+        error: ensured.error || "Aucun PDF d'étude sur ce dossier.",
+        code: "pdf_unavailable",
+      });
+    }
+    if (ensured.source === "drive" || ensured.source === "regenerated") {
+      await writeDB(db, dossier).catch(() => undefined);
+    }
     const fileName =
       String((dossier as any).studyPdf?.fileName || "etude-economies.pdf").trim() || "etude-economies.pdf";
     const asDownload =
@@ -1499,7 +1507,7 @@ export function createApp() {
       "Content-Disposition",
       `${asDownload ? "attachment" : "inline"}; filename="${fileName.replace(/"/g, "")}"`,
     );
-    return res.sendFile(pdfPath);
+    return res.sendFile(path.resolve(ensured.localPath));
   });
 
   // Upload/replace a single active quote ("devis") PDF for the dossier (admin only workflow)
@@ -3234,8 +3242,17 @@ export function createApp() {
           return res.status(404).json({ ok: false, error: "no_pending_validation" });
         }
 
-        const { getStudyPdfPath, buildStudyClientEmailHtml } = await import("./studyPdfFlow");
-        const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
+        const { getStudyPdfPath, ensureStudyPdfLocalFile, buildStudyClientEmailHtml } = await import(
+          "./studyPdfFlow"
+        );
+        let hasStudyPdf = Boolean(getStudyPdfPath(dossier));
+        if (!hasStudyPdf) {
+          const ensured = await ensureStudyPdfLocalFile(dossier, UPLOADS_DIR);
+          hasStudyPdf = Boolean(ensured.localPath);
+          if (ensured.localPath && (ensured.source === "drive" || ensured.source === "regenerated")) {
+            await writeDB(db, dossier).catch(() => undefined);
+          }
+        }
         const draftHtml = String(validation.html || dossier.studyDraft?.html || "").trim();
         if (!draftHtml && !hasStudyPdf) {
           return res.status(404).json({ ok: false, error: "preview_unavailable" });
@@ -3330,9 +3347,20 @@ export function createApp() {
         if (!validation || !["pending", "approved"].includes(String(validation.status || ""))) {
           return res.status(404).json({ ok: false, error: "no_pending_validation" });
         }
-        const { getStudyPdfPath } = await import("./studyPdfFlow");
-        const pdfPath = getStudyPdfPath(dossier);
-        if (!pdfPath) return res.status(404).json({ ok: false, error: "pdf_unavailable" });
+        const { ensureStudyPdfLocalFile } = await import("./studyPdfFlow");
+        const ensured = await ensureStudyPdfLocalFile(dossier, UPLOADS_DIR);
+        if (!ensured.localPath) {
+          return res.status(404).json({
+            ok: false,
+            error: "pdf_unavailable",
+            message:
+              ensured.error ||
+              "Le PDF d'étude n'est plus disponible sur le serveur. Demandez à LCIF de régénérer ou réimporter l'étude.",
+          });
+        }
+        if (ensured.source === "drive" || ensured.source === "regenerated") {
+          await writeDB(db, dossier).catch(() => undefined);
+        }
         const fileName =
           String(
             validation.studyPdfFileName ||
@@ -3341,7 +3369,8 @@ export function createApp() {
           ).trim() || "etude-economies.pdf";
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader("Content-Disposition", `inline; filename="${fileName.replace(/"/g, "")}"`);
-        return res.sendFile(pdfPath);
+        res.setHeader("Cache-Control", "private, max-age=60");
+        return res.sendFile(path.resolve(ensured.localPath));
       } catch (err: any) {
         res.status(400).json({ ok: false, error: err?.message || String(err) });
       }

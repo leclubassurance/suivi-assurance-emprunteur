@@ -27,6 +27,8 @@ export async function sendClientStudyEmail(params: {
   emailKind?: ClientEmailKind;
   /** Forcer ou désactiver la PJ PDF d'étude (défaut: auto si fichier présent et emailKind=study). */
   attachStudyPdf?: boolean;
+  /** Répertoire uploads (rematérialisation PDF après redéploiement). */
+  uploadsDir?: string;
 }): Promise<SendClientStudyEmailResult> {
   const { dossier, subject, html } = params;
   const emailKind: ClientEmailKind = params.emailKind === "message" ? "message" : "study";
@@ -47,8 +49,12 @@ export async function sendClientStudyEmail(params: {
     try {
       const fs = await import("fs");
       const path = await import("path");
-      const { getStudyPdfPath } = await import("./studyPdfFlow");
-      const pdfPath = getStudyPdfPath(dossier);
+      const { ensureStudyPdfLocalFile, getStudyPdfPath } = await import("./studyPdfFlow");
+      const uploadsDir =
+        params.uploadsDir ||
+        path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "uploads");
+      const ensured = await ensureStudyPdfLocalFile(dossier, uploadsDir);
+      const pdfPath = ensured.localPath || getStudyPdfPath(dossier);
       if (pdfPath && fs.existsSync(pdfPath)) {
         const fileName =
           String((dossier as any).studyPdf?.fileName || path.basename(pdfPath) || "etude-economies.pdf").trim() ||

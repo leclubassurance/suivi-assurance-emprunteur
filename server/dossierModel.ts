@@ -161,6 +161,8 @@ export interface Dossier {
     size: number;
     uploadedAt: string;
     mimeType?: string;
+    driveFileId?: string;
+    driveLink?: string;
   };
   /** Validation conseiller : débrief courtage puis envoi manuel admin. */
   studyConseillerValidation?: {

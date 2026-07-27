@@ -34,6 +34,8 @@ const PORTAL_ERROR_LABELS: Record<string, string> = {
   membership_required: "Finalisez votre cotisation annuelle pour accéder à l'espace conseiller.",
   portal_locked: "Votre espace n'est pas encore débloqué (contrat ou cotisation).",
   preview_unavailable: "Aperçu indisponible — le contenu de l'étude n'est pas encore prêt.",
+  pdf_unavailable:
+    "Le PDF d'étude n'est plus disponible. Demandez à LCIF de régénérer ou réimporter l'étude.",
 };
 
 export default function ConseillerStudyValidation({
@@ -74,6 +76,8 @@ export default function ConseillerStudyValidation({
   const [previewHasPdf, setPreviewHasPdf] = useState(Boolean(validation.hasStudyPdf));
   const [previewPdfName, setPreviewPdfName] = useState(validation.studyPdfFileName || null);
 
+  const [pdfOpening, setPdfOpening] = useState(false);
+
   const summary = useMemo(() => {
     const total = Math.round(feesPerAssured * validation.assuredCount);
     const retro = Math.round(total * validation.payoutSharePercent);
@@ -81,6 +85,41 @@ export default function ConseillerStudyValidation({
   }, [feesPerAssured, validation.assuredCount, validation.payoutSharePercent]);
 
   const sharePct = Math.round(validation.payoutSharePercent * 100);
+
+  const openStudyPdf = async () => {
+    setPdfOpening(true);
+    setError(null);
+    try {
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/study-validation/${encodeURIComponent(validation.dossierId)}/study-pdf`,
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(
+          json.message ||
+            PORTAL_ERROR_LABELS[String(json.error || "")] ||
+            json.error ||
+            "Impossible d'ouvrir le PDF d'étude",
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, "_blank", "noopener,noreferrer");
+      if (!w) {
+        // Popup bloquée → téléchargement
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = validation.studyPdfFileName || `etude-${validation.dossierId}.pdf`;
+        a.click();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      setError("Erreur réseau lors de l'ouverture du PDF");
+    } finally {
+      setPdfOpening(false);
+    }
+  };
 
   const openPreview = async () => {
     setPreviewOpen(true);
@@ -241,19 +280,15 @@ export default function ConseillerStudyValidation({
 
         <div className="flex flex-col gap-2">
           {validation.hasStudyPdf ? (
-            <a
-              href={getApiUrl(
-                withPreview(
-                  `/api/apporteur-portal/${encodeURIComponent(portalToken)}/study-validation/${encodeURIComponent(validation.dossierId)}/study-pdf`,
-                ),
-              )}
-              target="_blank"
-              rel="noreferrer"
-              className="w-full py-2.5 rounded-lg border-2 border-emerald-700 bg-white text-emerald-800 font-bold text-sm inline-flex items-center justify-center gap-2 hover:bg-emerald-50"
+            <button
+              type="button"
+              disabled={pdfOpening}
+              onClick={() => void openStudyPdf()}
+              className="w-full py-2.5 rounded-lg border-2 border-emerald-700 bg-white text-emerald-800 font-bold text-sm inline-flex items-center justify-center gap-2 hover:bg-emerald-50 disabled:opacity-60"
             >
-              <FileText className="w-4 h-4" />
-              Ouvrir le PDF d&apos;étude
-            </a>
+              {pdfOpening ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              {pdfOpening ? "Ouverture du PDF…" : "Ouvrir le PDF d'étude"}
+            </button>
           ) : null}
           <button
             type="button"

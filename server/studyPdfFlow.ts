@@ -18,6 +18,9 @@ export type StudyPdfMeta = {
   size: number;
   uploadedAt: string;
   mimeType?: string;
+  /** Persistance Drive (disque Railway éphémère). */
+  driveFileId?: string;
+  driveLink?: string;
 };
 
 export type StudyClientEmailEconomics = {
@@ -390,6 +393,9 @@ export async function ingestStudyPdfForDossier(params: {
 
   (dossier as any).studyPdf = pdfMeta;
 
+  // Persistance Drive (évite la perte après redéploiement Railway)
+  await persistStudyPdfToDrive(dossier, destPath, pdfMeta.fileName);
+
   // Toujours régénérer le mail brandé à l'import PDF (écrase l'ancien plaintext).
   const built = rebuildStudyClientEmailFromDossier(dossier);
   dossier.studyDraft.subject = built.subject;
@@ -456,4 +462,137 @@ export function getStudyPdfPath(dossier: Dossier): string | null {
   const p = String(fromRoot || fromDraft || "").trim();
   if (p && fs.existsSync(p)) return p;
   return null;
+}
+
+function studyPdfDriveFileId(dossier: Dossier): string | null {
+  const root = String((dossier as any).studyPdf?.driveFileId || "").trim();
+  if (root) return root;
+  const fromDraft = String((dossier.studyDraft as any)?.extracted?.pdf?.driveFileId || "").trim();
+  return fromDraft || null;
+}
+
+function patchStudyPdfMeta(dossier: Dossier, patch: Partial<StudyPdfMeta>) {
+  const current = { ...((dossier as any).studyPdf || {}) } as StudyPdfMeta;
+  const next = { ...current, ...patch } as StudyPdfMeta;
+  (dossier as any).studyPdf = next;
+  if (dossier.studyDraft?.extracted?.pdf) {
+    (dossier.studyDraft.extracted as any).pdf = {
+      ...(dossier.studyDraft.extracted as any).pdf,
+      ...patch,
+    };
+  }
+  if (dossier.studyConseillerValidation && patch.fileName) {
+    dossier.studyConseillerValidation.studyPdfFileName =
+      dossier.studyConseillerValidation.studyPdfFileName || patch.fileName;
+  }
+}
+
+/** Upload le PDF d'étude vers le dossier Drive du client (si workspace ouvert). */
+export async function persistStudyPdfToDrive(
+  dossier: Dossier,
+  localPath: string,
+  fileName: string,
+): Promise<{ driveFileId?: string; driveLink?: string } | null> {
+  const folderId = String((dossier as any).workspaceFolderId || "").trim();
+  if (!folderId || !localPath || !fs.existsSync(localPath)) return null;
+  try {
+    const { uploadBufferToDriveFolder } = await import("./gmailDriveUpload");
+    const { getServerAccessToken } = await import("./googleOAuthServer");
+    const token = await getServerAccessToken().catch(() => null);
+    const buf = fs.readFileSync(localPath);
+    const uploaded = await uploadBufferToDriveFolder(
+      folderId,
+      fileName || path.basename(localPath),
+      "application/pdf",
+      buf,
+      token,
+    );
+    if (!uploaded?.fileId) return null;
+    patchStudyPdfMeta(dossier, {
+      driveFileId: uploaded.fileId,
+      driveLink: uploaded.webViewLink || undefined,
+    });
+    return { driveFileId: uploaded.fileId, driveLink: uploaded.webViewLink || undefined };
+  } catch (e: any) {
+    console.warn("[study-pdf] Drive upload skip:", e?.message || e);
+    return null;
+  }
+}
+
+/**
+ * Garantit un PDF d'étude local (disque → Drive → régénération depuis adeStudyComputation).
+ * Indispensable sur Railway où le filesystem est éphémère.
+ */
+export async function ensureStudyPdfLocalFile(
+  dossier: Dossier,
+  uploadsDir: string,
+): Promise<{ localPath: string | null; source?: "disk" | "drive" | "regenerated"; error?: string }> {
+  const onDisk = getStudyPdfPath(dossier);
+  if (onDisk) return { localPath: onDisk, source: "disk" };
+
+  const dossierDir = path.join(uploadsDir, dossier.id);
+  if (!fs.existsSync(dossierDir)) fs.mkdirSync(dossierDir, { recursive: true });
+
+  const driveId = studyPdfDriveFileId(dossier);
+  if (driveId) {
+    try {
+      const { downloadDriveFileToBuffer } = await import("./gmailDriveUpload");
+      const buf = await downloadDriveFileToBuffer(driveId, null);
+      if (buf?.length) {
+        const name =
+          String((dossier as any).studyPdf?.fileName || `etude-${dossier.id}.pdf`)
+            .replace(/[^\w.\-àâäéèêëïîôùûüç ]+/gi, "_")
+            .slice(0, 120) || `etude-${dossier.id}.pdf`;
+        const dest = path.join(dossierDir, `restored-${Date.now()}_${name.endsWith(".pdf") ? name : `${name}.pdf`}`);
+        fs.writeFileSync(dest, buf);
+        patchStudyPdfMeta(dossier, {
+          localPath: dest,
+          size: buf.length,
+          fileName: (dossier as any).studyPdf?.fileName || name,
+          mimeType: "application/pdf",
+        });
+        return { localPath: dest, source: "drive" };
+      }
+    } catch (e: any) {
+      console.warn("[study-pdf] Drive restore failed:", e?.message || e);
+    }
+  }
+
+  // Régénération depuis le dernier calcul ADE stocké
+  const comp = (dossier as any).adeStudyComputation;
+  if (
+    comp &&
+    typeof comp.grossSavingsEur === "number" &&
+    typeof comp.currentTotalEur === "number" &&
+    typeof comp.proposedTotalEur === "number"
+  ) {
+    try {
+      const { generateAdeStudyPdfBuffer } = await import("./adeStudyPdfGenerate");
+      const pdfBuf = await generateAdeStudyPdfBuffer(comp);
+      const fileName = `Etude_economies_ADE_${dossier.id}_restored_${Date.now()}.pdf`;
+      const dest = path.join(dossierDir, fileName);
+      fs.writeFileSync(dest, pdfBuf);
+      patchStudyPdfMeta(dossier, {
+        fileName,
+        localPath: dest,
+        size: pdfBuf.length,
+        uploadedAt: new Date().toISOString(),
+        mimeType: "application/pdf",
+      });
+      await persistStudyPdfToDrive(dossier, dest, fileName);
+      return { localPath: dest, source: "regenerated" };
+    } catch (e: any) {
+      console.warn("[study-pdf] regenerate failed:", e?.message || e);
+      return {
+        localPath: null,
+        error: e?.message || "Régénération PDF impossible",
+      };
+    }
+  }
+
+  return {
+    localPath: null,
+    error:
+      "PDF d'étude introuvable (fichier local perdu après redéploiement, pas de copie Drive, pas de calcul ADE à régénérer). Réimportez ou régénérez l'étude depuis l'admin.",
+  };
 }
