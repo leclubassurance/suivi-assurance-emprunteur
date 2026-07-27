@@ -58,9 +58,9 @@ const LCIF_SERVICES = [
 ];
 
 const GENERIC_LEMOINE_TEXT =
-  "Selon la date de fin du prêt et la part assurée sur l'encours cumulé, un questionnaire de santé peut être " +
-  "demandé par l'assureur. Aucune démarche médicale n'est à anticiper : l'assureur indiquera lui-même les " +
-  "éventuels justificatifs à fournir.";
+  "Les conditions d'exonération (plafond 200 000 € par personne et fin du prêt avant 60 ans) s'apprécient " +
+  "sur l'ensemble des encours. Aucune démarche médicale n'est à anticiper : l'assureur indiquera lui-même " +
+  "si un questionnaire est requis.";
 
 // ---------------------------------------------------------------- formatage
 
@@ -953,48 +953,56 @@ function pageLemoine(doc: PDFKit.PDFDocument, d: StudyView, logo: string | null)
     { size: 7.7, color: DEEP, leading: 10.5, maxLines: 7 },
   );
 
-  drawText(doc, "Application à votre dossier", 42, 444, { size: 13, color: DEEP });
-
-  const profiles = d.lemoineProfiles.slice(0, 4);
-  const areaTop = 464;
-  const areaBottom = 640;
-  const gap = 14;
-  const boxH = Math.max(
-    46,
-    Math.min(75, (areaBottom - areaTop - gap * (profiles.length - 1)) / Math.max(1, profiles.length)),
-  );
-  profiles.forEach((profile, i) => {
-    const top = areaTop + i * (boxH + gap);
-    roundedBox(doc, 42, top, W - 84, boxH, { fill: WHITE, stroke: LINE, radius: 8 });
-    drawText(doc, profile.name, 58, top + 24, {
-      size: 9,
-      font: "Helvetica-Bold",
-      color: profile.tone === "orange" ? ORANGE : GREEN,
-    });
-    drawWrapped(doc, profile.text, 58, top + 41, W - 116, {
-      size: 7.8,
-      color: DEEP,
-      leading: 10,
-      maxLines: Math.max(1, Math.floor((boxH - 34) / 10)),
-    });
+  roundedBox(doc, 42, 430, W - 84, 100, { fill: WHITE, stroke: LINE, radius: 9 });
+  drawText(doc, "À retenir pour votre substitution", 58, 455, {
+    size: 11,
+    font: "Helvetica-Bold",
+    color: DEEP,
   });
+  drawWrapped(
+    doc,
+    "Ces règles s'appliquent de la même façon à tous les emprunteurs. L'exonération de questionnaire dépend de " +
+      "votre part assurée sur l'encours cumulé (plafond 200 000 € par personne) et de l'âge à la fin du prêt " +
+      "(avant 60 ans). Aucune démarche médicale n'est à anticiper : si un questionnaire est nécessaire, " +
+      "l'assureur vous le demandera explicitement lors de l'adhésion.",
+    58,
+    478,
+    W - 116,
+    { size: 8, color: DEEP, leading: 11, maxLines: 5 },
+  );
 
-  roundedBox(doc, 42, 648.89, W - 84, 77, { fill: LIGHT_GREEN, stroke: BORDER_GREEN, radius: 9 });
-  drawText(doc, "SI UN QUESTIONNAIRE EST DEMANDÉ", 58, 670.89, {
+  roundedBox(doc, 42, 548, W - 84, 100, { fill: LIGHT_BLUE, stroke: BORDER_BLUE, radius: 9 });
+  drawText(doc, "Droit de résiliation", 58, 573, {
+    size: 11,
+    font: "Helvetica-Bold",
+    color: DEEP,
+  });
+  drawWrapped(
+    doc,
+    "Depuis la loi Lemoine, vous pouvez résilier votre assurance emprunteur à tout moment, sans attendre " +
+      "l'échéance annuelle. Nous préparons le dossier d'équivalence de garanties et accompagnons l'échange " +
+      "avec votre banque jusqu'à la prise d'effet du nouveau contrat.",
+    58,
+    596,
+    W - 116,
+    { size: 8, color: DEEP, leading: 11, maxLines: 5 },
+  );
+
+  roundedBox(doc, 42, 668, W - 84, 72, { fill: LIGHT_GREEN, stroke: BORDER_GREEN, radius: 9 });
+  drawText(doc, "SI UN QUESTIONNAIRE EST DEMANDÉ", 58, 690, {
     size: 8.5,
     font: "Helvetica-Bold",
     color: GREEN,
   });
   drawWrapped(
     doc,
-    "Répondez personnellement, complètement et avec exactitude. Les informations et pièces médicales sont " +
-      "confidentielles et doivent être adressées directement au service médical de l'assureur. Si une étude " +
-      "particulière est nécessaire, l'assureur vous indiquera lui-même les justificatifs ou examens à fournir. " +
-      "Aucune démarche médicale n'est à anticiper tant qu'aucune demande ne vous est adressée.",
+    "Répondez personnellement, complètement et avec exactitude. Les informations médicales sont confidentielles " +
+      "et adressées uniquement au service médical de l'assureur. Aucune pièce n'est à anticiper tant qu'aucune " +
+      "demande ne vous est adressée.",
     58,
-    689.89,
+    708,
     W - 116,
-    { size: 7.4, color: DEEP, leading: 9.4, maxLines: 5 },
+    { size: 7.4, color: DEEP, leading: 9.4, maxLines: 4 },
   );
 
   pageFooter(doc);

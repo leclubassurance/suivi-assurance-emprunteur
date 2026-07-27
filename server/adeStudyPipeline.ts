@@ -169,9 +169,9 @@ function lemoineProfilesFor(
       name: a.name,
       tone: "green" as const,
       text:
-        "Selon la date de fin du prêt et la part assurée sur l'encours cumulé, un questionnaire de santé peut " +
-        "être demandé. Aucune démarche médicale n'est à anticiper : l'assureur indiquera lui-même les " +
-        "éventuels justificatifs à fournir.",
+        "Les conditions d'exonération (plafond 200 000 € et fin du prêt avant 60 ans) s'apprécient sur " +
+        "l'ensemble de vos encours. L'assureur indiquera lui-même si un questionnaire est requis — aucune " +
+        "démarche médicale n'est à anticiper.",
     };
   });
 }
@@ -581,15 +581,16 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     skillReasons.push(`Gemini skill: ${skill.error}`);
   }
 
-  // Si heuristique HIGH, imposer ses totaux / années économiques (Gemini garde garanties & Lemoine)
+  // Si heuristique HIGH, imposer ses totaux / années économiques (Gemini garde garanties)
+  // Lemoine : page informative générique dans le PDF — on garde l'heuristique locale si dispo
   if (heuristic && heuristic.confidence === "high") {
     if (computation) {
       computation = {
         ...heuristic,
         guarantees: computation.guarantees?.length ? computation.guarantees : heuristic.guarantees,
-        lemoineProfiles: computation.lemoineProfiles?.length
-          ? computation.lemoineProfiles
-          : heuristic.lemoineProfiles,
+        lemoineProfiles: heuristic.lemoineProfiles?.length
+          ? heuristic.lemoineProfiles
+          : computation.lemoineProfiles,
         insuredBreakdown: computation.insuredBreakdown?.length
           ? computation.insuredBreakdown.map((row, i) => {
               const h = heuristic.insuredBreakdown?.[i];
