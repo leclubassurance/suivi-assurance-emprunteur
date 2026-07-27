@@ -144,3 +144,30 @@ export async function uploadApporteurContractPdfToDrive(params: {
     webViewLink: uploaded.webViewLink,
   };
 }
+
+/** Archive une pièce d'identité (CNI / passeport) dans le dossier Drive du partenaire. */
+export async function uploadApporteurIdentityDocumentToDrive(params: {
+  apporteur: Pick<Apporteur, "id" | "contactName" | "companyName" | "driveFolderId">;
+  buffer: Buffer;
+  filename: string;
+  mimeType?: string;
+}): Promise<{ folderId: string; fileId: string; webViewLink?: string | null } | null> {
+  const folder = await ensureApporteurDriveFolder(params.apporteur);
+  if (!folder) return null;
+
+  const accessToken = await resolveDriveToken();
+  const uploaded = await uploadBufferToDriveFolder(
+    folder.folderId,
+    params.filename,
+    params.mimeType || "application/octet-stream",
+    params.buffer,
+    accessToken,
+  );
+  if (!uploaded?.fileId) return null;
+
+  return {
+    folderId: folder.folderId,
+    fileId: uploaded.fileId,
+    webViewLink: uploaded.webViewLink,
+  };
+}

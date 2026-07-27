@@ -108,6 +108,10 @@ function emptyApporteurForm(segment: AdminPartnersSegment) {
     type: SEGMENT_UI[segment].defaultType,
     notes: "",
     stripeCheckoutUrl: "",
+    companyInCreation: false,
+    brokerageSharePercent: "",
+    formationAccessGranted: false,
+    identityDocumentRequired: true,
   };
 }
 
@@ -144,6 +148,10 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
   const [editApporteurForm, setEditApporteurForm] = useState<ApporteurProfileFormState>(EMPTY_APPORTEUR_PROFILE_FORM);
   const [editApporteurNotes, setEditApporteurNotes] = useState("");
   const [editStripeCheckoutUrl, setEditStripeCheckoutUrl] = useState("");
+  const [editCompanyInCreation, setEditCompanyInCreation] = useState(false);
+  const [editBrokerageSharePercent, setEditBrokerageSharePercent] = useState("");
+  const [editFormationAccessGranted, setEditFormationAccessGranted] = useState(false);
+  const [editIdentityDocumentRequired, setEditIdentityDocumentRequired] = useState(false);
   const [savingApporteur, setSavingApporteur] = useState(false);
   const [membershipBusyId, setMembershipBusyId] = useState<string | null>(null);
 
@@ -262,6 +270,12 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
     setEditApporteurForm(apporteurToProfileForm(a));
     setEditApporteurNotes(a.notes || "");
     setEditStripeCheckoutUrl(a.stripeCheckoutUrl || "");
+    setEditCompanyInCreation(Boolean(a.companyInCreation));
+    setEditBrokerageSharePercent(
+      a.brokerageSharePercent != null ? String(a.brokerageSharePercent) : "",
+    );
+    setEditFormationAccessGranted(a.formationAccessGranted !== false);
+    setEditIdentityDocumentRequired(Boolean(a.identityDocumentRequired));
   };
 
   const saveApporteurProfile = async () => {
@@ -298,6 +312,12 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
           ...editApporteurForm,
           companyName: nextCompanyName,
           notes: editApporteurNotes,
+          companyInCreation: editCompanyInCreation,
+          brokerageSharePercent: editBrokerageSharePercent.trim()
+            ? Number(editBrokerageSharePercent)
+            : null,
+          formationAccessGranted: editFormationAccessGranted,
+          identityDocumentRequired: editIdentityDocumentRequired,
           ...(segment === "conseiller_club"
             ? { stripeCheckoutUrl: editStripeCheckoutUrl.trim() || null }
             : {}),
@@ -1181,6 +1201,74 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 </span>
               </label>
             ) : null}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={Boolean(newApporteur.companyInCreation)}
+                  onChange={(e) => setNewApporteur((s) => ({ ...s, companyInCreation: e.target.checked }))}
+                />
+                <span>
+                  Société / activité en cours de création (sans Kbis)
+                  <span className="block text-[10px] text-slate-500 font-normal">
+                    Autorise la signature du contrat sans SIRET — à compléter plus tard.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={Boolean(newApporteur.identityDocumentRequired)}
+                  onChange={(e) =>
+                    setNewApporteur((s) => ({ ...s, identityDocumentRequired: e.target.checked }))
+                  }
+                />
+                <span>
+                  Exiger une pièce d&apos;identité avant signature
+                  <span className="block text-[10px] text-slate-500 font-normal">
+                    CNI / passeport uploadé dans l&apos;espace → archivé sur Drive partenaire.
+                  </span>
+                </span>
+              </label>
+              {segment === "conseiller_club" ? (
+                <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={Boolean(newApporteur.formationAccessGranted)}
+                    onChange={(e) =>
+                      setNewApporteur((s) => ({ ...s, formationAccessGranted: e.target.checked }))
+                    }
+                  />
+                  <span>
+                    Accès formation Coassemble
+                    <span className="block text-[10px] text-slate-500 font-normal">
+                      Désactivé par défaut pour les nouveaux — activez quand vous êtes OK.
+                    </span>
+                  </span>
+                </label>
+              ) : null}
+              <label className="text-xs font-bold text-slate-600 block">
+                % rémunération (frais de courtage)
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
+                  placeholder={segment === "conseiller_club" ? "Défaut 70" : "Défaut 50"}
+                  value={newApporteur.brokerageSharePercent}
+                  onChange={(e) =>
+                    setNewApporteur((s) => ({ ...s, brokerageSharePercent: e.target.value }))
+                  }
+                />
+                <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                  Vide = barème standard. Ce % est injecté dans le contrat et le calcul des gains.
+                </span>
+              </label>
+            </div>
             <p className="text-[10px] text-slate-500 -mt-1">
               Le lien client (?ref=) sera généré à partir du prénom et nom (ex. marie-dupont).
             </p>
@@ -1224,6 +1312,54 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 />
               </label>
             ) : null}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={editCompanyInCreation}
+                  onChange={(e) => setEditCompanyInCreation(e.target.checked)}
+                  disabled={savingApporteur}
+                />
+                <span>Société / activité en cours de création (sans Kbis)</span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={editIdentityDocumentRequired}
+                  onChange={(e) => setEditIdentityDocumentRequired(e.target.checked)}
+                  disabled={savingApporteur}
+                />
+                <span>Exiger une pièce d&apos;identité avant signature</span>
+              </label>
+              {segment === "conseiller_club" ? (
+                <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={editFormationAccessGranted}
+                    onChange={(e) => setEditFormationAccessGranted(e.target.checked)}
+                    disabled={savingApporteur}
+                  />
+                  <span>Accès formation Coassemble</span>
+                </label>
+              ) : null}
+              <label className="text-xs font-bold text-slate-600 block">
+                % rémunération (frais de courtage)
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
+                  placeholder={segment === "conseiller_club" ? "Défaut 70" : "Défaut 50"}
+                  value={editBrokerageSharePercent}
+                  onChange={(e) => setEditBrokerageSharePercent(e.target.value)}
+                  disabled={savingApporteur}
+                />
+              </label>
+            </div>
             <label className="text-xs font-bold text-slate-600">
               Notes internes
               <textarea

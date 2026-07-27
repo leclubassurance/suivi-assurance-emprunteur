@@ -7,6 +7,10 @@ import {
   resolveApporteurTypeLabel,
 } from "./apporteurProfile";
 import {
+  formatBrokerageShareForContract,
+  resolveBrokerageSharePercent,
+} from "./apporteurBrokerageShare";
+import {
   CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC,
   CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
   CONSEILLER_PLATFORM_FEE_WAIVER_UNTIL,
@@ -14,7 +18,7 @@ import {
 import { LCIF_LEGAL } from "./lcifLegalIdentity";
 
 /** Incrémenter à chaque révision substantielle du contrat conseiller assurance. */
-export const CONSEILLER_ASSURANCE_CONTRACT_VERSION = "2026-07-conseiller-v2";
+export const CONSEILLER_ASSURANCE_CONTRACT_VERSION = "2026-07-conseiller-v3";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -52,11 +56,15 @@ export function buildConseillerAssuranceContractDocument(
     | "legalFormOther"
     | "type"
     | "typeCustomLabel"
+    | "companyInCreation"
+    | "brokerageSharePercent"
   >,
 ): ApporteurContractDocument {
   const contactName = formatApporteurDisplayName(conseiller);
   const typeLabel = resolveApporteurTypeLabel(conseiller);
   const partnerBlock = apporteurProfileToContractPartyBlock(conseiller);
+  const share = formatBrokerageShareForContract(resolveBrokerageSharePercent(conseiller));
+  const examplePayout = Math.round(300 * (share.percentInt / 100));
 
   const sections: ApporteurContractSection[] = [
     {
@@ -133,7 +141,7 @@ Seuls les dossiers effectivement signés et conformes sont pris en compte pour l
     {
       heading: "5. Rémunération — barème — conditions de déclenchement",
       body: `5.1 — Principe de rétrocession
-Pour chaque dossier d'assurance emprunteur effectivement conclu par un client apporté par le Conseiller et dont la commission assureur est encaissée par la Société, le Conseiller perçoit une rétrocession égale à soixante-dix pour cent (70 %) des frais de courtage effectivement perçus par ${CLUB} sur ce dossier.
+Pour chaque dossier d'assurance emprunteur effectivement conclu par un client apporté par le Conseiller et dont la commission assureur est encaissée par la Société, le Conseiller perçoit une rétrocession égale à ${share.label} des frais de courtage effectivement perçus par ${CLUB} sur ce dossier.
 
 Les frais de courtage visés ci-dessus sont ceux facturés au client par la Société au titre de la mise en place du changement d'assurance (honoraires de courtage), et non la commission versée par l'assureur à la Société.
 
@@ -142,9 +150,9 @@ Sauf mention contraire sur l'étude personnalisée transmise au client, les frai
 — dix pour cent (10 %) de l'économie totale réalisée sur la durée de l'emprunt restante ;
 — avec un minimum de deux cents euros (200 € TTC) et un maximum de cinq cents euros (500 € TTC) par assuré.
 
-La rétrocession du Conseiller (70 %) s'applique sur le montant TTC des frais de courtage effectivement encaissés par la Société sur le dossier.
+La rétrocession du Conseiller (${share.percentInt} %) s'applique sur le montant TTC des frais de courtage effectivement encaissés par la Société sur le dossier.
 
-Exemple indicatif : pour un dossier avec un assuré et des frais de courtage de 300 € TTC encaissés par la Société, la rétrocession due au Conseiller est de 210 € TTC (70 % × 300 €), sous réserve des conditions de l'article 5.4 et du régime de TVA à l'article 7.
+Exemple indicatif : pour un dossier avec un assuré et des frais de courtage de 300 € TTC encaissés par la Société, la rétrocession due au Conseiller est de ${examplePayout} € TTC (${share.percentInt} % × 300 €), sous réserve des conditions de l'article 5.4 et du régime de TVA à l'article 7.
 
 5.3 — Montants HT ou TTC pour le Conseiller
 Sauf mention contraire, les montants de rétrocession communiqués dans l'espace conseiller ou les échanges avec la Société sont exprimés :

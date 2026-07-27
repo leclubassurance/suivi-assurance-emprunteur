@@ -102,6 +102,35 @@ export type Apporteur = {
   /** Dossier Google Drive « Apporteurs d'affaires » (contrats archivés). */
   driveFolderId?: string;
   /**
+   * Société / activité encore en création (pas de Kbis / SIRET).
+   * Autorise la signature du contrat sans numéro SIREN/SIRET.
+   */
+  companyInCreation?: boolean;
+  /**
+   * Part des frais de courtage rétrocédée (1–100).
+   * Si absent : barème par défaut selon le type (50 % apporteur / 70 % conseiller).
+   */
+  brokerageSharePercent?: number;
+  /**
+   * Accès au parcours formation Coassemble.
+   * - `true` : autorisé (si portail débloqué)
+   * - `false` : refusé
+   * - `undefined` : comportement historique (autorisé si portail débloqué)
+   */
+  formationAccessGranted?: boolean;
+  /** Exiger l'upload d'une pièce d'identité avant signature du contrat. */
+  identityDocumentRequired?: boolean;
+  /** Pièce d'identité déposée (CNI / passeport) — archivée sur Drive partenaire. */
+  identityDocument?: {
+    fileName: string;
+    mimeType?: string;
+    size?: number;
+    uploadedAt: string;
+    localPath?: string;
+    driveFileId?: string;
+    driveLink?: string;
+  };
+  /**
    * Lien Stripe Payment Link (collé manuellement en admin).
    * Si renseigné pour un conseiller club : cotisation requise après signature du contrat.
    */

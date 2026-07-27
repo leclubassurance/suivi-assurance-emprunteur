@@ -133,6 +133,7 @@ export function validateApporteurProfileForContract(
     | "typeCustomLabel"
     | "legalForm"
     | "legalFormOther"
+    | "companyInCreation"
   >,
 ): { ok: true } | { ok: false; error: string } {
   const prenom = String(apporteur.contactPrenom || "").trim();
@@ -165,10 +166,11 @@ export function validateApporteurProfileForContract(
     return { ok: false, error: "Précisez votre forme juridique (champ « Autre »)." };
   }
   const company = String(apporteur.companyName || "").trim();
-  if (company) {
+  const inCreation = Boolean(apporteur.companyInCreation);
+  if (company && !inCreation) {
     const siret = normalizeSiretInput(String(apporteur.siret || ""));
     if (!siret) {
-      return { ok: false, error: "Le numéro SIRET ou SIREN est requis lorsqu'une société est renseignée." };
+      return { ok: false, error: "Le numéro SIRET ou SIREN est requis lorsqu'une société est renseignée (ou cochez « Société en cours de création »)." };
     }
     if (!/^\d{9}$/.test(siret) && !/^\d{14}$/.test(siret)) {
       return { ok: false, error: "Le SIREN (9 chiffres) ou SIRET (14 chiffres) saisi est invalide." };
@@ -236,17 +238,22 @@ export function apporteurProfileToContractPartyBlock(
     | "legalFormOther"
     | "type"
     | "typeCustomLabel"
+    | "companyInCreation"
   >,
 ): string {
   const address = formatApporteurPostalAddress(apporteur);
   const legal = resolveLegalFormLabel(apporteur.legalForm, apporteur.legalFormOther);
   const typeLabel = resolveApporteurTypeLabel(apporteur);
+  const inCreation = Boolean(apporteur.companyInCreation);
   const lines = [
     formatApporteurContractPartyHeadline(apporteur),
     address ? `Adresse : ${address}` : undefined,
     `Email : ${apporteur.email}${apporteur.phone ? ` · Tél. : ${apporteur.phone}` : ""}`,
     apporteur.siren ? `SIREN : ${formatSirenDisplay(apporteur.siren)}` : undefined,
     apporteur.siret ? `SIRET : ${formatSiretDisplay(apporteur.siret)}` : undefined,
+    inCreation && !apporteur.siret && !apporteur.siren
+      ? "SIREN / SIRET : société ou activité en cours de création — justificatif (Kbis) à communiquer dès disponibilité"
+      : undefined,
     legal ? `Forme juridique : ${legal}` : undefined,
     `Statut professionnel déclaré : ${typeLabel}`,
   ].filter(Boolean);

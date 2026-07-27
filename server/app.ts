@@ -169,6 +169,32 @@ export function createApp() {
   const upload = multer({ storage });
   const quoteUpload = multer({ storage });
   const adminDocUpload = multer({ storage });
+  const apporteurIdentityUpload = multer({
+    storage: multer.diskStorage({
+      destination: function (req, _file, cb) {
+        const token = String((req.params as any).token || "unknown").slice(0, 40);
+        const dir = path.join(UPLOADS_DIR, "apporteurs", token);
+        try {
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        } catch (err) {
+          console.error("Failed to create apporteur identity upload dir", err);
+        }
+        cb(null, dir);
+      },
+      filename: function (_req, file, cb) {
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, "_");
+        cb(null, `identity_${Date.now()}_${safeName}`);
+      },
+    }),
+    limits: { fileSize: 12 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const ok =
+        /^image\//i.test(file.mimetype) ||
+        file.mimetype === "application/pdf" ||
+        /\.(pdf|jpe?g|png|webp)$/i.test(file.originalname);
+      cb(ok ? null : new Error("Formats acceptés : PDF, JPG, PNG."), ok);
+    },
+  });
 
   // --- API ROUTES ---
 
@@ -2037,6 +2063,13 @@ export function createApp() {
         referralToken: body.referralToken,
         sponsorId: segment === "conseiller_club" ? undefined : body.sponsorId,
         stripeCheckoutUrl: segment === "conseiller_club" ? body.stripeCheckoutUrl : undefined,
+        companyInCreation: Boolean(body.companyInCreation),
+        brokerageSharePercent:
+          body.brokerageSharePercent == null || body.brokerageSharePercent === ""
+            ? null
+            : Number(body.brokerageSharePercent),
+        formationAccessGranted: Boolean(body.formationAccessGranted),
+        identityDocumentRequired: Boolean(body.identityDocumentRequired),
       });
       res.json({ success: true, apporteur });
     } catch (err: any) {
@@ -2576,6 +2609,7 @@ export function createApp() {
     try {
       const { findApporteurByPortalToken } = await import("./apporteurStore");
       const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+      const { canAccessConseillerFormation } = await import("../shared/apporteurBrokerageShare");
       const { loadConseillerFormationParcours } = await import("./conseillerFormationsConfig");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
@@ -2585,6 +2619,13 @@ export function createApp() {
       const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
       if (!isApporteurPortalUnlocked(apporteur)) {
         return res.status(403).json({ ok: false, error: "portal_locked" });
+      }
+      if (!canAccessConseillerFormation(apporteur)) {
+        return res.status(403).json({
+          ok: false,
+          error: "formation_not_granted",
+          message: "L'accès à la formation n'a pas encore été activé par LCIF.",
+        });
       }
       const parcoursRaw = await loadConseillerFormationParcours();
       const parcours = {
@@ -2596,6 +2637,67 @@ export function createApp() {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
+
+  app.post(
+    "/api/apporteur-portal/:token/identity-document",
+    apporteurPortalPostLimiter,
+    (req, res, next) => {
+      apporteurIdentityUpload.single("identity")(req, res, (err: any) => {
+        if (err) {
+          return res.status(400).json({ ok: false, error: err.message || "Upload invalide." });
+        }
+        next();
+      });
+    },
+    async (req, res) => {
+      try {
+        const { findApporteurByPortalToken, updateApporteur } = await import("./apporteurStore");
+        const { isApporteurContractSigned } = await import("./apporteurContractSign");
+        const { uploadApporteurIdentityDocumentToDrive } = await import("./apporteurDriveArchive");
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (isApporteurContractSigned(apporteur)) {
+          return res.status(400).json({ ok: false, error: "Contrat déjà signé — pièce d'identité non modifiable." });
+        }
+        const file = (req as any).file as Express.Multer.File | undefined;
+        if (!file?.path) {
+          return res.status(400).json({ ok: false, error: "Fichier manquant (champ identity)." });
+        }
+        const buf = fs.readFileSync(file.path);
+        const fileName = String(file.originalname || path.basename(file.path)).slice(0, 180);
+        const uploaded = await uploadApporteurIdentityDocumentToDrive({
+          apporteur,
+          buffer: buf,
+          filename: `Piece_identite_${apporteur.id}_${fileName}`,
+          mimeType: file.mimetype,
+        });
+        const identityDocument = {
+          fileName,
+          mimeType: file.mimetype,
+          size: file.size || buf.length,
+          uploadedAt: new Date().toISOString(),
+          localPath: file.path,
+          driveFileId: uploaded?.fileId,
+          driveLink: uploaded?.webViewLink || undefined,
+        };
+        const updated = await updateApporteur(apporteur.id, {
+          identityDocument,
+          driveFolderId: uploaded?.folderId || apporteur.driveFolderId,
+        });
+        res.json({
+          ok: true,
+          identityDocument: {
+            fileName: updated.identityDocument?.fileName,
+            uploadedAt: updated.identityDocument?.uploadedAt,
+            driveLink: updated.identityDocument?.driveLink || null,
+          },
+          driveArchived: Boolean(uploaded?.fileId),
+        });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
 
   app.get("/api/apporteur-portal/:token", async (req, res) => {
     try {
@@ -2789,6 +2891,15 @@ export function createApp() {
         },
         payoutPerSignature: defaultPayoutDirect,
         portalUnlocked,
+        formationAccessGranted: isConseillerClub
+          ? (await import("../shared/apporteurBrokerageShare")).canAccessConseillerFormation(apporteur)
+          : false,
+        brokerageSharePercent: (await import("../shared/apporteurBrokerageShare")).resolveBrokerageSharePercent(
+          apporteur,
+        ),
+        companyInCreation: Boolean(apporteur.companyInCreation),
+        identityDocumentRequired: Boolean(apporteur.identityDocumentRequired),
+        identityDocumentUploaded: Boolean(apporteur.identityDocument?.uploadedAt),
         contract: {
           status: contractStatus,
           signed: contractSigned,
@@ -2848,6 +2959,18 @@ export function createApp() {
         signerHint: apporteur.contactName,
         pdfAvailable: isApporteurContractSigned(apporteur),
         driveLink: apporteur.contractSignature?.driveLink || null,
+        companyInCreation: Boolean(apporteur.companyInCreation),
+        identityDocumentRequired: Boolean(apporteur.identityDocumentRequired),
+        identityDocument: apporteur.identityDocument
+          ? {
+              fileName: apporteur.identityDocument.fileName,
+              uploadedAt: apporteur.identityDocument.uploadedAt,
+              driveLink: apporteur.identityDocument.driveLink || null,
+            }
+          : null,
+        brokerageSharePercent: (await import("../shared/apporteurBrokerageShare")).resolveBrokerageSharePercent(
+          apporteur,
+        ),
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });

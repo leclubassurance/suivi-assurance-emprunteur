@@ -183,6 +183,9 @@ export async function signApporteurContractOnline(params: {
   if (!profileCheck.ok) {
     throw new Error("error" in profileCheck ? profileCheck.error : "Profil incomplet pour la signature.");
   }
+  if (params.apporteur.identityDocumentRequired && !params.apporteur.identityDocument?.uploadedAt) {
+    throw new Error("Déposez d'abord votre pièce d'identité avant de signer le contrat.");
+  }
   validateSignerName(params.apporteur, params.signerName);
 
   const contractDoc = buildPartnerContractDocument(params.apporteur, params.sponsorName);

@@ -7,11 +7,15 @@ import {
   formatApporteurDisplayName,
   resolveApporteurTypeLabel,
 } from "./apporteurProfile";
+import {
+  formatBrokerageShareForContract,
+  resolveBrokerageSharePercent,
+} from "./apporteurBrokerageShare";
 import { buildConseillerAssuranceContractDocument } from "./conseillerAssuranceContract";
 import { isConseillerImmoClubType } from "./conseillerImmoClub";
 
 /** Incrémenter à chaque révision substantielle du contrat affiché en ligne. */
-export const APPORTEUR_CONTRACT_VERSION = "2026-07-v1";
+export const APPORTEUR_CONTRACT_VERSION = "2026-07-v2";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -63,12 +67,15 @@ export function buildApporteurContractDocument(
     | "legalFormOther"
     | "type"
     | "typeCustomLabel"
+    | "companyInCreation"
+    | "brokerageSharePercent"
   >,
   sponsorName?: string | null,
 ): ApporteurContractDocument {
   const contactName = formatApporteurDisplayName(apporteur);
   const typeLabel = resolveApporteurTypeLabel(apporteur);
   const partnerBlock = apporteurProfileToContractPartyBlock(apporteur);
+  const share = formatBrokerageShareForContract(resolveBrokerageSharePercent(apporteur));
   const sponsorBlock = sponsorName
     ? `\n\nLe Partenaire déclare avoir été recommandé par ${sponsorName}, qui exerce en qualité de parrain au sens de l'article relatif au programme de recommandation de partenaires figurant au présent Contrat.`
     : "";
@@ -144,7 +151,7 @@ Les partenaires exerçant une activité immobilière, de transaction ou de conse
     {
       heading: "5. Rémunération — barème — conditions de déclenchement",
       body: `5.1 — Principe
-Pour chaque dossier d'assurance emprunteur effectivement conclu par un client apporté par le Partenaire et dont la commission assureur est encaissée par la Société, le Partenaire perçoit une rémunération égale à cinquante pour cent (50 %) des frais de courtage effectivement perçus par ${CLUB} sur ce dossier.
+Pour chaque dossier d'assurance emprunteur effectivement conclu par un client apporté par le Partenaire et dont la commission assureur est encaissée par la Société, le Partenaire perçoit une rémunération égale à ${share.label} des frais de courtage effectivement perçus par ${CLUB} sur ce dossier.
 
 5.2 — Barème des frais de courtage
 Sauf mention contraire sur l'étude personnalisée transmise au client, les frais de courtage sont calculés selon le barème suivant : dix pour cent (10 %) de l'économie totale réalisée sur la durée de l'emprunt restante, avec un minimum de deux cents euros (200 €) et un maximum de cinq cents euros (500 €) par assuré. Les simulations affichées dans l'espace partenaire sont indicatives.

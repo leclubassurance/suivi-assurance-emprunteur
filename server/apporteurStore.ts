@@ -16,7 +16,8 @@ import { resolveCompanyNamesFromRegistryLookup } from "../shared/companyRegistry
 import { extractSirenFromSiret } from "../shared/siret";
 import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
 import { computeAdminApporteurKpis, computeReferralKpis } from "../shared/apporteurKpis";
-import { getRemunerationConfig, resolveRemunerationTier } from "../shared/apporteurRemuneration";
+import { resolveRemunerationConfigForApporteur } from "../shared/apporteurBrokerageShare";
+import { normalizeBrokerageSharePercent } from "../shared/apporteurBrokerageShare";
 import type { AdminPartnersSegment } from "../shared/conseillerImmoClub";
 import { matchesAdminPartnersSegment } from "../shared/conseillerImmoClub";
 import type { Dossier } from "./dossierModel";
@@ -358,6 +359,10 @@ export async function createApporteur(input: ApporteurProfileInput & {
   contractStatus?: Apporteur["contractStatus"];
   contractSignedAt?: string;
   stripeCheckoutUrl?: string;
+  companyInCreation?: boolean;
+  brokerageSharePercent?: number | null;
+  formationAccessGranted?: boolean;
+  identityDocumentRequired?: boolean;
 }): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const now = new Date().toISOString();
@@ -394,6 +399,8 @@ export async function createApporteur(input: ApporteurProfileInput & {
     ? [slugifyToken(input.referralToken)]
     : buildReferralTokenCandidates(contactName, companyName);
   const contractStatus = input.contractStatus || "none";
+  const sharePercent = normalizeBrokerageSharePercent(input.brokerageSharePercent);
+  const isConseiller = isConseillerImmoClubType(normalized.type);
   const apporteur: Apporteur = {
     id: newId("AP"),
     createdAt: now,
@@ -429,6 +436,14 @@ export async function createApporteur(input: ApporteurProfileInput & {
     membershipFeeEur: stripeCheckoutUrl
       ? (await import("../shared/conseillerImmoClub")).CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC
       : undefined,
+    companyInCreation: Boolean(input.companyInCreation) || undefined,
+    brokerageSharePercent: sharePercent ?? undefined,
+    // Nouveaux partenaires : formation désactivée par défaut (admin active au besoin).
+    // Les fiches historiques sans champ restent accessibles (undefined ≠ false).
+    formationAccessGranted: isConseiller
+      ? input.formationAccessGranted === true
+      : undefined,
+    identityDocumentRequired: Boolean(input.identityDocumentRequired) || undefined,
   };
   store.apporteurs.push(apporteur);
   await persistStore(store);
@@ -474,6 +489,11 @@ export async function updateApporteur(
       | "membershipValidatedAt"
       | "membershipValidatedBy"
       | "membershipPaymentDeclaredAt"
+      | "companyInCreation"
+      | "brokerageSharePercent"
+      | "formationAccessGranted"
+      | "identityDocumentRequired"
+      | "identityDocument"
     >
   >,
 ): Promise<Apporteur> {
@@ -585,6 +605,22 @@ export async function updateApporteur(
   if (patch.membershipPaymentDeclaredAt !== undefined) {
     apporteur.membershipPaymentDeclaredAt =
       String(patch.membershipPaymentDeclaredAt || "").trim() || undefined;
+  }
+  if (patch.companyInCreation !== undefined) {
+    apporteur.companyInCreation = Boolean(patch.companyInCreation) || undefined;
+  }
+  if (patch.brokerageSharePercent !== undefined) {
+    const normalized = normalizeBrokerageSharePercent(patch.brokerageSharePercent);
+    apporteur.brokerageSharePercent = normalized ?? undefined;
+  }
+  if (patch.formationAccessGranted !== undefined) {
+    apporteur.formationAccessGranted = Boolean(patch.formationAccessGranted);
+  }
+  if (patch.identityDocumentRequired !== undefined) {
+    apporteur.identityDocumentRequired = Boolean(patch.identityDocumentRequired) || undefined;
+  }
+  if (patch.identityDocument !== undefined) {
+    apporteur.identityDocument = patch.identityDocument || undefined;
   }
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);
@@ -1019,7 +1055,7 @@ export function getApporteurKpisForReferrals(referrals: Referral[]) {
 }
 
 export function getRemunerationForApporteur(apporteur: Apporteur) {
-  return getRemunerationConfig(resolveRemunerationTier(apporteur.type));
+  return resolveRemunerationConfigForApporteur(apporteur);
 }
 
 /** Retire les recommandations liées à un dossier supprimé. */

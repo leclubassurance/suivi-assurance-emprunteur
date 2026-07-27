@@ -23,6 +23,10 @@ type ContractPayload = {
   signerHint: string;
   profileComplete: boolean;
   profile: ApporteurProfileFormState;
+  identityDocumentRequired: boolean;
+  identityDocument: { fileName: string; uploadedAt: string; driveLink?: string | null } | null;
+  brokerageSharePercent?: number;
+  companyInCreation?: boolean;
 };
 
 export default function PartnerContractSigning({
@@ -53,7 +57,7 @@ export default function PartnerContractSigning({
   const [signedSuccess, setSignedSuccess] = useState<{ pdfUrl: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ContractPayload | null>(null);
-  const [step, setStep] = useState<"profile" | "contract">("profile");
+  const [step, setStep] = useState<"profile" | "identity" | "contract">("profile");
   const [profileForm, setProfileForm] = useState<ApporteurProfileFormState | null>(null);
   const [signerName, setSignerName] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -61,6 +65,7 @@ export default function PartnerContractSigning({
   const [emailOtp, setEmailOtp] = useState("");
   const [otpSending, setOtpSending] = useState(false);
   const [otpSentHint, setOtpSentHint] = useState<string | null>(null);
+  const [identityUploading, setIdentityUploading] = useState(false);
 
   const loadContract = useCallback(async () => {
     setLoading(true);
@@ -84,8 +89,14 @@ export default function PartnerContractSigning({
         signerHint: json.signerHint,
         profileComplete: Boolean(json.profileComplete),
         profile,
+        identityDocumentRequired: Boolean(json.identityDocumentRequired),
+        identityDocument: json.identityDocument || null,
+        brokerageSharePercent: json.brokerageSharePercent,
+        companyInCreation: Boolean(json.companyInCreation),
       });
-      setStep(json.profileComplete ? "contract" : "profile");
+      if (!json.profileComplete) setStep("profile");
+      else if (json.identityDocumentRequired && !json.identityDocument?.uploadedAt) setStep("identity");
+      else setStep("contract");
       const hint = [profile.contactPrenom, profile.contactNom].filter(Boolean).join(" ") || json.signerHint || "";
       setSignerName(hint);
     } catch (err: any) {
@@ -151,16 +162,60 @@ export default function PartnerContractSigning({
                   signerHint: contractJson.signerHint,
                   profileComplete: true,
                   profile,
+                  identityDocumentRequired: Boolean(contractJson.identityDocumentRequired),
+                  identityDocument: contractJson.identityDocument || null,
+                  brokerageSharePercent: contractJson.brokerageSharePercent,
+                  companyInCreation: Boolean(contractJson.companyInCreation),
                 }
               : prev,
           );
+          if (contractJson.identityDocumentRequired && !contractJson.identityDocument?.uploadedAt) {
+            setStep("identity");
+          } else {
+            setStep("contract");
+          }
+        } else {
+          setStep("contract");
         }
-        setStep("contract");
       }
     } catch (err: any) {
       setError(err?.message || "Erreur");
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const uploadIdentity = async (file: File | null) => {
+    if (!file) return;
+    setIdentityUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("identity", file);
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/identity-document`,
+        { method: "POST", body: fd },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Upload impossible.");
+      }
+      setPayload((prev) =>
+        prev
+          ? {
+              ...prev,
+              identityDocument: json.identityDocument || {
+                fileName: file.name,
+                uploadedAt: new Date().toISOString(),
+              },
+            }
+          : prev,
+      );
+      setStep("contract");
+    } catch (err: any) {
+      setError(err?.message || "Erreur upload");
+    } finally {
+      setIdentityUploading(false);
     }
   };
 
@@ -255,6 +310,60 @@ export default function PartnerContractSigning({
         >
           Télécharger le PDF
         </a>
+      </section>
+    );
+  }
+
+  if (step === "identity" && payload) {
+    return (
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-[#1E3A8A] text-white px-5 py-4">
+          <h2 className="text-sm font-black uppercase tracking-wide">Pièce d&apos;identité</h2>
+          <p className="text-xs text-indigo-100 mt-1">
+            Déposez une copie de votre CNI ou passeport (PDF ou photo). Le document est archivé dans votre dossier partenaire.
+          </p>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          {payload.identityDocument?.uploadedAt ? (
+            <p className="text-sm text-emerald-700 font-medium">
+              Document reçu : {payload.identityDocument.fileName}
+            </p>
+          ) : null}
+          <label className="block text-xs font-bold text-slate-600">
+            Fichier (PDF, JPG, PNG — max 12 Mo)
+            <input
+              type="file"
+              accept="image/*,application/pdf,.pdf"
+              disabled={identityUploading}
+              className="mt-1 block w-full text-sm font-normal"
+              onChange={(e) => uploadIdentity(e.target.files?.[0] || null)}
+            />
+          </label>
+          {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
+          {identityUploading ? (
+            <p className="text-xs text-slate-500 inline-flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Envoi en cours…
+            </p>
+          ) : null}
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setStep("profile")}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-bold"
+            >
+              Retour
+            </button>
+            {payload.identityDocument?.uploadedAt ? (
+              <button
+                type="button"
+                onClick={() => setStep("contract")}
+                className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold"
+              >
+                Continuer
+              </button>
+            ) : null}
+          </div>
+        </div>
       </section>
     );
   }
