@@ -15,44 +15,48 @@ export function isStudyPendingConseillerValidation(dossier: Dossier): boolean {
   return dossier.studyConseillerValidation?.status === "pending";
 }
 
+function isStudyLikeOutboundSubject(subject: string, text?: string): boolean {
+  const s = String(subject || "");
+  if (!s.trim()) return false;
+  if (isOutboundConfirmation(s, text)) return false;
+  if (STUDY_SUBJECT_RE.test(s)) return true;
+  return (
+    /assurance emprunteur/i.test(s) &&
+    /personnalisée|personnalisee|économies|economies/i.test(s)
+  );
+}
+
+/** EMAIL_SENT qui prouve un envoi d'étude au client (pas confirmation / copie conseiller / message libre). */
 function isClientStudyOutboundEvent(meta: unknown, message?: string): boolean {
-  const blob = `${message || ""} ${JSON.stringify(meta || {})}`;
-  if (/STUDY_CONSEILLER_SUBMIT|STUDY_CONSEILLER_NOTIFY|CONSEILLER_STUDY_COPY/i.test(blob)) {
+  const m = (meta || {}) as Record<string, unknown>;
+  const template = String(m.template || "");
+  if (
+    /CONFIRMATION|STUDY_CONSEILLER|CONSEILLER_STUDY|REMINDER|DOC_|ESCALATION|STAFF|CAMILLE/i.test(
+      template,
+    )
+  ) {
     return false;
   }
-  return /étude|STUDY|personnalisée|personnalisee|économies|economies/i.test(blob);
+  const emailKind = String(m.emailKind || "").toLowerCase();
+  if (emailKind === "message") return false;
+  if (emailKind === "study") return true;
+
+  const subject = String(m.subject || "");
+  if (isStudyLikeOutboundSubject(subject)) return true;
+  if (/Étude envoyée au client/i.test(String(message || ""))) return true;
+  return false;
 }
 
 /** Mail d'étude / proposition d'économies déjà envoyé au client (historique réel). */
 export function hasStudyBeenSent(dossier: Dossier): boolean {
   if (isStudyPendingConseillerValidation(dossier)) return false;
 
-  const st = String(dossier.status || "");
-  if (["MAIL_ENVOYÉ", "MAIL_ENVOYE", "TRAITÉ", "TRAITE", "CLOS"].includes(st)) {
-    // Brouillon seul ou soumission conseiller sans envoi client : ne pas confondre avec un envoi réel.
-    const hasRealOutbound = [...(dossier.communications || [])].some((c) => {
-      if (c.direction !== "outbound") return false;
-      const subject = String(c.subject || "");
-      if (isOutboundConfirmation(subject, c.text)) return false;
-      return (
-        STUDY_SUBJECT_RE.test(subject) ||
-        (/assurance emprunteur/i.test(subject) &&
-          /personnalisée|personnalisee|économies|economies/i.test(subject))
-      );
-    });
-    if (hasRealOutbound) return true;
-    if (dossier.studyDraft?.html || dossier.studyDraft?.subject) return false;
-    return true;
-  }
+  // Ne jamais conclure depuis le seul statut CRM (MAIL_ENVOYÉ / TRAITÉ…) :
+  // ce statut peut être posé manuellement ou après un mail non-étude.
 
   for (const c of dossier.communications || []) {
     if (c.direction !== "outbound") continue;
-    const subject = String(c.subject || "");
-    if (isOutboundConfirmation(subject, c.text)) continue;
-    if (STUDY_SUBJECT_RE.test(subject)) return true;
-    if (/assurance emprunteur/i.test(subject) && /personnalisée|personnalisee|économies|economies/i.test(subject)) {
-      return true;
-    }
+    if (isStudyLikeOutboundSubject(String(c.subject || ""), c.text)) return true;
   }
 
   for (const e of dossier.eventLog || []) {
@@ -63,7 +67,7 @@ export function hasStudyBeenSent(dossier: Dossier): boolean {
 
   for (const em of dossier.emails || []) {
     if (em.status !== "SENT") continue;
-    if (STUDY_SUBJECT_RE.test(String(em.subject || ""))) return true;
+    if (isStudyLikeOutboundSubject(String(em.subject || ""))) return true;
   }
 
   return false;
@@ -72,10 +76,7 @@ export function hasStudyBeenSent(dossier: Dossier): boolean {
 export function getLastStudyOutbound(dossier: Dossier): { subject: string; date: string } | null {
   const out = [...(dossier.communications || [])]
     .filter((c) => c.direction === "outbound")
-    .filter((c) => {
-      const s = String(c.subject || "");
-      return !isOutboundConfirmation(s, c.text) && STUDY_SUBJECT_RE.test(s);
-    })
+    .filter((c) => isStudyLikeOutboundSubject(String(c.subject || ""), c.text))
     .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
   if (out[0]) {
     return { subject: String(out[0].subject || "Étude envoyée"), date: String(out[0].date || "") };
@@ -84,7 +85,7 @@ export function getLastStudyOutbound(dossier: Dossier): { subject: string; date:
   for (const em of dossier.emails || []) {
     if (em.status !== "SENT") continue;
     const subject = String(em.subject || "");
-    if (!STUDY_SUBJECT_RE.test(subject)) continue;
+    if (!isStudyLikeOutboundSubject(subject)) continue;
     return {
       subject,
       date: String(em.sentAt || em.createdAt || dossier.updatedAt || dossier.createdAt),
@@ -93,22 +94,21 @@ export function getLastStudyOutbound(dossier: Dossier): { subject: string; date:
 
   for (const e of [...(dossier.eventLog || [])].reverse()) {
     if (e.type !== "EMAIL_SENT") continue;
-    const blob = `${e.message || ""} ${JSON.stringify(e.meta || {})}`;
-    if (!/étude|STUDY|personnalisée|personnalisee|économies/i.test(blob)) continue;
+    if (!isClientStudyOutboundEvent(e.meta, e.message)) continue;
     const date = String((e as any).at || (e as any).date || dossier.updatedAt || "");
-    if (date) return { subject: "Étude personnalisée envoyée", date };
+    if (date) {
+      const subject = String((e.meta as any)?.subject || "Étude personnalisée envoyée");
+      return { subject, date };
+    }
   }
 
-  if (dossier.studyKpi?.extractedAt) {
+  if (dossier.studyKpi?.extractedAt && hasStudyBeenSent(dossier)) {
     return {
       subject: String(dossier.studyKpi.subject || "Étude personnalisée"),
       date: dossier.studyKpi.extractedAt,
     };
   }
 
-  if (hasStudyBeenSent(dossier)) {
-    return { subject: "Étude personnalisée envoyée", date: dossier.updatedAt || dossier.createdAt };
-  }
   return null;
 }
 
@@ -121,13 +121,9 @@ export function getStudySentAtMs(dossier: Dossier): number | null {
 
   for (const c of dossier.communications || []) {
     if (c.direction !== "outbound") continue;
-    const subject = String(c.subject || "");
-    if (isOutboundConfirmation(subject, c.text)) continue;
-    const isStudy =
-      STUDY_SUBJECT_RE.test(subject) ||
-      (/assurance emprunteur/i.test(subject) &&
-        /personnalisée|personnalisee|économies|economies/i.test(subject));
-    if (isStudy && c.date) candidates.push(new Date(c.date).getTime());
+    if (isStudyLikeOutboundSubject(String(c.subject || ""), c.text) && c.date) {
+      candidates.push(new Date(c.date).getTime());
+    }
   }
 
   for (const e of dossier.eventLog || []) {
@@ -203,7 +199,7 @@ export function resolveClientPortalStatusKey(dossier: Dossier): ClientPortalStat
   if (sub === "adhesion_space_sent" || sub === "decision_received") return "ADHESION_EN_COURS";
   if (hasStudyBeenSent(dossier) || sub === "awaiting_decision") return "DECISION_EN_ATTENTE";
 
-  if (st === "MAIL_ENVOYÉ" || st === "MAIL_ENVOYE") return "MAIL_ENVOYÉ";
+  if (hasStudyBeenSent(dossier)) return "MAIL_ENVOYÉ";
   if (st === "EN_ATTENTE_CLIENT") return "EN_ATTENTE_CLIENT";
   if (st === "NOUVEAU") return "NOUVEAU";
   return "EN_COURS";

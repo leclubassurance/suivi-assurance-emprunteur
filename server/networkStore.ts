@@ -475,7 +475,7 @@ function inferReferralStatusFromDossier(dossier: Dossier): ReferralStatus | null
   if (status === "CLOS" && !clientHasAcceptedInsuranceChange(dossier)) return "PERDU";
   if (clientHasAcceptedInsuranceChange(dossier)) return "SIGNE";
   if (status === "ADHESION_EN_COURS" || status === "TRAITÉ" || status === "TRAITE") return "SIGNE";
-  if (hasStudyBeenSent(dossier) || status === "MAIL_ENVOYÉ" || status === "MAIL_ENVOYE") {
+  if (hasStudyBeenSent(dossier)) {
     return "ETUDE_ENVOYEE";
   }
   if (dossier.id && !String(dossier.id).startsWith("LCIF-999")) return "DOSSIER_OUVERT";

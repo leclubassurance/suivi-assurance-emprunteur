@@ -27,7 +27,7 @@ export type StudyKpiRecord = {
 };
 
 const STUDY_SUBJECT_RE =
-  /\b(étude|etude)(\s+personnalisée|\s+personnalisee)?\b|économies|economies|économiser|economiser|assurance emprunteur/i;
+  /\b(étude|etude)(\s+personnalisée|\s+personnalisee)?\b|économies|economies|économiser|economiser/i;
 
 const NAMED_HTML_ENTITIES: Record<string, string> = {
   nbsp: " ",

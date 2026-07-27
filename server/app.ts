@@ -4486,7 +4486,8 @@ export function createApp() {
         text: text || "Mail HTML envoyé",
         date: new Date().toISOString(),
       });
-      dossier.status = "MAIL_ENVOYÉ";
+      const { applyStudySentStatusIfNeeded } = await import("./dossierLifecycle");
+      applyStudySentStatusIfNeeded(dossier);
       await writeDB(db, dossier);
       res.json({ success: true, message: "Email envoyé avec Gmail !" });
     } else {
