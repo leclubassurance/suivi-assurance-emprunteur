@@ -82,6 +82,7 @@ export default function AdminDashboard({
   const [kereisBusy, setKereisBusy] = useState(false);
   const [generateStudyBusy, setGenerateStudyBusy] = useState(false);
   const [feasibilityBusy, setFeasibilityBusy] = useState(false);
+  const [uploadDocBusy, setUploadDocBusy] = useState(false);
   const [studyGenerateFeedback, setStudyGenerateFeedback] = useState<{
     type: "error" | "success" | "manual";
     title: string;
@@ -774,12 +775,14 @@ export default function AdminDashboard({
   const handleUploadDocument = async (file: File) => {
     if (!selectedDossier) return;
     try {
+      setUploadDocBusy(true);
       const fd = new FormData();
       fd.append("document", file);
       fd.append("category", uploadDocCategory);
       const res = await adminFetch(`/api/admin/dossiers/${selectedDossier.id}/documents`, {
         method: "POST",
         body: fd,
+        signal: AbortSignal.timeout(90_000),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -793,9 +796,17 @@ export default function AdminDashboard({
       } else {
         showToast("Document ajouté au dossier.", "success");
       }
-      loadDossiers();
-    } catch {
-      showToast("Erreur lors de l'ajout du document", "error");
+      await loadDossiers();
+    } catch (err: any) {
+      const aborted = err?.name === "TimeoutError" || err?.name === "AbortError";
+      showToast(
+        aborted
+          ? "L'ajout a pris trop de temps (timeout). Réessayez, ou déposez le fichier sur Drive puis synchronisez."
+          : "Erreur lors de l'ajout du document",
+        "error",
+      );
+    } finally {
+      setUploadDocBusy(false);
     }
   };
 
@@ -2350,12 +2361,19 @@ export default function AdminDashboard({
                         <option value="devis">Devis assureur</option>
                         <option value="autre">Autre</option>
                       </select>
-                      <label className="text-xs font-bold bg-[#1E3A8A] hover:bg-[#172554] text-white px-4 py-2 rounded-lg cursor-pointer">
-                        Choisir un fichier
+                      <label
+                        className={`text-xs font-bold text-white px-4 py-2 rounded-lg ${
+                          uploadDocBusy
+                            ? "bg-slate-400 cursor-wait"
+                            : "bg-[#1E3A8A] hover:bg-[#172554] cursor-pointer"
+                        }`}
+                      >
+                        {uploadDocBusy ? "Envoi…" : "Choisir un fichier"}
                         <input
                           type="file"
                           className="hidden"
                           accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
+                          disabled={uploadDocBusy}
                           onChange={(e) => {
                             const f = e.target.files?.[0];
                             if (f) handleUploadDocument(f);

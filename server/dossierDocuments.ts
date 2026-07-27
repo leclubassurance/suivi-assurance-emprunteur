@@ -17,6 +17,25 @@ export type AddedDossierDocument = {
   driveLink?: string;
 };
 
+const DRIVE_UPLOAD_TIMEOUT_MS = 20_000;
+const LOAN_ANALYZE_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}_timeout_${ms}ms`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export async function addFileToDossier(
   dossier: Dossier,
   file: Express.Multer.File,
@@ -25,6 +44,8 @@ export async function addFileToDossier(
     category?: string;
     source?: string;
     driveAccessToken?: string | null;
+    /** Si false, pas d'analyse offre/tableau (évite blocage OCR). Défaut true avec timeout. */
+    analyzeLoan?: boolean;
   },
 ): Promise<AddedDossierDocument> {
   if (!dossier.formData) dossier.formData = {};
@@ -60,32 +81,45 @@ export async function addFileToDossier(
     try {
       const { uploadBufferToDriveFolder } = await import("./gmailDriveUpload");
       const buf = fs.readFileSync(doc.localPath);
-      const uploaded = await uploadBufferToDriveFolder(
-        dossier.workspaceFolderId,
-        doc.name,
-        doc.type || "application/octet-stream",
-        buf,
-        options.driveAccessToken,
+      const uploaded = await withTimeout(
+        uploadBufferToDriveFolder(
+          dossier.workspaceFolderId,
+          doc.name,
+          doc.type || "application/octet-stream",
+          buf,
+          options.driveAccessToken,
+        ),
+        DRIVE_UPLOAD_TIMEOUT_MS,
+        "drive_upload",
       );
       if (uploaded) {
         doc.driveFileId = uploaded.fileId;
         doc.driveLink = uploaded.webViewLink || undefined;
       }
-    } catch {
-      // Drive best-effort
+    } catch (err: any) {
+      console.warn(
+        `[addFileToDossier] Drive upload skip (${doc.name}):`,
+        err?.message || err,
+      );
     }
   }
 
+  const shouldAnalyze = options.analyzeLoan !== false;
   const { isLoanPdfOrImage } = await import("./documentPdfSignals");
   if (
+    shouldAnalyze &&
     (category === "offre" || category === "tableau") &&
     isLoanPdfOrImage(doc.name, doc.type)
   ) {
     try {
       const { analyzeLoanPdf } = await import("./documentPdfSignals");
-      const sig = await analyzeLoanPdf(doc.localPath, category as "offre" | "tableau", {
-        mimeType: doc.type,
-      });
+      const sig = await withTimeout(
+        analyzeLoanPdf(doc.localPath, category as "offre" | "tableau", {
+          mimeType: doc.type,
+        }),
+        LOAN_ANALYZE_TIMEOUT_MS,
+        "loan_analyze",
+      );
       (doc as any).loanSignal = sig;
       if (!(doc as any).quality) {
         (doc as any).quality = { ok: sig.ok, reasons: sig.reasons || [] };
@@ -95,8 +129,15 @@ export async function addFileToDossier(
           ...new Set([...((doc as any).quality.reasons || []), ...(sig.reasons || [])]),
         ];
       }
-    } catch {
-      // ignore analysis errors
+    } catch (err: any) {
+      console.warn(
+        `[addFileToDossier] Analyse prêt skip (${doc.name}):`,
+        err?.message || err,
+      );
+      (doc as any).quality = {
+        ok: true,
+        reasons: ["Analyse différée (timeout) — document quand même enregistré"],
+      };
     }
   }
 

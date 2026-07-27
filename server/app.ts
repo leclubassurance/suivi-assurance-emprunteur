@@ -1444,44 +1444,60 @@ export function createApp() {
     const file = (req as any).file as Express.Multer.File | undefined;
     if (!file) return res.status(400).json({ error: "Fichier manquant" });
 
-    const db = await readDBAsync();
-    const dossier = db.dossiers.find((d: any) => d.id === id);
-    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-
-    let driveToken: string | null = null;
     try {
-      const { getServerAccessToken } = await import("./googleOAuthServer");
-      driveToken = await getServerAccessToken();
-    } catch {
-      driveToken = null;
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === id);
+      if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+      let driveToken: string | null = null;
+      try {
+        const { getServerAccessToken } = await import("./googleOAuthServer");
+        driveToken = await getServerAccessToken();
+      } catch {
+        driveToken = null;
+      }
+
+      const { addFileToDossier } = await import("./dossierDocuments");
+      const category = String((req.body as any)?.category || "auto");
+      const doc = await addFileToDossier(dossier, file, {
+        uploadsDir: UPLOADS_DIR,
+        category,
+        source: "admin",
+        driveAccessToken: driveToken,
+      });
+
+      let driveWarning: string | undefined;
+      if (!dossier.workspaceFolderId) {
+        driveWarning =
+          "Document enregistré localement. Créez le dossier Drive (bouton « Créer dossier Drive ») puis réimportez ou relancez l'export pour archiver sur Drive.";
+      } else if (!doc.driveLink) {
+        driveWarning =
+          "Document enregistré dans l'onglet Documents ; copie Drive non confirmée (timeout ou connexion Google).";
+      }
+
+      dossier.updatedAt = new Date().toISOString();
+      await writeDB(db, dossier);
+
+      // Réponse légère — ne pas renvoyer tout le dossier (peut bloquer / timeout côté client)
+      res.json({
+        success: true,
+        document: {
+          id: doc.id,
+          name: doc.name,
+          category: doc.category,
+          size: doc.size,
+          driveLink: doc.driveLink || null,
+          driveFileId: doc.driveFileId || null,
+        },
+        documentsCount: dossier.formData?.documents?.length || 0,
+        driveWarning,
+      });
+    } catch (err: any) {
+      console.error("[admin documents upload]", id, err?.message || err);
+      return res.status(500).json({
+        error: err?.message || "Erreur lors de l'ajout du document",
+      });
     }
-
-    const { addFileToDossier } = await import("./dossierDocuments");
-    const category = String((req.body as any)?.category || "auto");
-    const doc = await addFileToDossier(dossier, file, {
-      uploadsDir: UPLOADS_DIR,
-      category,
-      source: "admin",
-      driveAccessToken: driveToken,
-    });
-
-    let driveWarning: string | undefined;
-    if (!dossier.workspaceFolderId) {
-      driveWarning =
-        "Document enregistré localement. Créez le dossier Drive (bouton « Créer dossier Drive ») puis réimportez ou relancez l'export pour archiver sur Drive.";
-    } else if (!doc.driveLink) {
-      driveWarning = "Document enregistré ; upload Drive non confirmé (vérifiez la connexion Google).";
-    }
-
-    dossier.updatedAt = new Date().toISOString();
-    await writeDB(db, dossier);
-
-    res.json({
-      success: true,
-      document: doc,
-      driveWarning,
-      dossier,
-    });
   });
 
   // Delete active quote ("devis")
