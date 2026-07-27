@@ -326,6 +326,7 @@ export async function submitStudyToConseiller(params: {
   submittedBy?: string;
   publicBaseUrl: string;
   debriefNote?: string;
+  uploadsDir?: string;
 }): Promise<
   | { ok: true; validation: StudyConseillerValidation }
   | { ok: false; error: string }
@@ -333,8 +334,35 @@ export async function submitStudyToConseiller(params: {
   const { dossier, subject, submittedBy, publicBaseUrl, debriefNote } = params;
   const trimmedHtml = String(params.html || "").trim();
   const trimmedSubject = String(subject || "").trim();
-  const { getStudyPdfPath } = await import("./studyPdfFlow");
-  const pdfPath = getStudyPdfPath(dossier);
+  const { getStudyPdfPath, ensureStudyPdfDurable } = await import("./studyPdfFlow");
+  const looksLikePdfStudy =
+    Boolean(getStudyPdfPath(dossier)) ||
+    dossier.studyDraft?.kind === "PDF_UPLOAD" ||
+    Boolean((dossier as any).studyPdf?.fileName) ||
+    Boolean((dossier as any).adeStudyComputation);
+
+  // Avant envoi conseiller : PDF local + copie Drive (sinon le portail cassera après redéploiement).
+  let pdfPath = getStudyPdfPath(dossier);
+  if (looksLikePdfStudy && params.uploadsDir) {
+    const durable = await ensureStudyPdfDurable(dossier, params.uploadsDir);
+    if (!durable.ok) {
+      return {
+        ok: false,
+        error:
+          durable.error ||
+          "PDF d'étude indisponible. Régénérez ou réimportez l'étude avant d'envoyer au conseiller.",
+      };
+    }
+    if (!durable.driveFileId) {
+      return {
+        ok: false,
+        error:
+          "PDF d'étude non sauvegardé sur Google Drive. Vérifiez la connexion Google Workspace admin, puis réessayez l'envoi.",
+      };
+    }
+    pdfPath = durable.localPath;
+  }
+
   const hasPdf = Boolean(pdfPath) || dossier.studyDraft?.kind === "PDF_UPLOAD";
   if (!trimmedSubject) {
     return { ok: false, error: "Objet du mail requis." };

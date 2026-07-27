@@ -393,8 +393,15 @@ export async function ingestStudyPdfForDossier(params: {
 
   (dossier as any).studyPdf = pdfMeta;
 
-  // Persistance Drive (évite la perte après redéploiement Railway)
-  await persistStudyPdfToDrive(dossier, destPath, pdfMeta.fileName);
+  // Persistance Drive + registre documents (évite la perte après redéploiement Railway)
+  const uploaded = await persistStudyPdfToDrive(dossier, destPath, pdfMeta.fileName);
+  registerStudyPdfAsDocument(dossier, {
+    localPath: destPath,
+    fileName: pdfMeta.fileName,
+    size: pdfMeta.size,
+    driveFileId: uploaded?.driveFileId || (dossier as any).studyPdf?.driveFileId,
+    driveLink: uploaded?.driveLink || (dossier as any).studyPdf?.driveLink,
+  });
 
   // Toujours régénérer le mail brandé à l'import PDF (écrase l'ancien plaintext).
   const built = rebuildStudyClientEmailFromDossier(dossier);
@@ -487,18 +494,32 @@ function patchStudyPdfMeta(dossier: Dossier, patch: Partial<StudyPdfMeta>) {
   }
 }
 
-/** Upload le PDF d'étude vers le dossier Drive du client (si workspace ouvert). */
+/** Upload le PDF d'étude vers le dossier Drive du client (crée le workspace si besoin). */
 export async function persistStudyPdfToDrive(
   dossier: Dossier,
   localPath: string,
   fileName: string,
 ): Promise<{ driveFileId?: string; driveLink?: string } | null> {
-  const folderId = String((dossier as any).workspaceFolderId || "").trim();
-  if (!folderId || !localPath || !fs.existsSync(localPath)) return null;
+  if (!localPath || !fs.existsSync(localPath)) return null;
   try {
-    const { uploadBufferToDriveFolder } = await import("./gmailDriveUpload");
     const { getServerAccessToken } = await import("./googleOAuthServer");
     const token = await getServerAccessToken().catch(() => null);
+
+    let folderId = String((dossier as any).workspaceFolderId || "").trim();
+    if (!folderId) {
+      const { exportDossierToGoogleWorkspace } = await import("./googleAutomation");
+      const exported = await exportDossierToGoogleWorkspace(dossier, token);
+      if (exported.success && exported.folderId) {
+        folderId = exported.folderId;
+        (dossier as any).workspaceFolderId = folderId;
+      }
+    }
+    if (!folderId) {
+      console.warn("[study-pdf] Pas de dossier Drive — PDF non persisté hors disque local.");
+      return null;
+    }
+
+    const { uploadBufferToDriveFolder } = await import("./gmailDriveUpload");
     const buf = fs.readFileSync(localPath);
     const uploaded = await uploadBufferToDriveFolder(
       folderId,
@@ -519,46 +540,180 @@ export async function persistStudyPdfToDrive(
   }
 }
 
+/** Enregistre / met à jour le PDF d'étude dans formData.documents (catégorie etude). */
+export function registerStudyPdfAsDocument(
+  dossier: Dossier,
+  meta: { localPath: string; fileName: string; size?: number; driveFileId?: string; driveLink?: string },
+) {
+  if (!dossier.formData) dossier.formData = {};
+  if (!Array.isArray(dossier.formData.documents)) dossier.formData.documents = [];
+  const docs = dossier.formData.documents as any[];
+  const existingIdx = docs.findIndex(
+    (d) =>
+      String(d?.category || "").toLowerCase() === "etude" ||
+      String(d?.id || "").startsWith("etude-study-pdf"),
+  );
+  const entry = {
+    id: existingIdx >= 0 ? docs[existingIdx].id : `etude-study-pdf-${Date.now()}`,
+    category: "etude",
+    name: meta.fileName,
+    size: meta.size || 0,
+    type: "application/pdf",
+    localPath: meta.localPath,
+    source: "study_pdf",
+    uploadedAt: new Date().toISOString(),
+    driveFileId: meta.driveFileId || (dossier as any).studyPdf?.driveFileId,
+    driveLink: meta.driveLink || (dossier as any).studyPdf?.driveLink,
+  };
+  if (existingIdx >= 0) docs[existingIdx] = { ...docs[existingIdx], ...entry };
+  else docs.push(entry);
+}
+
+function isStudyDocCandidate(doc: any): boolean {
+  const cat = String(doc?.category || "").toLowerCase();
+  const name = String(doc?.name || "").toLowerCase();
+  if (cat === "etude" || cat === "study") return true;
+  return /etude|étude|economies|économies|ade_study|study.?pdf/.test(name) && name.endsWith(".pdf");
+}
+
+function writeRestoredPdf(
+  dossier: Dossier,
+  uploadsDir: string,
+  buf: Buffer,
+  fileNameHint: string,
+): string {
+  const dossierDir = path.join(uploadsDir, dossier.id);
+  if (!fs.existsSync(dossierDir)) fs.mkdirSync(dossierDir, { recursive: true });
+  const safe =
+    String(fileNameHint || `etude-${dossier.id}.pdf`)
+      .replace(/[^\w.\-àâäéèêëïîôùûüç ]+/gi, "_")
+      .slice(0, 120) || `etude-${dossier.id}.pdf`;
+  const dest = path.join(
+    dossierDir,
+    `restored-${Date.now()}_${safe.endsWith(".pdf") ? safe : `${safe}.pdf`}`,
+  );
+  fs.writeFileSync(dest, buf);
+  return dest;
+}
+
 /**
- * Garantit un PDF d'étude local (disque → Drive → régénération depuis adeStudyComputation).
- * Indispensable sur Railway où le filesystem est éphémère.
+ * Garantit un PDF d'étude local.
+ * Chaîne : disque → driveFileId → document « etude » → recherche Drive → régénération ADE.
  */
 export async function ensureStudyPdfLocalFile(
   dossier: Dossier,
   uploadsDir: string,
-): Promise<{ localPath: string | null; source?: "disk" | "drive" | "regenerated"; error?: string }> {
+): Promise<{
+  localPath: string | null;
+  source?: "disk" | "drive" | "document" | "drive_search" | "regenerated";
+  error?: string;
+}> {
   const onDisk = getStudyPdfPath(dossier);
   if (onDisk) return { localPath: onDisk, source: "disk" };
 
   const dossierDir = path.join(uploadsDir, dossier.id);
   if (!fs.existsSync(dossierDir)) fs.mkdirSync(dossierDir, { recursive: true });
 
+  const tryDownloadDriveId = async (
+    fileId: string,
+    fileName: string,
+    source: "drive" | "document" | "drive_search",
+  ): Promise<{ localPath: string; source: typeof source } | null> => {
+    const { downloadDriveFileToBuffer } = await import("./gmailDriveUpload");
+    const buf = await downloadDriveFileToBuffer(fileId, null);
+    if (!buf?.length) return null;
+    const dest = writeRestoredPdf(dossier, uploadsDir, buf, fileName);
+    patchStudyPdfMeta(dossier, {
+      localPath: dest,
+      size: buf.length,
+      fileName: (dossier as any).studyPdf?.fileName || fileName,
+      mimeType: "application/pdf",
+      driveFileId: fileId,
+    });
+    registerStudyPdfAsDocument(dossier, {
+      localPath: dest,
+      fileName: (dossier as any).studyPdf?.fileName || fileName,
+      size: buf.length,
+      driveFileId: fileId,
+    });
+    return { localPath: dest, source };
+  };
+
+  // 1) driveFileId sur studyPdf
   const driveId = studyPdfDriveFileId(dossier);
   if (driveId) {
     try {
-      const { downloadDriveFileToBuffer } = await import("./gmailDriveUpload");
-      const buf = await downloadDriveFileToBuffer(driveId, null);
-      if (buf?.length) {
-        const name =
-          String((dossier as any).studyPdf?.fileName || `etude-${dossier.id}.pdf`)
-            .replace(/[^\w.\-àâäéèêëïîôùûüç ]+/gi, "_")
-            .slice(0, 120) || `etude-${dossier.id}.pdf`;
-        const dest = path.join(dossierDir, `restored-${Date.now()}_${name.endsWith(".pdf") ? name : `${name}.pdf`}`);
-        fs.writeFileSync(dest, buf);
-        patchStudyPdfMeta(dossier, {
-          localPath: dest,
-          size: buf.length,
-          fileName: (dossier as any).studyPdf?.fileName || name,
-          mimeType: "application/pdf",
-        });
-        return { localPath: dest, source: "drive" };
-      }
+      const got = await tryDownloadDriveId(
+        driveId,
+        String((dossier as any).studyPdf?.fileName || `etude-${dossier.id}.pdf`),
+        "drive",
+      );
+      if (got) return got;
     } catch (e: any) {
-      console.warn("[study-pdf] Drive restore failed:", e?.message || e);
+      console.warn("[study-pdf] Drive id restore failed:", e?.message || e);
     }
   }
 
-  // Régénération depuis le dernier calcul ADE stocké
+  // 2) Documents dossier (catégorie etude / nom)
+  const docs = ((dossier as any).formData?.documents || []) as any[];
+  for (const doc of docs.filter(isStudyDocCandidate)) {
+    const local = String(doc.localPath || "").trim();
+    if (local && fs.existsSync(local)) {
+      patchStudyPdfMeta(dossier, {
+        localPath: local,
+        fileName: doc.name || path.basename(local),
+        size: doc.size,
+        mimeType: "application/pdf",
+        driveFileId: doc.driveFileId,
+        driveLink: doc.driveLink,
+      });
+      return { localPath: local, source: "document" };
+    }
+    if (doc.driveFileId) {
+      try {
+        const got = await tryDownloadDriveId(
+          String(doc.driveFileId),
+          String(doc.name || `etude-${dossier.id}.pdf`),
+          "document",
+        );
+        if (got) return got;
+      } catch {
+        /* next */
+      }
+    }
+  }
+
+  // 3) Recherche dans le dossier Drive client
+  const folderId = String((dossier as any).workspaceFolderId || "").trim();
+  if (folderId) {
+    try {
+      const { listDriveFilesInFolder } = await import("./gmailDriveUpload");
+      const files = await listDriveFilesInFolder(folderId, null);
+      const studyLike = [...files.values()].filter((f) => {
+        const n = String(f.name || "").toLowerCase();
+        return (
+          n.endsWith(".pdf") &&
+          (/etude|étude|economies|économies|ade_study|study/.test(n) ||
+            n.includes(String(dossier.id || "").toLowerCase()))
+        );
+      });
+      // Préférer le plus « étude économies »
+      studyLike.sort((a, b) => {
+        const score = (n: string) =>
+          (/etude_economies|étude.?économies|economies_ade/.test(n) ? 2 : 0) +
+          (/etude|étude/.test(n) ? 1 : 0);
+        return score(String(b.name || "").toLowerCase()) - score(String(a.name || "").toLowerCase());
+      });
+      for (const f of studyLike) {
+        const got = await tryDownloadDriveId(f.fileId, f.name || `etude-${dossier.id}.pdf`, "drive_search");
+        if (got) return got;
+      }
+    } catch (e: any) {
+      console.warn("[study-pdf] Drive folder search failed:", e?.message || e);
+    }
+  }
+
+  // 4) Régénération depuis le calcul ADE stocké
   const comp = (dossier as any).adeStudyComputation;
   if (
     comp &&
@@ -579,20 +734,90 @@ export async function ensureStudyPdfLocalFile(
         uploadedAt: new Date().toISOString(),
         mimeType: "application/pdf",
       });
-      await persistStudyPdfToDrive(dossier, dest, fileName);
+      const uploaded = await persistStudyPdfToDrive(dossier, dest, fileName);
+      registerStudyPdfAsDocument(dossier, {
+        localPath: dest,
+        fileName,
+        size: pdfBuf.length,
+        driveFileId: uploaded?.driveFileId,
+        driveLink: uploaded?.driveLink,
+      });
       return { localPath: dest, source: "regenerated" };
     } catch (e: any) {
-      console.warn("[study-pdf] regenerate failed:", e?.message || e);
-      return {
-        localPath: null,
-        error: e?.message || "Régénération PDF impossible",
-      };
+      console.warn("[study-pdf] regenerate from computation failed:", e?.message || e);
+    }
+  }
+
+  // 5) Dernier recours : régénérer toute l'étude ADE depuis tableaux + devis
+  const hasDevis = docs.some(
+    (d) =>
+      String(d?.category || "").toLowerCase() === "devis" || /devis/i.test(String(d?.name || "")),
+  );
+  const hasTableau = docs.some((d) => String(d?.category || "").toLowerCase() === "tableau");
+  if (hasDevis && hasTableau) {
+    try {
+      const { generateAndIngestAdeStudyForDossier } = await import("./adeStudyPipeline");
+      const gen = await generateAndIngestAdeStudyForDossier({
+        dossier,
+        uploadsDir,
+        actorLabel: "Restore PDF étude (auto)",
+      });
+      if (gen.ok) {
+        const pathNow = getStudyPdfPath(dossier);
+        if (pathNow) {
+          const uploaded = await persistStudyPdfToDrive(
+            dossier,
+            pathNow,
+            String((dossier as any).studyPdf?.fileName || path.basename(pathNow)),
+          );
+          registerStudyPdfAsDocument(dossier, {
+            localPath: pathNow,
+            fileName: String((dossier as any).studyPdf?.fileName || path.basename(pathNow)),
+            size: (dossier as any).studyPdf?.size,
+            driveFileId: uploaded?.driveFileId || (dossier as any).studyPdf?.driveFileId,
+            driveLink: uploaded?.driveLink || (dossier as any).studyPdf?.driveLink,
+          });
+          return { localPath: pathNow, source: "regenerated" };
+        }
+      } else {
+        console.warn("[study-pdf] full ADE restore failed:", gen.error);
+      }
+    } catch (e: any) {
+      console.warn("[study-pdf] full ADE restore exception:", e?.message || e);
     }
   }
 
   return {
     localPath: null,
     error:
-      "PDF d'étude introuvable (fichier local perdu après redéploiement, pas de copie Drive, pas de calcul ADE à régénérer). Réimportez ou régénérez l'étude depuis l'admin.",
+      "PDF d'étude introuvable. Depuis l'admin : régénérez l'étude (Générer étude depuis devis) ou réimportez le PDF, puis renvoyez le débrief au conseiller.",
   };
+}
+
+/** Assure PDF local + Drive + entrée documents avant envoi conseiller / téléchargement. */
+export async function ensureStudyPdfDurable(
+  dossier: Dossier,
+  uploadsDir: string,
+): Promise<{ ok: true; localPath: string; driveFileId?: string } | { ok: false; error: string }> {
+  const ensured = await ensureStudyPdfLocalFile(dossier, uploadsDir);
+  if (!ensured.localPath) {
+    return { ok: false, error: ensured.error || "PDF d'étude introuvable." };
+  }
+  let driveFileId = studyPdfDriveFileId(dossier) || undefined;
+  if (!driveFileId) {
+    const uploaded = await persistStudyPdfToDrive(
+      dossier,
+      ensured.localPath,
+      String((dossier as any).studyPdf?.fileName || path.basename(ensured.localPath)),
+    );
+    driveFileId = uploaded?.driveFileId;
+  }
+  registerStudyPdfAsDocument(dossier, {
+    localPath: ensured.localPath,
+    fileName: String((dossier as any).studyPdf?.fileName || path.basename(ensured.localPath)),
+    size: (dossier as any).studyPdf?.size,
+    driveFileId,
+    driveLink: (dossier as any).studyPdf?.driveLink,
+  });
+  return { ok: true, localPath: ensured.localPath, driveFileId };
 }

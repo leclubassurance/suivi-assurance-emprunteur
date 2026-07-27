@@ -49,12 +49,12 @@ export async function sendClientStudyEmail(params: {
     try {
       const fs = await import("fs");
       const path = await import("path");
-      const { ensureStudyPdfLocalFile, getStudyPdfPath } = await import("./studyPdfFlow");
+      const { ensureStudyPdfDurable, getStudyPdfPath } = await import("./studyPdfFlow");
       const uploadsDir =
         params.uploadsDir ||
         path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "uploads");
-      const ensured = await ensureStudyPdfLocalFile(dossier, uploadsDir);
-      const pdfPath = ensured.localPath || getStudyPdfPath(dossier);
+      const durable = await ensureStudyPdfDurable(dossier, uploadsDir);
+      const pdfPath = (durable.ok && durable.localPath) || getStudyPdfPath(dossier);
       if (pdfPath && fs.existsSync(pdfPath)) {
         const fileName =
           String((dossier as any).studyPdf?.fileName || path.basename(pdfPath) || "etude-economies.pdf").trim() ||

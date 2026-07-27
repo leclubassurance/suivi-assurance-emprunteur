@@ -977,6 +977,7 @@ export function createApp() {
       submittedBy: String((req as any).adminEmail || "admin"),
       publicBaseUrl: resolvePublicBaseFromRequest(req),
       debriefNote: debriefNote ? String(debriefNote) : undefined,
+      uploadsDir: UPLOADS_DIR,
     });
     if (!result.ok) return res.status(400).json({ error: result.error });
 
@@ -1486,17 +1487,15 @@ export function createApp() {
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    const { ensureStudyPdfLocalFile } = await import("./studyPdfFlow");
-    const ensured = await ensureStudyPdfLocalFile(dossier, UPLOADS_DIR);
-    if (!ensured.localPath) {
+    const { ensureStudyPdfDurable } = await import("./studyPdfFlow");
+    const ensured = await ensureStudyPdfDurable(dossier, UPLOADS_DIR);
+    if (ensured.ok === false) {
       return res.status(404).json({
         error: ensured.error || "Aucun PDF d'étude sur ce dossier.",
         code: "pdf_unavailable",
       });
     }
-    if (ensured.source === "drive" || ensured.source === "regenerated") {
-      await writeDB(db, dossier).catch(() => undefined);
-    }
+    await writeDB(db, dossier).catch(() => undefined);
     const fileName =
       String((dossier as any).studyPdf?.fileName || "etude-economies.pdf").trim() || "etude-economies.pdf";
     const asDownload =
@@ -3242,14 +3241,14 @@ export function createApp() {
           return res.status(404).json({ ok: false, error: "no_pending_validation" });
         }
 
-        const { getStudyPdfPath, ensureStudyPdfLocalFile, buildStudyClientEmailHtml } = await import(
+        const { getStudyPdfPath, ensureStudyPdfDurable, buildStudyClientEmailHtml } = await import(
           "./studyPdfFlow"
         );
         let hasStudyPdf = Boolean(getStudyPdfPath(dossier));
         if (!hasStudyPdf) {
-          const ensured = await ensureStudyPdfLocalFile(dossier, UPLOADS_DIR);
-          hasStudyPdf = Boolean(ensured.localPath);
-          if (ensured.localPath && (ensured.source === "drive" || ensured.source === "regenerated")) {
+          const ensured = await ensureStudyPdfDurable(dossier, UPLOADS_DIR);
+          hasStudyPdf = ensured.ok;
+          if (ensured.ok) {
             await writeDB(db, dossier).catch(() => undefined);
           }
         }
@@ -3347,20 +3346,18 @@ export function createApp() {
         if (!validation || !["pending", "approved"].includes(String(validation.status || ""))) {
           return res.status(404).json({ ok: false, error: "no_pending_validation" });
         }
-        const { ensureStudyPdfLocalFile } = await import("./studyPdfFlow");
-        const ensured = await ensureStudyPdfLocalFile(dossier, UPLOADS_DIR);
-        if (!ensured.localPath) {
+        const { ensureStudyPdfDurable } = await import("./studyPdfFlow");
+        const ensured = await ensureStudyPdfDurable(dossier, UPLOADS_DIR);
+        if (ensured.ok === false) {
           return res.status(404).json({
             ok: false,
             error: "pdf_unavailable",
             message:
               ensured.error ||
-              "Le PDF d'étude n'est plus disponible sur le serveur. Demandez à LCIF de régénérer ou réimporter l'étude.",
+              "Le PDF d'étude n'est plus disponible. Demandez à LCIF de régénérer ou réimporter l'étude, puis de renvoyer le débrief.",
           });
         }
-        if (ensured.source === "drive" || ensured.source === "regenerated") {
-          await writeDB(db, dossier).catch(() => undefined);
-        }
+        await writeDB(db, dossier).catch(() => undefined);
         const fileName =
           String(
             validation.studyPdfFileName ||

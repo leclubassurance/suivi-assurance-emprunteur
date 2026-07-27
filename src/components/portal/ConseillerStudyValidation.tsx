@@ -35,7 +35,7 @@ const PORTAL_ERROR_LABELS: Record<string, string> = {
   portal_locked: "Votre espace n'est pas encore débloqué (contrat ou cotisation).",
   preview_unavailable: "Aperçu indisponible — le contenu de l'étude n'est pas encore prêt.",
   pdf_unavailable:
-    "Le PDF d'étude n'est plus disponible. Demandez à LCIF de régénérer ou réimporter l'étude.",
+    "Le PDF d'étude n'est plus disponible. Demandez à LCIF de régénérer ou réimporter l'étude, puis de renvoyer le débrief.",
 };
 
 export default function ConseillerStudyValidation({
