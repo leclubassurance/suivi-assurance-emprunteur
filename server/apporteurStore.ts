@@ -725,12 +725,36 @@ export async function expireConseillerMembershipPayment(id: string): Promise<App
 }
 
 export async function updateApporteurProfileFromPortal(
-  _portalToken: string,
-  _input: ApporteurProfileInput,
+  portalToken: string,
+  input: ApporteurProfileInput,
 ): Promise<Apporteur> {
-  throw new Error(
-    "Les informations contractuelles sont gérées uniquement par LCIF (admin). Contactez l'équipe pour une correction.",
-  );
+  const apporteur = await findApporteurByPortalToken(portalToken);
+  if (!apporteur) throw new Error("Lien portail invalide.");
+  if ((apporteur.contractStatus || "none") === "signed") {
+    throw new Error("Contrat déjà signé — profil non modifiable.");
+  }
+  const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+  if (isConseillerImmoClubType(apporteur.type)) {
+    throw new Error(
+      "Les informations contractuelles sont gérées uniquement par LCIF (admin). Contactez l'équipe pour une correction.",
+    );
+  }
+
+  // Apporteurs d'affaires : seule l'adresse postale est modifiable avant signature.
+  const addressLine = String(input.addressLine ?? apporteur.addressLine ?? "").trim();
+  const postalCode = String(input.postalCode ?? apporteur.postalCode ?? "").trim();
+  const city = String(input.city ?? apporteur.city ?? "").trim();
+  if (!addressLine) throw new Error("L'adresse postale est requise.");
+  if (!postalCode) throw new Error("Le code postal est requis.");
+  if (!city) throw new Error("La ville est requise.");
+
+  const merged: Apporteur = { ...apporteur, addressLine, postalCode, city };
+  const check = validateApporteurProfileForContract(merged);
+  if (!check.ok) {
+    // Adresse ok mais d'autres champs manquent encore (admin) — on enregistre quand même l'adresse.
+    return updateApporteur(apporteur.id, { addressLine, postalCode, city });
+  }
+  return updateApporteur(apporteur.id, { addressLine, postalCode, city });
 }
 
 export async function createReferral(input: {

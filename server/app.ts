@@ -2994,6 +2994,9 @@ export function createApp() {
         brokerageSharePercent: (await import("../shared/apporteurBrokerageShare")).resolveBrokerageSharePercent(
           apporteur,
         ),
+        canEditPostalAddress: !(await import("../shared/conseillerImmoClub")).isConseillerImmoClubType(
+          apporteur.type,
+        ),
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });

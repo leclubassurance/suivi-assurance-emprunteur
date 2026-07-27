@@ -26,9 +26,16 @@ type ContractPayload = {
   identityDocument: { fileName: string; uploadedAt: string; driveLink?: string | null } | null;
   brokerageSharePercent?: number;
   companyInCreation?: boolean;
+  canEditPostalAddress?: boolean;
 };
 
-function ProfileReadonlySummary({ profile }: { profile: ApporteurProfileFormState }) {
+function ProfileReadonlySummary({
+  profile,
+  hideAddress = false,
+}: {
+  profile: ApporteurProfileFormState;
+  hideAddress?: boolean;
+}) {
   const rows: [string, string][] = [
     ["Prénom", profile.contactPrenom],
     ["Nom", profile.contactNom],
@@ -36,9 +43,13 @@ function ProfileReadonlySummary({ profile }: { profile: ApporteurProfileFormStat
     ["Téléphone", profile.phone],
     ["Société / enseigne", profile.companyName],
     ["SIRET / SIREN", profile.siret],
-    ["Adresse", profile.addressLine],
-    ["Code postal", profile.postalCode],
-    ["Ville", profile.city],
+    ...(hideAddress
+      ? []
+      : ([
+          ["Adresse", profile.addressLine],
+          ["Code postal", profile.postalCode],
+          ["Ville", profile.city],
+        ] as [string, string][])),
   ];
   return (
     <dl className="grid gap-2 text-sm">
@@ -91,6 +102,8 @@ export default function PartnerContractSigning({
   const [otpSending, setOtpSending] = useState(false);
   const [otpSentHint, setOtpSentHint] = useState<string | null>(null);
   const [identityUploading, setIdentityUploading] = useState(false);
+  const [addressForm, setAddressForm] = useState({ addressLine: "", postalCode: "", city: "" });
+  const [savingAddress, setSavingAddress] = useState(false);
 
   const loadContract = useCallback(async () => {
     setLoading(true);
@@ -116,10 +129,18 @@ export default function PartnerContractSigning({
         identityDocument: json.identityDocument || null,
         brokerageSharePercent: json.brokerageSharePercent,
         companyInCreation: Boolean(json.companyInCreation),
+        canEditPostalAddress: Boolean(json.canEditPostalAddress),
       };
       setPayload(next);
-      if (!next.profileComplete) setStep("blocked");
-      else if (!next.identityDocument?.uploadedAt) setStep("identity");
+      setAddressForm({
+        addressLine: profile.addressLine || "",
+        postalCode: profile.postalCode || "",
+        city: profile.city || "",
+      });
+      if (!next.profileComplete) {
+        // Apporteur : peut compléter l'adresse ; sinon blocage admin.
+        setStep(next.canEditPostalAddress ? "identity" : "blocked");
+      } else if (!next.identityDocument?.uploadedAt) setStep("identity");
       else setStep("contract");
       const hint =
         [profile.contactPrenom, profile.contactNom].filter(Boolean).join(" ") || json.signerHint || "";
@@ -139,6 +160,34 @@ export default function PartnerContractSigning({
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 48) {
       setScrolledToEnd(true);
+    }
+  };
+
+  const savePostalAddress = async () => {
+    setSavingAddress(true);
+    setError(null);
+    try {
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/profile`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            addressLine: addressForm.addressLine,
+            postalCode: addressForm.postalCode,
+            city: addressForm.city,
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Enregistrement de l'adresse impossible.");
+      }
+      await loadContract();
+    } catch (err: any) {
+      setError(err?.message || "Erreur");
+    } finally {
+      setSavingAddress(false);
     }
   };
 
@@ -309,16 +358,18 @@ export default function PartnerContractSigning({
   }
 
   if (step === "identity") {
+    const canEditAddress = Boolean(payload.canEditPostalAddress);
     return (
       <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="bg-[#1E3A8A] text-white px-5 py-4">
           <div className="flex items-center gap-2 mb-1">
             <IdCard className="w-5 h-5 text-amber-300" />
-            <h2 className="text-sm font-black uppercase tracking-wide">Pièce d&apos;identité (obligatoire)</h2>
+            <h2 className="text-sm font-black uppercase tracking-wide">Avant signature</h2>
           </div>
           <p className="text-xs text-indigo-100">
-            Déposez une copie de votre CNI ou passeport (PDF ou photo). Le document est archivé dans
-            votre dossier partenaire Drive. Vos autres informations sont gérées par LCIF.
+            {canEditAddress
+              ? "Vérifiez votre adresse postale (modifiable), puis déposez votre pièce d'identité. Les autres informations sont gérées par LCIF."
+              : "Déposez une copie de votre CNI ou passeport. Vos autres informations sont gérées par LCIF."}
           </p>
         </div>
         <div className="px-5 py-4 space-y-4">
@@ -326,38 +377,99 @@ export default function PartnerContractSigning({
             <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 mb-2">
               Identité au contrat (lecture seule)
             </p>
-            <ProfileReadonlySummary profile={payload.profile} />
+            <ProfileReadonlySummary profile={payload.profile} hideAddress={canEditAddress} />
           </div>
-          {payload.identityDocument?.uploadedAt ? (
-            <p className="text-sm text-emerald-700 font-medium">
-              Document reçu : {payload.identityDocument.fileName}
-            </p>
+
+          {canEditAddress ? (
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-3">
+              <p className="text-[11px] font-black uppercase tracking-wide text-indigo-800">
+                Adresse postale (modifiable)
+              </p>
+              <label className="block text-xs font-bold text-slate-600">
+                Adresse
+                <input
+                  type="text"
+                  value={addressForm.addressLine}
+                  onChange={(e) => setAddressForm((s) => ({ ...s, addressLine: e.target.value }))}
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-normal bg-white"
+                  placeholder="N° et rue"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-xs font-bold text-slate-600">
+                  Code postal
+                  <input
+                    type="text"
+                    value={addressForm.postalCode}
+                    onChange={(e) => setAddressForm((s) => ({ ...s, postalCode: e.target.value }))}
+                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-normal bg-white"
+                    placeholder="44000"
+                  />
+                </label>
+                <label className="block text-xs font-bold text-slate-600">
+                  Ville
+                  <input
+                    type="text"
+                    value={addressForm.city}
+                    onChange={(e) => setAddressForm((s) => ({ ...s, city: e.target.value }))}
+                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-normal bg-white"
+                    placeholder="Nantes"
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={savePostalAddress}
+                disabled={savingAddress}
+                className="w-full py-2.5 rounded-xl border border-indigo-200 bg-white text-indigo-800 text-sm font-bold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              >
+                {savingAddress ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {savingAddress ? "Enregistrement…" : "Enregistrer l'adresse"}
+              </button>
+              {!payload.profileComplete ? (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2">
+                  Enregistrez une adresse complète pour pouvoir continuer. Si d&apos;autres infos
+                  manquent, contactez LCIF.
+                </p>
+              ) : null}
+            </div>
           ) : null}
-          <label className="block text-xs font-bold text-slate-600">
-            Fichier (PDF, JPG, PNG — max 12 Mo)
-            <input
-              type="file"
-              accept="image/*,application/pdf,.pdf"
-              disabled={identityUploading}
-              className="mt-1 block w-full text-sm font-normal"
-              onChange={(e) => uploadIdentity(e.target.files?.[0] || null)}
-            />
-          </label>
+
+          {payload.profileComplete ? (
+            <>
+              {payload.identityDocument?.uploadedAt ? (
+                <p className="text-sm text-emerald-700 font-medium">
+                  Document reçu : {payload.identityDocument.fileName}
+                </p>
+              ) : null}
+              <label className="block text-xs font-bold text-slate-600">
+                Pièce d&apos;identité — PDF, JPG, PNG (max 12 Mo)
+                <input
+                  type="file"
+                  accept="image/*,application/pdf,.pdf"
+                  disabled={identityUploading}
+                  className="mt-1 block w-full text-sm font-normal"
+                  onChange={(e) => uploadIdentity(e.target.files?.[0] || null)}
+                />
+              </label>
+              {identityUploading ? (
+                <p className="text-xs text-slate-500 inline-flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Envoi en cours…
+                </p>
+              ) : null}
+              {payload.identityDocument?.uploadedAt ? (
+                <button
+                  type="button"
+                  onClick={() => setStep("contract")}
+                  className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold"
+                >
+                  Continuer vers le contrat
+                </button>
+              ) : null}
+            </>
+          ) : null}
+
           {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
-          {identityUploading ? (
-            <p className="text-xs text-slate-500 inline-flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Envoi en cours…
-            </p>
-          ) : null}
-          {payload.identityDocument?.uploadedAt ? (
-            <button
-              type="button"
-              onClick={() => setStep("contract")}
-              className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold"
-            >
-              Continuer vers le contrat
-            </button>
-          ) : null}
         </div>
       </section>
     );
@@ -382,8 +494,9 @@ export default function PartnerContractSigning({
           </button>
         </div>
         <p className="text-xs text-indigo-100">
-          Les informations du contrat sont fixées par LCIF. Seule la pièce d&apos;identité est
-          déposée par vos soins.
+          {payload.canEditPostalAddress
+            ? "Identité et société sont fixées par LCIF. Vous pouvez corriger votre adresse avant signature ; la pièce d'identité est déposée par vos soins."
+            : "Les informations du contrat sont fixées par LCIF. Seule la pièce d'identité est déposée par vos soins."}
         </p>
       </div>
 
