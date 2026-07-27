@@ -2897,7 +2897,7 @@ export function createApp() {
           apporteur,
         ),
         companyInCreation: Boolean(apporteur.companyInCreation),
-        identityDocumentRequired: Boolean(apporteur.identityDocumentRequired),
+        identityDocumentRequired: true,
         identityDocumentUploaded: Boolean(apporteur.identityDocument?.uploadedAt),
         contract: {
           status: contractStatus,
