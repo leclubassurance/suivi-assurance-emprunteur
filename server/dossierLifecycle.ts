@@ -197,7 +197,9 @@ export function resolveClientPortalStatusKey(dossier: Dossier): ClientPortalStat
   const sub = resolveEffectiveSubscriptionPhase(dossier);
   if (sub === "completed") return "TRAITÉ";
   if (sub === "adhesion_space_sent" || sub === "decision_received") return "ADHESION_EN_COURS";
-  if (hasStudyBeenSent(dossier) || sub === "awaiting_decision") return "DECISION_EN_ATTENTE";
+  if (hasStudyBeenSent(dossier) || (sub === "awaiting_decision" && hasStudyBeenSent(dossier))) {
+    return "DECISION_EN_ATTENTE";
+  }
 
   if (hasStudyBeenSent(dossier)) return "MAIL_ENVOYÉ";
   if (st === "EN_ATTENTE_CLIENT") return "EN_ATTENTE_CLIENT";

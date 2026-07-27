@@ -36,6 +36,8 @@ export type StudyConseillerValidation = {
   conseillerRetroEur?: number;
   approvedAt?: string;
   approvedBy?: string;
+  /** Horodatage d'annulation admin (permet de ne pas ressusciter un ancien approved au merge). */
+  cancelledAt?: string;
   /** @deprecated Ne plus utiliser — l'envoi client est manuel depuis l'admin. */
   sentAt?: string;
   /** Note contexte visible par le conseiller (débrief admin). */
@@ -383,9 +385,7 @@ export async function submitStudyToConseiller(params: {
   if (existing?.status === "pending") {
     return { ok: false, error: "validation_pending" };
   }
-  if (existing?.status === "approved") {
-    return { ok: false, error: "validation_already_approved" };
-  }
+  // approved / cancelled : on autorise une nouvelle soumission (nouvelle étude / nouveau courtage).
 
   const ctx = extractStudyValidationContext(trimmedHtml, dossier, trimmedSubject);
   const resolvedGross = resolveGrossSavingsForStudyValidation(dossier, {
@@ -508,6 +508,7 @@ export function cancelStudyConseillerValidation(
   const validation: StudyConseillerValidation = {
     ...existing,
     status: "cancelled",
+    cancelledAt: now,
     feesPerAssuredEur: undefined,
     feesCourtageTotalEur: undefined,
     conseillerRetroEur: undefined,

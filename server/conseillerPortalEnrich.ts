@@ -213,6 +213,12 @@ export function enrichReferralForConseillerPortal(params: {
           description:
             "L'étude a été transmise au client. Enregistrez l'accord client (mail ou validation manuelle) pour lancer la suite.",
         }
+      : studyValidationRaw?.status === "cancelled" && !studySent
+        ? {
+            label: "Dossier en préparation",
+            description:
+              "Une précédente validation courtage a été annulée. LCIF prépare une nouvelle étude à vous soumettre.",
+          }
       : resolveClientPortalStatusView(dossier);
   const steps = buildConseillerSubscriptionSteps(dossier, operatingPhase);
   const commission = (() => {

@@ -21,9 +21,9 @@ function studyValidationRank(status?: string): number {
 
 function studyValidationTimestamp(v?: StudyConseillerValidation): number {
   if (!v) return 0;
-  const raw = v.approvedAt || v.submittedAt || "";
-  const ts = new Date(raw).getTime();
-  return Number.isFinite(ts) ? ts : 0;
+  const raw = (v as { cancelledAt?: string }).cancelledAt || v.approvedAt || v.submittedAt || "";
+  const n = new Date(raw).getTime();
+  return Number.isFinite(n) ? n : 0;
 }
 
 /** Évite qu'une synchro Gmail stale écrase une validation conseiller déjà approuvée. */
@@ -36,6 +36,39 @@ export function mergeStudyConseillerValidation(
 
   const existingApprovedAt = existing.approvedAt ? new Date(existing.approvedAt).getTime() : 0;
   const incomingSubmittedAt = incoming.submittedAt ? new Date(incoming.submittedAt).getTime() : 0;
+  const existingSubmittedAt = existing.submittedAt ? new Date(existing.submittedAt).getTime() : 0;
+  const incomingCancelledAt = (incoming as { cancelledAt?: string }).cancelledAt
+    ? new Date(String((incoming as { cancelledAt?: string }).cancelledAt)).getTime()
+    : 0;
+  const existingCancelledAt = (existing as { cancelledAt?: string }).cancelledAt
+    ? new Date(String((existing as { cancelledAt?: string }).cancelledAt)).getTime()
+    : 0;
+
+  // Annulation admin explicite : ne jamais laisser un approved/pending plus ancien la réécrire.
+  if (incoming.status === "cancelled") {
+    if (
+      (existing.status === "pending" || existing.status === "approved") &&
+      existingSubmittedAt > 0 &&
+      incomingSubmittedAt > 0 &&
+      existingSubmittedAt > incomingSubmittedAt
+    ) {
+      // Nouvelle soumission déjà enregistrée après l'annulation de l'ancienne.
+      return existing;
+    }
+    return incoming;
+  }
+  if (existing.status === "cancelled") {
+    const cancelTs = existingCancelledAt || existingSubmittedAt;
+    if (incoming.status === "pending" && incomingSubmittedAt > cancelTs) {
+      return incoming;
+    }
+    if (incoming.status === "approved" && incomingSubmittedAt > cancelTs) {
+      // Approbation d'une soumission postérieure à l'annulation.
+      return incoming;
+    }
+    // Ne pas ressusciter un ancien approved après annulation.
+    return existing;
+  }
 
   // Sync Gmail stale : pending d'une soumission déjà approuvée.
   if (
@@ -55,10 +88,6 @@ export function mergeStudyConseillerValidation(
     existingApprovedAt > 0 &&
     incomingSubmittedAt > existingApprovedAt
   ) {
-    return incoming;
-  }
-
-  if (existing.status === "cancelled" && incoming.status === "pending") {
     return incoming;
   }
 

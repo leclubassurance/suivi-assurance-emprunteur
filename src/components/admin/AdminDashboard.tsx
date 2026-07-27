@@ -1360,8 +1360,6 @@ export default function AdminDashboard({
       } else {
         const submitErrors: Record<string, string> = {
           validation_pending: "Une validation est déjà en cours chez le conseiller. Annulez-la pour resoumettre.",
-          validation_already_approved:
-            "Courtage déjà validé — envoyez au client, ou annulez pour préparer une nouvelle étude.",
         };
         showToast(submitErrors[errData.error] || errData.error || "Erreur de soumission", "error");
       }
@@ -3136,8 +3134,7 @@ export default function AdminDashboard({
                   ) : null}
 
                   {conseillerStudyFlow?.requiresConseillerValidation &&
-                  conseillerStudyFlow.validation?.status !== "pending" &&
-                  conseillerStudyFlow.validation?.status !== "approved" ? (
+                  conseillerStudyFlow.validation?.status !== "pending" ? (
                     <div className="flex flex-col gap-1.5 mb-1">
                       <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
                         Débrief conseiller (optionnel)
@@ -3214,28 +3211,35 @@ export default function AdminDashboard({
                             <Send className="w-4 h-4" />
                             En attente du conseiller
                           </button>
-                        ) : conseillerStudyFlow.canAdminSendStudy ? (
-                          <button
-                            type="button"
-                            onClick={handleSendPastedEmail}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2"
-                          >
-                            <Send className="w-4 h-4" />
-                            {conseillerStudyFlow.studySent
-                              ? "Renvoyer l'étude au client ▶"
-                              : "Envoyer au client ▶"}
-                          </button>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={handleSubmitStudyToConseiller}
-                            className="bg-[#1E3A8A] hover:bg-indigo-900 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2"
-                          >
-                            <Send className="w-4 h-4" />
-                            {conseillerStudyFlow.studySent
-                              ? "Soumettre une nouvelle étude"
-                              : "Soumettre le débrief au conseiller"}
-                          </button>
+                          <>
+                            {conseillerStudyFlow.canAdminSendStudy ? (
+                              <button
+                                type="button"
+                                onClick={handleSendPastedEmail}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2"
+                              >
+                                <Send className="w-4 h-4" />
+                                {conseillerStudyFlow.studySent
+                                  ? "Renvoyer l'étude au client ▶"
+                                  : "Envoyer au client ▶"}
+                              </button>
+                            ) : null}
+                            {conseillerStudyFlow.validation?.status === "approved" ||
+                            !conseillerStudyFlow.canAdminSendStudy ? (
+                              <button
+                                type="button"
+                                onClick={handleSubmitStudyToConseiller}
+                                className="bg-[#1E3A8A] hover:bg-indigo-900 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-all shadow-sm flex items-center gap-2"
+                              >
+                                <Send className="w-4 h-4" />
+                                {conseillerStudyFlow.validation?.status === "approved" ||
+                                conseillerStudyFlow.studySent
+                                  ? "Soumettre une nouvelle étude"
+                                  : "Soumettre le débrief au conseiller"}
+                              </button>
+                            ) : null}
+                          </>
                         )}
                       </div>
                     ) : (

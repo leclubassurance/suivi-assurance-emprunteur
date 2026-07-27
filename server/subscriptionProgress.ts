@@ -331,11 +331,20 @@ export function resolveClientPortalStatusView(dossier: Dossier): ClientPortalSta
     };
   }
 
-  if (studySent || subPhase === "awaiting_decision") {
+  if (studySent || (subPhase === "awaiting_decision" && studySent)) {
     return {
       label: "Étude envoyée — en attente de votre décision",
       description:
         "Votre étude personnalisée vous a été transmise par email. Indiquez-nous si vous souhaitez activer le changement d'assurance pour lancer la suite du dossier.",
+    };
+  }
+
+  // Phase figée « awaiting_decision » sans preuve d'envoi d'étude : ne pas afficher « étude envoyée ».
+  if (subPhase === "awaiting_decision" && !studySent) {
+    return {
+      label: "Analyse en cours",
+      description:
+        "Nous finalisons votre étude personnalisée. Vous la recevrez par email dès qu'elle sera prête.",
     };
   }
 
