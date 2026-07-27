@@ -43,6 +43,11 @@ assert.equal(
   canAccessConseillerFormation({ type: "conseiller_immo_club", formationAccessGranted: false }),
   false,
 );
+assert.equal(canAccessConseillerFormation({ type: "apporteur_affaires" }), false);
+assert.equal(
+  canAccessConseillerFormation({ type: "apporteur_affaires", formationAccessGranted: true }),
+  true,
+);
 
 const withoutSiret = validateApporteurProfileForContract({
   ...baseProfile,

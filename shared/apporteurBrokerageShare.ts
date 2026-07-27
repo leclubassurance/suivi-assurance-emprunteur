@@ -85,10 +85,16 @@ export function resolveRemunerationConfigForApporteur(
   };
 }
 
-/** Accès formation Coassemble (opt-in admin pour les nouveaux ; legacy = autorisé). */
+/**
+ * Accès formation Coassemble.
+ * - Conseillers club : autorisé sauf refus explicite (`false`) — legacy `undefined` = OK.
+ * - Apporteurs : opt-in uniquement (`true` requis).
+ */
 export function canAccessConseillerFormation(
   apporteur: Pick<Apporteur, "formationAccessGranted" | "type">,
 ): boolean {
-  if (!isConseillerImmoClubType(apporteur.type)) return false;
-  return apporteur.formationAccessGranted !== false;
+  if (isConseillerImmoClubType(apporteur.type)) {
+    return apporteur.formationAccessGranted !== false;
+  }
+  return apporteur.formationAccessGranted === true;
 }

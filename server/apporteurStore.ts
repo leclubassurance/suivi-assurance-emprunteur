@@ -436,11 +436,9 @@ export async function createApporteur(input: ApporteurProfileInput & {
       : undefined,
     companyInCreation: Boolean(input.companyInCreation) || undefined,
     brokerageSharePercent: sharePercent ?? undefined,
-    // Nouveaux partenaires : formation désactivée par défaut (admin active au besoin).
-    // Les fiches historiques sans champ restent accessibles (undefined ≠ false).
-    formationAccessGranted: isConseiller
-      ? input.formationAccessGranted === true
-      : undefined,
+    // Formation : opt-in admin (conseillers comme apporteurs). Les fiches conseiller
+    // historiques sans champ restent accessibles via canAccessConseillerFormation.
+    formationAccessGranted: input.formationAccessGranted === true ? true : false,
   };
   store.apporteurs.push(apporteur);
   await persistStore(store);

@@ -2607,14 +2607,10 @@ export function createApp() {
   app.get("/api/apporteur-portal/:token/formations", async (req, res) => {
     try {
       const { findApporteurByPortalToken } = await import("./apporteurStore");
-      const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
       const { canAccessConseillerFormation } = await import("../shared/apporteurBrokerageShare");
       const { loadConseillerFormationParcours } = await import("./conseillerFormationsConfig");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
-      if (!isConseillerImmoClubType(apporteur.type)) {
-        return res.status(403).json({ ok: false, error: "not_conseiller" });
-      }
       const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
       if (!isApporteurPortalUnlocked(apporteur)) {
         return res.status(403).json({ ok: false, error: "portal_locked" });
@@ -2890,9 +2886,9 @@ export function createApp() {
         },
         payoutPerSignature: defaultPayoutDirect,
         portalUnlocked,
-        formationAccessGranted: isConseillerClub
-          ? (await import("../shared/apporteurBrokerageShare")).canAccessConseillerFormation(apporteur)
-          : false,
+        formationAccessGranted: (await import("../shared/apporteurBrokerageShare")).canAccessConseillerFormation(
+          apporteur,
+        ),
         brokerageSharePercent: (await import("../shared/apporteurBrokerageShare")).resolveBrokerageSharePercent(
           apporteur,
         ),

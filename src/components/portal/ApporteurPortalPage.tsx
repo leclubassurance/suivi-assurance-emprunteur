@@ -693,7 +693,7 @@ export default function ApporteurPortalPage({
           </div>
         ) : null}
 
-        {isConseillerClub && data.formationAccessGranted ? (
+        {data.formationAccessGranted ? (
           <div id="ap-formation" className="scroll-mt-28">
             <ConseillerFormationSection portalToken={token} sessionAuth={conseillerSession} previewToken={adminPreviewToken || undefined} />
           </div>

@@ -272,7 +272,11 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
     setEditBrokerageSharePercent(
       a.brokerageSharePercent != null ? String(a.brokerageSharePercent) : "",
     );
-    setEditFormationAccessGranted(a.formationAccessGranted !== false);
+    setEditFormationAccessGranted(
+      segment === "conseiller_club"
+        ? a.formationAccessGranted !== false
+        : a.formationAccessGranted === true,
+    );
   };
 
   const saveApporteurProfile = async () => {
@@ -1217,24 +1221,22 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 La pièce d&apos;identité est toujours obligatoire côté partenaire avant signature (archivée sur Drive).
                 Les infos contractuelles ne sont modifiables que depuis cet écran admin.
               </p>
-              {segment === "conseiller_club" ? (
-                <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={Boolean(newApporteur.formationAccessGranted)}
-                    onChange={(e) =>
-                      setNewApporteur((s) => ({ ...s, formationAccessGranted: e.target.checked }))
-                    }
-                  />
-                  <span>
-                    Accès formation Coassemble
-                    <span className="block text-[10px] text-slate-500 font-normal">
-                      Désactivé par défaut pour les nouveaux — activez quand vous êtes OK.
-                    </span>
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={Boolean(newApporteur.formationAccessGranted)}
+                  onChange={(e) =>
+                    setNewApporteur((s) => ({ ...s, formationAccessGranted: e.target.checked }))
+                  }
+                />
+                <span>
+                  Accès formation Coassemble
+                  <span className="block text-[10px] text-slate-500 font-normal">
+                    Même parcours que les conseillers. Décoché = pas d&apos;accès (réservé à certains).
                   </span>
-                </label>
-              ) : null}
+                </span>
+              </label>
               <label className="text-xs font-bold text-slate-600 block">
                 % rémunération (frais de courtage)
                 <input
@@ -1311,18 +1313,21 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
               <p className="text-[10px] text-slate-500 pl-6">
                 Pièce d&apos;identité toujours obligatoire côté partenaire. Infos contractuelles = admin uniquement.
               </p>
-              {segment === "conseiller_club" ? (
-                <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={editFormationAccessGranted}
-                    onChange={(e) => setEditFormationAccessGranted(e.target.checked)}
-                    disabled={savingApporteur}
-                  />
-                  <span>Accès formation Coassemble</span>
-                </label>
-              ) : null}
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={editFormationAccessGranted}
+                  onChange={(e) => setEditFormationAccessGranted(e.target.checked)}
+                  disabled={savingApporteur}
+                />
+                <span>
+                  Accès formation Coassemble
+                  <span className="block text-[10px] text-slate-500 font-normal">
+                    Même parcours que l&apos;espace conseiller — uniquement si coché.
+                  </span>
+                </span>
+              </label>
               <label className="text-xs font-bold text-slate-600 block">
                 % rémunération (frais de courtage)
                 <input
