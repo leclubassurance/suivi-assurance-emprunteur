@@ -2310,7 +2310,7 @@ export function createApp() {
     try {
       const { loadConseillerFormationParcours } = await import("./conseillerFormationsConfig");
       const parcours = await loadConseillerFormationParcours();
-      res.json({ ok: true, parcours });
+      res.json({ ok: true, parcours, audience: "conseiller" });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
@@ -2325,7 +2325,32 @@ export function createApp() {
       }
       const { saveConseillerFormationParcours } = await import("./conseillerFormationsConfig");
       const parcours = await saveConseillerFormationParcours(raw);
-      res.json({ ok: true, parcours });
+      res.json({ ok: true, parcours, audience: "conseiller" });
+    } catch (err: any) {
+      res.status(400).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get("/api/admin/apporteur-formations", async (_req, res) => {
+    try {
+      const { loadApporteurFormationParcours } = await import("./conseillerFormationsConfig");
+      const parcours = await loadApporteurFormationParcours();
+      res.json({ ok: true, parcours, audience: "apporteur" });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.put("/api/admin/apporteur-formations", express.json(), async (req, res) => {
+    try {
+      const body = req.body || {};
+      const raw = body.parcours;
+      if (!raw || typeof raw !== "object") {
+        return res.status(400).json({ ok: false, error: "parcours requis." });
+      }
+      const { saveApporteurFormationParcours } = await import("./conseillerFormationsConfig");
+      const parcours = await saveApporteurFormationParcours(raw);
+      res.json({ ok: true, parcours, audience: "apporteur" });
     } catch (err: any) {
       res.status(400).json({ ok: false, error: err?.message || String(err) });
     }
@@ -2608,7 +2633,8 @@ export function createApp() {
     try {
       const { findApporteurByPortalToken } = await import("./apporteurStore");
       const { canAccessConseillerFormation } = await import("../shared/apporteurBrokerageShare");
-      const { loadConseillerFormationParcours } = await import("./conseillerFormationsConfig");
+      const { loadFormationParcoursForAudience } = await import("./conseillerFormationsConfig");
+      const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
       const apporteur = await findApporteurByPortalToken(req.params.token);
       if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
       const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
@@ -2622,10 +2648,12 @@ export function createApp() {
           message: "L'accès à la formation n'a pas encore été activé par LCIF.",
         });
       }
-      const parcoursRaw = await loadConseillerFormationParcours();
+      const audience = isConseillerImmoClubType(apporteur.type) ? "conseiller" : "apporteur";
+      const parcoursRaw = await loadFormationParcoursForAudience(audience);
       const parcours = {
         ...parcoursRaw,
         available: parcoursRaw.embedUrl.startsWith("http"),
+        audience,
       };
       res.json({ ok: true, parcours });
     } catch (err: any) {

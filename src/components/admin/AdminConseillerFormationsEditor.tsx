@@ -1,16 +1,42 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { GraduationCap, Loader2, Save } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
-import type { ConseillerFormationParcours } from "../../../shared/conseillerFormations";
+import type {
+  ConseillerFormationParcours,
+  FormationAudience,
+} from "../../../shared/conseillerFormations";
+import {
+  DEFAULT_APPORTEUR_FORMATION_PARCOURS,
+  DEFAULT_CONSEILLER_FORMATION_PARCOURS,
+} from "../../../shared/conseillerFormations";
 
-export default function AdminConseillerFormationsEditor() {
+const AUDIENCE_UI: Record<
+  FormationAudience,
+  { title: string; help: string; apiPath: string; defaults: ConseillerFormationParcours }
+> = {
+  conseiller: {
+    title: "Parcours formation conseillers (Coassemble)",
+    help: "Lien Coassemble réservé aux conseillers immobiliers LCIF. Les apporteurs d'affaires ont un parcours séparé.",
+    apiPath: "/api/admin/conseiller-formations",
+    defaults: DEFAULT_CONSEILLER_FORMATION_PARCOURS,
+  },
+  apporteur: {
+    title: "Parcours formation apporteurs (Coassemble)",
+    help: "Lien Coassemble réservé aux apporteurs d'affaires ayant l'accès formation activé. Distinct du parcours conseillers.",
+    apiPath: "/api/admin/apporteur-formations",
+    defaults: DEFAULT_APPORTEUR_FORMATION_PARCOURS,
+  },
+};
+
+export default function AdminConseillerFormationsEditor({
+  audience = "conseiller",
+}: {
+  audience?: FormationAudience;
+}) {
+  const ui = AUDIENCE_UI[audience];
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [parcours, setParcours] = useState<ConseillerFormationParcours>({
-    title: "",
-    description: "",
-    embedUrl: "",
-  });
+  const [parcours, setParcours] = useState<ConseillerFormationParcours>({ ...ui.defaults });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,16 +44,16 @@ export default function AdminConseillerFormationsEditor() {
     setLoading(true);
     setError(null);
     try {
-      const res = await adminFetch("/api/admin/conseiller-formations");
+      const res = await adminFetch(ui.apiPath);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Chargement impossible");
-      setParcours(data.parcours || data.modules?.[0] || { title: "", description: "", embedUrl: "" });
+      setParcours(data.parcours || data.modules?.[0] || { ...ui.defaults });
     } catch (e: any) {
       setError(e?.message || "Erreur");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [ui.apiPath, ui.defaults]);
 
   useEffect(() => {
     load();
@@ -43,7 +69,7 @@ export default function AdminConseillerFormationsEditor() {
         description: parcours.description.trim(),
         embedUrl: parcours.embedUrl.trim(),
       };
-      const res = await adminFetch("/api/admin/conseiller-formations", {
+      const res = await adminFetch(ui.apiPath, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parcours: payload }),
@@ -73,12 +99,9 @@ export default function AdminConseillerFormationsEditor() {
         <div>
           <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
             <GraduationCap className="w-5 h-5 text-indigo-800" />
-            Parcours formation conseillers (Coassemble)
+            {ui.title}
           </h2>
-          <p className="text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
-            Un seul parcours Coassemble regroupant tous les modules. Collez l&apos;URL iframe du parcours
-            — Coassemble gère les modules et les accès.
-          </p>
+          <p className="text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">{ui.help}</p>
         </div>
         <button
           type="button"
@@ -101,7 +124,7 @@ export default function AdminConseillerFormationsEditor() {
             value={parcours.title}
             onChange={(e) => setParcours((p) => ({ ...p, title: e.target.value }))}
             className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-            placeholder="Ex. Formation assurance emprunteur LCIF"
+            placeholder={ui.defaults.title}
           />
         </div>
         <div>
@@ -110,7 +133,7 @@ export default function AdminConseillerFormationsEditor() {
             value={parcours.description}
             onChange={(e) => setParcours((p) => ({ ...p, description: e.target.value }))}
             className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm min-h-[88px]"
-            placeholder="Quelques lignes pour présenter le parcours au conseiller…"
+            placeholder="Quelques lignes pour présenter le parcours…"
           />
         </div>
         <div>
@@ -121,7 +144,7 @@ export default function AdminConseillerFormationsEditor() {
             value={parcours.embedUrl}
             onChange={(e) => setParcours((p) => ({ ...p, embedUrl: e.target.value }))}
             className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
-            placeholder="https://…"
+            placeholder={ui.defaults.embedUrl || "https://…"}
           />
         </div>
       </div>

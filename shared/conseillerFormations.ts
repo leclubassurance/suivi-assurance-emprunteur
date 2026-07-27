@@ -7,6 +7,8 @@ export type ConseillerFormationParcours = {
   embedUrl: string;
 };
 
+export type FormationAudience = "conseiller" | "apporteur";
+
 export const DEFAULT_CONSEILLER_FORMATION_PARCOURS: ConseillerFormationParcours = {
   title: "Formation assurance emprunteur LCIF",
   description:
@@ -14,14 +16,26 @@ export const DEFAULT_CONSEILLER_FORMATION_PARCOURS: ConseillerFormationParcours 
   embedUrl: "",
 };
 
-export function normalizeConseillerFormationParcours(raw: unknown): ConseillerFormationParcours {
+/** Parcours formation apporteurs d'affaires (lien Coassemble distinct des conseillers). */
+export const DEFAULT_APPORTEUR_FORMATION_PARCOURS: ConseillerFormationParcours = {
+  title: "Formation apporteur d'affaires LCIF",
+  description:
+    "Parcours dédié aux apporteurs d'affaires — suivez la formation à votre rythme sur Coassemble, votre progression y est enregistrée.",
+  embedUrl: "https://coassemble.com/c/AGY26O",
+};
+
+export function normalizeConseillerFormationParcours(
+  raw: unknown,
+  defaults: ConseillerFormationParcours = DEFAULT_CONSEILLER_FORMATION_PARCOURS,
+): ConseillerFormationParcours {
   if (!raw || typeof raw !== "object") {
-    return { ...DEFAULT_CONSEILLER_FORMATION_PARCOURS };
+    return { ...defaults };
   }
   const r = raw as Record<string, unknown>;
+  const embedUrl = String(r.embedUrl || "").trim() || defaults.embedUrl;
   return {
-    title: String(r.title || DEFAULT_CONSEILLER_FORMATION_PARCOURS.title).trim(),
-    description: String(r.description || "").trim() || DEFAULT_CONSEILLER_FORMATION_PARCOURS.description,
-    embedUrl: String(r.embedUrl || "").trim(),
+    title: String(r.title || defaults.title).trim(),
+    description: String(r.description || "").trim() || defaults.description,
+    embedUrl,
   };
 }

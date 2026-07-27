@@ -25,7 +25,7 @@ import { clientHasAcceptedInsuranceChange } from "./insuranceAcceptance";
 import { applyReferralClickGeoToStats } from "../shared/referralGeo";
 import type { ReferralClickGeoSlice } from "../shared/referralGeo";
 import { generatePortalToken } from "./apporteurNotify";
-import { normalizeConseillerFormationParcours } from "../shared/conseillerFormations";
+import { normalizeConseillerFormationParcours, DEFAULT_APPORTEUR_FORMATION_PARCOURS, DEFAULT_CONSEILLER_FORMATION_PARCOURS } from "../shared/conseillerFormations";
 import { normalizeCamilleSchedule } from "../shared/camilleSchedule";
 import { normalizeKereisMiaSettings } from "../shared/kereisMiaRemuneration";
 
@@ -36,6 +36,8 @@ export type ApporteurStore = {
   partnerRecruits: PartnerRecruitRequest[];
   /** Parcours formation conseillers LCIF (titre, intro, URL iframe Coassemble unique). */
   conseillerFormationParcours?: import("../shared/conseillerFormations").ConseillerFormationParcours;
+  /** Parcours formation apporteurs d'affaires (lien Coassemble distinct). */
+  apporteurFormationParcours?: import("../shared/conseillerFormations").ConseillerFormationParcours;
   /** Horaires de fonctionnement de Camille (contrôlés depuis l'admin). */
   camilleSchedule?: import("../shared/camilleSchedule").CamilleSchedule;
   /** Taux commission linéaire Kereis par défaut (%). */
@@ -89,7 +91,18 @@ function normalizeStore(raw: unknown): ApporteurStore {
     updatedAt: data?.updatedAt || new Date().toISOString(),
   };
   if (data?.conseillerFormationParcours) {
-    store.conseillerFormationParcours = normalizeConseillerFormationParcours(data.conseillerFormationParcours);
+    store.conseillerFormationParcours = normalizeConseillerFormationParcours(
+      data.conseillerFormationParcours,
+      DEFAULT_CONSEILLER_FORMATION_PARCOURS,
+    );
+  }
+  if (data?.apporteurFormationParcours) {
+    store.apporteurFormationParcours = normalizeConseillerFormationParcours(
+      data.apporteurFormationParcours,
+      DEFAULT_APPORTEUR_FORMATION_PARCOURS,
+    );
+  } else {
+    store.apporteurFormationParcours = { ...DEFAULT_APPORTEUR_FORMATION_PARCOURS };
   }
   if ((data as ApporteurStore | null)?.camilleSchedule) {
     store.camilleSchedule = normalizeCamilleSchedule((data as ApporteurStore).camilleSchedule);

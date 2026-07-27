@@ -73,7 +73,7 @@ export default function ConseillerFormationSection({
               <p className="text-sm text-indigo-100/90 mt-1 leading-relaxed max-w-xl">{parcours.description}</p>
             ) : (
               <p className="text-sm text-indigo-100/90 mt-1 leading-relaxed max-w-xl">
-                Parcours réservé aux conseillers du Club — votre progression est enregistrée sur Coassemble.
+                Parcours formation LCIF — votre progression est enregistrée sur Coassemble.
               </p>
             )}
           </div>

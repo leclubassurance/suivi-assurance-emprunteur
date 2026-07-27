@@ -601,9 +601,13 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
 
       {segment === "conseiller_club" ? (
         <div className="mx-6 mt-4">
-          <AdminConseillerFormationsEditor />
+          <AdminConseillerFormationsEditor audience="conseiller" />
         </div>
-      ) : null}
+      ) : (
+        <div className="mx-6 mt-4">
+          <AdminConseillerFormationsEditor audience="apporteur" />
+        </div>
+      )}
 
       {ui.showRecruits && pendingRecruits.length > 0 ? (
         <div className="mx-6 mt-4 bg-gradient-to-br from-amber-50 to-white border border-amber-200 rounded-2xl p-5 shadow-sm">
