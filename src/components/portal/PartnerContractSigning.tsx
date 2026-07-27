@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FileSignature, IdCard, Loader2, Lock } from "lucide-react";
+import { CheckCircle2, FileSignature, IdCard, Loader2, Lock, UserPen } from "lucide-react";
 import { getApiUrl, apiFetch } from "../../lib/utils";
-import {
+import ApporteurProfileFormFields, {
   apporteurToProfileForm,
   type ApporteurProfileFormState,
 } from "./ApporteurProfileFormFields";
@@ -24,10 +24,14 @@ type ContractPayload = {
   profileComplete: boolean;
   profile: ApporteurProfileFormState;
   identityDocument: { fileName: string; uploadedAt: string; driveLink?: string | null } | null;
+  identityDocumentRequired: boolean;
   brokerageSharePercent?: number;
   companyInCreation?: boolean;
+  canEditFullProfile?: boolean;
   canEditPostalAddress?: boolean;
 };
+
+type Step = "blocked" | "profile" | "identity" | "contract";
 
 function ProfileReadonlySummary({
   profile,
@@ -91,10 +95,12 @@ export default function PartnerContractSigning({
   };
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [signedSuccess, setSignedSuccess] = useState<{ pdfUrl: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ContractPayload | null>(null);
-  const [step, setStep] = useState<"blocked" | "identity" | "contract">("identity");
+  const [profileForm, setProfileForm] = useState<ApporteurProfileFormState | null>(null);
+  const [step, setStep] = useState<Step>("contract");
   const [signerName, setSignerName] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [scrolledToEnd, setScrolledToEnd] = useState(false);
@@ -104,6 +110,19 @@ export default function PartnerContractSigning({
   const [identityUploading, setIdentityUploading] = useState(false);
   const [addressForm, setAddressForm] = useState({ addressLine: "", postalCode: "", city: "" });
   const [savingAddress, setSavingAddress] = useState(false);
+
+  const resolveStep = (next: ContractPayload): Step => {
+    if (next.canEditFullProfile) {
+      return next.profileComplete ? "contract" : "profile";
+    }
+    if (!next.profileComplete) {
+      return next.canEditPostalAddress ? "identity" : "blocked";
+    }
+    if (next.identityDocumentRequired && !next.identityDocument?.uploadedAt) {
+      return "identity";
+    }
+    return "contract";
+  };
 
   const loadContract = useCallback(async () => {
     setLoading(true);
@@ -127,21 +146,20 @@ export default function PartnerContractSigning({
         profileComplete: Boolean(json.profileComplete),
         profile,
         identityDocument: json.identityDocument || null,
+        identityDocumentRequired: Boolean(json.identityDocumentRequired),
         brokerageSharePercent: json.brokerageSharePercent,
         companyInCreation: Boolean(json.companyInCreation),
+        canEditFullProfile: Boolean(json.canEditFullProfile),
         canEditPostalAddress: Boolean(json.canEditPostalAddress),
       };
+      setProfileForm(profile);
       setPayload(next);
       setAddressForm({
         addressLine: profile.addressLine || "",
         postalCode: profile.postalCode || "",
         city: profile.city || "",
       });
-      if (!next.profileComplete) {
-        // Apporteur : peut compléter l'adresse ; sinon blocage admin.
-        setStep(next.canEditPostalAddress ? "identity" : "blocked");
-      } else if (!next.identityDocument?.uploadedAt) setStep("identity");
-      else setStep("contract");
+      setStep(resolveStep(next));
       const hint =
         [profile.contactPrenom, profile.contactNom].filter(Boolean).join(" ") || json.signerHint || "";
       setSignerName(hint);
@@ -160,6 +178,63 @@ export default function PartnerContractSigning({
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 48) {
       setScrolledToEnd(true);
+    }
+  };
+
+  const saveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profileForm) return;
+    setSavingProfile(true);
+    setError(null);
+    try {
+      const res = await portalFetch(
+        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/profile`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profileForm),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "Enregistrement impossible.");
+      }
+      const profile = apporteurToProfileForm(json.profile || profileForm);
+      setProfileForm(profile);
+      setPayload((prev) =>
+        prev
+          ? {
+              ...prev,
+              profile,
+              profileComplete: Boolean(json.profileComplete),
+            }
+          : prev,
+      );
+      setSignerName([profile.contactPrenom, profile.contactNom].filter(Boolean).join(" "));
+      if (json.profileComplete) {
+        const contractRes = await portalFetch(
+          `/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract`,
+        );
+        const contractJson = await contractRes.json().catch(() => ({}));
+        if (contractRes.ok && contractJson.ok) {
+          setPayload((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  document: contractJson.document,
+                  signerHint: contractJson.signerHint,
+                  profileComplete: true,
+                  profile,
+                }
+              : prev,
+          );
+        }
+        setStep("contract");
+      }
+    } catch (err: any) {
+      setError(err?.message || "Erreur");
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -255,7 +330,10 @@ export default function PartnerContractSigning({
       setError("Saisissez le code reçu par email.");
       return;
     }
-    if (!payload?.identityDocument?.uploadedAt) {
+    if (
+      payload?.identityDocumentRequired &&
+      !payload?.identityDocument?.uploadedAt
+    ) {
       setError("Déposez d'abord votre pièce d'identité.");
       setStep("identity");
       return;
@@ -297,7 +375,7 @@ export default function PartnerContractSigning({
     );
   }
 
-  if (!payload) {
+  if (!payload || (payload.canEditFullProfile && !profileForm)) {
     return (
       <div className="bg-white rounded-2xl border border-red-100 p-6 text-center text-red-700 text-sm">
         {error || "Contrat indisponible."}
@@ -321,6 +399,37 @@ export default function PartnerContractSigning({
         >
           Télécharger le PDF
         </a>
+      </section>
+    );
+  }
+
+  if (step === "profile" && profileForm) {
+    return (
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-[#1E3A8A] text-white px-5 py-4">
+          <div className="flex items-center gap-2 mb-1">
+            <UserPen className="w-5 h-5 text-amber-300" />
+            <h2 className="text-sm font-black uppercase tracking-wide">Vos informations contractuelles</h2>
+          </div>
+          <p className="text-xs text-indigo-100">
+            Renseignez chaque champ distinctement — ces données figureront telles quelles dans le contrat.
+          </p>
+        </div>
+
+        <form onSubmit={saveProfile} className="px-5 py-4 space-y-3">
+          <ApporteurProfileFormFields value={profileForm} onChange={setProfileForm} emailEditable={false} />
+
+          {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
+
+          <button
+            type="submit"
+            disabled={savingProfile}
+            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
+          >
+            {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSignature className="w-4 h-4" />}
+            {savingProfile ? "Enregistrement…" : "Continuer vers le contrat"}
+          </button>
+        </form>
       </section>
     );
   }
@@ -476,6 +585,8 @@ export default function PartnerContractSigning({
   }
 
   const doc = payload.document;
+  const canGoBackToProfile = Boolean(payload.canEditFullProfile);
+  const canGoBackToIdentity = Boolean(payload.identityDocumentRequired);
 
   return (
     <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -485,25 +596,37 @@ export default function PartnerContractSigning({
             <FileSignature className="w-5 h-5 text-amber-300" />
             <h2 className="text-sm font-black uppercase tracking-wide">Signature du contrat partenaire</h2>
           </div>
-          <button
-            type="button"
-            onClick={() => setStep("identity")}
-            className="text-[10px] font-bold uppercase tracking-wide text-indigo-100 hover:text-white underline"
-          >
-            Pièce d&apos;identité
-          </button>
+          {canGoBackToProfile ? (
+            <button
+              type="button"
+              onClick={() => setStep("profile")}
+              className="text-[10px] font-bold uppercase tracking-wide text-indigo-100 hover:text-white underline"
+            >
+              Modifier mes infos
+            </button>
+          ) : canGoBackToIdentity ? (
+            <button
+              type="button"
+              onClick={() => setStep("identity")}
+              className="text-[10px] font-bold uppercase tracking-wide text-indigo-100 hover:text-white underline"
+            >
+              Pièce d&apos;identité
+            </button>
+          ) : null}
         </div>
         <p className="text-xs text-indigo-100">
-          {payload.canEditPostalAddress
-            ? "Identité et société sont fixées par LCIF. Vous pouvez corriger votre adresse avant signature ; la pièce d'identité est déposée par vos soins."
-            : "Les informations du contrat sont fixées par LCIF. Seule la pièce d'identité est déposée par vos soins."}
+          {canGoBackToProfile
+            ? "Dernière étape avant d'accéder à votre lien client et au suivi de vos dossiers clients."
+            : payload.canEditPostalAddress
+              ? "Identité et société sont fixées par LCIF. Vous pouvez corriger votre adresse avant signature ; la pièce d'identité est déposée par vos soins."
+              : "Les informations du contrat sont fixées par LCIF. Seule la pièce d'identité est déposée par vos soins."}
         </p>
       </div>
 
       <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
         <h3 className="font-black text-slate-900 text-base">{doc.title}</h3>
         <p className="text-xs text-slate-500 mt-1">{doc.preamble}</p>
-        {payload.identityDocument?.fileName ? (
+        {payload.identityDocumentRequired && payload.identityDocument?.fileName ? (
           <p className="text-[11px] text-emerald-700 mt-2 font-medium">
             Pièce d&apos;identité : {payload.identityDocument.fileName}
           </p>

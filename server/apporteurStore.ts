@@ -734,10 +734,52 @@ export async function updateApporteurProfileFromPortal(
     throw new Error("Contrat déjà signé — profil non modifiable.");
   }
   const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+
+  // Conseillers du club : parcours historique — profil contractuel éditable avant signature.
   if (isConseillerImmoClubType(apporteur.type)) {
-    throw new Error(
-      "Les informations contractuelles sont gérées uniquement par LCIF (admin). Contactez l'équipe pour une correction.",
-    );
+    const normalized = normalizeApporteurProfileInput({
+      ...input,
+      email: input.email || apporteur.email,
+    });
+    const merged: Apporteur = {
+      ...apporteur,
+      ...normalized,
+      companyName: normalized.companyName || apporteur.companyName,
+    };
+    const check = validateApporteurProfileForContract(merged);
+    if (!check.ok) throw new Error(check.error);
+
+    let siretVerifiedAt: string | undefined;
+    if (merged.companyName && merged.siret) {
+      try {
+        const { lookupFrenchCompany } = await import("./sireneLookup");
+        const { resolveCompanyNamesFromRegistryLookup } = await import("../shared/companyRegistryName");
+        const match = await lookupFrenchCompany(merged.siret);
+        if (!match) throw new Error("SIREN/SIRET introuvable au registre national des entreprises.");
+        if (!match.isActive) throw new Error("L'établissement associé à ce SIRET est inactif ou radié.");
+        const resolved = resolveCompanyNamesFromRegistryLookup(match);
+        normalized.companyLegalName = resolved.companyLegalName;
+        if (!merged.companyName.trim() && resolved.suggestedCompanyName) {
+          normalized.companyName = resolved.suggestedCompanyName;
+        }
+        normalized.siren = match.siren;
+        normalized.siret = match.siret || merged.siret;
+        siretVerifiedAt = new Date().toISOString();
+      } catch (err: any) {
+        const msg = String(err?.message || "");
+        const infraBlocked =
+          msg.includes("saturé") || msg.includes("Accès refusé") || msg.includes("indisponible");
+        if (infraBlocked) {
+          console.warn("[SIRET] Vérification registre non joignable depuis le serveur:", msg);
+          normalized.companyLegalName = normalized.companyLegalName || merged.companyName;
+          normalized.siren = normalized.siren || extractSirenFromSiret(merged.siret || "");
+        } else {
+          throw new Error(msg || "Impossible de vérifier le SIRET.");
+        }
+      }
+    }
+
+    return updateApporteur(apporteur.id, { ...normalized, siretVerifiedAt });
   }
 
   // Apporteurs d'affaires : seule l'adresse postale est modifiable avant signature.
@@ -748,12 +790,6 @@ export async function updateApporteurProfileFromPortal(
   if (!postalCode) throw new Error("Le code postal est requis.");
   if (!city) throw new Error("La ville est requise.");
 
-  const merged: Apporteur = { ...apporteur, addressLine, postalCode, city };
-  const check = validateApporteurProfileForContract(merged);
-  if (!check.ok) {
-    // Adresse ok mais d'autres champs manquent encore (admin) — on enregistre quand même l'adresse.
-    return updateApporteur(apporteur.id, { addressLine, postalCode, city });
-  }
   return updateApporteur(apporteur.id, { addressLine, postalCode, city });
 }
 

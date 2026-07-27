@@ -183,7 +183,13 @@ export async function signApporteurContractOnline(params: {
   if (!profileCheck.ok) {
     throw new Error("error" in profileCheck ? profileCheck.error : "Profil incomplet pour la signature.");
   }
-  if (!params.apporteur.identityDocument?.uploadedAt) {
+  // Pièce d'identité obligatoire uniquement pour les apporteurs d'affaires
+  // (déjà en interne pour les conseillers du club).
+  const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+  if (
+    !isConseillerImmoClubType(params.apporteur.type) &&
+    !params.apporteur.identityDocument?.uploadedAt
+  ) {
     throw new Error("Déposez d'abord votre pièce d'identité avant de signer le contrat.");
   }
   validateSignerName(params.apporteur, params.signerName);

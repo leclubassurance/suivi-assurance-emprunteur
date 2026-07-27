@@ -2063,12 +2063,16 @@ export function createApp() {
         referralToken: body.referralToken,
         sponsorId: segment === "conseiller_club" ? undefined : body.sponsorId,
         stripeCheckoutUrl: segment === "conseiller_club" ? body.stripeCheckoutUrl : undefined,
-        companyInCreation: Boolean(body.companyInCreation),
-        brokerageSharePercent:
-          body.brokerageSharePercent == null || body.brokerageSharePercent === ""
-            ? null
-            : Number(body.brokerageSharePercent),
-        formationAccessGranted: Boolean(body.formationAccessGranted),
+        ...(segment === "conseiller_club"
+          ? {}
+          : {
+              companyInCreation: Boolean(body.companyInCreation),
+              brokerageSharePercent:
+                body.brokerageSharePercent == null || body.brokerageSharePercent === ""
+                  ? null
+                  : Number(body.brokerageSharePercent),
+              formationAccessGranted: Boolean(body.formationAccessGranted),
+            }),
       });
       res.json({ success: true, apporteur });
     } catch (err: any) {
@@ -2679,6 +2683,13 @@ export function createApp() {
         const { uploadApporteurIdentityDocumentToDrive } = await import("./apporteurDriveArchive");
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+        if (isConseillerImmoClubType(apporteur.type)) {
+          return res.status(400).json({
+            ok: false,
+            error: "Pièce d'identité non requise pour les conseillers du club (déjà en interne).",
+          });
+        }
         if (isApporteurContractSigned(apporteur)) {
           return res.status(400).json({ ok: false, error: "Contrat déjà signé — pièce d'identité non modifiable." });
         }
@@ -2921,7 +2932,7 @@ export function createApp() {
           apporteur,
         ),
         companyInCreation: Boolean(apporteur.companyInCreation),
-        identityDocumentRequired: true,
+        identityDocumentRequired: !isConseillerClub,
         identityDocumentUploaded: Boolean(apporteur.identityDocument?.uploadedAt),
         contract: {
           status: contractStatus,
@@ -2971,6 +2982,8 @@ export function createApp() {
       const sponsor = apporteur.sponsorId
         ? store.apporteurs.find((a) => a.id === apporteur.sponsorId) || null
         : null;
+      const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+      const isConseiller = isConseillerImmoClubType(apporteur.type);
       res.json({
         ok: true,
         signed: isApporteurContractSigned(apporteur),
@@ -2983,7 +2996,7 @@ export function createApp() {
         pdfAvailable: isApporteurContractSigned(apporteur),
         driveLink: apporteur.contractSignature?.driveLink || null,
         companyInCreation: Boolean(apporteur.companyInCreation),
-        identityDocumentRequired: true,
+        identityDocumentRequired: !isConseiller,
         identityDocument: apporteur.identityDocument
           ? {
               fileName: apporteur.identityDocument.fileName,
@@ -2994,9 +3007,8 @@ export function createApp() {
         brokerageSharePercent: (await import("../shared/apporteurBrokerageShare")).resolveBrokerageSharePercent(
           apporteur,
         ),
-        canEditPostalAddress: !(await import("../shared/conseillerImmoClub")).isConseillerImmoClubType(
-          apporteur.type,
-        ),
+        canEditFullProfile: isConseiller,
+        canEditPostalAddress: !isConseiller,
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || String(err) });

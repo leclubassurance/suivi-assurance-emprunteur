@@ -313,14 +313,15 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
           ...editApporteurForm,
           companyName: nextCompanyName,
           notes: editApporteurNotes,
-          companyInCreation: editCompanyInCreation,
-          brokerageSharePercent: editBrokerageSharePercent.trim()
-            ? Number(editBrokerageSharePercent)
-            : null,
-          formationAccessGranted: editFormationAccessGranted,
           ...(segment === "conseiller_club"
             ? { stripeCheckoutUrl: editStripeCheckoutUrl.trim() || null }
-            : {}),
+            : {
+                companyInCreation: editCompanyInCreation,
+                brokerageSharePercent: editBrokerageSharePercent.trim()
+                  ? Number(editBrokerageSharePercent)
+                  : null,
+                formationAccessGranted: editFormationAccessGranted,
+              }),
         }),
       });
       const data = await res.json();
@@ -1204,7 +1205,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                   Laissez vide pour ouvrir l&apos;espace dès la signature.
                 </span>
               </label>
-            ) : null}
+            ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
               <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
@@ -1248,7 +1249,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                   min={1}
                   max={100}
                   className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
-                  placeholder={segment === "conseiller_club" ? "Défaut 70" : "Défaut 50"}
+                  placeholder="Défaut 50"
                   value={newApporteur.brokerageSharePercent}
                   onChange={(e) =>
                     setNewApporteur((s) => ({ ...s, brokerageSharePercent: e.target.value }))
@@ -1259,6 +1260,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 </span>
               </label>
             </div>
+            )}
             <p className="text-[10px] text-slate-500 -mt-1">
               Le lien client (?ref=) sera généré à partir du prénom et nom (ex. marie-dupont).
             </p>
@@ -1301,7 +1303,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                   disabled={savingApporteur}
                 />
               </label>
-            ) : null}
+            ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
               <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
@@ -1339,13 +1341,14 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                   min={1}
                   max={100}
                   className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
-                  placeholder={segment === "conseiller_club" ? "Défaut 70" : "Défaut 50"}
+                  placeholder="Défaut 50"
                   value={editBrokerageSharePercent}
                   onChange={(e) => setEditBrokerageSharePercent(e.target.value)}
                   disabled={savingApporteur}
                 />
               </label>
             </div>
+            )}
             <label className="text-xs font-bold text-slate-600">
               Notes internes
               <textarea
