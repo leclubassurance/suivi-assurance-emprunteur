@@ -304,7 +304,10 @@ export function getImportedGmailAttachmentKeys(dossier: any): Set<string> {
   return keys;
 }
 
-/** Supprime les doublons déjà présents (même PJ Gmail ou même empreinte nom/taille/catégorie). */
+/** Supprime les doublons déjà présents (même PJ Gmail ou même empreinte nom/taille/catégorie).
+ *  Ne collapse PAS tous les tableaux/offres en un seul slot : un dossier multi-prêts
+ *  a souvent plusieurs tableaux d'amortissement légitimes.
+ */
 export function dedupeDossierDocuments(dossier: any): { removed: number; remaining: number } {
   const docs = dossier?.formData?.documents;
   if (!Array.isArray(docs) || docs.length < 2) {
@@ -316,9 +319,6 @@ export function dedupeDossierDocuments(dossier: any): { removed: number; remaini
     if (doc?.gmailImportKey) return `import:${doc.gmailImportKey}`;
     if (doc?.gmailMessageId && doc?.name) {
       return `import:${buildGmailImportKey(String(doc.gmailMessageId), { filename: String(doc.name) })}`;
-    }
-    if (doc.category === "offre" || doc.category === "tableau" || doc.category === "fiche") {
-      return `cat:${doc.category}`;
     }
     return `fp:${docFingerprint(doc)}`;
   };
@@ -565,6 +565,40 @@ function docFingerprint(doc: { name?: string; size?: number; category?: string }
   return `${String(doc.category || '')}|${String(doc.name || '').toLowerCase()}|${doc.size || 0}`;
 }
 
+/**
+ * Union de deux listes de documents (évite d'écraser des uploads concurrents
+ * lors d'un export Drive long). Clé = empreinte nom/taille/catégorie, sinon id.
+ */
+export function unionDossierDocuments(a: any[] = [], b: any[] = []): any[] {
+  const map = new Map<string, any>();
+  const score = (doc: any) =>
+    (doc?.driveFileId ? 4 : 0) +
+    (doc?.loanSignal ? 2 : 0) +
+    (Number(doc?.size) > 0 ? 1 : 0) +
+    (Number(doc?.size) || 0) / 1_000_000;
+  // Clé stable sans taille : la réconciliation Drive pose souvent size=0
+  const keyOf = (doc: any) => {
+    const name = String(doc?.name || "").trim().toLowerCase();
+    const cat = String(doc?.category || "");
+    if (name) return `name:${cat}|${name}`;
+    if (doc?.id) return `id:${doc.id}`;
+    return `fp:${docFingerprint(doc)}`;
+  };
+  for (const list of [a, b]) {
+    for (const doc of list || []) {
+      if (!doc) continue;
+      const k = keyOf(doc);
+      const prev = map.get(k);
+      if (!prev || score(doc) > score(prev)) {
+        map.set(k, { ...doc });
+      } else if (!prev.driveFileId && doc.driveFileId) {
+        map.set(k, { ...prev, driveFileId: doc.driveFileId, driveLink: doc.driveLink || prev.driveLink });
+      }
+    }
+  }
+  return [...map.values()];
+}
+
 export function mergeDocumentsIntoDossier(dossier: any, newDocs: SavedGmailAttachment[]) {
   if (!newDocs.length) return [] as SavedGmailAttachment[];
   if (!dossier.formData) dossier.formData = {};
@@ -591,16 +625,11 @@ export function mergeDocumentsIntoDossier(dossier: any, newDocs: SavedGmailAttac
         ? buildGmailImportKey(doc.gmailMessageId, { filename: doc.name })
         : null);
 
-    const singleSlot = doc.category === 'offre' || doc.category === 'tableau' || doc.category === 'fiche';
-    const dupByCategory =
-      singleSlot &&
-      dossier.formData.documents.some((d: any) => d.category === doc.category);
-
+    // Doublons = même PJ Gmail / même nom / même empreinte — PAS « un seul tableau par dossier »
     if (
       (importKey && existingImportKeys.has(importKey)) ||
       existingNames.has(nameKey) ||
-      existingFp.has(fp) ||
-      dupByCategory
+      existingFp.has(fp)
     ) {
       continue;
     }
@@ -616,11 +645,13 @@ export function mergeDocumentsIntoDossier(dossier: any, newDocs: SavedGmailAttac
       existingImportKeys.add(importKey);
       registeredKeys.push(importKey);
     }
-    added.push(doc);
+    added.push(row as SavedGmailAttachment);
   }
-  registerImportedGmailAttachmentKeys(dossier, registeredKeys);
+
+  if (registeredKeys.length) registerImportedGmailAttachmentKeys(dossier, registeredKeys);
   return added;
 }
+
 
 export function getDossierClientEmails(dossier: any): string[] {
   const emails = new Set<string>();

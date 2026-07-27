@@ -598,10 +598,14 @@ export function createApp() {
               existing.workspaceFolderId = result.folderId;
               existing.workspaceSheetId = result.spreadsheetId;
               existing.updatedAt = new Date().toISOString();
-              // Sauvegarde des liens Drive par document (si dispo)
+              // Fusionne (ne remplace pas) : évite d'écraser des uploads admin pendant l'export
               if (newDossier.formData?.documents?.length) {
                 existing.formData = existing.formData || {};
-                existing.formData.documents = newDossier.formData.documents;
+                const { unionDossierDocuments } = await import("./gmailAttachments");
+                existing.formData.documents = unionDossierDocuments(
+                  existing.formData.documents || [],
+                  newDossier.formData.documents,
+                );
               }
               await writeDB(currentDb, existing);
               appendLog(
@@ -3886,7 +3890,11 @@ export function createApp() {
           updated.workspaceError = undefined;
           if (dossier.formData?.documents?.length) {
             updated.formData = updated.formData || {};
-            updated.formData.documents = dossier.formData.documents;
+            const { unionDossierDocuments } = await import("./gmailAttachments");
+            updated.formData.documents = unionDossierDocuments(
+              updated.formData.documents || [],
+              dossier.formData.documents,
+            );
           }
         } else {
           updated.workspaceStatus = "FAILED";
