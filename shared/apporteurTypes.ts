@@ -118,7 +118,10 @@ export type Apporteur = {
    * - `undefined` : comportement historique (autorisé si portail débloqué)
    */
   formationAccessGranted?: boolean;
-  /** Exiger l'upload d'une pièce d'identité avant signature du contrat. */
+  /**
+   * @deprecated Toujours obligatoire — conservé pour compat Firestore.
+   * La pièce d'identité est exigée avant toute signature.
+   */
   identityDocumentRequired?: boolean;
   /** Pièce d'identité déposée (CNI / passeport) — archivée sur Drive partenaire. */
   identityDocument?: {

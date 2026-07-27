@@ -2069,7 +2069,6 @@ export function createApp() {
             ? null
             : Number(body.brokerageSharePercent),
         formationAccessGranted: Boolean(body.formationAccessGranted),
-        identityDocumentRequired: Boolean(body.identityDocumentRequired),
       });
       res.json({ success: true, apporteur });
     } catch (err: any) {
@@ -2960,7 +2959,7 @@ export function createApp() {
         pdfAvailable: isApporteurContractSigned(apporteur),
         driveLink: apporteur.contractSignature?.driveLink || null,
         companyInCreation: Boolean(apporteur.companyInCreation),
-        identityDocumentRequired: Boolean(apporteur.identityDocumentRequired),
+        identityDocumentRequired: true,
         identityDocument: apporteur.identityDocument
           ? {
               fileName: apporteur.identityDocument.fileName,

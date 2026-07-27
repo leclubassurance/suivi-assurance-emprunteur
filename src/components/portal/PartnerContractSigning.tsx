@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FileSignature, Loader2, UserPen } from "lucide-react";
+import { CheckCircle2, FileSignature, IdCard, Loader2, Lock } from "lucide-react";
 import { getApiUrl, apiFetch } from "../../lib/utils";
-import ApporteurProfileFormFields, {
+import {
   apporteurToProfileForm,
   type ApporteurProfileFormState,
 } from "./ApporteurProfileFormFields";
@@ -23,11 +23,38 @@ type ContractPayload = {
   signerHint: string;
   profileComplete: boolean;
   profile: ApporteurProfileFormState;
-  identityDocumentRequired: boolean;
   identityDocument: { fileName: string; uploadedAt: string; driveLink?: string | null } | null;
   brokerageSharePercent?: number;
   companyInCreation?: boolean;
 };
+
+function ProfileReadonlySummary({ profile }: { profile: ApporteurProfileFormState }) {
+  const rows: [string, string][] = [
+    ["Prénom", profile.contactPrenom],
+    ["Nom", profile.contactNom],
+    ["Email", profile.email],
+    ["Téléphone", profile.phone],
+    ["Société / enseigne", profile.companyName],
+    ["SIRET / SIREN", profile.siret],
+    ["Adresse", profile.addressLine],
+    ["Code postal", profile.postalCode],
+    ["Ville", profile.city],
+  ];
+  return (
+    <dl className="grid gap-2 text-sm">
+      {rows
+        .filter(([, v]) => String(v || "").trim())
+        .map(([label, value]) => (
+          <div key={label} className="flex flex-wrap gap-x-2 border-b border-slate-100 pb-1.5">
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-400 w-28 shrink-0">
+              {label}
+            </dt>
+            <dd className="text-slate-800 font-medium">{value}</dd>
+          </div>
+        ))}
+    </dl>
+  );
+}
 
 export default function PartnerContractSigning({
   portalToken,
@@ -53,12 +80,10 @@ export default function PartnerContractSigning({
   };
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [savingProfile, setSavingProfile] = useState(false);
   const [signedSuccess, setSignedSuccess] = useState<{ pdfUrl: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<ContractPayload | null>(null);
-  const [step, setStep] = useState<"profile" | "identity" | "contract">("profile");
-  const [profileForm, setProfileForm] = useState<ApporteurProfileFormState | null>(null);
+  const [step, setStep] = useState<"blocked" | "identity" | "contract">("identity");
   const [signerName, setSignerName] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [scrolledToEnd, setScrolledToEnd] = useState(false);
@@ -81,23 +106,23 @@ export default function PartnerContractSigning({
         return;
       }
       const profile = apporteurToProfileForm(json.profile || {});
-      setProfileForm(profile);
-      setPayload({
+      const next: ContractPayload = {
         signed: json.signed,
         signedAt: json.signedAt,
         document: json.document,
         signerHint: json.signerHint,
         profileComplete: Boolean(json.profileComplete),
         profile,
-        identityDocumentRequired: Boolean(json.identityDocumentRequired),
         identityDocument: json.identityDocument || null,
         brokerageSharePercent: json.brokerageSharePercent,
         companyInCreation: Boolean(json.companyInCreation),
-      });
-      if (!json.profileComplete) setStep("profile");
-      else if (json.identityDocumentRequired && !json.identityDocument?.uploadedAt) setStep("identity");
+      };
+      setPayload(next);
+      if (!next.profileComplete) setStep("blocked");
+      else if (!next.identityDocument?.uploadedAt) setStep("identity");
       else setStep("contract");
-      const hint = [profile.contactPrenom, profile.contactNom].filter(Boolean).join(" ") || json.signerHint || "";
+      const hint =
+        [profile.contactPrenom, profile.contactNom].filter(Boolean).join(" ") || json.signerHint || "";
       setSignerName(hint);
     } catch (err: any) {
       setError(err?.message || "Erreur");
@@ -114,74 +139,6 @@ export default function PartnerContractSigning({
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 48) {
       setScrolledToEnd(true);
-    }
-  };
-
-  const saveProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profileForm) return;
-    setSavingProfile(true);
-    setError(null);
-    try {
-      const res = await portalFetch(
-        `/api/apporteur-portal/${encodeURIComponent(portalToken)}/profile`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(profileForm),
-        },
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || "Enregistrement impossible.");
-      }
-      const profile = apporteurToProfileForm(json.profile || profileForm);
-      setProfileForm(profile);
-      setPayload((prev) =>
-        prev
-          ? {
-              ...prev,
-              profile,
-              profileComplete: Boolean(json.profileComplete),
-              document: prev.document,
-            }
-          : prev,
-      );
-      setSignerName([profile.contactPrenom, profile.contactNom].filter(Boolean).join(" "));
-      if (json.profileComplete) {
-        const contractRes = await portalFetch(
-          `/api/apporteur-portal/${encodeURIComponent(portalToken)}/contract`,
-        );
-        const contractJson = await contractRes.json().catch(() => ({}));
-        if (contractRes.ok && contractJson.ok) {
-          setPayload((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  document: contractJson.document,
-                  signerHint: contractJson.signerHint,
-                  profileComplete: true,
-                  profile,
-                  identityDocumentRequired: Boolean(contractJson.identityDocumentRequired),
-                  identityDocument: contractJson.identityDocument || null,
-                  brokerageSharePercent: contractJson.brokerageSharePercent,
-                  companyInCreation: Boolean(contractJson.companyInCreation),
-                }
-              : prev,
-          );
-          if (contractJson.identityDocumentRequired && !contractJson.identityDocument?.uploadedAt) {
-            setStep("identity");
-          } else {
-            setStep("contract");
-          }
-        } else {
-          setStep("contract");
-        }
-      }
-    } catch (err: any) {
-      setError(err?.message || "Erreur");
-    } finally {
-      setSavingProfile(false);
     }
   };
 
@@ -249,6 +206,11 @@ export default function PartnerContractSigning({
       setError("Saisissez le code reçu par email.");
       return;
     }
+    if (!payload?.identityDocument?.uploadedAt) {
+      setError("Déposez d'abord votre pièce d'identité.");
+      setStep("identity");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -286,7 +248,7 @@ export default function PartnerContractSigning({
     );
   }
 
-  if (!payload || !profileForm) {
+  if (!payload) {
     return (
       <div className="bg-white rounded-2xl border border-red-100 p-6 text-center text-red-700 text-sm">
         {error || "Contrat indisponible."}
@@ -314,16 +276,58 @@ export default function PartnerContractSigning({
     );
   }
 
-  if (step === "identity" && payload) {
+  if (step === "blocked") {
+    return (
+      <section className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+        <div className="bg-[#1E3A8A] text-white px-5 py-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Lock className="w-5 h-5 text-amber-300" />
+            <h2 className="text-sm font-black uppercase tracking-wide">Informations en attente</h2>
+          </div>
+          <p className="text-xs text-indigo-100">
+            Vos données contractuelles sont renseignées uniquement par LCIF. Elles ne sont pas
+            modifiables depuis cet espace.
+          </p>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <ProfileReadonlySummary profile={payload.profile} />
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
+            Le dossier n&apos;est pas encore complet côté administration. Contactez LCIF pour
+            finaliser vos informations, puis revenez signer.
+          </p>
+          {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
+          <button
+            type="button"
+            onClick={() => loadContract()}
+            className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-bold"
+          >
+            Actualiser
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (step === "identity") {
     return (
       <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="bg-[#1E3A8A] text-white px-5 py-4">
-          <h2 className="text-sm font-black uppercase tracking-wide">Pièce d&apos;identité</h2>
-          <p className="text-xs text-indigo-100 mt-1">
-            Déposez une copie de votre CNI ou passeport (PDF ou photo). Le document est archivé dans votre dossier partenaire.
+          <div className="flex items-center gap-2 mb-1">
+            <IdCard className="w-5 h-5 text-amber-300" />
+            <h2 className="text-sm font-black uppercase tracking-wide">Pièce d&apos;identité (obligatoire)</h2>
+          </div>
+          <p className="text-xs text-indigo-100">
+            Déposez une copie de votre CNI ou passeport (PDF ou photo). Le document est archivé dans
+            votre dossier partenaire Drive. Vos autres informations sont gérées par LCIF.
           </p>
         </div>
-        <div className="px-5 py-4 space-y-3">
+        <div className="px-5 py-4 space-y-4">
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 mb-2">
+              Identité au contrat (lecture seule)
+            </p>
+            <ProfileReadonlySummary profile={payload.profile} />
+          </div>
           {payload.identityDocument?.uploadedAt ? (
             <p className="text-sm text-emerald-700 font-medium">
               Document reçu : {payload.identityDocument.fileName}
@@ -345,56 +349,16 @@ export default function PartnerContractSigning({
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Envoi en cours…
             </p>
           ) : null}
-          <div className="flex gap-2 pt-1">
+          {payload.identityDocument?.uploadedAt ? (
             <button
               type="button"
-              onClick={() => setStep("profile")}
-              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-sm font-bold"
+              onClick={() => setStep("contract")}
+              className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold"
             >
-              Retour
+              Continuer vers le contrat
             </button>
-            {payload.identityDocument?.uploadedAt ? (
-              <button
-                type="button"
-                onClick={() => setStep("contract")}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold"
-              >
-                Continuer
-              </button>
-            ) : null}
-          </div>
+          ) : null}
         </div>
-      </section>
-    );
-  }
-
-  if (step === "profile") {
-    return (
-      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="bg-[#1E3A8A] text-white px-5 py-4">
-          <div className="flex items-center gap-2 mb-1">
-            <UserPen className="w-5 h-5 text-amber-300" />
-            <h2 className="text-sm font-black uppercase tracking-wide">Vos informations contractuelles</h2>
-          </div>
-          <p className="text-xs text-indigo-100">
-            Renseignez chaque champ distinctement — ces données figureront telles quelles dans le contrat.
-          </p>
-        </div>
-
-        <form onSubmit={saveProfile} className="px-5 py-4 space-y-3">
-          <ApporteurProfileFormFields value={profileForm} onChange={setProfileForm} emailEditable={false} />
-
-          {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
-
-          <button
-            type="submit"
-            disabled={savingProfile}
-            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
-          >
-            {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSignature className="w-4 h-4" />}
-            {savingProfile ? "Enregistrement…" : "Continuer vers le contrat"}
-          </button>
-        </form>
       </section>
     );
   }
@@ -411,20 +375,26 @@ export default function PartnerContractSigning({
           </div>
           <button
             type="button"
-            onClick={() => setStep("profile")}
+            onClick={() => setStep("identity")}
             className="text-[10px] font-bold uppercase tracking-wide text-indigo-100 hover:text-white underline"
           >
-            Modifier mes infos
+            Pièce d&apos;identité
           </button>
         </div>
         <p className="text-xs text-indigo-100">
-          Dernière étape avant d&apos;accéder à votre lien client et au suivi de vos dossiers clients.
+          Les informations du contrat sont fixées par LCIF. Seule la pièce d&apos;identité est
+          déposée par vos soins.
         </p>
       </div>
 
       <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
         <h3 className="font-black text-slate-900 text-base">{doc.title}</h3>
         <p className="text-xs text-slate-500 mt-1">{doc.preamble}</p>
+        {payload.identityDocument?.fileName ? (
+          <p className="text-[11px] text-emerald-700 mt-2 font-medium">
+            Pièce d&apos;identité : {payload.identityDocument.fileName}
+          </p>
+        ) : null}
       </div>
 
       <div
@@ -492,26 +462,31 @@ export default function PartnerContractSigning({
               {otpSending ? "Envoi…" : "Recevoir un code"}
             </button>
           </div>
-          {otpSentHint ? <span className="block mt-1 text-[10px] font-normal text-slate-500">{otpSentHint}</span> : null}
+          {otpSentHint ? (
+            <span className="block mt-1 text-[10px] font-normal text-slate-500">{otpSentHint}</span>
+          ) : null}
         </label>
 
         {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
 
         <button
           type="submit"
-          disabled={submitting || !scrolledToEnd || !acceptTerms || !signerName.trim() || emailOtp.trim().length < 6}
+          disabled={
+            submitting ||
+            !scrolledToEnd ||
+            !acceptTerms ||
+            !signerName.trim() ||
+            emailOtp.trim().length < 6
+          }
           className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
-          {submitting ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <CheckCircle2 className="w-4 h-4" />
-          )}
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
           {submitting ? "Signature en cours…" : "Signer et débloquer mon espace"}
         </button>
 
         <p className="text-[10px] text-slate-400 text-center">
-          Horodatage, code email et identité enregistrés par Le Club Immobilier Français · version {doc.version}
+          Horodatage, code email et identité enregistrés par Le Club Immobilier Français · version{" "}
+          {doc.version}
         </p>
       </form>
     </section>

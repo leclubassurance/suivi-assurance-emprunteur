@@ -12,7 +12,6 @@ import type {
   ReferralStatus,
 } from "../shared/apporteurTypes";
 import { buildContactNameFromParts, normalizeApporteurProfileInput, validateApporteurProfileForContract, type ApporteurProfileInput } from "../shared/apporteurProfile";
-import { resolveCompanyNamesFromRegistryLookup } from "../shared/companyRegistryName";
 import { extractSirenFromSiret } from "../shared/siret";
 import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
 import { computeAdminApporteurKpis, computeReferralKpis } from "../shared/apporteurKpis";
@@ -362,7 +361,6 @@ export async function createApporteur(input: ApporteurProfileInput & {
   companyInCreation?: boolean;
   brokerageSharePercent?: number | null;
   formationAccessGranted?: boolean;
-  identityDocumentRequired?: boolean;
 }): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const now = new Date().toISOString();
@@ -443,7 +441,6 @@ export async function createApporteur(input: ApporteurProfileInput & {
     formationAccessGranted: isConseiller
       ? input.formationAccessGranted === true
       : undefined,
-    identityDocumentRequired: Boolean(input.identityDocumentRequired) || undefined,
   };
   store.apporteurs.push(apporteur);
   await persistStore(store);
@@ -717,52 +714,12 @@ export async function expireConseillerMembershipPayment(id: string): Promise<App
 }
 
 export async function updateApporteurProfileFromPortal(
-  portalToken: string,
-  input: ApporteurProfileInput,
+  _portalToken: string,
+  _input: ApporteurProfileInput,
 ): Promise<Apporteur> {
-  const apporteur = await findApporteurByPortalToken(portalToken);
-  if (!apporteur) throw new Error("Lien portail invalide.");
-  if ((apporteur.contractStatus || "none") === "signed") {
-    throw new Error("Contrat déjà signé — profil non modifiable.");
-  }
-  const normalized = normalizeApporteurProfileInput({
-    ...input,
-    email: input.email || apporteur.email,
-  });
-  const merged: Apporteur = { ...apporteur, ...normalized, companyName: normalized.companyName || apporteur.companyName };
-  const check = validateApporteurProfileForContract(merged);
-  if (!check.ok) throw new Error(check.error);
-
-  let siretVerifiedAt: string | undefined;
-  if (merged.companyName && merged.siret) {
-    try {
-      const { lookupFrenchCompany } = await import("./sireneLookup");
-      const match = await lookupFrenchCompany(merged.siret);
-      if (!match) throw new Error("SIREN/SIRET introuvable au registre national des entreprises.");
-      if (!match.isActive) throw new Error("L'établissement associé à ce SIRET est inactif ou radié.");
-      const resolved = resolveCompanyNamesFromRegistryLookup(match);
-      normalized.companyLegalName = resolved.companyLegalName;
-      if (!merged.companyName.trim() && resolved.suggestedCompanyName) {
-        normalized.companyName = resolved.suggestedCompanyName;
-      }
-      normalized.siren = match.siren;
-      normalized.siret = match.siret || merged.siret;
-      siretVerifiedAt = new Date().toISOString();
-    } catch (err: any) {
-      const msg = String(err?.message || "");
-      const infraBlocked =
-        msg.includes("saturé") || msg.includes("Accès refusé") || msg.includes("indisponible");
-      if (infraBlocked) {
-        console.warn("[SIRET] Vérification registre non joignable depuis le serveur:", msg);
-        normalized.companyLegalName = normalized.companyLegalName || merged.companyName;
-        normalized.siren = normalized.siren || extractSirenFromSiret(merged.siret || "");
-      } else {
-        throw new Error(msg || "Impossible de vérifier le SIRET.");
-      }
-    }
-  }
-
-  return updateApporteur(apporteur.id, { ...normalized, siretVerifiedAt });
+  throw new Error(
+    "Les informations contractuelles sont gérées uniquement par LCIF (admin). Contactez l'équipe pour une correction.",
+  );
 }
 
 export async function createReferral(input: {

@@ -111,7 +111,6 @@ function emptyApporteurForm(segment: AdminPartnersSegment) {
     companyInCreation: false,
     brokerageSharePercent: "",
     formationAccessGranted: false,
-    identityDocumentRequired: true,
   };
 }
 
@@ -151,7 +150,6 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
   const [editCompanyInCreation, setEditCompanyInCreation] = useState(false);
   const [editBrokerageSharePercent, setEditBrokerageSharePercent] = useState("");
   const [editFormationAccessGranted, setEditFormationAccessGranted] = useState(false);
-  const [editIdentityDocumentRequired, setEditIdentityDocumentRequired] = useState(false);
   const [savingApporteur, setSavingApporteur] = useState(false);
   const [membershipBusyId, setMembershipBusyId] = useState<string | null>(null);
 
@@ -275,7 +273,6 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
       a.brokerageSharePercent != null ? String(a.brokerageSharePercent) : "",
     );
     setEditFormationAccessGranted(a.formationAccessGranted !== false);
-    setEditIdentityDocumentRequired(Boolean(a.identityDocumentRequired));
   };
 
   const saveApporteurProfile = async () => {
@@ -317,7 +314,6 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
             ? Number(editBrokerageSharePercent)
             : null,
           formationAccessGranted: editFormationAccessGranted,
-          identityDocumentRequired: editIdentityDocumentRequired,
           ...(segment === "conseiller_club"
             ? { stripeCheckoutUrl: editStripeCheckoutUrl.trim() || null }
             : {}),
@@ -1213,26 +1209,14 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 <span>
                   Société / activité en cours de création (sans Kbis)
                   <span className="block text-[10px] text-slate-500 font-normal">
-                    Autorise la signature du contrat sans SIRET — à compléter plus tard.
+                    Autorise la signature du contrat sans SIRET — à compléter plus tard côté admin.
                   </span>
                 </span>
               </label>
-              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={Boolean(newApporteur.identityDocumentRequired)}
-                  onChange={(e) =>
-                    setNewApporteur((s) => ({ ...s, identityDocumentRequired: e.target.checked }))
-                  }
-                />
-                <span>
-                  Exiger une pièce d&apos;identité avant signature
-                  <span className="block text-[10px] text-slate-500 font-normal">
-                    CNI / passeport uploadé dans l&apos;espace → archivé sur Drive partenaire.
-                  </span>
-                </span>
-              </label>
+              <p className="text-[10px] text-slate-500 pl-6">
+                La pièce d&apos;identité est toujours obligatoire côté partenaire avant signature (archivée sur Drive).
+                Les infos contractuelles ne sont modifiables que depuis cet écran admin.
+              </p>
               {segment === "conseiller_club" ? (
                 <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                   <input
@@ -1324,16 +1308,9 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 />
                 <span>Société / activité en cours de création (sans Kbis)</span>
               </label>
-              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={editIdentityDocumentRequired}
-                  onChange={(e) => setEditIdentityDocumentRequired(e.target.checked)}
-                  disabled={savingApporteur}
-                />
-                <span>Exiger une pièce d&apos;identité avant signature</span>
-              </label>
+              <p className="text-[10px] text-slate-500 pl-6">
+                Pièce d&apos;identité toujours obligatoire côté partenaire. Infos contractuelles = admin uniquement.
+              </p>
               {segment === "conseiller_club" ? (
                 <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                   <input
