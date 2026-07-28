@@ -5055,7 +5055,11 @@ export function createApp() {
       annualPremiumEur:
         body.annualPremiumEur != null ? Number(body.annualPremiumEur) : undefined,
       linearCommissionPercent:
-        body.linearCommissionPercent != null ? Number(body.linearCommissionPercent) : undefined,
+        body.linearCommissionPercent === null
+          ? null
+          : body.linearCommissionPercent != null
+            ? Number(body.linearCommissionPercent)
+            : undefined,
       kereisCommissionOverrideEur: body.kereisCommissionOverrideEur,
       feesCourtageOverrideEur: body.feesCourtageOverrideEur,
       paymentStatus: body.paymentStatus as any,

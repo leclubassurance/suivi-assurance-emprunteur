@@ -1200,6 +1200,101 @@ export function AdminCamilleSchedulePanel() {
   );
 }
 
+/** Réglage global du taux linéaire Kereis (hors fiche dossier). */
+export function AdminKereisMiaSettingsPanel() {
+  const [defaultLinearPercent, setDefaultLinearPercent] = useState("15");
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const authHeaders = async () => {
+    const token = await getAccessToken();
+    return token
+      ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+      : { "Content-Type": "application/json" };
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await adminFetch("/api/admin/kereis-mia-settings");
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && data?.settings?.defaultLinearCommissionPercent != null) {
+          setDefaultLinearPercent(String(data.settings.defaultLinearCommissionPercent));
+          setLoaded(true);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const save = async () => {
+    const raw = String(defaultLinearPercent).replace(",", ".");
+    const pct = Number(raw);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      showToast("Taux par défaut invalide (0–100 %)", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await adminFetch("/api/admin/kereis-mia-settings", {
+        method: "PUT",
+        headers: await authHeaders(),
+        body: JSON.stringify({ settings: { defaultLinearCommissionPercent: pct } }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        showToast(data.error || "Impossible d'enregistrer le taux par défaut", "error");
+        return;
+      }
+      setDefaultLinearPercent(String(data.settings.defaultLinearCommissionPercent));
+      showToast(
+        `Défaut Kereis : ${data.settings.defaultLinearCommissionPercent} % (dossiers sans % individuel)`,
+        "success",
+      );
+    } catch {
+      showToast("Erreur réseau", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-950">
+      <p className="font-black mb-1">Kereis MIA — taux linéaire par défaut</p>
+      <p className="text-[11px] text-indigo-800 mb-3 leading-relaxed">
+        Appliqué uniquement aux dossiers <strong>sans</strong> % individuel. Pour un dossier précis,
+        utilisez le champ « % linéaire dossier » dans la fiche (panneau Camille / rémunération club).
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="block flex-1 min-w-[120px]">
+          <span className="text-[10px] font-bold">Taux linéaire par défaut (%)</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={defaultLinearPercent}
+            onChange={(e) => setDefaultLinearPercent(e.target.value)}
+            disabled={!loaded || saving}
+            className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm bg-white"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!loaded || saving}
+          onClick={save}
+          className="text-[10px] font-bold px-3 py-2 rounded bg-indigo-800 text-white hover:bg-indigo-900 disabled:opacity-50 shrink-0"
+        >
+          {saving ? "…" : "Enregistrer le défaut global"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AdminCamillePanel({
   dossier,
   onDossierUpdated,
@@ -1231,7 +1326,6 @@ export function AdminCamillePanel({
   const [defaultLinearPercent, setDefaultLinearPercent] = useState("15");
   const [savingClubRevenue, setSavingClubRevenue] = useState(false);
   const [syncingClubRevenue, setSyncingClubRevenue] = useState(false);
-  const [savingDefaultLinearPercent, setSavingDefaultLinearPercent] = useState(false);
 
   useEffect(() => {
     const kpi = (dossier as any).studyKpi ?? null;
@@ -1524,6 +1618,7 @@ export function AdminCamillePanel({
         method: "PATCH",
         headers: await authHeaders(),
         body: JSON.stringify({
+          // null = revenir au défaut global pour CE dossier uniquement
           linearCommissionPercent: linearCommissionPercent ?? null,
         }),
       });
@@ -1534,8 +1629,15 @@ export function AdminCamillePanel({
       }
       setClubRevenueKpi(data.clubRevenueKpi);
       (dossier as any).clubRevenueKpi = data.clubRevenueKpi;
+      setManualLinearPercent(
+        data.clubRevenueKpi?.linearCommissionPercent != null
+          ? String(data.clubRevenueKpi.linearCommissionPercent)
+          : "",
+      );
       showToast(
-        `Taux linéaire enregistré — net LCIF ${data.breakdown?.clubNetEur ?? clubRevenuePreview.clubNetEur} €`,
+        linearCommissionPercent != null
+          ? ` % linéaire de ce dossier : ${linearCommissionPercent} %`
+          : ` % linéaire de ce dossier : défaut global (${defaultLinearPercent} %)`,
         "success",
       );
       onDossierUpdated?.();
@@ -1543,34 +1645,6 @@ export function AdminCamillePanel({
       showToast("Erreur réseau", "error");
     } finally {
       setSavingClubRevenue(false);
-    }
-  };
-
-  const handleSaveDefaultLinearPercent = async () => {
-    const raw = String(defaultLinearPercent).replace(",", ".");
-    const pct = Number(raw);
-    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
-      showToast("Taux par défaut invalide (0–100 %)", "error");
-      return;
-    }
-    setSavingDefaultLinearPercent(true);
-    try {
-      const res = await adminFetch("/api/admin/kereis-mia-settings", {
-        method: "PUT",
-        headers: await authHeaders(),
-        body: JSON.stringify({ settings: { defaultLinearCommissionPercent: pct } }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        showToast(data.error || "Impossible d'enregistrer le taux par défaut", "error");
-        return;
-      }
-      setDefaultLinearPercent(String(data.settings.defaultLinearCommissionPercent));
-      showToast(`Taux linéaire par défaut : ${data.settings.defaultLinearCommissionPercent} %`, "success");
-    } catch {
-      showToast("Erreur réseau", "error");
-    } finally {
-      setSavingDefaultLinearPercent(false);
     }
   };
 
@@ -1880,8 +1954,11 @@ export function AdminCamillePanel({
           {KEREIS_MIA_CONTRACT.emprunteur.courtageEqualsDistribution}. Courtage et frais de dossier
           sont lus depuis le mail d&apos;étude ou le brouillon calculé ; la{" "}
           <strong>prime annuelle</strong> et les <strong>frais de dossier</strong> peuvent être
-          corrigés via la saisie manuelle KPI (second devis, garanties différentes). Seul le{" "}
-          <strong>% linéaire dossier</strong> est modifiable ci-dessous (sinon défaut global).
+          corrigés via la saisie manuelle KPI. Le <strong>% ci-dessous ne s&apos;applique qu&apos;à
+          ce dossier</strong>
+          {clubRevenueKpi?.linearCommissionPercent == null
+            ? ` (sinon défaut global ${defaultLinearPercent} %).`
+            : "."}
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
           <div className="rounded-lg bg-white/70 border border-indigo-100 px-2.5 py-2">
@@ -1907,36 +1984,16 @@ export function AdminCamillePanel({
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-end gap-2 mb-3 p-2 rounded-lg bg-white/60 border border-indigo-100">
-          <label className="block flex-1 min-w-[120px]">
-            <span className="text-[10px] font-bold">Taux linéaire par défaut (%)</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={defaultLinearPercent}
-              onChange={(e) => setDefaultLinearPercent(e.target.value)}
-              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={savingDefaultLinearPercent}
-            onClick={handleSaveDefaultLinearPercent}
-            className="text-[10px] font-bold px-3 py-2 rounded bg-indigo-800 text-white hover:bg-indigo-900 disabled:opacity-50 shrink-0"
-          >
-            {savingDefaultLinearPercent ? "…" : "Enregistrer défaut"}
-          </button>
-        </div>
         <div className="flex flex-wrap items-end gap-2 mb-3">
           <label className="block flex-1 min-w-[160px]">
-            <span className="text-[10px] font-bold">% linéaire dossier (optionnel)</span>
+            <span className="text-[10px] font-bold">% linéaire de ce dossier</span>
             <input
               type="text"
               inputMode="decimal"
               value={manualLinearPercent}
               onChange={(e) => setManualLinearPercent(e.target.value)}
-              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm font-bold"
-              placeholder={`défaut ${defaultLinearPercent} %`}
+              className="mt-0.5 w-full rounded border border-indigo-300 px-2 py-1.5 text-sm font-bold bg-white"
+              placeholder={`vide = défaut ${defaultLinearPercent} %`}
             />
           </label>
           <button
@@ -1945,9 +2002,13 @@ export function AdminCamillePanel({
             onClick={handleSaveClubRevenue}
             className="text-[10px] font-bold px-3 py-2 rounded bg-indigo-900 text-white hover:bg-indigo-950 disabled:opacity-50 shrink-0"
           >
-            {savingClubRevenue ? "…" : "Enregistrer % linéaire"}
+            {savingClubRevenue ? "…" : "Enregistrer pour ce dossier"}
           </button>
         </div>
+        <p className="text-[10px] text-indigo-700 mb-3 -mt-1">
+          Champ vide + enregistrer = revenir au défaut global. Le défaut global se règle dans l&apos;onglet
+          Suivi (hors fiche dossier).
+        </p>
         <div className="rounded-lg bg-white/70 border border-indigo-200 p-3 space-y-1 text-[11px]">
           <p>
             Courtage / distribution : <strong>{clubRevenuePreview.feesCourtageEur} €</strong>
