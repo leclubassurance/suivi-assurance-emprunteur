@@ -482,17 +482,17 @@ export default function ClientLandingPage({
                   <img
                     className="avatar"
                     src="https://res.cloudinary.com/dji8akleo/image/upload/v1777319709/Design_sans_titre-11_gjufma.png"
-                    alt="Rémi"
+                    alt="Rémi Lascaud"
                   />
-                  <strong>Rémi</strong>
+                  <strong>Rémi Lascaud</strong>
                 </div>
                 <div className="founder">
                   <img
                     className="avatar"
                     src="https://res.cloudinary.com/dji8akleo/image/upload/v1776433695/Design_sans_titre-9_a6j5xz.png"
-                    alt="Kevin"
+                    alt="Kevin Picard"
                   />
-                  <strong>Kevin</strong>
+                  <strong>Kevin Picard</strong>
                 </div>
               </div>
               <p className="founders-title">Cofondateurs du Club Immobilier Français</p>
