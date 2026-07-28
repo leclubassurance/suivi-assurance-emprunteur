@@ -870,8 +870,8 @@ export function createApp() {
     const dossier = db.dossiers.find((d: any) => d.id === id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    const { getStudyPdfPath, ensureBrandedStudyClientEmail } = await import("./studyPdfFlow");
-    const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
+    const { ensureBrandedStudyClientEmail, hasStudyPdfMeta } = await import("./studyPdfFlow");
+    const hasStudyPdf = hasStudyPdfMeta(dossier);
     if (hasStudyPdf) {
       ensureBrandedStudyClientEmail(dossier);
     }
@@ -1063,10 +1063,19 @@ export function createApp() {
     const validation = dossier.studyConseillerValidation || null;
     const draftHtml = dossier.studyDraft?.html || validation?.html || "";
     const sendSlice = dossierSliceForStudySend(dossier);
-    const { getStudyPdfPath, ensureBrandedStudyClientEmail } = await import("./studyPdfFlow");
+    const { getStudyPdfPath, ensureBrandedStudyClientEmail, hasStudyPdfMeta, ensureStudyPdfDurable } =
+      await import("./studyPdfFlow");
     // Régénère le HTML en mémoire pour l'aperçu — pas d'écriture Firestore sur un GET.
     ensureBrandedStudyClientEmail(dossier);
-    const hasStudyPdf = Boolean(getStudyPdfPath(dossier));
+    let hasStudyPdf = hasStudyPdfMeta(dossier);
+    // Tente une restauration Drive → disque si métadonnées présentes mais fichier local absent.
+    if (hasStudyPdf && !getStudyPdfPath(dossier)) {
+      const ensured = await ensureStudyPdfDurable(dossier, UPLOADS_DIR);
+      if (ensured.ok) {
+        hasStudyPdf = true;
+        await writeDB(db, dossier).catch(() => undefined);
+      }
+    }
     res.json({
       requiresConseillerValidation,
       canAdminSendStudy: !gate.blocked,
@@ -1081,6 +1090,10 @@ export function createApp() {
       studyPdfFileName:
         (dossier as any).studyPdf?.fileName ||
         (dossier.studyDraft as any)?.extracted?.pdf?.fileName ||
+        null,
+      studyPdfDriveFileId:
+        (dossier as any).studyPdf?.driveFileId ||
+        (dossier.studyDraft as any)?.extracted?.pdf?.driveFileId ||
         null,
       studyDraftSummary: dossier.studyDraft?.economySummary || null,
       studyKpi: dossier.studyKpi || null,
@@ -1215,9 +1228,10 @@ export function createApp() {
       await writeDB(db, dossier);
     } catch (err: any) {
       console.error("[study-pdf] Persistance:", err?.message || err);
-      return res.json({
-        success: true,
-        warning: "PDF importé localement — persistance Firestore incomplète.",
+      return res.status(500).json({
+        success: false,
+        error:
+          "PDF analysé mais non enregistré en base. Réessayez l'import — sans cela le PDF disparaîtra.",
         studyDraft: dossier.studyDraft,
         studyKpi: dossier.studyKpi,
         studyPdf: (dossier as any).studyPdf,
@@ -1232,6 +1246,9 @@ export function createApp() {
       studyPdf: (dossier as any).studyPdf,
       insuranceChangePlan: dossier.insuranceChangePlan,
       parsed: result.parsed,
+      drivePersisted: result.drivePersisted !== false,
+      hasStudyPdf: true,
+      warning: result.warning || null,
     });
   });
 
@@ -1533,6 +1550,56 @@ export function createApp() {
       `${asDownload ? "attachment" : "inline"}; filename="${fileName.replace(/"/g, "")}"`,
     );
     return res.sendFile(path.resolve(ensured.localPath));
+  });
+
+  /** Supprime le PDF d'étude (métadonnées + doc + fichier local) pour permettre un réimport propre. */
+  app.delete("/api/admin/dossiers/:id/study-pdf", async (req, res) => {
+    await ensureBackgroundServicesStarted();
+    const db = await readDBAsync();
+    const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    const { getStudyPdfPath } = await import("./studyPdfFlow");
+    const localPath = getStudyPdfPath(dossier);
+    if (localPath) {
+      try {
+        fs.unlinkSync(localPath);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    delete (dossier as any).studyPdf;
+    if (dossier.studyDraft?.extracted?.pdf) {
+      delete (dossier.studyDraft.extracted as any).pdf;
+    }
+    if (dossier.studyDraft?.kind === "PDF_UPLOAD") {
+      // Conserve le brouillon HTML/KPI ; le PDF sera remplacé au prochain import.
+      dossier.studyDraft.kind = "PDF_UPLOAD_CLEARED" as any;
+    }
+    if (Array.isArray(dossier.formData?.documents)) {
+      dossier.formData.documents = dossier.formData.documents.filter(
+        (d: any) =>
+          String(d?.category || "").toLowerCase() !== "etude" &&
+          String(d?.source || "").toLowerCase() !== "study_pdf" &&
+          !String(d?.id || "").startsWith("etude-study-pdf"),
+      );
+    }
+    if (dossier.studyConseillerValidation) {
+      delete dossier.studyConseillerValidation.studyPdfFileName;
+      if (dossier.studyConseillerValidation.studySource === "pdf") {
+        dossier.studyConseillerValidation.studySource = undefined as any;
+      }
+    }
+
+    addEvent(dossier, {
+      type: "NOTE_ADDED",
+      actor: { kind: "ADMIN", label: String((req as any).adminEmail || "Admin") },
+      message: "PDF d'étude supprimé — prêt pour un nouvel import.",
+      meta: { template: "STUDY_PDF_CLEARED" },
+    });
+    await writeDB(db, dossier);
+    return res.json({ success: true, hasStudyPdf: false });
   });
 
   // Upload/replace a single active quote ("devis") PDF for the dossier (admin only workflow)
@@ -3454,13 +3521,12 @@ export function createApp() {
           return res.status(404).json({ ok: false, error: "no_pending_validation" });
         }
 
-        const { getStudyPdfPath, ensureStudyPdfDurable, buildStudyClientEmailHtml } = await import(
-          "./studyPdfFlow"
-        );
-        let hasStudyPdf = Boolean(getStudyPdfPath(dossier));
-        if (!hasStudyPdf) {
+        const { getStudyPdfPath, ensureStudyPdfDurable, buildStudyClientEmailHtml, hasStudyPdfMeta } =
+          await import("./studyPdfFlow");
+        let hasStudyPdf = hasStudyPdfMeta(dossier);
+        if (hasStudyPdf && !getStudyPdfPath(dossier)) {
           const ensured = await ensureStudyPdfDurable(dossier, UPLOADS_DIR);
-          hasStudyPdf = ensured.ok;
+          hasStudyPdf = ensured.ok || hasStudyPdfMeta(dossier);
           if (ensured.ok) {
             await writeDB(db, dossier).catch(() => undefined);
           }
@@ -5417,13 +5483,17 @@ export function createApp() {
       if (!doc) return res.status(404).json({ error: "Document introuvable" });
 
       doc.category = category;
+      doc.categoryManual = true;
+      doc.categorySetAt = new Date().toISOString();
+      doc.categorySetBy = String((req as any).adminEmail || "admin");
       // Pas de réanalyse OCR synchrone (bloquait le reclassement sur dossiers multi-tableaux).
 
       dossier.updatedAt = new Date().toISOString();
       addEvent(dossier, {
         type: "NOTE_ADDED",
         actor: { kind: "ADMIN", label: "Rémi" },
-        message: `Type du document « ${doc.name} » défini sur : ${category}`,
+        message: `Type du document « ${doc.name} » défini manuellement sur : ${category}`,
+        meta: { template: "DOCUMENT_CATEGORY_MANUAL", docId: doc.id, category },
       });
       await writeDB(db, dossier);
 
@@ -5434,6 +5504,7 @@ export function createApp() {
           id: doc.id,
           name: doc.name,
           category: doc.category,
+          categoryManual: true,
           size: doc.size,
         },
         checklist: computeDocumentChecklistForDossier(dossier),

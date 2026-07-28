@@ -319,6 +319,8 @@ export async function ingestStudyPdfForDossier(params: {
   error?: string;
   parsed?: ReturnType<typeof parseStudyEconomicsFromPdfText>;
   pdfTextPreview?: string;
+  drivePersisted?: boolean;
+  warning?: string;
 }> {
   const { dossier, uploadsDir } = params;
   if (!fs.existsSync(params.filePath)) {
@@ -395,6 +397,7 @@ export async function ingestStudyPdfForDossier(params: {
 
   // Persistance Drive + registre documents (évite la perte après redéploiement Railway)
   const uploaded = await persistStudyPdfToDrive(dossier, destPath, pdfMeta.fileName);
+  const drivePersisted = Boolean(uploaded?.driveFileId || (dossier as any).studyPdf?.driveFileId);
   registerStudyPdfAsDocument(dossier, {
     localPath: destPath,
     fileName: pdfMeta.fileName,
@@ -457,10 +460,19 @@ export async function ingestStudyPdfForDossier(params: {
       annualPremiumEur: parsed.annualPremiumEur,
       loanCapitalEur: parsed.loanCapitalEur,
       plannedChangeDate: parsed.plannedChangeDate,
+      drivePersisted,
     },
   });
 
-  return { ok: true, parsed, pdfTextPreview: text.slice(0, 400) };
+  return {
+    ok: true,
+    parsed,
+    pdfTextPreview: text.slice(0, 400),
+    drivePersisted,
+    warning: drivePersisted
+      ? undefined
+      : "PDF enregistré localement, mais pas encore sur Drive — réimportez si le téléchargement échoue après redémarrage.",
+  };
 }
 
 export function getStudyPdfPath(dossier: Dossier): string | null {
@@ -469,6 +481,22 @@ export function getStudyPdfPath(dossier: Dossier): string | null {
   const p = String(fromRoot || fromDraft || "").trim();
   if (p && fs.existsSync(p)) return p;
   return null;
+}
+
+/** Présence logique du PDF (métadonnées), indépendante du disque Railway éphémère. */
+export function hasStudyPdfMeta(dossier: Dossier): boolean {
+  if (getStudyPdfPath(dossier)) return true;
+  const root = (dossier as any).studyPdf || {};
+  const draftPdf = (dossier.studyDraft as any)?.extracted?.pdf || {};
+  if (String(root.fileName || draftPdf.fileName || "").trim()) return true;
+  if (String(root.driveFileId || draftPdf.driveFileId || "").trim()) return true;
+  const docs = (dossier.formData?.documents || []) as any[];
+  return docs.some(
+    (d) =>
+      String(d?.category || "").toLowerCase() === "etude" ||
+      String(d?.source || "").toLowerCase() === "study_pdf" ||
+      String(d?.id || "").startsWith("etude-study-pdf"),
+  );
 }
 
 function studyPdfDriveFileId(dossier: Dossier): string | null {
@@ -556,6 +584,7 @@ export function registerStudyPdfAsDocument(
   const entry = {
     id: existingIdx >= 0 ? docs[existingIdx].id : `etude-study-pdf-${Date.now()}`,
     category: "etude",
+    categoryManual: true,
     name: meta.fileName,
     size: meta.size || 0,
     type: "application/pdf",

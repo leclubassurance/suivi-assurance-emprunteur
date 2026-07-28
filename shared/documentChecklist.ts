@@ -338,6 +338,8 @@ export function persistInferredDocumentCategories(dossier: {
 
   let changed = 0;
   dossier.formData!.documents = docs.map((orig) => {
+    // Priorité absolue aux changements manuels admin.
+    if (orig?.categoryManual) return orig;
     const key = `${docId(orig)}\0${docName(orig)}`;
     const inf = enrichedByKey.get(key);
     if (!inf) return orig;

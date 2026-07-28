@@ -397,6 +397,8 @@ export function ensureDossierShape(d: any): Dossier {
   ) as unknown as Dossier;
   if (Array.isArray(shaped.formData?.documents)) {
     shaped.formData.documents = shaped.formData.documents.map((doc: any) => {
+      // Ne jamais écraser un reclassement manuel admin.
+      if (doc?.categoryManual) return doc;
       const category = inferDocumentCategory(doc);
       return category ? { ...doc, category } : doc;
     });

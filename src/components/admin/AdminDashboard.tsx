@@ -569,6 +569,9 @@ export default function AdminDashboard({
       if (data?.studyDraft?.subject) setEmailSubject(data.studyDraft.subject);
       if (data?.studyDraft?.html) setEmailHtml(data.studyDraft.html);
       const gross = data?.parsed?.grossSavingsEur ?? data?.studyDraft?.economySummary?.grossSavingsEur;
+      if (data?.warning) {
+        showToast(String(data.warning), "error");
+      }
       showToast(
         gross != null
           ? `PDF importé — économie brute ${Math.round(gross).toLocaleString("fr-FR")} € (KPI mis à jour).`
@@ -929,7 +932,9 @@ export default function AdminDashboard({
       const prev = selectedDossier.formData?.documents || [];
       patchSelectedDocuments(
         prev.map((d: any) =>
-          String(d.id) === docId || String(d.name) === docId ? { ...d, category } : d,
+          String(d.id) === docId || String(d.name) === docId
+            ? { ...d, category, categoryManual: true }
+            : d,
         ),
       );
       showToast(`Type mis à jour : ${category}`, "success");
@@ -3083,6 +3088,37 @@ export default function AdminDashboard({
                             }
                           >
                             <Download className="w-3.5 h-3.5" /> Télécharger
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-xs font-bold text-rose-700 underline"
+                            onClick={async () => {
+                              if (
+                                !confirm(
+                                  "Supprimer le PDF d'étude de ce dossier ? Vous pourrez en réimporter un ensuite.",
+                                )
+                              ) {
+                                return;
+                              }
+                              try {
+                                const res = await adminFetch(
+                                  `/api/admin/dossiers/${selectedDossier!.id}/study-pdf`,
+                                  { method: "DELETE" },
+                                );
+                                const data = await res.json().catch(() => ({}));
+                                if (!res.ok) {
+                                  showToast(data.error || "Suppression impossible", "error");
+                                  return;
+                                }
+                                showToast("PDF d'étude supprimé", "success");
+                                loadDossiers();
+                                await refreshConseillerStudyFlow(selectedDossier!.id);
+                              } catch {
+                                showToast("Erreur réseau", "error");
+                              }
+                            }}
+                          >
+                            Supprimer / remplacer
                           </button>
                         </div>
                       </div>

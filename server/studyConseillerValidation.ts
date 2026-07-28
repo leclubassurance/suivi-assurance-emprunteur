@@ -240,6 +240,10 @@ export function buildStudyValidationSummaryForPortal(
     hasStudyPdf: Boolean(
       validation.studySource === "pdf" ||
         validation.studyPdfFileName ||
+        (dossier as any)?.studyPdf?.fileName ||
+        (dossier as any)?.studyPdf?.driveFileId ||
+        (dossier as any)?.studyDraft?.extracted?.pdf?.fileName ||
+        (dossier as any)?.studyDraft?.extracted?.pdf?.driveFileId ||
         (dossier as any)?.studyPdf?.localPath ||
         (dossier as any)?.studyDraft?.extracted?.pdf?.localPath,
     ),
@@ -336,11 +340,10 @@ export async function submitStudyToConseiller(params: {
   const { dossier, subject, submittedBy, publicBaseUrl, debriefNote } = params;
   const trimmedHtml = String(params.html || "").trim();
   const trimmedSubject = String(subject || "").trim();
-  const { getStudyPdfPath, ensureStudyPdfDurable } = await import("./studyPdfFlow");
+  const { getStudyPdfPath, ensureStudyPdfDurable, hasStudyPdfMeta } = await import("./studyPdfFlow");
   const looksLikePdfStudy =
-    Boolean(getStudyPdfPath(dossier)) ||
+    hasStudyPdfMeta(dossier) ||
     dossier.studyDraft?.kind === "PDF_UPLOAD" ||
-    Boolean((dossier as any).studyPdf?.fileName) ||
     Boolean((dossier as any).adeStudyComputation);
 
   // Avant envoi conseiller : PDF local + copie Drive (sinon le portail cassera après redéploiement).
