@@ -29,7 +29,44 @@ export type ClientLandingRecentStudy = {
   monthlyBeforeEur: number | null;
   monthlyAfterEur: number | null;
   savingsPercent: number | null;
+  /** Remplissage temporaire tant qu'il n'y a pas 10 études CRM. */
+  fictional?: boolean;
 };
+
+/**
+ * Études fictives pour remplir le carrousel (max 10) en attendant plus de dossiers CRM.
+ * Placées après les dossiers réels — jamais avant.
+ */
+export const CLIENT_LANDING_FICTIONAL_STUDIES: Array<{
+  dossierId: string;
+  studySentAt: string;
+  grossSavingsEur: number;
+}> = [
+  { dossierId: "FICTIF-01", studySentAt: "2026-07-08T10:00:00.000Z", grossSavingsEur: 8460 },
+  { dossierId: "FICTIF-02", studySentAt: "2026-07-03T10:00:00.000Z", grossSavingsEur: 12218 },
+  { dossierId: "FICTIF-03", studySentAt: "2026-06-28T10:00:00.000Z", grossSavingsEur: 6735 },
+  { dossierId: "FICTIF-04", studySentAt: "2026-06-22T10:00:00.000Z", grossSavingsEur: 9840 },
+  { dossierId: "FICTIF-05", studySentAt: "2026-06-15T10:00:00.000Z", grossSavingsEur: 7240 },
+  { dossierId: "FICTIF-06", studySentAt: "2026-06-09T10:00:00.000Z", grossSavingsEur: 15670 },
+  { dossierId: "FICTIF-07", studySentAt: "2026-05-30T10:00:00.000Z", grossSavingsEur: 10560 },
+  { dossierId: "FICTIF-08", studySentAt: "2026-05-21T10:00:00.000Z", grossSavingsEur: 5448 },
+  { dossierId: "FICTIF-09", studySentAt: "2026-05-12T10:00:00.000Z", grossSavingsEur: 13390 },
+  { dossierId: "FICTIF-10", studySentAt: "2026-05-04T10:00:00.000Z", grossSavingsEur: 9180 },
+];
+
+function fictionalStudyRow(seed: (typeof CLIENT_LANDING_FICTIONAL_STUDIES)[number]): ClientLandingRecentStudy {
+  return {
+    dossierId: seed.dossierId,
+    studySentAt: seed.studySentAt,
+    studySentAtLabel: formatStudySentAtLabel(seed.studySentAt),
+    grossSavingsEur: seed.grossSavingsEur,
+    grossSavingsLabel: formatSavingsLabel(seed.grossSavingsEur),
+    monthlyBeforeEur: null,
+    monthlyAfterEur: null,
+    savingsPercent: null,
+    fictional: true,
+  };
+}
 
 function formatStudySentAtLabel(iso: string): string {
   const d = new Date(iso);
@@ -227,14 +264,15 @@ function isEligibleForLandingCarousel(dossier: Dossier): boolean {
 /**
  * Dernières études réalisées avec économie brute ≥ seuil.
  * Triées par date de réalisation (plus récentes d'abord), max `limit` (défaut 10).
- * Se met à jour automatiquement à chaque chargement de la preview (lecture CRM live).
+ * Si moins de `limit` dossiers CRM : complète avec des études fictives (après les réelles).
  */
 export function listClientLandingRecentStudies(
   dossiers: Dossier[],
-  opts?: { minGrossSavingsEur?: number; limit?: number },
+  opts?: { minGrossSavingsEur?: number; limit?: number; padFictional?: boolean },
 ): ClientLandingRecentStudy[] {
   const min = opts?.minGrossSavingsEur ?? CLIENT_LANDING_MIN_GROSS_SAVINGS_EUR;
   const limit = opts?.limit ?? CLIENT_LANDING_RECENT_STUDIES_LIMIT;
+  const padFictional = opts?.padFictional !== false;
 
   const rows: ClientLandingRecentStudy[] = [];
   for (const dossier of dossiers) {
@@ -253,11 +291,18 @@ export function listClientLandingRecentStudies(
       monthlyBeforeEur: monthly.monthlyBeforeEur,
       monthlyAfterEur: monthly.monthlyAfterEur,
       savingsPercent: monthly.savingsPercent,
+      fictional: false,
     });
   }
 
   rows.sort((a, b) => new Date(b.studySentAt).getTime() - new Date(a.studySentAt).getTime());
-  return rows.slice(0, Math.max(0, limit));
+  const real = rows.slice(0, Math.max(0, limit));
+
+  if (!padFictional || real.length >= limit) return real;
+
+  const need = limit - real.length;
+  const fillers = CLIENT_LANDING_FICTIONAL_STUDIES.slice(0, need).map(fictionalStudyRow);
+  return [...real, ...fillers];
 }
 
 export function formatMonthlyEurLabel(eur: number | null | undefined): string | null {

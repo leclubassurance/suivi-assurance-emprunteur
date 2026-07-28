@@ -2315,6 +2315,7 @@ export function createApp() {
           monthlyBeforeEur: s.monthlyBeforeEur,
           monthlyAfterEur: s.monthlyAfterEur,
           savingsPercent: s.savingsPercent,
+          fictional: Boolean(s.fictional),
         })),
       });
     } catch (err: any) {

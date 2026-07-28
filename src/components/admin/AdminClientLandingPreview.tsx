@@ -25,6 +25,7 @@ type RecentStudy = {
   monthlyBeforeEur: number | null;
   monthlyAfterEur: number | null;
   savingsPercent: number | null;
+  fictional?: boolean;
 };
 
 function formatMonthly(eur: number): string {
@@ -97,6 +98,8 @@ export default function AdminClientLandingPreview({
     new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(value);
 
   const adminStudyIds = studies.map((s) => s.dossierId).filter(Boolean);
+  const realCount = studies.filter((s) => !s.fictional).length;
+  const fictiveCount = studies.filter((s) => s.fictional).length;
 
   return (
     <div className="client-landing-preview">
@@ -135,14 +138,14 @@ export default function AdminClientLandingPreview({
           <ArrowLeft className="w-3.5 h-3.5" /> Retour admin
         </button>
         <span style={{ opacity: 0.85, textAlign: "right", maxWidth: "70%" }}>
-          Preview · carrousel = études réalisées ≥ 5&nbsp;000&nbsp;€ (live CRM, max 10)
+          Preview · carrousel = études ≥ 5&nbsp;000&nbsp;€
+          {realCount || fictiveCount
+            ? ` · ${realCount} réel${realCount > 1 ? "s" : ""}${fictiveCount ? ` + ${fictiveCount} fictif${fictiveCount > 1 ? "s" : ""}` : ""}`
+            : ""}
           {adminStudyIds.length > 0 ? (
             <>
               <br />
-              <span style={{ fontSize: 11, opacity: 0.75 }}>
-                {adminStudyIds.length} dossier{adminStudyIds.length > 1 ? "s" : ""} :{" "}
-                {adminStudyIds.join(" · ")}
-              </span>
+              <span style={{ fontSize: 11, opacity: 0.75 }}>{adminStudyIds.join(" · ")}</span>
             </>
           ) : null}
         </span>

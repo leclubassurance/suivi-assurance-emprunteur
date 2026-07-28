@@ -72,10 +72,18 @@ const rows = listClientLandingRecentStudies([
   }),
 ]);
 
-assert.equal(rows.length, 2, "draft+sent ≥5000, refuse excluded, below threshold excluded");
+assert.equal(rows.length, 10, "pads with fictional studies up to 10");
 assert.equal(rows[0].dossierId, "LCIF-3", "newest realized first");
 assert.equal(rows[1].dossierId, "LCIF-1");
+assert.equal(rows.filter((r) => !r.fictional).length, 2);
+assert.equal(rows.filter((r) => r.fictional).length, 8);
 assert.ok(rows[0].grossSavingsLabel.includes("12"));
+
+const noPad = listClientLandingRecentStudies(
+  [withDraftOnly("LCIF-3", 12000, "2026-07-22T10:00:00.000Z")],
+  { padFictional: false },
+);
+assert.equal(noPad.length, 1, "padFictional false keeps CRM-only");
 
 const many = listClientLandingRecentStudies(
   Array.from({ length: 15 }, (_, i) =>
@@ -83,5 +91,6 @@ const many = listClientLandingRecentStudies(
   ),
 );
 assert.equal(many.length, 10, "max 10");
+assert.ok(many.every((r) => !r.fictional), "no padding when enough real studies");
 
 console.log("verify-client-landing-recent-studies: OK");
