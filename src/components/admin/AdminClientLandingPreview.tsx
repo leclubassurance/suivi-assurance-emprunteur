@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, Loader2 } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
+import CalBookingButton from "../ui/CalBookingButton";
+import { LCIF_LOGO_URL } from "../../../shared/apporteurBrand";
 import "../../styles/client-landing-preview.css";
 
 type RecentStudy = {
@@ -8,16 +10,39 @@ type RecentStudy = {
   dateLabel: string;
   grossSavingsEur: number;
   savingLabel: string;
+  monthlyBeforeEur: number | null;
+  monthlyAfterEur: number | null;
+  savingsPercent: number | null;
 };
 
-const Arrow = () => <span aria-hidden="true">↗</span>;
-const Check = () => (
-  <span className="check" aria-hidden="true">
-    ✓
-  </span>
-);
+function formatMonthly(eur: number): string {
+  return `${eur.toLocaleString("fr-FR", {
+    minimumFractionDigits: Number.isInteger(eur) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })} €`;
+}
 
-export default function AdminClientLandingPreview({ onBack }: { onBack: () => void }) {
+function BrandMark() {
+  return (
+    <a className="brand" href="#top" aria-label="Le Club Immobilier Français">
+      <img className="brand-logo" src={LCIF_LOGO_URL} alt="Le Club Immobilier Français" />
+      <span className="brand-rule" />
+      <span className="brand-meta">
+        ASSURANCE
+        <br />
+        EMPRUNTEUR
+      </span>
+    </a>
+  );
+}
+
+export default function AdminClientLandingPreview({
+  onBack,
+  onStartStudy,
+}: {
+  onBack: () => void;
+  onStartStudy: () => void;
+}) {
   const [studies, setStudies] = useState<RecentStudy[]>([]);
   const [loadingStudies, setLoadingStudies] = useState(true);
   const [studiesError, setStudiesError] = useState<string | null>(null);
@@ -60,6 +85,20 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
     new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(value);
 
   const heroSaving = studies[0];
+  const heroBefore =
+    heroSaving?.monthlyBeforeEur != null && heroSaving.monthlyBeforeEur > 0
+      ? heroSaving.monthlyBeforeEur
+      : null;
+  const heroAfter =
+    heroSaving?.monthlyAfterEur != null && heroSaving.monthlyAfterEur > 0
+      ? heroSaving.monthlyAfterEur
+      : null;
+  const heroPercent =
+    heroSaving?.savingsPercent != null && heroSaving.savingsPercent > 0
+      ? heroSaving.savingsPercent
+      : heroBefore != null && heroAfter != null && heroBefore > heroAfter
+        ? Math.round(((heroBefore - heroAfter) / heroBefore) * 100)
+        : null;
 
   return (
     <div className="client-landing-preview">
@@ -98,33 +137,21 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
           <ArrowLeft className="w-3.5 h-3.5" /> Retour admin
         </button>
         <span style={{ opacity: 0.85, textAlign: "right" }}>
-          Preview landing client · non publiée · carrousel = études ≥ 5&nbsp;000&nbsp;€ (max 10)
+          Preview landing client · non publiée
         </span>
       </div>
 
       <main>
         <nav className="nav shell" aria-label="Navigation principale">
-          <a className="brand" href="#top" aria-label="Le Club Immobilier Français">
-            <span className="brand-mark">
-              le club
-              <br />
-              immobilier
-            </span>
-            <span className="brand-rule" />
-            <span className="brand-meta">
-              ASSURANCE
-              <br />
-              EMPRUNTEUR
-            </span>
-          </a>
+          <BrandMark />
           <div className="nav-links">
             <a href="#methode">Notre méthode</a>
             <a href="#confiance">Pourquoi nous</a>
             <a href="#faq">Vos questions</a>
           </div>
-          <a className="button button-small" href="#etude">
-            Recevoir mon étude <Arrow />
-          </a>
+          <button type="button" className="button button-small" onClick={onStartStudy}>
+            Recevoir mon étude <ArrowUpRight className="btn-arrow" aria-hidden />
+          </button>
         </nav>
 
         <section className="hero shell" id="top">
@@ -142,22 +169,31 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
               prêt. Vous récupérez du pouvoir d’achat.
             </p>
             <div className="hero-actions">
-              <a className="button" href="#etude">
-                Calculer mes économies <Arrow />
-              </a>
-              <a className="text-link" href="mailto:assurance@leclubimmofrancais.com">
-                Parler à un expert <span>→</span>
-              </a>
+              <button type="button" className="button" onClick={onStartStudy}>
+                Calculer mes économies <ArrowUpRight className="btn-arrow" aria-hidden />
+              </button>
+              <CalBookingButton className="text-link cal-text-link">
+                Prendre rendez-vous <span>→</span>
+              </CalBookingButton>
             </div>
             <div className="trust-line">
               <span>
-                <Check /> Étude gratuite
+                <span className="trust-chip" aria-hidden>
+                  <Check strokeWidth={2.75} />
+                </span>
+                Étude gratuite
               </span>
               <span>
-                <Check /> Sans engagement
+                <span className="trust-chip" aria-hidden>
+                  <Check strokeWidth={2.75} />
+                </span>
+                Sans engagement
               </span>
               <span>
-                <Check /> Réponse sous 48h
+                <span className="trust-chip" aria-hidden>
+                  <Check strokeWidth={2.75} />
+                </span>
+                Réponse sous 48h
               </span>
             </div>
           </div>
@@ -165,29 +201,39 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
           <div className="hero-visual" aria-label="Exemple réel d'économie">
             <div className="orbit orbit-one" />
             <div className="orbit orbit-two" />
-            <div className="saving-card card-before">
-              <span>Avant</span>
-              <strong>78,82 €</strong>
-              <small>par mois</small>
-            </div>
-            <div className="saving-card card-after">
-              <span>Après</span>
-              <strong>31,46 €</strong>
-              <small>par mois</small>
-            </div>
+            {heroBefore != null ? (
+              <div className="saving-card card-before">
+                <span>Avant</span>
+                <strong>{formatMonthly(heroBefore)}</strong>
+                <small>par mois</small>
+              </div>
+            ) : null}
+            {heroAfter != null ? (
+              <div className="saving-card card-after">
+                <span>Après</span>
+                <strong>{formatMonthly(heroAfter)}</strong>
+                <small>par mois</small>
+              </div>
+            ) : null}
             <div className="hero-number">
               <span>ÉCONOMIE CONSTATÉE</span>
-              <strong>{heroSaving ? heroSaving.savingLabel.replace(" €", "") : "—"} €</strong>
+              <strong>
+                {heroSaving
+                  ? `${euros(heroSaving.grossSavingsEur)} €`
+                  : "—"}
+              </strong>
               <small>
                 {heroSaving
                   ? `Dossier réel anonymisé · étude du ${heroSaving.dateLabel}`
-                  : "En attente de dossiers ≥ 5 000 € d’économie"}
+                  : "En attente d’études récentes"}
               </small>
             </div>
-            <div className="hero-stamp">
-              −60%
-              <small>sur la cotisation</small>
-            </div>
+            {heroPercent != null ? (
+              <div className="hero-stamp">
+                −{heroPercent}%
+                <small>sur la cotisation</small>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -221,9 +267,9 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
               encore être disponibles aujourd’hui.
             </p>
           </div>
-          <a href="#etude">
+          <button type="button" className="text-link" onClick={onStartStudy}>
             Vérifier à nouveau <span>→</span>
-          </a>
+          </button>
         </aside>
 
         <section className="recent-results" aria-labelledby="recent-results-title">
@@ -236,11 +282,7 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
                 <em>identifiées pour nos clients.</em>
               </h2>
             </div>
-            <p>
-              <strong>Données réelles CRM</strong>
-              <br />
-              Études envoyées · économie ≥ 5&nbsp;000&nbsp;€ · max 10
-            </p>
+            <p>Économies constatées sur des dossiers réels, anonymisés.</p>
           </div>
 
           {loadingStudies ? (
@@ -253,7 +295,7 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
             </div>
           ) : studies.length === 0 ? (
             <div className="shell" style={{ color: "#697187", fontSize: 14 }}>
-              Aucune étude envoyée avec plus de 5&nbsp;000&nbsp;€ d’économie pour le moment.
+              Aucune étude récente à afficher pour le moment.
             </div>
           ) : (
             <div className="marquee" role="region" aria-label="Dernières études réalisées">
@@ -366,12 +408,9 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
                   <span>/ mois</span>
                 </div>
               </div>
-              <a
-                className="button button-white"
-                href="mailto:assurance@leclubimmofrancais.com?subject=Demande%20d%27étude%20assurance%20emprunteur"
-              >
-                Obtenir mon étude précise <Arrow />
-              </a>
+              <button type="button" className="button button-white" onClick={onStartStudy}>
+                Obtenir mon étude précise <ArrowUpRight className="btn-arrow" aria-hidden />
+              </button>
               <small className="fine-print">Gratuite, confidentielle et sans engagement.</small>
             </div>
           </div>
@@ -388,8 +427,8 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
               </h2>
             </div>
             <p>
-              Après quelques informations personnelles simples, un expert dédié vous accompagne du
-              calcul à la substitution.
+              Après quelques informations personnelles simples, nous vous accompagnons du calcul à
+              la substitution.
             </p>
           </div>
           <div className="steps">
@@ -408,7 +447,7 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
               <div className="step-icon">⌕</div>
               <h3>Nous comparons</h3>
               <p>
-                Votre expert vérifie les garanties et compare une très large sélection d’assurances
+                Nous vérifions les garanties et comparons une très large sélection d’assurances
                 disponibles sur le marché.
               </p>
               <span className="step-time">Sous 48 heures</span>
@@ -552,29 +591,17 @@ export default function AdminClientLandingPreview({ onBack }: { onBack: () => vo
             <br />
             pourrait vous rendre.
           </h2>
-          <p>Deux documents pour démarrer. Quelques informations. Un expert pour tout comparer.</p>
-          <a
-            className="button button-white"
-            href="mailto:assurance@leclubimmofrancais.com?subject=Demande%20d%27étude%20assurance%20emprunteur"
-          >
-            Commencer mon étude gratuite <Arrow />
-          </a>
+          <p>Deux documents pour démarrer. Quelques informations. Nous comparons pour vous.</p>
+          <div className="final-cta-actions">
+            <button type="button" className="button button-white" onClick={onStartStudy}>
+              Commencer mon étude gratuite <ArrowUpRight className="btn-arrow" aria-hidden />
+            </button>
+            <CalBookingButton className="button button-ghost">Prendre rendez-vous</CalBookingButton>
+          </div>
         </section>
 
         <footer className="footer shell">
-          <a className="brand" href="#top">
-            <span className="brand-mark">
-              le club
-              <br />
-              immobilier
-            </span>
-            <span className="brand-rule" />
-            <span className="brand-meta">
-              ASSURANCE
-              <br />
-              EMPRUNTEUR
-            </span>
-          </a>
+          <BrandMark />
           <div className="footer-center">
             Courtier indépendant · ORIAS 24002253
             <br />© 2026 Le Club Immobilier Français

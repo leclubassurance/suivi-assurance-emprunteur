@@ -2307,11 +2307,14 @@ export function createApp() {
         minGrossSavingsEur: 5000,
         limit: 10,
         count: studies.length,
-        studies: studies.map(({ dossierId, studySentAtLabel, grossSavingsEur, grossSavingsLabel }) => ({
-          dossierId,
-          dateLabel: studySentAtLabel,
-          grossSavingsEur,
-          savingLabel: grossSavingsLabel,
+        studies: studies.map((s) => ({
+          dossierId: s.dossierId,
+          dateLabel: s.studySentAtLabel,
+          grossSavingsEur: s.grossSavingsEur,
+          savingLabel: s.grossSavingsLabel,
+          monthlyBeforeEur: s.monthlyBeforeEur,
+          monthlyAfterEur: s.monthlyAfterEur,
+          savingsPercent: s.savingsPercent,
         })),
       });
     } catch (err: any) {

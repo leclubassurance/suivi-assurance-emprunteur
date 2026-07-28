@@ -602,7 +602,16 @@ export default function App() {
     if (!currentUser || currentUser.role !== 'ADMIN') {
       return <AdminLogin onLogin={handleLogin} onBack={closeAdminClientLandingPreview} />;
     }
-    return <AdminClientLandingPreview onBack={closeAdminClientLandingPreview} />;
+    return (
+      <AdminClientLandingPreview
+        onBack={closeAdminClientLandingPreview}
+        onStartStudy={() => {
+          setShowClientLandingPreview(false);
+          window.history.pushState({}, '', '/');
+          goToStep(Step.PREPARATION);
+        }}
+      />
+    );
   }
 
   if (adminPartnersView !== 'none') {
