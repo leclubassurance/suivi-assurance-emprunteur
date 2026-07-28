@@ -42,7 +42,7 @@
 .client-landing-preview .pulse { width: 8px; height: 8px; border-radius: 50%; background: #29b97b; box-shadow: 0 0 0 7px rgba(41,185,123,.12); animation: pulse 2.2s infinite; }
 .client-landing-preview h1, .client-landing-preview h2, .client-landing-preview h3, .client-landing-preview p { margin-top: 0; }
 .client-landing-preview h1 { font-size: clamp(58px, 6.1vw, 94px); line-height: .96; letter-spacing: -.065em; margin: 32px 0; max-width: 760px; }
-.client-landing-preview h1 em, .client-landing-preview h2 em { color: var(--blue); font-family: inherit; font-weight: 700; font-style: normal; }
+.client-landing-preview h1 em, .client-landing-preview h2 em { color: var(--blue); font-family: inherit; font-weight: 500; font-style: normal; }
 .client-landing-preview .hero-lead { max-width: 625px; font-size: 20px; line-height: 1.55; color: #566076; }
 .client-landing-preview .hero-actions { display: flex; align-items: center; gap: 30px; margin-top: 38px; }
 .client-landing-preview .text-link { font-size: 15px; font-weight: 700; border-bottom: 1px solid #9ca4b4; padding-block: 8px; background: transparent; border-left: 0; border-right: 0; border-top: 0; cursor: pointer; color: inherit; }
@@ -125,9 +125,7 @@
 .client-landing-preview .calculator-grid { display: grid; grid-template-columns: 1fr .9fr; gap: 110px; align-items: center; }
 .client-landing-preview .eyebrow-light { color: #8fa8db; }
 .client-landing-preview .calculator-copy h2 { margin: 26px 0; max-width: 700px; }
-/* Sur fond navy, le bleu marque (#1a4c93) manque de contraste : on éclaircit uniquement l’accent. */
-.client-landing-preview .section-dark h2 em { color: #7eb0ff; }
-.client-landing-preview .calculator-copy p { color: #c5d0e6; max-width: 570px; line-height: 1.6; }
+.client-landing-preview .calculator-copy p { color: #a9b5ce; max-width: 570px; line-height: 1.6; }
 .client-landing-preview .range-group { margin-top: 42px; }
 .client-landing-preview .range-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 17px; }
 .client-landing-preview .range-head label { color: #c3cce0; font-size: 14px; }
