@@ -163,7 +163,7 @@
 .client-landing-preview .testimonial footer,
 .client-landing-preview .founders { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; margin-top: 34px; }
 .client-landing-preview .founders-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 22px 28px; }
-.client-landing-preview .founder { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; width: 96px; }
+.client-landing-preview .founder { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; width: 110px; }
 .client-landing-preview .avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; object-position: center top; display: block; background: var(--navy); flex-shrink: 0; box-shadow: 0 8px 20px rgba(16, 31, 70, 0.12); }
 .client-landing-preview .founder strong { font-size: 13px; line-height: 1.25; font-weight: 700; }
 .client-landing-preview .founders-title { margin: 0; font-size: 13px; color: #62708c; line-height: 1.4; }
