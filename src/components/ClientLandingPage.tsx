@@ -469,7 +469,11 @@ export default function ClientLandingPage({
               remédier.
             </p>
             <footer>
-              <span className="avatar">CV</span>
+              <img
+                className="avatar"
+                src="https://res.cloudinary.com/dji8akleo/image/upload/v1777392327/Design_sans_titre-11_fl4twe.png"
+                alt="Charles Victor"
+              />
               <div>
                 <strong>Charles Victor</strong>
                 <span>Fondateur du Club Immobilier Français</span>

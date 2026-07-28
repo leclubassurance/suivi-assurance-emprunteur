@@ -21,9 +21,9 @@
 .client-landing-preview button, .client-landing-preview input { font: inherit; }
 .client-landing-preview .shell { width: min(1320px, calc(100% - 48px)); margin-inline: auto; }
 
-.client-landing-preview .nav { height: 92px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); position: relative; z-index: 5; }
+.client-landing-preview .nav { height: 100px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); position: relative; z-index: 5; }
 .client-landing-preview .brand { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.client-landing-preview .brand-logo { height: 48px; width: auto; display: block; object-fit: contain; }
+.client-landing-preview .brand-logo { height: 56px; width: auto; display: block; object-fit: contain; }
 .client-landing-preview .brand-rule { width: 1px; height: 37px; background: var(--line); flex-shrink: 0; }
 .client-landing-preview .brand-meta { font-size: 10px; line-height: 1.45; letter-spacing: .16em; font-weight: 700; color: #51607c; }
 .client-landing-preview .nav-links { display: flex; gap: 34px; font-size: 14px; color: #4c556a; }
@@ -161,7 +161,7 @@
 .client-landing-preview .testimonial blockquote { margin: 0; }
 .client-landing-preview .testimonial blockquote > p { font: 500 31px/1.4 var(--font-poppins), Arial, sans-serif; letter-spacing: -.025em; max-width: 840px; }
 .client-landing-preview .testimonial footer { display: flex; align-items: center; gap: 15px; margin-top: 30px; }
-.client-landing-preview .avatar { width: 46px; height: 46px; display: grid; place-content: center; border-radius: 50%; background: var(--navy); color: white; font-size: 12px; }
+.client-landing-preview .avatar { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; object-position: center top; display: block; background: var(--navy); }
 .client-landing-preview .testimonial footer div { display: flex; flex-direction: column; gap: 4px; }
 .client-landing-preview .testimonial footer span { font-size: 12px; color: #62708c; }
 .client-landing-preview .quote-saving { border-left: 1px solid rgba(11,22,51,.15); padding-left: 45px; display: flex; flex-direction: column; }
@@ -207,6 +207,7 @@
   border-bottom-color: currentColor;
 }
 .client-landing-preview .footer { display: flex; justify-content: space-between; align-items: center; padding-block: 55px; color: #747d90; font-size: 11px; }
+.client-landing-preview .footer .brand-logo { height: 50px; }
 .client-landing-preview .footer-center { text-align: center; line-height: 1.7; }
 .client-landing-preview .footer-links { display: flex; gap: 24px; }
 
@@ -242,7 +243,7 @@
   .client-landing-preview .shell { width: min(100% - 28px, 1320px); }
   .client-landing-preview .nav { height: 76px; }
   .client-landing-preview .brand { min-width: 0; }
-  .client-landing-preview .brand-logo { height: 36px; }
+  .client-landing-preview .brand-logo { height: 44px; }
   .client-landing-preview .brand-meta, .client-landing-preview .brand-rule { display: none; }
   .client-landing-preview .nav .button { font-size: 0; width: 42px; height: 42px; padding: 0; gap: 0; }
   .client-landing-preview .nav .button .btn-arrow { font-size: 18px; width: 18px; height: 18px; }
@@ -257,9 +258,24 @@
   .client-landing-preview .saving-card strong { font-size: 22px; }
   .client-landing-preview .card-before { left: 18px; top: 70px; }
   .client-landing-preview .card-after { right: 18px; top: 55px; }
-  .client-landing-preview .hero-number { left: 24px; bottom: 35px; }
-  .client-landing-preview .hero-number strong { font-size: 39px; }
-  .client-landing-preview .hero-stamp { width: 88px; height: 88px; right: 20px; bottom: 35px; font-size: 20px; }
+  .client-landing-preview .hero-number { left: 20px; right: 16px; bottom: 28px; }
+  .client-landing-preview .hero-number strong { font-size: 36px; }
+  .client-landing-preview .hero-number small {
+    margin-top: 10px;
+    font-size: 12px;
+    line-height: 1.35;
+    max-width: min(100%, 210px);
+  }
+  .client-landing-preview .hero-stamp {
+    width: 76px;
+    height: 76px;
+    right: 14px;
+    bottom: auto;
+    top: 205px;
+    font-size: 17px;
+    box-shadow: 0 0 0 7px rgba(46,108,255,.14);
+  }
+  .client-landing-preview .footer .brand-logo { height: 44px; }
   .client-landing-preview .proof-grid { grid-template-columns: 1fr 1fr; padding-block: 26px; }
   .client-landing-preview .proof-grid div { padding: 0 12px; }
   .client-landing-preview .section { padding-block: 90px; }
