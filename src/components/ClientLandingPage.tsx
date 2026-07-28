@@ -582,8 +582,9 @@ export default function ClientLandingPage({
                 Est-ce vraiment gratuit et sans engagement ?<span>+</span>
               </summary>
               <p>
-                Oui. L’étude est gratuite et ne vous engage à rien. Vous restez libre d’accepter ou
-                non la proposition.
+                L’étude est gratuite et sans engagement. Si vous décidez ensuite de changer
+                d’assurance, des frais de dossier et des frais de courtage peuvent s’appliquer —
+                leur montant exact figure dans l’étude, avant toute décision de votre part.
               </p>
             </details>
             <details>
@@ -591,7 +592,9 @@ export default function ClientLandingPage({
                 Quand puis-je changer d’assurance ?<span>+</span>
               </summary>
               <p>
-                À tout moment depuis l’entrée en vigueur de la loi Lemoine, sans frais ni pénalité.
+                À tout moment depuis la loi Lemoine, sans pénalité bancaire. L’étude reste gratuite ;
+                en cas de changement effectif, des frais de dossier et de courtage peuvent
+                s’appliquer et vous sont indiqués clairement dans l’étude avant de décider.
               </p>
             </details>
             <details>
