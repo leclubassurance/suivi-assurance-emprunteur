@@ -281,7 +281,7 @@
     bottom: auto;
     top: 205px;
     font-size: 17px;
-    box-shadow: 0 0 0 7px rgba(var(--blue-rgb), .14);
+    box-shadow: 0 0 0 7px rgba(201, 162, 39, .22);
   }
   .client-landing-preview .footer .brand-logo { height: 44px; }
   .client-landing-preview .proof-grid { grid-template-columns: 1fr 1fr; padding-block: 26px; }
