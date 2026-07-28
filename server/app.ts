@@ -2296,6 +2296,29 @@ export function createApp() {
     }
   });
 
+  /** Preview landing client : dernières études ≥ 5 000 € d'économie (max 10). */
+  app.get("/api/admin/client-landing-preview/recent-studies", async (_req, res) => {
+    try {
+      const db = await readDBAsync();
+      const { listClientLandingRecentStudies } = await import("./clientLandingRecentStudies");
+      const studies = listClientLandingRecentStudies(db.dossiers || []);
+      res.json({
+        ok: true,
+        minGrossSavingsEur: 5000,
+        limit: 10,
+        count: studies.length,
+        studies: studies.map(({ dossierId, studySentAtLabel, grossSavingsEur, grossSavingsLabel }) => ({
+          dossierId,
+          dateLabel: studySentAtLabel,
+          grossSavingsEur,
+          savingLabel: grossSavingsLabel,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   app.put("/api/admin/kereis-mia-settings", express.json(), async (req, res) => {
     try {
       const raw = (req.body || {}).settings ?? req.body;

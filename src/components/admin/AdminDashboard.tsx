@@ -37,11 +37,13 @@ export default function AdminDashboard({
   onLogout,
   onOpenApporteurs,
   onOpenConseillersClub,
+  onOpenClientLandingPreview,
 }: {
   user: UserInfo;
   onLogout: () => void;
   onOpenApporteurs?: () => void;
   onOpenConseillersClub?: () => void;
+  onOpenClientLandingPreview?: () => void;
 }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [search, setSearch] = useState("");
@@ -1574,6 +1576,11 @@ export default function AdminDashboard({
         </div>
         {/* Desktop actions */}
         <div className="hidden lg:flex items-center gap-4">
+          {user.role === "ADMIN" && onOpenClientLandingPreview ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onOpenClientLandingPreview}>
+              <Sparkles className="w-4 h-4" /> Preview site client
+            </Button>
+          ) : null}
           {user.role === "ADMIN" && onOpenApporteurs ? (
             <Button type="button" variant="ghost" size="sm" onClick={onOpenApporteurs}>
               <Users className="w-4 h-4" /> Apporteurs d&apos;affaires

@@ -24,6 +24,7 @@ import SuccessStep from './components/steps/SuccessStep';
 import AdminLogin from './components/admin/AdminLogin';
 import AdminDashboard from './components/admin/AdminDashboard';
 import AdminApporteursPanel from './components/admin/AdminApporteursPanel';
+import AdminClientLandingPreview from './components/admin/AdminClientLandingPreview';
 import ClientPortalPage from './components/portal/ClientPortalPage';
 import ClientPortalDemoPage from './components/portal/ClientPortalDemoPage';
 import ApporteurPortalPage from './components/portal/ApporteurPortalPage';
@@ -122,6 +123,7 @@ export default function App() {
   const [showConseillerEspace, setShowConseillerEspace] = useState(false);
   const [conseillerLoginToken, setConseillerLoginToken] = useState<string | null>(null);
   const [adminPartnersView, setAdminPartnersView] = useState<'none' | 'apporteurs' | 'conseillers'>('none');
+  const [showClientLandingPreview, setShowClientLandingPreview] = useState(false);
   const [referralProfile, setReferralProfile] = useState<LandingReferralProfile | null>(null);
 
   const goHome = () => {
@@ -133,6 +135,7 @@ export default function App() {
     setShowConseillerEspace(false);
     setConseillerLoginToken(null);
     setAdminPartnersView('none');
+    setShowClientLandingPreview(false);
     setCurrentStep(Step.LANDING);
     window.history.pushState({}, '', '/');
   };
@@ -155,6 +158,7 @@ export default function App() {
       setLegalView(null);
       if (path === "/admin/apporteurs" || path === "/admin/reseau") {
         setAdminPartnersView('apporteurs');
+        setShowClientLandingPreview(false);
         setPortalDemo(false);
         setApporteurPortalToken(null);
         setPortalToken(null);
@@ -162,11 +166,21 @@ export default function App() {
       }
       if (path === "/admin/conseillers-club" || path === "/admin/conseillers") {
         setAdminPartnersView('conseillers');
+        setShowClientLandingPreview(false);
         setPortalDemo(false);
         setApporteurPortalToken(null);
         setPortalToken(null);
         return;
       }
+      if (path === "/admin/preview-site-client" || path === "/admin/preview-landing-client") {
+        setShowClientLandingPreview(true);
+        setAdminPartnersView('none');
+        setPortalDemo(false);
+        setApporteurPortalToken(null);
+        setPortalToken(null);
+        return;
+      }
+      setShowClientLandingPreview(false);
       setAdminPartnersView('none');
       if (path === "/demo/suivi" || path === "/apercu-suivi-client") {
         setPortalDemo(true);
@@ -486,7 +500,7 @@ export default function App() {
 
   const handleLogin = (user: UserInfo) => {
     setCurrentUser(user);
-    if (adminPartnersView !== 'none' && user.role === 'ADMIN') {
+    if ((adminPartnersView !== 'none' || showClientLandingPreview) && user.role === 'ADMIN') {
       goToStep(Step.ADMIN_DASHBOARD);
       return;
     }
@@ -494,6 +508,25 @@ export default function App() {
       goToStep(Step.ADMIN_DASHBOARD);
     } else {
       goToStep(Step.CONSEILLER_DASHBOARD);
+    }
+  };
+
+  const openAdminClientLandingPreview = () => {
+    setShowClientLandingPreview(true);
+    setAdminPartnersView('none');
+    window.history.pushState({}, '', '/admin/preview-site-client');
+    if (currentUser?.role === 'ADMIN') {
+      goToStep(Step.ADMIN_DASHBOARD);
+    } else {
+      goToStep(Step.ADMIN_LOGIN);
+    }
+  };
+
+  const closeAdminClientLandingPreview = () => {
+    setShowClientLandingPreview(false);
+    window.history.pushState({}, '', '/');
+    if (currentUser) {
+      goToStep(currentUser.role === 'ADMIN' ? Step.ADMIN_DASHBOARD : Step.CONSEILLER_DASHBOARD);
     }
   };
 
@@ -563,6 +596,13 @@ export default function App() {
 
   if (apporteurPortalToken) {
     return <ApporteurPortalPage token={apporteurPortalToken} />;
+  }
+
+  if (showClientLandingPreview) {
+    if (!currentUser || currentUser.role !== 'ADMIN') {
+      return <AdminLogin onLogin={handleLogin} onBack={closeAdminClientLandingPreview} />;
+    }
+    return <AdminClientLandingPreview onBack={closeAdminClientLandingPreview} />;
   }
 
   if (adminPartnersView !== 'none') {
@@ -712,6 +752,7 @@ export default function App() {
             onLogout={handleLogout}
             onOpenApporteurs={openAdminApporteurs}
             onOpenConseillersClub={openAdminConseillersClub}
+            onOpenClientLandingPreview={openAdminClientLandingPreview}
           />
         )}
       </main>
