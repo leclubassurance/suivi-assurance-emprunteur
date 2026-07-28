@@ -469,39 +469,33 @@ export default function ClientLandingPage({
               remédier.
             </p>
             <footer className="founders">
-              <div className="founder">
-                <img
-                  className="avatar"
-                  src="https://res.cloudinary.com/dji8akleo/image/upload/v1777392327/Design_sans_titre-11_fl4twe.png"
-                  alt="Charles Victor"
-                />
-                <div>
+              <div className="founders-row">
+                <div className="founder">
+                  <img
+                    className="avatar"
+                    src="https://res.cloudinary.com/dji8akleo/image/upload/v1777392327/Design_sans_titre-11_fl4twe.png"
+                    alt="Charles Victor"
+                  />
                   <strong>Charles Victor</strong>
-                  <span>Cofondateur du Club Immobilier Français</span>
                 </div>
-              </div>
-              <div className="founder">
-                <img
-                  className="avatar"
-                  src="https://res.cloudinary.com/dji8akleo/image/upload/v1777319709/Design_sans_titre-11_gjufma.png"
-                  alt="Rémi"
-                />
-                <div>
+                <div className="founder">
+                  <img
+                    className="avatar"
+                    src="https://res.cloudinary.com/dji8akleo/image/upload/v1777319709/Design_sans_titre-11_gjufma.png"
+                    alt="Rémi"
+                  />
                   <strong>Rémi</strong>
-                  <span>Cofondateur du Club Immobilier Français</span>
                 </div>
-              </div>
-              <div className="founder">
-                <img
-                  className="avatar"
-                  src="https://res.cloudinary.com/dji8akleo/image/upload/v1776433695/Design_sans_titre-9_a6j5xz.png"
-                  alt="Kevin"
-                />
-                <div>
+                <div className="founder">
+                  <img
+                    className="avatar"
+                    src="https://res.cloudinary.com/dji8akleo/image/upload/v1776433695/Design_sans_titre-9_a6j5xz.png"
+                    alt="Kevin"
+                  />
                   <strong>Kevin</strong>
-                  <span>Cofondateur du Club Immobilier Français</span>
                 </div>
               </div>
+              <p className="founders-title">Cofondateurs du Club Immobilier Français</p>
             </footer>
           </blockquote>
           <div className="quote-saving">

@@ -161,14 +161,12 @@
 .client-landing-preview .testimonial blockquote { margin: 0; }
 .client-landing-preview .testimonial blockquote > p { font: 500 31px/1.4 var(--font-poppins), Arial, sans-serif; letter-spacing: -.025em; max-width: 840px; }
 .client-landing-preview .testimonial footer,
-.client-landing-preview .founders { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 28px; margin-top: 30px; }
-.client-landing-preview .founder { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.client-landing-preview .avatar { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; object-position: center top; display: block; background: var(--navy); flex-shrink: 0; }
-.client-landing-preview .founder div,
-.client-landing-preview .testimonial footer div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.client-landing-preview .founder strong { font-size: 14px; }
-.client-landing-preview .founder span,
-.client-landing-preview .testimonial footer span { font-size: 12px; color: #62708c; }
+.client-landing-preview .founders { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; margin-top: 34px; }
+.client-landing-preview .founders-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 22px 28px; }
+.client-landing-preview .founder { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; width: 96px; }
+.client-landing-preview .avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; object-position: center top; display: block; background: var(--navy); flex-shrink: 0; box-shadow: 0 8px 20px rgba(16, 31, 70, 0.12); }
+.client-landing-preview .founder strong { font-size: 13px; line-height: 1.25; font-weight: 700; }
+.client-landing-preview .founders-title { margin: 0; font-size: 13px; color: #62708c; line-height: 1.4; }
 .client-landing-preview .quote-saving { border-left: 1px solid rgba(11,22,51,.15); padding-left: 45px; display: flex; flex-direction: column; }
 .client-landing-preview .quote-saving small, .client-landing-preview .quote-saving span { color: #64718e; }
 .client-landing-preview .quote-saving strong { font-size: 38px; margin: 10px 0 4px; }
