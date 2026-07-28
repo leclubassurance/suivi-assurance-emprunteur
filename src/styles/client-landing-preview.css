@@ -8,7 +8,9 @@
   --navy: #101f46;
   --blue: #1a4c93;
   --blue-bright: #3d6fb8;
+  --blue-on-dark: #8bb8ff;
   --blue-rgb: 26, 76, 147;
+  --gold: #FFD400;
   --paper: #f4f5f7;
   --white: #ffffff;
   --muted: #697187;
@@ -68,8 +70,8 @@
 .client-landing-preview .hero-number span { font-size: 10px; letter-spacing: .17em; color: #9bb1da; margin-bottom: 10px; }
 .client-landing-preview .hero-number strong { font-size: 54px; line-height: 1; letter-spacing: -.05em; }
 .client-landing-preview .hero-number small { margin-top: 12px; color: #9aa9c5; }
-.client-landing-preview .hero-stamp { position: absolute; right: 38px; bottom: 48px; width: 110px; height: 110px; display: grid; place-content: center; text-align: center; border-radius: 50%; background: #C9A227; color: var(--navy); font-size: 25px; font-weight: 800; transform: rotate(8deg); box-shadow: 0 0 0 9px rgba(201, 162, 39, .22); }
-.client-landing-preview .hero-stamp small { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.client-landing-preview .hero-stamp { position: absolute; right: 38px; bottom: 48px; width: 110px; height: 110px; display: grid; place-content: center; text-align: center; border-radius: 50%; background: var(--gold); color: var(--navy); font-size: 25px; font-weight: 800; transform: rotate(8deg); box-shadow: 0 0 0 9px rgba(255, 212, 0, .28); }
+.client-landing-preview .hero-stamp small { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 
 .client-landing-preview .proof-strip { background: white; border-block: 1px solid var(--line); }
 .client-landing-preview .proof-grid { display: grid; grid-template-columns: repeat(4,1fr); padding-block: 32px; }
@@ -122,10 +124,12 @@
 .client-landing-preview .intro-content h2, .client-landing-preview .section-heading h2, .client-landing-preview .faq h2, .client-landing-preview .calculator-copy h2 { font-size: clamp(40px, 4.5vw, 68px); line-height: 1.05; letter-spacing: -.055em; margin: 0; }
 .client-landing-preview .intro-content p { margin: 40px 0 0 34%; max-width: 650px; font-size: 18px; line-height: 1.65; color: var(--muted); }
 
-.client-landing-preview .section-dark { background: rgba(16, 31, 70, 0.82); color: white; }
+.client-landing-preview .section-dark { background: color-mix(in srgb, var(--navy) 78%, white); color: white; }
 .client-landing-preview .calculator-grid { display: grid; grid-template-columns: 1fr .9fr; gap: 110px; align-items: center; }
-.client-landing-preview .eyebrow-light { color: #8fa8db; }
+.client-landing-preview .eyebrow-light { color: #b4c7ea; }
 .client-landing-preview .calculator-copy h2 { margin: 26px 0; max-width: 700px; }
+/* Même famille de bleu que la marque, éclairci pour rester lisible sur fond sombre. */
+.client-landing-preview .section-dark h2 em { color: var(--blue-on-dark); }
 .client-landing-preview .calculator-copy p { color: #f2f5fb; max-width: 570px; line-height: 1.6; }
 .client-landing-preview .range-group { margin-top: 42px; }
 .client-landing-preview .range-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 17px; }
@@ -281,7 +285,7 @@
     bottom: auto;
     top: 205px;
     font-size: 17px;
-    box-shadow: 0 0 0 7px rgba(201, 162, 39, .22);
+    box-shadow: 0 0 0 7px rgba(255, 212, 0, .28);
   }
   .client-landing-preview .footer .brand-logo { height: 44px; }
   .client-landing-preview .proof-grid { grid-template-columns: 1fr 1fr; padding-block: 26px; }
