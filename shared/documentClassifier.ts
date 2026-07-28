@@ -160,5 +160,7 @@ export function categoryToChecklistKey(category: DocumentCategory | null): strin
   if (!category || category === "autre" || category === "fiche" || category === "devis" || category === "etude") {
     return null;
   }
+  // Les slots checklist utilisent « amort », pas « tableau ».
+  if (category === "tableau") return "amort";
   return category;
 }

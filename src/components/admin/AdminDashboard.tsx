@@ -929,15 +929,34 @@ export default function AdminDashboard({
         showToast(data.error || "Impossible de reclasser le document", "error");
         return;
       }
-      const prev = selectedDossier.formData?.documents || [];
-      patchSelectedDocuments(
-        prev.map((d: any) =>
-          String(d.id) === docId || String(d.name) === docId
-            ? { ...d, category, categoryManual: true }
-            : d,
-        ),
-      );
-      showToast(`Type mis à jour : ${category}`, "success");
+      if (Array.isArray(data.documents)) {
+        setSelectedDossier((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            formData: { ...prev.formData, documents: data.documents },
+            adminChecklistOverrides:
+              data.adminChecklistOverrides ?? prev.adminChecklistOverrides,
+          };
+        });
+      } else {
+        const prev = selectedDossier.formData?.documents || [];
+        const nextId = data?.document?.id;
+        patchSelectedDocuments(
+          prev.map((d: any) =>
+            String(d.id) === docId || String(d.name) === docId
+              ? {
+                  ...d,
+                  ...(data.document || {}),
+                  id: nextId || d.id,
+                  category,
+                  categoryManual: true,
+                }
+              : d,
+          ),
+        );
+      }
+      showToast(`Type mis à jour : ${category} — checklist synchronisée`, "success");
       void loadDossiers();
     } catch (err: any) {
       const aborted = err?.name === "TimeoutError" || err?.name === "AbortError";

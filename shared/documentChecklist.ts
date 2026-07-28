@@ -219,24 +219,21 @@ export function computeDocumentChecklist(
   for (const d of docs) {
     const name = String(d.name || d.id || "document");
     const category = getCategory(d);
-    const checklistKey = categoryToChecklistKey(category as any);
 
-    if (checklistKey && matched[checklistKey]) {
-      matched[checklistKey].push(name);
-      continue;
-    }
-
-    if (category === "fiche") {
+    // Catégorie résolue → uniquement le slot checklist correspondant.
+    // Un devis/étude/autre (ou reclassement manuel) ne doit JAMAIS remplir CNI via le préfixe d'id.
+    if (category) {
+      const checklistKey = categoryToChecklistKey(category as any);
+      if (checklistKey && matched[checklistKey]) {
+        matched[checklistKey].push(name);
+      }
       continue;
     }
 
     const n = docName(d);
     const id = docId(d);
 
-    if (
-      id.startsWith("cni-") ||
-      classifyFileName(name) === "cni"
-    ) {
+    if (id.startsWith("cni-") || classifyFileName(name) === "cni") {
       matched.cni.push(name);
     }
     if (n.includes("rib") || n.includes("iban") || id.startsWith("rib-")) {
@@ -425,9 +422,7 @@ function slotDocumentsForKey(documents: any[], key: string): any[] {
   if (key === "cni") return documents.filter((d) => inferDocumentCategory(d) === "cni");
   if (key === "rib") return documents.filter((d) => inferDocumentCategory(d) === "rib");
   if (key === "amort") {
-    return documents.filter(
-      (d) => inferDocumentCategory(d) === "tableau" || docId(d).startsWith("tableau-"),
-    );
+    return documents.filter((d) => inferDocumentCategory(d) === "tableau");
   }
   if (key === "offre") {
     const offre = documents.filter((d) => inferDocumentCategory(d) === "offre");

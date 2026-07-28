@@ -5482,10 +5482,42 @@ export function createApp() {
       );
       if (!doc) return res.status(404).json({ error: "Document introuvable" });
 
+      const prevCategory = String(doc.category || "").trim().toLowerCase();
       doc.category = category;
       doc.categoryManual = true;
       doc.categorySetAt = new Date().toISOString();
       doc.categorySetBy = String((req as any).adminEmail || "admin");
+
+      // Aligne le préfixe d'id pour éviter qu'un ancien « cni-… » continue à polluer la checklist.
+      const oldId = String(doc.id || "");
+      const prefixMatch = oldId.match(
+        /^(cni|rib|offre|tableau|fiche|devis|etude|autre)-(.+)$/i,
+      );
+      if (prefixMatch) {
+        doc.id = `${category}-${prefixMatch[2]}`;
+      } else if (oldId && !oldId.startsWith(`${category}-`)) {
+        doc.id = `${category}-${oldId}`;
+      }
+
+      // Si plus aucun doc dans l'ancien slot, retire une validation manuelle éventuelle.
+      const { categoryToChecklistKey, inferDocumentCategory } = await import(
+        "../shared/documentClassifier"
+      );
+      const { setAdminChecklistOverride, isValidChecklistKey } = await import(
+        "./adminChecklistValidation"
+      );
+      const oldKey = categoryToChecklistKey(prevCategory as any);
+      if (oldKey && isValidChecklistKey(oldKey) && oldKey !== categoryToChecklistKey(category as any)) {
+        const stillHasOld = (dossier.formData?.documents || []).some((d: any) => {
+          if (d === doc) return false;
+          const k = categoryToChecklistKey(inferDocumentCategory(d) as any);
+          return k === oldKey;
+        });
+        if (!stillHasOld && dossier.adminChecklistOverrides?.[oldKey]) {
+          setAdminChecklistOverride(dossier, oldKey, null, { author: "admin" });
+        }
+      }
+
       // Pas de réanalyse OCR synchrone (bloquait le reclassement sur dossiers multi-tableaux).
 
       dossier.updatedAt = new Date().toISOString();
@@ -5493,7 +5525,13 @@ export function createApp() {
         type: "NOTE_ADDED",
         actor: { kind: "ADMIN", label: "Rémi" },
         message: `Type du document « ${doc.name} » défini manuellement sur : ${category}`,
-        meta: { template: "DOCUMENT_CATEGORY_MANUAL", docId: doc.id, category },
+        meta: {
+          template: "DOCUMENT_CATEGORY_MANUAL",
+          docId: doc.id,
+          previousDocId: oldId,
+          category,
+          previousCategory: prevCategory || null,
+        },
       });
       await writeDB(db, dossier);
 
@@ -5507,7 +5545,9 @@ export function createApp() {
           categoryManual: true,
           size: doc.size,
         },
+        documents: dossier.formData?.documents || [],
         checklist: computeDocumentChecklistForDossier(dossier),
+        adminChecklistOverrides: dossier.adminChecklistOverrides || {},
       });
     } catch (err: any) {
       console.error("[admin documents patch]", err?.message || err);
