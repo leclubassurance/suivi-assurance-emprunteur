@@ -468,15 +468,39 @@ export default function ClientLandingPage({
               milliers d’euros sur la table avec leur assurance emprunteur. Nous avons décidé d’y
               remédier.
             </p>
-            <footer>
-              <img
-                className="avatar"
-                src="https://res.cloudinary.com/dji8akleo/image/upload/v1777392327/Design_sans_titre-11_fl4twe.png"
-                alt="Charles Victor"
-              />
-              <div>
-                <strong>Charles Victor</strong>
-                <span>Fondateur du Club Immobilier Français</span>
+            <footer className="founders">
+              <div className="founder">
+                <img
+                  className="avatar"
+                  src="https://res.cloudinary.com/dji8akleo/image/upload/v1777392327/Design_sans_titre-11_fl4twe.png"
+                  alt="Charles Victor"
+                />
+                <div>
+                  <strong>Charles Victor</strong>
+                  <span>Cofondateur du Club Immobilier Français</span>
+                </div>
+              </div>
+              <div className="founder">
+                <img
+                  className="avatar"
+                  src="https://res.cloudinary.com/dji8akleo/image/upload/v1777319709/Design_sans_titre-11_gjufma.png"
+                  alt="Rémi"
+                />
+                <div>
+                  <strong>Rémi</strong>
+                  <span>Cofondateur du Club Immobilier Français</span>
+                </div>
+              </div>
+              <div className="founder">
+                <img
+                  className="avatar"
+                  src="https://res.cloudinary.com/dji8akleo/image/upload/v1776433695/Design_sans_titre-9_a6j5xz.png"
+                  alt="Kevin"
+                />
+                <div>
+                  <strong>Kevin</strong>
+                  <span>Cofondateur du Club Immobilier Français</span>
+                </div>
               </div>
             </footer>
           </blockquote>

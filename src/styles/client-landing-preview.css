@@ -160,9 +160,14 @@
 .client-landing-preview .quote-mark { font: 140px/1 Georgia,serif; color: #88aafa; align-self: start; }
 .client-landing-preview .testimonial blockquote { margin: 0; }
 .client-landing-preview .testimonial blockquote > p { font: 500 31px/1.4 var(--font-poppins), Arial, sans-serif; letter-spacing: -.025em; max-width: 840px; }
-.client-landing-preview .testimonial footer { display: flex; align-items: center; gap: 15px; margin-top: 30px; }
-.client-landing-preview .avatar { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; object-position: center top; display: block; background: var(--navy); }
-.client-landing-preview .testimonial footer div { display: flex; flex-direction: column; gap: 4px; }
+.client-landing-preview .testimonial footer,
+.client-landing-preview .founders { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 28px; margin-top: 30px; }
+.client-landing-preview .founder { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.client-landing-preview .avatar { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; object-position: center top; display: block; background: var(--navy); flex-shrink: 0; }
+.client-landing-preview .founder div,
+.client-landing-preview .testimonial footer div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.client-landing-preview .founder strong { font-size: 14px; }
+.client-landing-preview .founder span,
 .client-landing-preview .testimonial footer span { font-size: 12px; color: #62708c; }
 .client-landing-preview .quote-saving { border-left: 1px solid rgba(11,22,51,.15); padding-left: 45px; display: flex; flex-direction: column; }
 .client-landing-preview .quote-saving small, .client-landing-preview .quote-saving span { color: #64718e; }
