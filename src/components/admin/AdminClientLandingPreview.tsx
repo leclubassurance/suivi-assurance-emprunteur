@@ -135,12 +135,13 @@ export default function AdminClientLandingPreview({
           <ArrowLeft className="w-3.5 h-3.5" /> Retour admin
         </button>
         <span style={{ opacity: 0.85, textAlign: "right", maxWidth: "70%" }}>
-          Preview landing client · non publiée
+          Preview · carrousel = études réalisées ≥ 5&nbsp;000&nbsp;€ (live CRM, max 10)
           {adminStudyIds.length > 0 ? (
             <>
               <br />
               <span style={{ fontSize: 11, opacity: 0.75 }}>
-                Carrousel CRM ({adminStudyIds.length}) : {adminStudyIds.join(" · ")}
+                {adminStudyIds.length} dossier{adminStudyIds.length > 1 ? "s" : ""} :{" "}
+                {adminStudyIds.join(" · ")}
               </span>
             </>
           ) : null}

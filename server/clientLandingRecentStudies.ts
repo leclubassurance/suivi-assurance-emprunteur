@@ -1,4 +1,5 @@
 import type { Dossier } from "./dossierModel";
+import { isArchivedDossier } from "../shared/dossierInactive";
 import { getLastStudyOutbound, getStudySentAtMs, hasStudyBeenSent } from "./dossierLifecycle";
 import {
   extractGrossFromStudySubject,
@@ -45,13 +46,22 @@ function formatSavingsLabel(eur: number): string {
 }
 
 function formatMonthlyLabel(eur: number): string {
-  return `${eur.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`;
+  return `${eur.toLocaleString("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })} €`;
 }
 
 function pickPositive(raw: unknown): number | null {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n);
+}
+
+function parseTs(raw: unknown): number | null {
+  if (!raw) return null;
+  const ms = new Date(String(raw)).getTime();
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
 /**
@@ -75,7 +85,6 @@ export function resolveGrossSavingsEur(dossier: Dossier): number {
     if (fromSubject != null && fromSubject > 0) return Math.round(fromSubject);
   }
 
-  // Corps du dernier mail d'étude (HTML ou texte)
   const studyComms = [...(dossier.communications || [])]
     .filter((c) => c.direction === "outbound")
     .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
@@ -122,7 +131,8 @@ function resolveMonthlyPair(dossier: Dossier): {
     | undefined;
 
   let before =
-    extracted?.currentMonthlyInsurance != null && Number.isFinite(Number(extracted.currentMonthlyInsurance))
+    extracted?.currentMonthlyInsurance != null &&
+    Number.isFinite(Number(extracted.currentMonthlyInsurance))
       ? Math.round(Number(extracted.currentMonthlyInsurance) * 100) / 100
       : null;
   let after: number | null = null;
@@ -142,7 +152,6 @@ function resolveMonthlyPair(dossier: Dossier): {
     }
   }
 
-  // Ne jamais inventer un "après" seul via prime annuelle (affiche 5,83 € sans avant).
   if (before == null || after == null || !(before > 0) || !(after < before)) {
     return { monthlyBeforeEur: null, monthlyAfterEur: null, savingsPercent: null };
   }
@@ -154,6 +163,7 @@ function resolveMonthlyPair(dossier: Dossier): {
   };
 }
 
+/** Date de réalisation de l'étude (envoi client, sinon calcul / validation). */
 function resolveStudyTimestamp(dossier: Dossier): { iso: string; ms: number } | null {
   const sentMs = getStudySentAtMs(dossier);
   if (sentMs != null && sentMs > 0) {
@@ -161,13 +171,40 @@ function resolveStudyTimestamp(dossier: Dossier): { iso: string; ms: number } | 
     const iso = last?.date || new Date(sentMs).toISOString();
     return { iso, ms: sentMs };
   }
-  return null;
+
+  const candidates: Array<{ iso: string; ms: number }> = [];
+  const push = (raw: unknown) => {
+    const ms = parseTs(raw);
+    if (ms == null) return;
+    candidates.push({ iso: String(raw), ms });
+  };
+
+  const validation = dossier.studyConseillerValidation;
+  if (validation?.status === "approved") push(validation.approvedAt);
+  push(validation?.submittedAt);
+  push(dossier.studyKpi?.extractedAt);
+  push(dossier.studyDraft?.computedAt);
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.ms - a.ms);
+  return candidates[0];
 }
 
+function hasRealizedStudyEconomics(dossier: Dossier): boolean {
+  if (Number(dossier.studyKpi?.grossSavingsEur) > 0) return true;
+  if (Number(dossier.studyDraft?.economySummary?.grossSavingsEur) > 0) return true;
+  if (Number(dossier.studyConseillerValidation?.grossSavingsEur) > 0) return true;
+  return hasStudyBeenSent(dossier);
+}
+
+/**
+ * Étude « réalisée » pour le carrousel public :
+ * économie brute ≥ seuil, dossier non archivé/refusé, chiffres CRM matérialisés.
+ * Pas besoin que le mail client soit déjà parti (ex. étude calculée / en validation).
+ */
 function isEligibleForLandingCarousel(dossier: Dossier): boolean {
-  // Strict : envoi réel d'étude uniquement (pas de filet statut CRM).
-  if (!hasStudyBeenSent(dossier)) return false;
-  if (isStudyPendingLike(dossier)) return false;
+  if (isArchivedDossier(dossier)) return false;
+  if (!hasRealizedStudyEconomics(dossier)) return false;
 
   const gross = resolveGrossSavingsEur(dossier);
   if (gross < CLIENT_LANDING_MIN_GROSS_SAVINGS_EUR) return false;
@@ -175,22 +212,22 @@ function isEligibleForLandingCarousel(dossier: Dossier): boolean {
   const loan = getLoanCapitalFromDossier(dossier);
   if (!isGrossSavingsPlausible(gross, loan)) return false;
 
-  // Écarter les KPI à faible confiance quand c'est la seule source.
   const kpi = dossier.studyKpi;
-  if (kpi?.confidence === "low" && !(dossier.studyDraft?.economySummary?.grossSavingsEur)) {
+  if (
+    kpi?.confidence === "low" &&
+    !(dossier.studyDraft?.economySummary?.grossSavingsEur) &&
+    !(dossier.studyConseillerValidation?.grossSavingsEur)
+  ) {
     return false;
   }
 
-  return true;
-}
-
-function isStudyPendingLike(dossier: Dossier): boolean {
-  return dossier.studyConseillerValidation?.status === "pending";
+  return resolveStudyTimestamp(dossier) != null;
 }
 
 /**
- * Dernières études envoyées avec économie brute ≥ seuil.
- * Triées par date d'envoi (plus récentes d'abord), max `limit` (défaut 10).
+ * Dernières études réalisées avec économie brute ≥ seuil.
+ * Triées par date de réalisation (plus récentes d'abord), max `limit` (défaut 10).
+ * Se met à jour automatiquement à chaque chargement de la preview (lecture CRM live).
  */
 export function listClientLandingRecentStudies(
   dossiers: Dossier[],
