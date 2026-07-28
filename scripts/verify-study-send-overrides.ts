@@ -75,14 +75,14 @@ const sentHtml = resolveStudyEmailHtmlForSend({
   validation: manualDossier.studyConseillerValidation,
   dossier: manualDossier,
 });
-assert(sentHtml.includes("450,00 €"), "HTML envoyé avec courtage manuel");
-assert(!sentHtml.includes("900,00 €"), "HTML sans courtage conseiller");
+assert(sentHtml.includes("450,00") && /450,00[\s\u00a0]€/.test(sentHtml), "HTML envoyé avec courtage manuel");
+assert(!/900,00[\s\u00a0]€/.test(sentHtml), "HTML sans courtage conseiller");
 assert(sentHtml.includes("1 septembre 2026"), "HTML avec date septembre");
 assert(!sentHtml.includes("15 juillet 2026"), "HTML sans date juillet");
 
 applyStudyHtmlOverridesToDossier(manualDossier as any);
 assert(
-  String(manualDossier.studyDraft.html).includes("450,00 €"),
+  /450,00[\s\u00a0]€/.test(String(manualDossier.studyDraft.html)),
   "brouillon patché courtage",
 );
 assert(

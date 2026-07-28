@@ -1,21 +1,50 @@
-/** Patch ciblé de la ligne « Frais de courtage » dans un HTML d'étude manuel. */
+/** Patch ciblé de la ligne « Frais de courtage » dans un HTML d'étude. */
 
 export function formatEuroFr(amount: number): string {
   const n = Math.round(Number(amount) * 100) / 100;
   const [whole, frac] = n.toFixed(2).split(".");
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  return `${grouped},${frac} €`;
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
+  return `${grouped},${frac}\u00a0€`;
 }
 
-const BROKERAGE_LINE_RES = [
-  /(Frais de courtage\s*:\s*)<strong>[^<]*<\/strong>/i,
-  /(Frais de courtage\s*:\s*)<\/span>\s*<span[^>]*>[^<]*<\/span>/i,
-  /(Frais de courtage\s*:\s*)<b>[^<]*<\/b>/i,
+/**
+ * Remplace le montant après « Frais de courtage : » sans laisser l'ancien montant
+ * (bug fréquent : « 190,00 € 190 € » quand le template a déjà un <strong>190&nbsp;€</strong>).
+ */
+const BROKERAGE_AMOUNT_RES: Array<{ re: RegExp; wrap: (formatted: string) => string }> = [
+  // Template brandé PDF : « Frais de courtage :</span> <strong>190&nbsp;€</strong> »
+  {
+    re: /(Frais de courtage\s*:\s*<\/span>\s*)<strong>[^<]*<\/strong>/i,
+    wrap: (f) => `$1<strong>${f}</strong>`,
+  },
+  // « Frais de courtage : <strong>…</strong> »
+  {
+    re: /(Frais de courtage\s*:\s*)<strong>[^<]*<\/strong>/i,
+    wrap: (f) => `$1<strong>${f}</strong>`,
+  },
+  // Draft économies : « Frais de courtage :</span> <span>…</span> »
+  {
+    re: /(Frais de courtage\s*:\s*<\/span>\s*)<span[^>]*>[^<]*<\/span>/i,
+    wrap: (f) => `$1<span>${f}</span>`,
+  },
+  {
+    re: /(Frais de courtage\s*:\s*)<\/span>\s*<span[^>]*>[^<]*<\/span>/i,
+    wrap: (f) => `$1</span> <span>${f}</span>`,
+  },
+  {
+    re: /(Frais de courtage\s*:\s*)<b>[^<]*<\/b>/i,
+    wrap: (f) => `$1<strong>${f}</strong>`,
+  },
+  // Plain text / table cell amount after the label
+  {
+    re: /(Frais de courtage\s*:?\s*)(\d{1,3}(?:[\s\u00a0.]\d{3})*(?:[,.]\d{2})?\s*(?:&nbsp;|\u00a0)?€)/i,
+    wrap: (f) => `$1${f}`,
+  },
 ];
 
 export function hasBrokerageFeeLine(html: string): boolean {
   const h = String(html || "");
-  return BROKERAGE_LINE_RES.some((re) => re.test(h)) || /Frais de courtage/i.test(h);
+  return /Frais de courtage/i.test(h);
 }
 
 export function patchStudyHtmlBrokerageFee(
@@ -23,17 +52,13 @@ export function patchStudyHtmlBrokerageFee(
   totalEur: number,
 ): { html: string; patched: boolean } {
   const formatted = formatEuroFr(totalEur);
-  const replacement = `$1<strong>${formatted}</strong>`;
-  for (const re of BROKERAGE_LINE_RES) {
-    if (re.test(html)) {
-      return { html: html.replace(re, replacement), patched: true };
+  const source = String(html || "");
+  for (const { re, wrap } of BROKERAGE_AMOUNT_RES) {
+    if (re.test(source)) {
+      return { html: source.replace(re, wrap(formatted)), patched: true };
     }
   }
-  const fallback = html.replace(
-    /(Frais de courtage\s*:\s*)(?:<strong>)?[^<\n]{0,40}(?:<\/strong>)?/i,
-    `$1<strong>${formatted}</strong>`,
-  );
-  return { html: fallback, patched: fallback !== html };
+  return { html: source, patched: false };
 }
 
 const MONTHS_FR = [
