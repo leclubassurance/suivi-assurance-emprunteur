@@ -23,7 +23,7 @@
 
 .client-landing-preview .nav { height: 92px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); position: relative; z-index: 5; }
 .client-landing-preview .brand { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.client-landing-preview .brand-logo { height: 44px; width: auto; display: block; object-fit: contain; }
+.client-landing-preview .brand-logo { height: 48px; width: auto; display: block; object-fit: contain; }
 .client-landing-preview .brand-rule { width: 1px; height: 37px; background: var(--line); flex-shrink: 0; }
 .client-landing-preview .brand-meta { font-size: 10px; line-height: 1.45; letter-spacing: .16em; font-weight: 700; color: #51607c; }
 .client-landing-preview .nav-links { display: flex; gap: 34px; font-size: 14px; color: #4c556a; }

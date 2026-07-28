@@ -2,8 +2,20 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Check, Loader2 } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
 import CalBookingButton from "../ui/CalBookingButton";
-import { LCIF_LOGO_URL } from "../../../shared/apporteurBrand";
 import "../../styles/client-landing-preview.css";
+
+/** Logo couleur (fond clair) — le blanc Cloudinary `5_yn8wfm` est réservé aux fonds bleus. */
+const LCIF_LOGO_COLOR_URL =
+  "https://res.cloudinary.com/dji8akleo/image/upload/v1777112444/6_oqr0zi.png";
+
+/** Hero showcase aligné sur la landing publique + maquette (78,82 → 31,46 → 12 218 €). */
+const HERO_SHOWCASE = {
+  monthlyBeforeEur: 78.82,
+  monthlyAfterEur: 31.46,
+  grossSavingsEur: 12218,
+  savingsPercent: 60,
+  caption: "Dossier réel anonymisé · couple, prêt en cours",
+} as const;
 
 type RecentStudy = {
   dossierId: string;
@@ -25,7 +37,7 @@ function formatMonthly(eur: number): string {
 function BrandMark() {
   return (
     <a className="brand" href="#top" aria-label="Le Club Immobilier Français">
-      <img className="brand-logo" src={LCIF_LOGO_URL} alt="Le Club Immobilier Français" />
+      <img className="brand-logo" src={LCIF_LOGO_COLOR_URL} alt="Le Club Immobilier Français" />
       <span className="brand-rule" />
       <span className="brand-meta">
         ASSURANCE
@@ -84,21 +96,7 @@ export default function AdminClientLandingPreview({
   const euros = (value: number) =>
     new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(value);
 
-  const heroSaving = studies[0];
-  const heroBefore =
-    heroSaving?.monthlyBeforeEur != null && heroSaving.monthlyBeforeEur > 0
-      ? heroSaving.monthlyBeforeEur
-      : null;
-  const heroAfter =
-    heroSaving?.monthlyAfterEur != null && heroSaving.monthlyAfterEur > 0
-      ? heroSaving.monthlyAfterEur
-      : null;
-  const heroPercent =
-    heroSaving?.savingsPercent != null && heroSaving.savingsPercent > 0
-      ? heroSaving.savingsPercent
-      : heroBefore != null && heroAfter != null && heroBefore > heroAfter
-        ? Math.round(((heroBefore - heroAfter) / heroBefore) * 100)
-        : null;
+  const adminStudyIds = studies.map((s) => s.dossierId).filter(Boolean);
 
   return (
     <div className="client-landing-preview">
@@ -136,8 +134,16 @@ export default function AdminClientLandingPreview({
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Retour admin
         </button>
-        <span style={{ opacity: 0.85, textAlign: "right" }}>
+        <span style={{ opacity: 0.85, textAlign: "right", maxWidth: "70%" }}>
           Preview landing client · non publiée
+          {adminStudyIds.length > 0 ? (
+            <>
+              <br />
+              <span style={{ fontSize: 11, opacity: 0.75 }}>
+                Carrousel CRM ({adminStudyIds.length}) : {adminStudyIds.join(" · ")}
+              </span>
+            </>
+          ) : null}
         </span>
       </div>
 
@@ -201,39 +207,25 @@ export default function AdminClientLandingPreview({
           <div className="hero-visual" aria-label="Exemple réel d'économie">
             <div className="orbit orbit-one" />
             <div className="orbit orbit-two" />
-            {heroBefore != null ? (
-              <div className="saving-card card-before">
-                <span>Avant</span>
-                <strong>{formatMonthly(heroBefore)}</strong>
-                <small>par mois</small>
-              </div>
-            ) : null}
-            {heroAfter != null ? (
-              <div className="saving-card card-after">
-                <span>Après</span>
-                <strong>{formatMonthly(heroAfter)}</strong>
-                <small>par mois</small>
-              </div>
-            ) : null}
+            <div className="saving-card card-before">
+              <span>Avant</span>
+              <strong>{formatMonthly(HERO_SHOWCASE.monthlyBeforeEur)}</strong>
+              <small>par mois</small>
+            </div>
+            <div className="saving-card card-after">
+              <span>Après</span>
+              <strong>{formatMonthly(HERO_SHOWCASE.monthlyAfterEur)}</strong>
+              <small>par mois</small>
+            </div>
             <div className="hero-number">
               <span>ÉCONOMIE CONSTATÉE</span>
-              <strong>
-                {heroSaving
-                  ? `${euros(heroSaving.grossSavingsEur)} €`
-                  : "—"}
-              </strong>
-              <small>
-                {heroSaving
-                  ? `Dossier réel anonymisé · étude du ${heroSaving.dateLabel}`
-                  : "En attente d’études récentes"}
-              </small>
+              <strong>{euros(HERO_SHOWCASE.grossSavingsEur)} €</strong>
+              <small>{HERO_SHOWCASE.caption}</small>
             </div>
-            {heroPercent != null ? (
-              <div className="hero-stamp">
-                −{heroPercent}%
-                <small>sur la cotisation</small>
-              </div>
-            ) : null}
+            <div className="hero-stamp">
+              −{HERO_SHOWCASE.savingsPercent}%
+              <small>sur la cotisation</small>
+            </div>
           </div>
         </section>
 
