@@ -688,7 +688,11 @@ export default function App() {
         </div>
       )}
 
-      <main className="flex-1 w-full min-h-0 flex flex-col pt-4 md:pt-8 bg-transparent">
+      <main
+        className={`flex-1 w-full min-h-0 flex flex-col bg-transparent ${
+          currentStep === Step.LANDING ? "pt-0" : "pt-4 md:pt-8"
+        }`}
+      >
         {currentStep === Step.LANDING && (
           <LandingStep 
             onStart={() => goToStep(Step.PREPARATION)} 

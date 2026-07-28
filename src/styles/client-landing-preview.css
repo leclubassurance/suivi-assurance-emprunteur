@@ -194,7 +194,18 @@
 .client-landing-preview .final-cta-actions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-top: 8px; }
 .client-landing-preview .button-ghost { background: transparent; color: white; border: 1.5px solid rgba(255,255,255,.45); box-shadow: none; }
 .client-landing-preview .button-ghost:hover { background: rgba(255,255,255,.1); box-shadow: none; transform: translateY(-2px); }
-.client-landing-preview .footer .brand-logo { height: 40px; }
+.client-landing-preview .footer-links button.text-link {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.client-landing-preview .footer-links button.text-link:hover {
+  border-bottom-color: currentColor;
+}
 .client-landing-preview .footer { display: flex; justify-content: space-between; align-items: center; padding-block: 55px; color: #747d90; font-size: 11px; }
 .client-landing-preview .footer-center { text-align: center; line-height: 1.7; }
 .client-landing-preview .footer-links { display: flex; gap: 24px; }

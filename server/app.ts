@@ -2296,7 +2296,32 @@ export function createApp() {
     }
   });
 
-  /** Preview landing client : dernières études ≥ 5 000 € d'économie (max 10). */
+  /** Landing client publique : dernières études ≥ 5 000 € (anonymisées, max 10). */
+  app.get("/api/public/client-landing/recent-studies", async (_req, res) => {
+    try {
+      const db = await readDBAsync();
+      const { listClientLandingRecentStudies } = await import("./clientLandingRecentStudies");
+      const studies = listClientLandingRecentStudies(db.dossiers || []);
+      res.setHeader("Cache-Control", "public, max-age=60");
+      res.json({
+        ok: true,
+        minGrossSavingsEur: 5000,
+        limit: 10,
+        count: studies.length,
+        studies: studies.map((s, index) => ({
+          id: s.fictional ? s.dossierId : `study-${index + 1}`,
+          dateLabel: s.studySentAtLabel,
+          grossSavingsEur: s.grossSavingsEur,
+          savingLabel: s.grossSavingsLabel,
+          fictional: Boolean(s.fictional),
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  /** Preview landing client (admin) : mêmes données + IDs dossiers pour contrôle. */
   app.get("/api/admin/client-landing-preview/recent-studies", async (_req, res) => {
     try {
       const db = await readDBAsync();
