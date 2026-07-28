@@ -69,8 +69,8 @@
 .client-landing-preview .hero-number span { font-size: 10px; letter-spacing: .17em; color: #9bb1da; margin-bottom: 10px; }
 .client-landing-preview .hero-number strong { font-size: 54px; line-height: 1; letter-spacing: -.05em; }
 .client-landing-preview .hero-number small { margin-top: 12px; color: #9aa9c5; }
-.client-landing-preview .hero-stamp { position: absolute; right: 38px; bottom: 48px; width: 110px; height: 110px; display: grid; place-content: center; text-align: center; border-radius: 50%; background: #2d6bb8; color: white; font-size: 25px; font-weight: 800; transform: rotate(8deg); box-shadow: 0 0 0 9px rgba(95,143,207,.18); }
-.client-landing-preview .hero-stamp small { font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; }
+.client-landing-preview .hero-stamp { position: absolute; right: 38px; bottom: 48px; width: 110px; height: 110px; display: grid; place-content: center; text-align: center; border-radius: 50%; background: #ffbd59; color: var(--navy); font-size: 25px; font-weight: 800; transform: rotate(8deg); box-shadow: 0 0 0 9px rgba(255, 189, 89, .28); }
+.client-landing-preview .hero-stamp small { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
 
 .client-landing-preview .proof-strip { background: white; border-block: 1px solid var(--line); }
 .client-landing-preview .proof-grid { display: grid; grid-template-columns: repeat(4,1fr); padding-block: 32px; }
