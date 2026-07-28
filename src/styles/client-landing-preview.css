@@ -220,6 +220,9 @@
   .client-landing-preview .nav-links { display: none; }
   .client-landing-preview .hero { grid-template-columns: 1fr; padding-top: 55px; gap: 55px; }
   .client-landing-preview .hero-visual { height: 520px; }
+  .client-landing-preview .hero-number { right: 130px; }
+  .client-landing-preview .hero-number small { max-width: 100%; }
+  .client-landing-preview .hero-stamp { top: 230px; bottom: auto; right: 28px; }
   .client-landing-preview .proof-grid { grid-template-columns: repeat(2,1fr); row-gap: 28px; }
   .client-landing-preview .proof-grid div:nth-child(3) { border-left: 0; padding-left: 0; }
   .client-landing-preview .intro { grid-template-columns: 1fr; gap: 35px; }
