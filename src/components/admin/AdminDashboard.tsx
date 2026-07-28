@@ -2578,6 +2578,7 @@ export default function AdminDashboard({
                         <option value="cni">Pièce d&apos;identité</option>
                         <option value="rib">RIB</option>
                         <option value="devis">Devis assureur</option>
+                        <option value="etude">Étude d&apos;économie (PDF)</option>
                         <option value="autre">Autre</option>
                       </select>
                       <label
