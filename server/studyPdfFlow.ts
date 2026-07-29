@@ -751,18 +751,19 @@ function writeRestoredPdf(
 }
 
 /**
- * Garantit un PDF d'étude local.
- * Chaîne : disque → driveFileId → document « etude » → recherche Drive → régénération ADE.
+ * Restaure un PDF d'étude **déjà référencé** sur le dossier (disque / driveFileId connu / doc étude).
+ * Ne recrée JAMAIS un PDF depuis ADE, ni par recherche floue dans Drive :
+ * c'est ce qui produisait les `…_restored_…pdf` après une suppression admin.
  */
 export async function ensureStudyPdfLocalFile(
   dossier: Dossier,
   uploadsDir: string,
 ): Promise<{
   localPath: string | null;
-  source?: "disk" | "drive" | "document" | "drive_search" | "regenerated";
+  source?: "disk" | "drive" | "document";
   error?: string;
 }> {
-  // Suppression admin explicite : ne jamais ressusciter depuis Drive / ADE / nom de fichier.
+  // Suppression admin explicite : ne jamais ressusciter.
   if (isStudyPdfSuppressed(dossier)) {
     return {
       localPath: null,
@@ -770,16 +771,26 @@ export async function ensureStudyPdfLocalFile(
     };
   }
 
+  // Sans métadonnée / doc étude : rien à restaurer (évite la régénération fantôme).
+  if (!hasStudyPdfMeta(dossier)) {
+    return {
+      localPath: null,
+      error:
+        "Aucun PDF d'étude sur ce dossier. Générez l'étude ou importez un PDF depuis l'admin.",
+    };
+  }
+
   const onDisk = getStudyPdfPath(dossier);
   if (onDisk) return { localPath: onDisk, source: "disk" };
 
-  const dossierDir = path.join(uploadsDir, dossier.id);
-  if (!fs.existsSync(dossierDir)) fs.mkdirSync(dossierDir, { recursive: true });
+  if (!fs.existsSync(path.join(uploadsDir, dossier.id))) {
+    fs.mkdirSync(path.join(uploadsDir, dossier.id), { recursive: true });
+  }
 
   const tryDownloadDriveId = async (
     fileId: string,
     fileName: string,
-    source: "drive" | "document" | "drive_search",
+    source: "drive" | "document",
   ): Promise<{ localPath: string; source: typeof source } | null> => {
     const { downloadDriveFileToBuffer } = await import("./gmailDriveUpload");
     const buf = await downloadDriveFileToBuffer(fileId, null);
@@ -801,7 +812,7 @@ export async function ensureStudyPdfLocalFile(
     return { localPath: dest, source };
   };
 
-  // 1) driveFileId sur studyPdf
+  // 1) driveFileId sur studyPdf / studyDraft
   const driveId = studyPdfDriveFileId(dossier);
   if (driveId) {
     try {
@@ -816,7 +827,7 @@ export async function ensureStudyPdfLocalFile(
     }
   }
 
-  // 2) Documents dossier (catégorie etude / nom)
+  // 2) Documents dossier déjà classés étude (chemin local ou driveFileId connu)
   const docs = ((dossier as any).formData?.documents || []) as any[];
   for (const doc of docs.filter(isStudyDocCandidate)) {
     const local = String(doc.localPath || "").trim();
@@ -845,114 +856,10 @@ export async function ensureStudyPdfLocalFile(
     }
   }
 
-  // 3) Recherche dans le dossier Drive client
-  const folderId = String((dossier as any).workspaceFolderId || "").trim();
-  if (folderId) {
-    try {
-      const { listDriveFilesInFolder } = await import("./gmailDriveUpload");
-      const files = await listDriveFilesInFolder(folderId, null);
-      const studyLike = [...files.values()].filter((f) => {
-        const n = String(f.name || "").toLowerCase();
-        return (
-          n.endsWith(".pdf") &&
-          (/etude|étude|economies|économies|ade_study|study/.test(n) ||
-            n.includes(String(dossier.id || "").toLowerCase()))
-        );
-      });
-      // Préférer le plus « étude économies »
-      studyLike.sort((a, b) => {
-        const score = (n: string) =>
-          (/etude_economies|étude.?économies|economies_ade/.test(n) ? 2 : 0) +
-          (/etude|étude/.test(n) ? 1 : 0);
-        return score(String(b.name || "").toLowerCase()) - score(String(a.name || "").toLowerCase());
-      });
-      for (const f of studyLike) {
-        const got = await tryDownloadDriveId(f.fileId, f.name || `etude-${dossier.id}.pdf`, "drive_search");
-        if (got) return got;
-      }
-    } catch (e: any) {
-      console.warn("[study-pdf] Drive folder search failed:", e?.message || e);
-    }
-  }
-
-  // 4) Régénération depuis le calcul ADE stocké
-  const comp = (dossier as any).adeStudyComputation;
-  if (
-    comp &&
-    typeof comp.grossSavingsEur === "number" &&
-    typeof comp.currentTotalEur === "number" &&
-    typeof comp.proposedTotalEur === "number"
-  ) {
-    try {
-      const { generateAdeStudyPdfBuffer } = await import("./adeStudyPdfGenerate");
-      const pdfBuf = await generateAdeStudyPdfBuffer(comp);
-      const fileName = `Etude_economies_ADE_${dossier.id}_restored_${Date.now()}.pdf`;
-      const dest = path.join(dossierDir, fileName);
-      fs.writeFileSync(dest, pdfBuf);
-      patchStudyPdfMeta(dossier, {
-        fileName,
-        localPath: dest,
-        size: pdfBuf.length,
-        uploadedAt: new Date().toISOString(),
-        mimeType: "application/pdf",
-      });
-      const uploaded = await persistStudyPdfToDrive(dossier, dest, fileName);
-      registerStudyPdfAsDocument(dossier, {
-        localPath: dest,
-        fileName,
-        size: pdfBuf.length,
-        driveFileId: uploaded?.driveFileId,
-        driveLink: uploaded?.driveLink,
-      });
-      return { localPath: dest, source: "regenerated" };
-    } catch (e: any) {
-      console.warn("[study-pdf] regenerate from computation failed:", e?.message || e);
-    }
-  }
-
-  // 5) Dernier recours : régénérer toute l'étude ADE depuis tableaux + devis
-  const hasDevis = docs.some(
-    (d) =>
-      String(d?.category || "").toLowerCase() === "devis" || /devis/i.test(String(d?.name || "")),
-  );
-  const hasTableau = docs.some((d) => String(d?.category || "").toLowerCase() === "tableau");
-  if (hasDevis && hasTableau) {
-    try {
-      const { generateAndIngestAdeStudyForDossier } = await import("./adeStudyPipeline");
-      const gen = await generateAndIngestAdeStudyForDossier({
-        dossier,
-        uploadsDir,
-        actorLabel: "Restore PDF étude (auto)",
-      });
-      if (gen.ok) {
-        const pathNow = getStudyPdfPath(dossier);
-        if (pathNow) {
-          const uploaded = await persistStudyPdfToDrive(
-            dossier,
-            pathNow,
-            String((dossier as any).studyPdf?.fileName || path.basename(pathNow)),
-          );
-          registerStudyPdfAsDocument(dossier, {
-            localPath: pathNow,
-            fileName: String((dossier as any).studyPdf?.fileName || path.basename(pathNow)),
-            size: (dossier as any).studyPdf?.size,
-            driveFileId: uploaded?.driveFileId || (dossier as any).studyPdf?.driveFileId,
-            driveLink: uploaded?.driveLink || (dossier as any).studyPdf?.driveLink,
-          });
-          return { localPath: pathNow, source: "regenerated" };
-        }
-      } else {
-        console.warn("[study-pdf] full ADE restore failed:", gen.error);
-      }
-    } catch (e: any) {
-      console.warn("[study-pdf] full ADE restore exception:", e?.message || e);
-    }
-  }
-
   return {
     localPath: null,
     error:
-      "PDF d'étude introuvable. Depuis l'admin : régénérez l'étude (Générer étude depuis devis) ou réimportez le PDF, puis renvoyez le débrief au conseiller.",
+      "PDF d'étude introuvable (fichier local / Drive id). Depuis l'admin : régénérez l'étude (Générer étude depuis devis) ou réimportez le PDF.",
   };
 }
 

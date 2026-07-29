@@ -1087,12 +1087,12 @@ export function createApp() {
     const validation = dossier.studyConseillerValidation || null;
     const draftHtml = dossier.studyDraft?.html || validation?.html || "";
     const sendSlice = dossierSliceForStudySend(dossier);
-    const { getStudyPdfPath, ensureBrandedStudyClientEmail, hasStudyPdfMeta, ensureStudyPdfDurable } =
+    const { getStudyPdfPath, ensureBrandedStudyClientEmail, hasStudyPdfMeta, ensureStudyPdfDurable, isStudyPdfSuppressed } =
       await import("./studyPdfFlow");
     // Régénère le HTML en mémoire pour l'aperçu — pas d'écriture Firestore sur un GET.
     ensureBrandedStudyClientEmail(dossier);
-    let hasStudyPdf = hasStudyPdfMeta(dossier);
-    // Tente une restauration Drive → disque si métadonnées présentes mais fichier local absent.
+    let hasStudyPdf = !isStudyPdfSuppressed(dossier) && hasStudyPdfMeta(dossier);
+    // Restaure uniquement un PDF déjà référencé (driveFileId / doc), jamais une régénération ADE.
     if (hasStudyPdf && !getStudyPdfPath(dossier)) {
       const ensured = await ensureStudyPdfDurable(dossier, UPLOADS_DIR);
       if (ensured.ok) {

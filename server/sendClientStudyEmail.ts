@@ -54,26 +54,28 @@ export async function sendClientStudyEmail(params: {
         params.uploadsDir ||
         path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "uploads");
       const expectPdf = hasStudyPdfMeta(dossier);
-      const durable = await ensureStudyPdfDurable(dossier, uploadsDir);
-      const pdfPath = (durable.ok && durable.localPath) || getStudyPdfPath(dossier);
-      if (pdfPath && fs.existsSync(pdfPath)) {
-        const fileName =
-          String((dossier as any).studyPdf?.fileName || path.basename(pdfPath) || "etude-economies.pdf").trim() ||
-          "etude-economies.pdf";
-        studyAttachments = [
-          {
-            filename: fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`,
-            mimeType: "application/pdf",
-            content: fs.readFileSync(pdfPath),
-          },
-        ];
-      } else if (expectPdf) {
-        return {
-          ok: false,
-          error:
-            "Le PDF d'étude est référencé sur ce dossier mais introuvable (disque/Drive). Réimportez le PDF avant d'envoyer le mail.",
-          status: 409,
-        };
+      if (expectPdf) {
+        const durable = await ensureStudyPdfDurable(dossier, uploadsDir);
+        const pdfPath = (durable.ok && durable.localPath) || getStudyPdfPath(dossier);
+        if (pdfPath && fs.existsSync(pdfPath)) {
+          const fileName =
+            String((dossier as any).studyPdf?.fileName || path.basename(pdfPath) || "etude-economies.pdf").trim() ||
+            "etude-economies.pdf";
+          studyAttachments = [
+            {
+              filename: fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`,
+              mimeType: "application/pdf",
+              content: fs.readFileSync(pdfPath),
+            },
+          ];
+        } else {
+          return {
+            ok: false,
+            error:
+              "Le PDF d'étude est référencé sur ce dossier mais introuvable (disque/Drive). Réimportez le PDF avant d'envoyer le mail.",
+            status: 409,
+          };
+        }
       }
     } catch (attErr: any) {
       console.warn(`[send-study] PJ PDF: ${attErr?.message || attErr}`);

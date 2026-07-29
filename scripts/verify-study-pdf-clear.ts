@@ -72,6 +72,26 @@ async function main() {
   assert.equal(isStudyPdfSuppressed(dossier), false);
   assert.equal(hasStudyPdfMeta(dossier), true);
 
+  // Régénération fantôme : calcul ADE seul ≠ PDF à restaurer
+  const { ensureStudyPdfLocalFile } = await import("../server/studyPdfFlow");
+  const ghost: any = {
+    id: "LCIF-GHOST",
+    adeStudyComputation: {
+      grossSavingsEur: 1000,
+      currentTotalEur: 5000,
+      proposedTotalEur: 4000,
+    },
+    formData: {
+      documents: [
+        { id: "d1", category: "devis", name: "devis.pdf" },
+        { id: "t1", category: "tableau", name: "tableau.pdf" },
+      ],
+    },
+  };
+  const ensured = await ensureStudyPdfLocalFile(ghost, "/tmp");
+  assert.equal(ensured.localPath, null);
+  assert.equal(ghost.studyPdf, undefined);
+
   console.log("verify-study-pdf-clear: OK");
 }
 

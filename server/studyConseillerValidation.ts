@@ -340,11 +340,11 @@ export async function submitStudyToConseiller(params: {
   const { dossier, subject, submittedBy, publicBaseUrl, debriefNote } = params;
   const trimmedHtml = String(params.html || "").trim();
   const trimmedSubject = String(subject || "").trim();
-  const { getStudyPdfPath, ensureStudyPdfDurable, hasStudyPdfMeta } = await import("./studyPdfFlow");
+  const { getStudyPdfPath, ensureStudyPdfDurable, hasStudyPdfMeta, isStudyPdfSuppressed } =
+    await import("./studyPdfFlow");
   const looksLikePdfStudy =
-    hasStudyPdfMeta(dossier) ||
-    dossier.studyDraft?.kind === "PDF_UPLOAD" ||
-    Boolean((dossier as any).adeStudyComputation);
+    !isStudyPdfSuppressed(dossier) &&
+    (hasStudyPdfMeta(dossier) || dossier.studyDraft?.kind === "PDF_UPLOAD");
 
   // Avant envoi conseiller : PDF local + copie Drive (sinon le portail cassera après redéploiement).
   let pdfPath = getStudyPdfPath(dossier);
