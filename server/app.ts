@@ -503,16 +503,27 @@ export function createApp() {
         const refToken = apporteurRefToken || "";
         if (refToken) {
           const { attachNetworkToNewDossier, syncNetworkReferralFromDossier } = await import("./networkStore");
-          const { attachApporteurToNewDossier, syncReferralFromDossier, findApporteurByToken } = await import(
-            "./apporteurStore"
-          );
+          const {
+            attachApporteurToNewDossier,
+            attachApporteurByOpenReferralEmail,
+            syncReferralFromDossier,
+            findApporteurByToken,
+          } = await import("./apporteurStore");
           const attachedNetwork = await attachNetworkToNewDossier(newDossier, refToken);
           if (!attachedNetwork) {
             const matched = await findApporteurByToken(refToken);
             if (!matched) {
               appendLog(
-                `[Apporteur] Token ?ref=${refToken} introuvable/inactif pour ${newDossier.id} — dossier non rattaché.`,
+                `[Apporteur] Token ?ref=${refToken} introuvable/inactif pour ${newDossier.id} — tentative rapprochement email.`,
               );
+              const byEmail = await attachApporteurByOpenReferralEmail(newDossier);
+              if (byEmail) {
+                appendLog(
+                  `[Apporteur] Dossier ${newDossier.id} rattaché par email (reco ouverte) après token invalide.`,
+                );
+              } else {
+                appendLog(`[Apporteur] Aucun rapprochement email pour ${newDossier.id}.`);
+              }
             } else {
               await attachApporteurToNewDossier(newDossier, refToken);
               appendLog(
@@ -525,7 +536,20 @@ export function createApp() {
           await syncNetworkReferralFromDossier(newDossier, "formulaire");
           await syncReferralFromDossier(newDossier, "formulaire");
         } else {
-          appendLog(`[Apporteur] Aucun ?ref= reçu à la création de ${newDossier.id} — dossier non rattaché.`);
+          const { attachApporteurByOpenReferralEmail, syncReferralFromDossier } = await import(
+            "./apporteurStore"
+          );
+          const byEmail = await attachApporteurByOpenReferralEmail(newDossier);
+          if (byEmail) {
+            appendLog(
+              `[Apporteur] Dossier ${newDossier.id} rattaché par email (reco ouverte, sans ?ref=).`,
+            );
+            await syncReferralFromDossier(newDossier, "formulaire");
+          } else {
+            appendLog(
+              `[Apporteur] Aucun ?ref= ni reco ouverte pour ${newDossier.id} — dossier non rattaché.`,
+            );
+          }
         }
       } catch (apErr: any) {
         appendLog(`[Apporteur] Attribution (${newDossier.id}): ${apErr?.message || apErr}`);
@@ -1074,6 +1098,8 @@ export function createApp() {
       if (ensured.ok) {
         hasStudyPdf = true;
         await writeDB(db, dossier).catch(() => undefined);
+      } else {
+        hasStudyPdf = hasStudyPdfMeta(dossier);
       }
     }
     res.json({
@@ -1530,7 +1556,15 @@ export function createApp() {
     const db = await readDBAsync();
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    const { ensureStudyPdfDurable } = await import("./studyPdfFlow");
+    const { ensureStudyPdfDurable, hasStudyPdfMeta, isStudyPdfSuppressed } = await import(
+      "./studyPdfFlow"
+    );
+    if (isStudyPdfSuppressed(dossier) || !hasStudyPdfMeta(dossier)) {
+      return res.status(404).json({
+        error: "Aucun PDF d'étude sur ce dossier.",
+        code: "pdf_unavailable",
+      });
+    }
     const ensured = await ensureStudyPdfDurable(dossier, UPLOADS_DIR);
     if (ensured.ok === false) {
       return res.status(404).json({
@@ -1559,44 +1593,17 @@ export function createApp() {
     const dossier = db.dossiers.find((d: any) => d.id === req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    const { getStudyPdfPath } = await import("./studyPdfFlow");
-    const localPath = getStudyPdfPath(dossier);
-    if (localPath) {
-      try {
-        fs.unlinkSync(localPath);
-      } catch {
-        /* ignore */
-      }
-    }
-
-    delete (dossier as any).studyPdf;
-    if (dossier.studyDraft?.extracted?.pdf) {
-      delete (dossier.studyDraft.extracted as any).pdf;
-    }
-    if (dossier.studyDraft?.kind === "PDF_UPLOAD") {
-      // Conserve le brouillon HTML/KPI ; le PDF sera remplacé au prochain import.
-      dossier.studyDraft.kind = "PDF_UPLOAD_CLEARED" as any;
-    }
-    if (Array.isArray(dossier.formData?.documents)) {
-      dossier.formData.documents = dossier.formData.documents.filter(
-        (d: any) =>
-          String(d?.category || "").toLowerCase() !== "etude" &&
-          String(d?.source || "").toLowerCase() !== "study_pdf" &&
-          !String(d?.id || "").startsWith("etude-study-pdf"),
-      );
-    }
-    if (dossier.studyConseillerValidation) {
-      delete dossier.studyConseillerValidation.studyPdfFileName;
-      if (dossier.studyConseillerValidation.studySource === "pdf") {
-        dossier.studyConseillerValidation.studySource = undefined as any;
-      }
-    }
+    const { clearStudyPdfState } = await import("./studyPdfFlow");
+    const cleared = await clearStudyPdfState(dossier, { trashDrive: true });
 
     addEvent(dossier, {
       type: "NOTE_ADDED",
       actor: { kind: "ADMIN", label: String((req as any).adminEmail || "Admin") },
       message: "PDF d'étude supprimé — prêt pour un nouvel import.",
-      meta: { template: "STUDY_PDF_CLEARED" },
+      meta: {
+        template: "STUDY_PDF_CLEARED",
+        trashedDriveIds: cleared.trashedDriveIds,
+      },
     });
     await writeDB(db, dossier);
     return res.json({ success: true, hasStudyPdf: false });
@@ -3625,7 +3632,17 @@ export function createApp() {
         if (!validation || !["pending", "approved"].includes(String(validation.status || ""))) {
           return res.status(404).json({ ok: false, error: "no_pending_validation" });
         }
-        const { ensureStudyPdfDurable } = await import("./studyPdfFlow");
+        const { ensureStudyPdfDurable, hasStudyPdfMeta, isStudyPdfSuppressed } = await import(
+          "./studyPdfFlow"
+        );
+        if (isStudyPdfSuppressed(dossier) || !hasStudyPdfMeta(dossier)) {
+          return res.status(404).json({
+            ok: false,
+            error: "pdf_unavailable",
+            message:
+              "Le PDF d'étude n'est plus disponible. Demandez à LCIF de régénérer ou réimporter l'étude, puis de renvoyer le débrief.",
+          });
+        }
         const ensured = await ensureStudyPdfDurable(dossier, UPLOADS_DIR);
         if (ensured.ok === false) {
           return res.status(404).json({
@@ -5572,6 +5589,11 @@ export function createApp() {
 
       const doc = docs[docIndex];
       const removedCategory = String(doc.category || "").toLowerCase();
+      const removedSource = String(doc.source || "").toLowerCase();
+      const isStudyDoc =
+        removedCategory === "etude" ||
+        removedSource === "study_pdf" ||
+        String(doc.id || "").startsWith("etude-study-pdf");
       docs.splice(docIndex, 1);
 
       const localPath = String(doc.localPath || "").trim();
@@ -5586,6 +5608,12 @@ export function createApp() {
       const { setAdminChecklistOverride } = await import("./adminChecklistValidation");
       if (removedCategory === "rib" || removedCategory === "cni") {
         setAdminChecklistOverride(dossier, removedCategory, null, { author: "admin" });
+      }
+
+      // Supprimer le PDF d'étude de la liste docs = aussi le retirer de l'envoi mail (anti-résurrection).
+      if (isStudyDoc) {
+        const { clearStudyPdfState } = await import("./studyPdfFlow");
+        await clearStudyPdfState(dossier, { trashDrive: true });
       }
 
       // Pas de réanalyse OCR ici : elle bloquait les suppressions (plusieurs tableaux).

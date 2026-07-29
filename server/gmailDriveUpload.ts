@@ -205,3 +205,24 @@ export async function ensureGmailAttachmentsSubfolder(
     return parentFolderId;
   }
 }
+
+/** Met un fichier Drive à la corbeille (best-effort). */
+export async function trashDriveFile(
+  fileId: string,
+  accessToken?: string | null,
+): Promise<boolean> {
+  if (!fileId) return false;
+  const client = await createDriveClient(accessToken);
+  if (!client) return false;
+  try {
+    await client.drive.files.update({
+      fileId,
+      requestBody: { trashed: true },
+      supportsAllDrives: true,
+    });
+    return true;
+  } catch (err: any) {
+    console.warn("[Drive] Trash échoué:", fileId, err?.message || err);
+    return false;
+  }
+}

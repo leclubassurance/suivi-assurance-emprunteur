@@ -356,6 +356,19 @@ export async function ingestStudyPdfForDossier(params: {
   }
 
   const now = new Date().toISOString();
+
+  // Nouvel import : lève le blocage de restauration et retire l'ancien fichier Drive.
+  const previousDriveId = studyPdfDriveFileId(dossier);
+  unsuppressStudyPdf(dossier);
+  if (previousDriveId) {
+    try {
+      const { trashDriveFile } = await import("./gmailDriveUpload");
+      await trashDriveFile(previousDriveId, null);
+    } catch {
+      /* best-effort */
+    }
+  }
+
   const pdfMeta: StudyPdfMeta = {
     fileName: params.originalName || destName,
     localPath: destPath,
@@ -485,6 +498,7 @@ export function getStudyPdfPath(dossier: Dossier): string | null {
 
 /** Présence logique du PDF (métadonnées), indépendante du disque Railway éphémère. */
 export function hasStudyPdfMeta(dossier: Dossier): boolean {
+  if (isStudyPdfSuppressed(dossier)) return false;
   if (getStudyPdfPath(dossier)) return true;
   const root = (dossier as any).studyPdf || {};
   const draftPdf = (dossier.studyDraft as any)?.extracted?.pdf || {};
@@ -497,6 +511,97 @@ export function hasStudyPdfMeta(dossier: Dossier): boolean {
       String(d?.source || "").toLowerCase() === "study_pdf" ||
       String(d?.id || "").startsWith("etude-study-pdf"),
   );
+}
+
+/** Après suppression admin : empêche Drive/ADE de ressusciter l'ancien PDF. */
+export function isStudyPdfSuppressed(dossier: Dossier): boolean {
+  if ((dossier as any).studyPdfSuppressed === true) return true;
+  if (String(dossier.studyDraft?.kind || "") === "PDF_UPLOAD_CLEARED") return true;
+  if (String((dossier as any).studyPdfClearedAt || "").trim()) {
+    // Suppressé tant qu'aucun nouveau studyPdf n'a été réimporté
+    return !(dossier as any).studyPdf?.fileName && !(dossier as any).studyPdf?.driveFileId;
+  }
+  return false;
+}
+
+export function unsuppressStudyPdf(dossier: Dossier) {
+  delete (dossier as any).studyPdfSuppressed;
+  delete (dossier as any).studyPdfClearedAt;
+  if (String(dossier.studyDraft?.kind || "") === "PDF_UPLOAD_CLEARED" && dossier.studyDraft) {
+    dossier.studyDraft.kind = "PDF_UPLOAD";
+  }
+}
+
+/**
+ * Efface toute trace du PDF d'étude (meta, docs, validation) et bloque la restauration auto.
+ * Optionnellement met à la corbeille les fichiers Drive connus.
+ */
+export async function clearStudyPdfState(
+  dossier: Dossier,
+  options?: { trashDrive?: boolean },
+): Promise<{ trashedDriveIds: string[] }> {
+  const driveIds = new Set<string>();
+  const rootId = String((dossier as any).studyPdf?.driveFileId || "").trim();
+  const draftId = String((dossier.studyDraft as any)?.extracted?.pdf?.driveFileId || "").trim();
+  if (rootId) driveIds.add(rootId);
+  if (draftId) driveIds.add(draftId);
+  for (const d of (dossier.formData?.documents || []) as any[]) {
+    const isEtude =
+      String(d?.category || "").toLowerCase() === "etude" ||
+      String(d?.source || "").toLowerCase() === "study_pdf" ||
+      String(d?.id || "").startsWith("etude-study-pdf");
+    if (isEtude && d?.driveFileId) driveIds.add(String(d.driveFileId).trim());
+  }
+
+  const localPath = getStudyPdfPath(dossier);
+  if (localPath) {
+    try {
+      fs.unlinkSync(localPath);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  delete (dossier as any).studyPdf;
+  if (dossier.studyDraft?.extracted?.pdf) {
+    delete (dossier.studyDraft.extracted as any).pdf;
+  }
+  if (dossier.studyDraft) {
+    dossier.studyDraft.kind = "PDF_UPLOAD_CLEARED" as any;
+  }
+  if (Array.isArray(dossier.formData?.documents)) {
+    dossier.formData.documents = dossier.formData.documents.filter(
+      (d: any) =>
+        String(d?.category || "").toLowerCase() !== "etude" &&
+        String(d?.source || "").toLowerCase() !== "study_pdf" &&
+        !String(d?.id || "").startsWith("etude-study-pdf"),
+    );
+  }
+  if (dossier.studyConseillerValidation) {
+    delete dossier.studyConseillerValidation.studyPdfFileName;
+    if (dossier.studyConseillerValidation.studySource === "pdf") {
+      dossier.studyConseillerValidation.studySource = undefined as any;
+    }
+  }
+
+  (dossier as any).studyPdfSuppressed = true;
+  (dossier as any).studyPdfClearedAt = new Date().toISOString();
+
+  const trashedDriveIds: string[] = [];
+  if (options?.trashDrive !== false) {
+    try {
+      const { trashDriveFile } = await import("./gmailDriveUpload");
+      for (const id of driveIds) {
+        if (!id) continue;
+        const ok = await trashDriveFile(id, null);
+        if (ok) trashedDriveIds.push(id);
+      }
+    } catch (e: any) {
+      console.warn("[study-pdf] trash Drive skip:", e?.message || e);
+    }
+  }
+
+  return { trashedDriveIds };
 }
 
 function studyPdfDriveFileId(dossier: Dossier): string | null {
@@ -637,6 +742,14 @@ export async function ensureStudyPdfLocalFile(
   source?: "disk" | "drive" | "document" | "drive_search" | "regenerated";
   error?: string;
 }> {
+  // Suppression admin explicite : ne jamais ressusciter depuis Drive / ADE / nom de fichier.
+  if (isStudyPdfSuppressed(dossier)) {
+    return {
+      localPath: null,
+      error: "PDF d'étude supprimé. Réimportez un nouveau PDF depuis l'admin.",
+    };
+  }
+
   const onDisk = getStudyPdfPath(dossier);
   if (onDisk) return { localPath: onDisk, source: "disk" };
 

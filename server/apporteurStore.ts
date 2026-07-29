@@ -1056,6 +1056,58 @@ export async function attachApporteurToNewDossier(
   } satisfies DossierApporteurAttribution;
 }
 
+/**
+ * Rapprochement auto sans ?ref= : reco ouverte (portail conseiller) avec le même email client.
+ * Couvre le cas où le client a ouvert le formulaire sans le token (lien Camille, autre onglet, etc.).
+ */
+export async function attachApporteurByOpenReferralEmail(dossier: Dossier): Promise<boolean> {
+  if ((dossier as any).apporteur?.apporteurId) return true;
+
+  const email = String(dossier.formData?.assures?.[0]?.email || "")
+    .trim()
+    .toLowerCase();
+  if (!email || !email.includes("@")) return false;
+
+  const store = await loadApporteurStore();
+  const open = store.referrals
+    .filter(
+      (r) =>
+        !r.dossierId &&
+        String(r.contact?.email || "")
+          .trim()
+          .toLowerCase() === email &&
+        !["SIGNE", "REFUSE", "PERDU"].includes(String(r.status || "")),
+    )
+    .sort((a, b) =>
+      String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")),
+    );
+
+  for (const referral of open) {
+    const apporteur = store.apporteurs.find(
+      (a) => a.id === referral.apporteurId && a.active !== false,
+    );
+    if (!apporteur) continue;
+
+    await updateReferral(referral.id, {
+      dossierId: dossier.id,
+      status: "DOSSIER_OUVERT",
+      actor: "formulaire_email_match",
+      note: `Rapprochement auto email (sans ?ref=) — dossier ${dossier.id}`,
+    });
+
+    (dossier as any).apporteur = {
+      apporteurId: apporteur.id,
+      referralId: referral.id,
+      apporteurLabel: apporteur.companyName,
+      referralToken: apporteur.referralToken,
+    } satisfies DossierApporteurAttribution;
+
+    return true;
+  }
+
+  return false;
+}
+
 export function buildApporteurReferralUrl(baseUrl: string, token: string): string {
   const base = String(baseUrl || "").replace(/\/$/, "");
   const t = slugifyToken(token);
