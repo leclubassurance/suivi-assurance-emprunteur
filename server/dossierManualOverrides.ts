@@ -167,25 +167,52 @@ export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier
     incoming.apporteur = existing.apporteur;
   }
 
-  // Ne jamais perdre une suppression admin du PDF d'étude (sinon Drive/ADE ressuscitent).
-  const incomingHasNewStudyPdf = Boolean(
-    incoming.studyPdf?.fileName || incoming.studyPdf?.driveFileId,
-  );
-  if (existing.studyPdfSuppressed && !incomingHasNewStudyPdf) {
+  // Suppression PDF d'étude : une sync Gmail/OCR concurrente ne doit PAS ressusciter l'ancien fichier.
+  // Seul un réimport/régénération explicite (uploadedAt > studyPdfClearedAt) est accepté.
+  const existingClearedAt = ts(existing.studyPdfClearedAt);
+  const existingSuppressed =
+    existing.studyPdfSuppressed === true ||
+    String(existing.studyDraft?.kind || "") === "PDF_UPLOAD_CLEARED" ||
+    existingClearedAt > 0;
+  const incomingUploadedAt = ts(incoming.studyPdf?.uploadedAt);
+  const incomingIsFreshReplace =
+    Boolean(incoming.studyPdf?.fileName || incoming.studyPdf?.driveFileId) &&
+    incoming.studyPdfSuppressed !== true &&
+    String(incoming.studyDraft?.kind || "") !== "PDF_UPLOAD_CLEARED" &&
+    incomingUploadedAt > 0 &&
+    (existingClearedAt === 0 || incomingUploadedAt > existingClearedAt);
+
+  if (existingSuppressed && !incomingIsFreshReplace) {
     incoming.studyPdfSuppressed = true;
-    incoming.studyPdfClearedAt = incoming.studyPdfClearedAt || existing.studyPdfClearedAt;
-    if (!incoming.studyPdf) delete (incoming as any).studyPdf;
-    if (
-      String(existing.studyDraft?.kind || "") === "PDF_UPLOAD_CLEARED" &&
-      String(incoming.studyDraft?.kind || "") !== "PDF_UPLOAD_CLEARED"
-    ) {
-      incoming.studyDraft = {
-        ...(incoming.studyDraft || existing.studyDraft || {
+    incoming.studyPdfClearedAt = existing.studyPdfClearedAt || incoming.studyPdfClearedAt;
+    delete (incoming as any).studyPdf;
+    if (incoming.studyDraft?.extracted && (incoming.studyDraft.extracted as any).pdf) {
+      delete (incoming.studyDraft.extracted as any).pdf;
+    }
+    incoming.studyDraft = {
+      ...(incoming.studyDraft ||
+        existing.studyDraft || {
           computedAt: existing.studyPdfClearedAt || new Date().toISOString(),
           reliability: "cleared",
         }),
-        kind: "PDF_UPLOAD_CLEARED",
-      } as any;
+      kind: "PDF_UPLOAD_CLEARED",
+    } as any;
+    if (Array.isArray(incoming.formData?.documents)) {
+      incoming.formData.documents = incoming.formData.documents.filter((d: any) => {
+        const cat = String(d?.category || "").toLowerCase();
+        const source = String(d?.source || "").toLowerCase();
+        const id = String(d?.id || "");
+        if (cat === "etude" || cat === "study") return false;
+        if (source === "study_pdf") return false;
+        if (id.startsWith("etude-study-pdf")) return false;
+        return true;
+      });
+    }
+    if (incoming.studyConseillerValidation?.studyPdfFileName) {
+      delete incoming.studyConseillerValidation.studyPdfFileName;
+      if (incoming.studyConseillerValidation.studySource === "pdf") {
+        incoming.studyConseillerValidation.studySource = undefined as any;
+      }
     }
   }
 

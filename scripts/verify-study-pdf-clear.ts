@@ -92,6 +92,52 @@ async function main() {
   assert.equal(ensured.localPath, null);
   assert.equal(ghost.studyPdf, undefined);
 
+  // Sync Gmail stale ne doit pas écraser une suppression admin
+  const { mergeManualDossierOverrides } = await import("../server/dossierManualOverrides");
+  const cleared = ensureDossierShape({
+    id: "LCIF-RACE",
+    studyPdfSuppressed: true,
+    studyPdfClearedAt: "2026-07-29T16:40:26.000Z",
+    studyDraft: { kind: "PDF_UPLOAD_CLEARED", computedAt: "2026-07-29T16:40:26.000Z", reliability: "cleared" },
+    formData: { documents: [{ id: "offre-1", category: "offre", name: "offre.pdf" }] },
+  });
+  const staleIncoming = ensureDossierShape({
+    id: "LCIF-RACE",
+    studyPdf: {
+      fileName: "Etude_economies_ADE_LCIF-RACE_restored_1.pdf",
+      driveFileId: "old-drive-id",
+      localPath: "/tmp/old.pdf",
+      uploadedAt: "2026-07-29T15:00:00.000Z",
+    },
+    studyDraft: { kind: "PDF_UPLOAD", computedAt: "2026-07-29T15:00:00.000Z", reliability: "high" },
+    formData: {
+      documents: [
+        { id: "etude-study-pdf-1", category: "etude", name: "old.pdf", source: "study_pdf" },
+        { id: "offre-1", category: "offre", name: "offre.pdf" },
+      ],
+    },
+  });
+  const merged = mergeManualDossierOverrides(cleared, staleIncoming);
+  assert.equal(merged.studyPdfSuppressed, true);
+  assert.equal(merged.studyPdf, undefined);
+  assert.equal(merged.studyDraft?.kind, "PDF_UPLOAD_CLEARED");
+  assert.equal(merged.formData.documents.some((d: any) => d.category === "etude"), false);
+
+  const freshIncoming = ensureDossierShape({
+    id: "LCIF-RACE",
+    studyPdf: {
+      fileName: "new.pdf",
+      driveFileId: "new-id",
+      localPath: "/tmp/new.pdf",
+      uploadedAt: "2026-07-29T16:45:00.000Z",
+    },
+    studyDraft: { kind: "PDF_UPLOAD", computedAt: "2026-07-29T16:45:00.000Z", reliability: "high" },
+    formData: { documents: [] },
+  });
+  const mergedFresh = mergeManualDossierOverrides(cleared, freshIncoming);
+  assert.equal(mergedFresh.studyPdfSuppressed, undefined);
+  assert.equal(mergedFresh.studyPdf?.fileName, "new.pdf");
+
   console.log("verify-study-pdf-clear: OK");
 }
 
