@@ -24,6 +24,7 @@ import {
 } from "./AdminOpsPanel";
 import AdminClubRevenueChart from "./AdminClubRevenueChart";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
+import AdminDossierApporteurAttach from "./AdminDossierApporteurAttach";
 import AdminAdeStudyAssistPanel from "./AdminAdeStudyAssistPanel";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
@@ -1821,12 +1822,10 @@ export default function AdminDashboard({
                     {selectedDossier.formData?.assures?.[0]?.prenom} {selectedDossier.formData?.assures?.[0]?.nom}
                   </h2>
                   <p className="text-slate-500 font-mono text-sm">{selectedDossier.id}</p>
-                  {(selectedDossier as any).apporteur?.apporteurLabel ? (
-                    <p className="text-xs font-bold text-indigo-700 mt-2 inline-flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-full">
-                      <Users className="w-3.5 h-3.5" />
-                      Apporté par {(selectedDossier as any).apporteur.apporteurLabel}
-                    </p>
-                  ) : null}
+                  <AdminDossierApporteurAttach
+                    dossier={selectedDossier}
+                    onAttached={loadDossiers}
+                  />
                   <div className="mt-3 flex flex-wrap gap-2">
                     {getAlerts(selectedDossier).slice(0, 3).map((a, idx) => (
                       <span key={idx} className="inline-flex items-center gap-2 bg-amber-50 text-amber-800 border border-amber-200 px-3 py-1.5 rounded-full text-xs font-bold">
@@ -2643,6 +2642,7 @@ export default function AdminDashboard({
                                   <option value="cni">Pièce d&apos;identité</option>
                                   <option value="rib">RIB</option>
                                   <option value="devis">Devis</option>
+                                  <option value="etude">Étude d&apos;économie</option>
                                   <option value="autre">Autre</option>
                                 </select>
                               </div>

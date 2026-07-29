@@ -2566,6 +2566,41 @@ export function createApp() {
     }
   });
 
+  /** Rattache un dossier à un conseiller/apporteur + mail « Dossier ouvert ». */
+  app.post("/api/admin/dossiers/:id/attach-apporteur", async (req, res) => {
+    try {
+      const { attachApporteurToExistingDossier } = await import("./apporteurStore");
+      const dossierId = String(req.params.id || "").trim().toUpperCase();
+      const apporteurId = String((req.body as any)?.apporteurId || "").trim();
+      const notify = (req.body as any)?.notify !== false;
+      if (!dossierId) return res.status(400).json({ success: false, error: "dossierId requis" });
+      if (!apporteurId) return res.status(400).json({ success: false, error: "apporteurId requis" });
+
+      const db = await readDBAsync();
+      const dossier = db.dossiers.find((d: any) => d.id === dossierId);
+      if (!dossier) return res.status(404).json({ success: false, error: "Dossier introuvable" });
+
+      const result = await attachApporteurToExistingDossier(dossier, apporteurId, {
+        actor: String((req as any).adminEmail || "admin"),
+        notify,
+      });
+      await writeDB(db, dossier);
+
+      res.json({
+        success: true,
+        dossier: { id: dossier.id, apporteur: dossier.apporteur },
+        referral: result.referral,
+        notified: result.notified,
+        apporteurLabel:
+          result.apporteur.companyName ||
+          result.apporteur.contactName ||
+          result.apporteur.email,
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
   app.patch("/api/admin/partner-recruits/:id", async (req, res) => {
     try {
       const { updatePartnerRecruit } = await import("./apporteurStore");

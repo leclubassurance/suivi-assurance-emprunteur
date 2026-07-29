@@ -316,7 +316,7 @@
     bottom: auto;
     top: 205px;
     font-size: 17px;
-    box-shadow: 0 0 0 7px rgba(95,143,207,.18);
+    box-shadow: 0 0 0 7px rgba(255, 189, 89, .28);
   }
   .client-landing-preview .footer .brand-logo { height: 44px; }
   .client-landing-preview .proof-grid { grid-template-columns: 1fr 1fr; padding-block: 26px; }

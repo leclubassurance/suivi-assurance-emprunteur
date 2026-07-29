@@ -1057,6 +1057,126 @@ export async function attachApporteurToNewDossier(
 }
 
 /**
+ * Rattachement manuel admin d'un dossier existant à un conseiller/apporteur.
+ * Crée ou réutilise une reco, pose l'attribution sur le dossier, et envoie le mail
+ * « Dossier ouvert » (même notification qu'après un dépôt via ?ref=).
+ */
+export async function attachApporteurToExistingDossier(
+  dossier: Dossier,
+  apporteurId: string,
+  options?: { actor?: string; notify?: boolean },
+): Promise<{ referral: Referral; apporteur: Apporteur; notified: boolean }> {
+  const actor = options?.actor || "admin";
+  const shouldNotify = options?.notify !== false;
+  const apporteur = await findApporteurById(String(apporteurId || "").trim());
+  if (!apporteur) throw new Error("Conseiller / apporteur introuvable.");
+  if (apporteur.active === false) throw new Error("Ce partenaire est inactif.");
+
+  const assure = dossier.formData?.assures?.[0] || {};
+  const email = String(assure.email || "").trim().toLowerCase();
+  const prevAttr = (dossier as any).apporteur as DossierApporteurAttribution | undefined;
+
+  if (prevAttr?.referralId && prevAttr.apporteurId && prevAttr.apporteurId !== apporteur.id) {
+    try {
+      await updateReferral(prevAttr.referralId, {
+        dossierId: null,
+        actor,
+        note: `Détaché du dossier ${dossier.id} (réattribution admin)`,
+      });
+    } catch (err: any) {
+      console.warn("[Apporteurs] Détachement ancienne reco:", err?.message || err);
+    }
+  }
+
+  const store = await loadApporteurStore();
+  let referral =
+    store.referrals.find((r) => r.apporteurId === apporteur.id && r.dossierId === dossier.id) ||
+    null;
+
+  if (!referral && email) {
+    referral =
+      store.referrals.find(
+        (r) =>
+          r.apporteurId === apporteur.id &&
+          !r.dossierId &&
+          String(r.contact.email || "").toLowerCase() === email &&
+          !["SIGNE", "REFUSE", "PERDU"].includes(r.status),
+      ) || null;
+  }
+
+  let notified = false;
+  if (!referral) {
+    referral = await createReferral({
+      apporteurId: apporteur.id,
+      contact: {
+        prenom: assure.prenom,
+        nom: assure.nom,
+        email: assure.email,
+        phone: assure.telephone,
+      },
+      source: "admin",
+      status: "DOSSIER_OUVERT",
+      dossierId: dossier.id,
+      actor,
+    });
+    // createReferral envoie déjà le mail de statut via notifyAfterReferralChange
+    notified = true;
+  } else {
+    const previousStatus = referral.status;
+    referral = await updateReferral(referral.id, {
+      dossierId: dossier.id,
+      status: "DOSSIER_OUVERT",
+      actor,
+      note: `Rattachement manuel admin — dossier ${dossier.id}`,
+      contact: {
+        prenom: assure.prenom || referral.contact.prenom,
+        nom: assure.nom || referral.contact.nom,
+        email: assure.email || referral.contact.email,
+        phone: assure.telephone || referral.contact.phone,
+      },
+    });
+    notified = shouldNotify && previousStatus !== "DOSSIER_OUVERT";
+    if (shouldNotify && !notified) {
+      try {
+        const { notifyApporteurReferralStatusChange } = await import("./apporteurNotify");
+        referral.lastNotifiedStatus = undefined;
+        const sent = await notifyApporteurReferralStatusChange({
+          apporteur,
+          referral,
+          previousStatus: previousStatus === "DOSSIER_OUVERT" ? "NOUVEAU" : previousStatus,
+        });
+        if (sent) {
+          notified = true;
+          await persistApporteurStoreMutation((s) => {
+            const r = s.referrals.find((x) => x.id === referral!.id);
+            if (!r) return false;
+            r.lastNotifiedStatus = referral!.lastNotifiedStatus;
+            r.lastNotifiedAt = referral!.lastNotifiedAt;
+            return true;
+          });
+        }
+      } catch (err: any) {
+        console.warn("[Apporteurs] Relance mail dossier ouvert:", err?.message || err);
+      }
+    }
+  }
+
+  (dossier as any).apporteur = {
+    apporteurId: apporteur.id,
+    referralId: referral.id,
+    apporteurLabel: apporteur.companyName,
+    referralToken: apporteur.referralToken,
+  } satisfies DossierApporteurAttribution;
+
+  if (dossier.formData) {
+    (dossier.formData as any).apporteurRefToken = apporteur.referralToken;
+  }
+
+  await syncReferralFromDossier(dossier, actor);
+  return { referral, apporteur, notified };
+}
+
+/**
  * Rapprochement auto sans ?ref= : reco ouverte (portail conseiller) avec le même email client.
  * Couvre le cas où le client a ouvert le formulaire sans le token (lien Camille, autre onglet, etc.).
  */
