@@ -505,28 +505,35 @@ export function hasStudyPdfMeta(dossier: Dossier): boolean {
   if (String(root.fileName || draftPdf.fileName || "").trim()) return true;
   if (String(root.driveFileId || draftPdf.driveFileId || "").trim()) return true;
   const docs = (dossier.formData?.documents || []) as any[];
-  return docs.some(
-    (d) =>
-      String(d?.category || "").toLowerCase() === "etude" ||
-      String(d?.source || "").toLowerCase() === "study_pdf" ||
-      String(d?.id || "").startsWith("etude-study-pdf"),
-  );
+  return docs.some((d) => isStudyDocumentEntry(d));
+}
+
+/** Document reconnu comme PDF d'étude (catégorie, source, id ou nom). */
+export function isStudyDocumentEntry(doc: any): boolean {
+  const cat = String(doc?.category || "").toLowerCase();
+  const source = String(doc?.source || "").toLowerCase();
+  const id = String(doc?.id || "");
+  const name = String(doc?.name || "").toLowerCase();
+  if (cat === "etude" || cat === "study") return true;
+  if (source === "study_pdf") return true;
+  if (id.startsWith("etude-study-pdf")) return true;
+  return /etude|étude|economies|économies|ade_study|study.?pdf/.test(name) && name.endsWith(".pdf");
 }
 
 /** Après suppression admin : empêche Drive/ADE de ressusciter l'ancien PDF. */
 export function isStudyPdfSuppressed(dossier: Dossier): boolean {
-  if ((dossier as any).studyPdfSuppressed === true) return true;
+  if (dossier.studyPdfSuppressed === true) return true;
   if (String(dossier.studyDraft?.kind || "") === "PDF_UPLOAD_CLEARED") return true;
-  if (String((dossier as any).studyPdfClearedAt || "").trim()) {
+  if (String(dossier.studyPdfClearedAt || "").trim()) {
     // Suppressé tant qu'aucun nouveau studyPdf n'a été réimporté
-    return !(dossier as any).studyPdf?.fileName && !(dossier as any).studyPdf?.driveFileId;
+    return !dossier.studyPdf?.fileName && !dossier.studyPdf?.driveFileId;
   }
   return false;
 }
 
 export function unsuppressStudyPdf(dossier: Dossier) {
-  delete (dossier as any).studyPdfSuppressed;
-  delete (dossier as any).studyPdfClearedAt;
+  delete dossier.studyPdfSuppressed;
+  delete dossier.studyPdfClearedAt;
   if (String(dossier.studyDraft?.kind || "") === "PDF_UPLOAD_CLEARED" && dossier.studyDraft) {
     dossier.studyDraft.kind = "PDF_UPLOAD";
   }
@@ -534,7 +541,7 @@ export function unsuppressStudyPdf(dossier: Dossier) {
 
 /**
  * Efface toute trace du PDF d'étude (meta, docs, validation) et bloque la restauration auto.
- * Optionnellement met à la corbeille les fichiers Drive connus.
+ * Optionnellement met à la corbeille les fichiers Drive connus (+ PDF « étude » du dossier Drive).
  */
 export async function clearStudyPdfState(
   dossier: Dossier,
@@ -546,11 +553,7 @@ export async function clearStudyPdfState(
   if (rootId) driveIds.add(rootId);
   if (draftId) driveIds.add(draftId);
   for (const d of (dossier.formData?.documents || []) as any[]) {
-    const isEtude =
-      String(d?.category || "").toLowerCase() === "etude" ||
-      String(d?.source || "").toLowerCase() === "study_pdf" ||
-      String(d?.id || "").startsWith("etude-study-pdf");
-    if (isEtude && d?.driveFileId) driveIds.add(String(d.driveFileId).trim());
+    if (isStudyDocumentEntry(d) && d?.driveFileId) driveIds.add(String(d.driveFileId).trim());
   }
 
   const localPath = getStudyPdfPath(dossier);
@@ -566,15 +569,17 @@ export async function clearStudyPdfState(
   if (dossier.studyDraft?.extracted?.pdf) {
     delete (dossier.studyDraft.extracted as any).pdf;
   }
-  if (dossier.studyDraft) {
-    dossier.studyDraft.kind = "PDF_UPLOAD_CLEARED" as any;
-  }
+  // Toujours poser un marqueur persisté (même sans studyDraft préalable).
+  dossier.studyDraft = {
+    ...(dossier.studyDraft || {
+      computedAt: new Date().toISOString(),
+      reliability: "cleared",
+    }),
+    kind: "PDF_UPLOAD_CLEARED",
+  } as any;
   if (Array.isArray(dossier.formData?.documents)) {
     dossier.formData.documents = dossier.formData.documents.filter(
-      (d: any) =>
-        String(d?.category || "").toLowerCase() !== "etude" &&
-        String(d?.source || "").toLowerCase() !== "study_pdf" &&
-        !String(d?.id || "").startsWith("etude-study-pdf"),
+      (d: any) => !isStudyDocumentEntry(d),
     );
   }
   if (dossier.studyConseillerValidation) {
@@ -584,13 +589,31 @@ export async function clearStudyPdfState(
     }
   }
 
-  (dossier as any).studyPdfSuppressed = true;
-  (dossier as any).studyPdfClearedAt = new Date().toISOString();
+  dossier.studyPdfSuppressed = true;
+  dossier.studyPdfClearedAt = new Date().toISOString();
 
   const trashedDriveIds: string[] = [];
   if (options?.trashDrive !== false) {
     try {
-      const { trashDriveFile } = await import("./gmailDriveUpload");
+      const { trashDriveFile, listDriveFilesInFolder } = await import("./gmailDriveUpload");
+      const folderId = String((dossier as any).workspaceFolderId || "").trim();
+      if (folderId) {
+        try {
+          const files = await listDriveFilesInFolder(folderId, null);
+          for (const f of files.values()) {
+            const n = String(f.name || "").toLowerCase();
+            if (
+              n.endsWith(".pdf") &&
+              (/etude|étude|economies|économies|ade_study|study/.test(n) ||
+                n.includes(String(dossier.id || "").toLowerCase()))
+            ) {
+              driveIds.add(String(f.fileId || "").trim());
+            }
+          }
+        } catch (e: any) {
+          console.warn("[study-pdf] list Drive for trash skip:", e?.message || e);
+        }
+      }
       for (const id of driveIds) {
         if (!id) continue;
         const ok = await trashDriveFile(id, null);
@@ -673,6 +696,10 @@ export async function persistStudyPdfToDrive(
   }
 }
 
+function isStudyDocCandidate(doc: any): boolean {
+  return isStudyDocumentEntry(doc);
+}
+
 /** Enregistre / met à jour le PDF d'étude dans formData.documents (catégorie etude). */
 export function registerStudyPdfAsDocument(
   dossier: Dossier,
@@ -701,13 +728,6 @@ export function registerStudyPdfAsDocument(
   };
   if (existingIdx >= 0) docs[existingIdx] = { ...docs[existingIdx], ...entry };
   else docs.push(entry);
-}
-
-function isStudyDocCandidate(doc: any): boolean {
-  const cat = String(doc?.category || "").toLowerCase();
-  const name = String(doc?.name || "").toLowerCase();
-  if (cat === "etude" || cat === "study") return true;
-  return /etude|étude|economies|économies|ade_study|study.?pdf/.test(name) && name.endsWith(".pdf");
 }
 
 function writeRestoredPdf(

@@ -164,6 +164,12 @@ export interface Dossier {
     driveFileId?: string;
     driveLink?: string;
   };
+  /**
+   * Suppression admin explicite du PDF d'étude.
+   * Doit être persisté (sinon Drive/ADE ressuscitent l'ancien fichier au prochain envoi).
+   */
+  studyPdfSuppressed?: boolean;
+  studyPdfClearedAt?: string;
   /** Validation conseiller : débrief courtage puis envoi manuel admin. */
   studyConseillerValidation?: {
     status: "pending" | "approved" | "cancelled";
@@ -366,7 +372,14 @@ export function ensureDossierShape(d: any): Dossier {
     camilleStaffHandledUntil: d.camilleStaffHandledUntil,
     studyDraft: d.studyDraft,
     studyPdf: d.studyPdf,
+    studyPdfSuppressed: d.studyPdfSuppressed === true ? true : undefined,
+    studyPdfClearedAt: d.studyPdfClearedAt,
+    kereisDraft: d.kereisDraft,
+    adeStudyComputation: d.adeStudyComputation,
+    adeStudyFeasibility: d.adeStudyFeasibility,
+    adeStudyAssist: d.adeStudyAssist,
     studyConseillerValidation: d.studyConseillerValidation,
+    clubRevenueKpi: d.clubRevenueKpi,
     studyKpi: d.studyKpi,
     insuranceChangePlan: d.insuranceChangePlan,
     clientPortal: d.clientPortal,
@@ -376,6 +389,7 @@ export function ensureDossierShape(d: any): Dossier {
     clientAcceptedInsuranceNote: d.clientAcceptedInsuranceNote,
     camilleTelegramStaff: d.camilleTelegramStaff,
     camillePendingReview: d.camillePendingReview,
+    camilleMemory: d.camilleMemory,
     remiQueue: d.remiQueue,
     aiAuditTrail: Array.isArray(d.aiAuditTrail) ? d.aiAuditTrail : [],
     privacyConsent: d.privacyConsent,
@@ -392,6 +406,8 @@ export function ensureDossierShape(d: any): Dossier {
   if (!dossier.leadSource) delete (dossier as any).leadSource;
   if (!dossier.leadPromotedAt) delete (dossier as any).leadPromotedAt;
   if (!dossier.statusManualAt) delete (dossier as any).statusManualAt;
+  if (!dossier.studyPdfSuppressed) delete (dossier as any).studyPdfSuppressed;
+  if (!dossier.studyPdfClearedAt) delete (dossier as any).studyPdfClearedAt;
   const shaped = sanitizeLegacyDriveWorkspaceState(
     dossier as unknown as Record<string, unknown>,
   ) as unknown as Dossier;

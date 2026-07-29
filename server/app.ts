@@ -5624,11 +5624,8 @@ export function createApp() {
 
       const doc = docs[docIndex];
       const removedCategory = String(doc.category || "").toLowerCase();
-      const removedSource = String(doc.source || "").toLowerCase();
-      const isStudyDoc =
-        removedCategory === "etude" ||
-        removedSource === "study_pdf" ||
-        String(doc.id || "").startsWith("etude-study-pdf");
+      const { isStudyDocumentEntry } = await import("./studyPdfFlow");
+      const isStudyDoc = isStudyDocumentEntry(doc);
       docs.splice(docIndex, 1);
 
       const localPath = String(doc.localPath || "").trim();
@@ -5637,6 +5634,16 @@ export function createApp() {
           fs.unlinkSync(localPath);
         } catch {
           // best-effort
+        }
+      }
+
+      const driveFileId = String(doc.driveFileId || "").trim();
+      if (driveFileId && !isStudyDoc) {
+        try {
+          const { trashDriveFile } = await import("./gmailDriveUpload");
+          await trashDriveFile(driveFileId, null);
+        } catch (e: any) {
+          console.warn("[admin documents delete] Drive trash:", e?.message || e);
         }
       }
 

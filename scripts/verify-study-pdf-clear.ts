@@ -1,7 +1,9 @@
 /**
- * Vérifie que la suppression du PDF d'étude bloque toute résurrection.
+ * Vérifie que la suppression du PDF d'étude bloque toute résurrection
+ * et que le flag survit à ensureDossierShape (persistance Firestore).
  */
 import assert from "node:assert/strict";
+import { ensureDossierShape } from "../server/dossierModel";
 import {
   clearStudyPdfState,
   hasStudyPdfMeta,
@@ -43,9 +45,27 @@ async function main() {
   assert.equal(dossier.studyPdf, undefined);
   assert.equal(dossier.studyDraft?.extracted?.pdf, undefined);
   assert.equal(dossier.studyDraft?.kind, "PDF_UPLOAD_CLEARED");
+  assert.equal(dossier.studyPdfSuppressed, true);
+  assert.ok(dossier.studyPdfClearedAt);
   assert.equal(dossier.formData.documents.length, 1);
   assert.equal(dossier.formData.documents[0].category, "offre");
   assert.equal(dossier.studyConseillerValidation.studyPdfFileName, undefined);
+
+  const reshaped = ensureDossierShape(dossier);
+  assert.equal(isStudyPdfSuppressed(reshaped), true, "suppress flag must survive ensureDossierShape");
+  assert.equal(hasStudyPdfMeta(reshaped), false);
+  assert.equal(reshaped.studyPdfSuppressed, true);
+  assert.equal(reshaped.studyDraft?.kind, "PDF_UPLOAD_CLEARED");
+
+  // Sans studyDraft préalable : le marqueur est quand même créé
+  const bare: any = {
+    id: "LCIF-BARE",
+    studyPdf: { fileName: "x.pdf", driveFileId: "d1" },
+    formData: { documents: [] },
+  };
+  await clearStudyPdfState(bare, { trashDrive: false });
+  assert.equal(bare.studyDraft?.kind, "PDF_UPLOAD_CLEARED");
+  assert.equal(isStudyPdfSuppressed(ensureDossierShape(bare)), true);
 
   unsuppressStudyPdf(dossier);
   dossier.studyPdf = { fileName: "new.pdf", driveFileId: "drive-new", localPath: "/tmp/new.pdf" };

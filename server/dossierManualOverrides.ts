@@ -167,6 +167,28 @@ export function mergeManualDossierOverrides(existing: Dossier, incoming: Dossier
     incoming.apporteur = existing.apporteur;
   }
 
+  // Ne jamais perdre une suppression admin du PDF d'étude (sinon Drive/ADE ressuscitent).
+  const incomingHasNewStudyPdf = Boolean(
+    incoming.studyPdf?.fileName || incoming.studyPdf?.driveFileId,
+  );
+  if (existing.studyPdfSuppressed && !incomingHasNewStudyPdf) {
+    incoming.studyPdfSuppressed = true;
+    incoming.studyPdfClearedAt = incoming.studyPdfClearedAt || existing.studyPdfClearedAt;
+    if (!incoming.studyPdf) delete (incoming as any).studyPdf;
+    if (
+      String(existing.studyDraft?.kind || "") === "PDF_UPLOAD_CLEARED" &&
+      String(incoming.studyDraft?.kind || "") !== "PDF_UPLOAD_CLEARED"
+    ) {
+      incoming.studyDraft = {
+        ...(incoming.studyDraft || existing.studyDraft || {
+          computedAt: existing.studyPdfClearedAt || new Date().toISOString(),
+          reliability: "cleared",
+        }),
+        kind: "PDF_UPLOAD_CLEARED",
+      } as any;
+    }
+  }
+
   return incoming;
 }
 
