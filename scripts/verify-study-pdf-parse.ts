@@ -84,10 +84,45 @@ async function verifyV2Raimbault() {
   assert(/27\s+octobre\s+2026/i.test(mail.html), "date dans mail");
 }
 
+async function verifyV3MaxenceMensualites() {
+  const pdfPath =
+    "/Users/lascaudremi/Desktop/Étude d'économie/Etude_assurance_Maxence_Herve_mensualites.pdf";
+  if (!fs.existsSync(pdfPath)) {
+    console.log(`(skip v3 Maxence — fichier absent: ${pdfPath})`);
+    return;
+  }
+  console.log("\n=== V3 Maxence Hervé (mensualités) ===");
+  const { parsed } = await parseFile(pdfPath);
+  console.log(JSON.stringify(parsed, null, 2));
+  assert(parsed.templateVersion === "v3_mensualites", "template v3");
+  assert(parsed.grossSavingsEur != null && Math.abs(parsed.grossSavingsEur - 710.43) < 0.02, "économie brute 710.43");
+  assert(parsed.netSavingsEur != null && Math.abs(parsed.netSavingsEur - 600.43) < 0.02, "économie nette 600.43");
+  assert(parsed.feesAssureurEur != null && Math.abs(parsed.feesAssureurEur - 110) < 0.02, "frais 110");
+  assert(parsed.currentInsuranceTotalEur != null && Math.abs(parsed.currentInsuranceTotalEur - 2141.01) < 0.02, "actuelle 2141");
+  assert(parsed.proposedInsuranceTotalEur != null && Math.abs(parsed.proposedInsuranceTotalEur - 1430.58) < 0.02, "proposée 1430");
+  assert(parsed.loanCapitalEur != null && Math.abs(parsed.loanCapitalEur - 91648.06) < 0.02, "capital");
+  assert(parsed.savingsPercent != null && Math.abs(parsed.savingsPercent - 28) < 0.1, "% 28");
+  assert(parsed.plannedChangeDate === "2026-10-29", "date 29 oct 2026");
+  assert(parsed.grossSavingsEur !== parsed.proposedInsuranceTotalEur, "ne pas confondre économie / nouvelle");
+
+  const mail = buildStudyClientEmailHtml({
+    clientPrenom: "Maxence",
+    grossSavingsEur: parsed.grossSavingsEur,
+    feesCourtageTotalEur: 200,
+    feesAssureurEur: parsed.feesAssureurEur,
+    currentInsuranceTotalEur: parsed.currentInsuranceTotalEur,
+    proposedInsuranceTotalEur: parsed.proposedInsuranceTotalEur,
+  });
+  assert(/mesurée/i.test(mail.html), "intro palier < 2k");
+  assert(/710/.test(mail.html), "710 dans le mail");
+  assert(!/1\s*430/.test(mail.subject + mail.html.split("Nouvelle solution")[0]), "pas 1430 en accroche");
+}
+
 async function main() {
   await verifyLegacyMartin();
   await verifyV2Raimbault();
-  console.log("\nParse PDF études OK (legacy + v2).");
+  await verifyV3MaxenceMensualites();
+  console.log("\nParse PDF études OK.");
 }
 
 main().catch((e) => {

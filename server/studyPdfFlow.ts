@@ -12,6 +12,11 @@ import {
 } from "./insuranceChangePlan";
 import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
 
+import {
+  buildStudyClientIntroByTier,
+  buildStudyClientSubjectByTier,
+} from "../shared/studyEconomyEmailCopy";
+
 export type StudyPdfMeta = {
   fileName: string;
   localPath: string;
@@ -86,10 +91,11 @@ export function buildStudyClientEmailHtml(params: StudyClientEmailEconomics): {
       })
     : null;
 
-  const subject =
-    prenom !== "Bonjour"
-      ? `${prenom}, votre étude personnalisée - Assurance Emprunteur`
-      : "Votre étude personnalisée - Assurance Emprunteur";
+  const subject = buildStudyClientSubjectByTier({
+    clientPrenom: prenom === "Bonjour" ? undefined : prenom,
+    grossSavingsEur: grossNum,
+  });
+  const { introHtml } = buildStudyClientIntroByTier({ grossSavingsEur: grossNum });
 
   const comparisonRows =
     currentTotal != null && proposedTotal != null
@@ -156,8 +162,7 @@ export function buildStudyClientEmailHtml(params: StudyClientEmailEconomics): {
   <div style="padding:32px 28px;">
     <p style="font-size:16px;margin:0 0 16px 0;color:#111827;"><strong>${greeting}</strong></p>
     <p style="font-size:15px;margin:0 0 20px 0;color:#374151;">
-      Nous avons finalisé votre <strong>étude d'économies</strong> sur l'assurance emprunteur.
-      Les garanties de la solution proposée sont <strong>équivalentes</strong> à votre contrat actuel.
+      ${introHtml}
     </p>
 
     ${economyHero}

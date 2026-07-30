@@ -1,7 +1,7 @@
 /**
  * Extraction des montants depuis le texte d'un PDF d'étude LCIF.
- * Couvre l'ancien modèle (TEST-ADE-Martin) et le nouveau
- * (Étude personnalisée — ASSURANCE ACTUELLE / NOUVELLES COTISATIONS).
+ * Couvre l'ancien modèle (TEST-ADE-Martin), le modèle personnalisé v2,
+ * et le modèle « mensualités » (labels souvent sans accents après extraction PDF).
  */
 
 export type ParsedStudyPdfEconomics = {
@@ -9,13 +9,13 @@ export type ParsedStudyPdfEconomics = {
   netSavingsEur: number | null;
   feesAssureurEur: number | null;
   currentInsuranceTotalEur: number | null;
-  proposedInsuranceTotalEur: number | null;
   /**
    * Cotisation annuelle proposée.
    * Nouveau template : colonne « Nouvelle assurance » année 1 (déjà annuelle).
    * Ancien template : mensuel année 1 × 12.
    */
   annualPremiumEur: number | null;
+  proposedInsuranceTotalEur: number | null;
   proposedMonthlyYear1Eur: number | null;
   /** Montant année 1 « Nouvelle assurance » tel qu'affiché (annuel ou mensuel selon template). */
   proposedYear1RawEur: number | null;
@@ -24,7 +24,7 @@ export type ParsedStudyPdfEconomics = {
   plannedChangeDate: string | null;
   savingsPercent: number | null;
   confidence: "high" | "partial" | "low";
-  templateVersion: "v1_legacy" | "v2_personnalisee" | "unknown";
+  templateVersion: "v1_legacy" | "v2_personnalisee" | "v3_mensualites" | "unknown";
 };
 
 const MONTHS_FR: Record<string, number> = {
@@ -45,14 +45,19 @@ const MONTHS_FR: Record<string, number> = {
   décembre: 12,
 };
 
+/** Les extracteurs PDF retirent souvent les accents (Économie → Economie). */
+function foldAccents(s: string): string {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function parseEuroToken(raw: string): number | null {
   const s = String(raw || "")
     .replace(/\u00a0/g, " ")
     .replace(/[^\d,.\s]/g, "")
     .trim();
   if (!s) return null;
-  // Préférer « 7 883,32 » (groupes de milliers) OU « 7883,32 » (entier libre).
-  // Évite le piège \d{1,3} qui matchait « 883 » dans « 7883,32 ».
   const m = s.match(/(\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.](\d{2}))?/);
   if (!m) return null;
   const whole = m[1].replace(/[\s.]/g, "");
@@ -69,7 +74,6 @@ function amountAfterLabel(text: string, labelRe: RegExp, windowChars = 120): num
   return amt ? parseEuroToken(amt[1]) : null;
 }
 
-/** Tous les montants € immédiatement après un label (utile pour blocs multi-lignes). */
 function amountsNearLabel(text: string, labelRe: RegExp, windowChars = 160): number[] {
   const m = text.match(labelRe);
   if (!m || m.index == null) return [];
@@ -114,27 +118,36 @@ function parseFrDateToIso(raw: string): string | null {
 }
 
 function detectTemplateVersion(text: string): ParsedStudyPdfEconomics["templateVersion"] {
-  if (/NOUVELLES\s+COTISATIONS/i.test(text) && /ÉTUDE\s+PERSONNALIS[ÉE]E/i.test(text)) {
-    return "v2_personnalisee";
-  }
-  if (/CO[ÛU]T\s+ACTUEL\s+RESTANT/i.test(text) && /ÉCONOMIE\s+BRUTE/i.test(text)) {
+  // Ancien ADE en premier (évite un faux positif « NOUVELLE ASSURANCE »).
+  if (/COUT\s+ACTUEL\s+RESTANT/i.test(text) && /ECONOMIE\s+BRUTE/i.test(text)) {
     return "v1_legacy";
   }
-  if (/Évolution\s+annuelle/i.test(text) || /Prise\s+d['’]effet\s+[ée]tudi[ée]e/i.test(text)) {
+  // Modèle personnalisé v2 (cotisations annuelles / tableau frais).
+  if (/NOUVELLES\s+COTISATIONS/i.test(text) && /ETUDE\s+PERSONNALISEE/i.test(text)) {
+    return "v2_personnalisee";
+  }
+  // Modèle « mensualités » / synthèse en un regard.
+  if (
+    /Votre\s+economie\s+en\s+un\s+regard/i.test(text) ||
+    /Mensualite\s+actuelle\s+Mensualite\s+proposee/i.test(text) ||
+    (/Financement\s+Capital\s+assure/i.test(text) && /NOUVELLE\s+ASSURANCE\b/i.test(text))
+  ) {
+    return "v3_mensualites";
+  }
+  if (/Evolution\s+annuelle/i.test(text) || /Prise\s+d['']effet\s+etudiee/i.test(text)) {
     return "v2_personnalisee";
   }
   return "unknown";
 }
 
-/** Ligne Total / ventilation : actuelle | nouvelle | (frais) | économie. */
 function parseTotalsRow(text: string): {
   current: number | null;
   proposed: number | null;
   fees: number | null;
   economy: number | null;
+  capital: number | null;
 } {
-  // Nouveau (4 cols) uniquement si l'en-tête contient Frais — évite Total…économie…économie en v1.
-  const hasFeesColumn = /Assur[ée]e?\s+Actuelle.*Cotisations.*Frais.*Économie/i.test(text);
+  const hasFeesColumn = /Assuree?\s+Actuelle.*Cotisations.*Frais.*Economie/i.test(text);
   if (hasFeesColumn) {
     const v2 = text.match(
       /TOTAL\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
@@ -145,10 +158,28 @@ function parseTotalsRow(text: string): {
         proposed: parseEuroToken(v2[2]),
         fees: parseEuroToken(v2[3]),
         economy: parseEuroToken(v2[4]),
+        capital: null,
       };
     }
   }
-  // Ancien : Total 16 503,39 € 8 235,02 € 8 268,37 €
+
+  const hasCapitalColumn =
+    /Financement\s+Capital\s+assure/i.test(text) ||
+    /Capital\s+assure\s+Actuelle\s+Proposee\s+Economie/i.test(text) ||
+    /Pret\s+immobilier\s+amortissable/i.test(text);
+  const fourCols = text.match(
+    /TOTAL\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
+  );
+  if (fourCols && hasCapitalColumn) {
+    return {
+      capital: parseEuroToken(fourCols[1]),
+      current: parseEuroToken(fourCols[2]),
+      proposed: parseEuroToken(fourCols[3]),
+      economy: parseEuroToken(fourCols[4]),
+      fees: null,
+    };
+  }
+
   const v1 = text.match(
     /Total\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
   );
@@ -158,46 +189,58 @@ function parseTotalsRow(text: string): {
       proposed: parseEuroToken(v1[2]),
       fees: null,
       economy: parseEuroToken(v1[3]),
+      capital: null,
     };
   }
-  return { current: null, proposed: null, fees: null, economy: null };
+  return { current: null, proposed: null, fees: null, economy: null, capital: null };
 }
 
 function parseYear1Row(text: string): { current: number | null; proposed: number | null } {
-  // Année 1 1 348,29 € 443,16 € 735,13 € 735,13 €  (v2 annuel)
-  // Année 1 849,96 € 790,42 € 59,54 € 59,54 €     (v1 mensuel possible)
+  // Année 1 1 348,29 € 443,16 € …  (v2 annuel / v1)
   const m = text.match(
-    /Ann[ée]e\s*1\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
+    /Annee\s*1\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
   );
-  if (!m) return { current: null, proposed: null };
-  return { current: parseEuroToken(m[1]), proposed: parseEuroToken(m[2]) };
+  if (m) return { current: parseEuroToken(m[1]), proposed: parseEuroToken(m[2]) };
+
+  // Modèle mensualités : tableau « 1 10,73 € 6,05 € 4,68 € 56,22 € »
+  const m2 = text.match(
+    /(?:^|\n)\s*1\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/m,
+  );
+  if (m2 && /Mensualite\s+actuelle\s+Mensualite\s+proposee/i.test(text)) {
+    return { current: parseEuroToken(m2[1]), proposed: parseEuroToken(m2[2]) };
+  }
+  return { current: null, proposed: null };
 }
 
 function year1LooksAnnual(text: string, year1Proposed: number | null, template: string): boolean {
-  // Nouveau tableau comparatif : colonnes « / mois »
+  // Tableau explicitement en mensualités.
   if (
     /Tableau\s+comparatif\s+mensuel/i.test(text) ||
-    /Éco\.\s*nette\s*\/\s*mois/i.test(text) ||
+    /Eco\.\s*nette\s*\/\s*mois/i.test(text) ||
     /Actuelle\s*\/\s*mois/i.test(text) ||
     /Nouvelle\s*\/\s*mois/i.test(text) ||
-    /cotisations\s*\/\s*mois|propos[ée]e\s*\/\s*mois|par\s+mois/i.test(text)
+    /cotisations\s*\/\s*mois|proposee\s*\/\s*mois|par\s+mois/i.test(text) ||
+    /Mensualite\s+actuelle\s+Mensualite\s+proposee/i.test(text)
   ) {
     return false;
   }
+  if (template === "v3_mensualites") return false;
   if (template === "v2_personnalisee") return true;
   if (template === "v1_legacy") {
-    // Ancien modèle ADE : cotisations mensuelles dans le tableau.
-    return /Évolution\s+annuelle|année\s+contractuelle/i.test(text);
+    return /Evolution\s+annuelle|annee\s+contractuelle/i.test(text);
   }
-  if (/Évolution\s+annuelle/i.test(text) || /année\s+contractuelle/i.test(text)) return true;
-  // Inconnu : > 400 € en année 1 → plutôt annuel.
+  if (/Evolution\s+annuelle/i.test(text) || /annee\s+contractuelle/i.test(text)) return true;
   if (year1Proposed != null && year1Proposed > 400) return true;
   return false;
 }
 
+function nearlyEqual(a: number, b: number, tol = 1.5): boolean {
+  return Math.abs(a - b) <= tol;
+}
+
 /** Parse le texte brut extrait du PDF d'étude. */
 export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfEconomics {
-  const text = String(rawText || "")
+  const text = foldAccents(String(rawText || ""))
     .replace(/\u00a0/g, " ")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n");
@@ -206,47 +249,70 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
   const totals = parseTotalsRow(text);
   const year1 = parseYear1Row(text);
 
-  // --- Économie brute ---
   let gross =
-    amountAfterLabel(text, /Économie\s+brute\s*:/i) ??
-    amountAfterLabel(text, /ÉCONOMIE\s+BRUTE\b/i, 60) ??
-    amountAfterLabel(text, /Économie\s+brute\b/i, 60) ??
-    totals.economy;
+    amountAfterLabel(text, /Economie\s+brute\s*:/i) ??
+    amountAfterLabel(text, /ECONOMIE\s+BRUTE\b/i, 60) ??
+    amountAfterLabel(text, /Economie\s+brute\b/i, 60);
 
-  // Bloc hero v2 : « ÉCONOMIE BRUTE\n7 883,32 € »
   if (gross == null) {
-    const near = amountsNearLabel(text, /ÉCONOMIE\s+BRUTE\b/i, 80);
+    const near = amountsNearLabel(text, /ECONOMIE\s+BRUTE\b/i, 80);
     if (near[0] != null) gross = near[0];
   }
+  if (gross == null && totals.economy != null) {
+    gross = totals.economy;
+  }
 
-  // --- Économie nette ---
   let net =
-    amountAfterLabel(text, /ÉCONOMIE\s+NETTE\s+TOTALE\b/i) ??
-    amountAfterLabel(text, /VOTRE\s+ÉCONOMIE\s+NETTE\s+ESTIM[ÉE]E\b/i, 80) ??
-    amountAfterLabel(text, /Économie\s+nette\b/i, 60) ??
-    amountAfterLabel(text, /ÉCONOMIE\s+NETTE(?:\s+ESTIM[ÉE]E)?\b/i, 60);
+    amountAfterLabel(text, /ECONOMIE\s+NETTE\s+TOTALE\b/i) ??
+    amountAfterLabel(text, /VOTRE\s+ECONOMIE\s+NETTE\s+ESTIMEE\b/i, 80) ??
+    amountAfterLabel(text, /Economie\s+nette\b/i, 60) ??
+    amountAfterLabel(text, /ECONOMIE\s+NETTE(?:\s+ESTIMEE)?\b/i, 60);
 
   if (net == null) {
-    const near = amountsNearLabel(text, /VOTRE\s+ÉCONOMIE\s+NETTE\s+ESTIM[ÉE]E\b/i, 100);
+    const near = amountsNearLabel(text, /VOTRE\s+ECONOMIE\s+NETTE\s+ESTIMEE\b/i, 100);
     if (near[0] != null) net = near[0];
   }
 
-  // --- Coûts restants (avant frais : utile pour valider totals.fees) ---
-  let currentTotal =
-    totals.current ??
+  let labeledCurrent =
     amountAfterLabel(text, /ASSURANCE\s+ACTUELLE\b/i, 60) ??
-    amountAfterLabel(text, /CO[ÛU]T\s+ACTUEL\s+RESTANT\b/i) ??
+    amountAfterLabel(text, /COUT\s+ACTUEL\s+RESTANT\b/i) ??
     amountAfterLabel(text, /Assurance\s+actuelle\b/i, 50);
-
-  if (currentTotal == null) {
-    const near = amountsNearLabel(text, /ASSURANCE\s+ACTUELLE\b/i, 80);
-    if (near[0] != null) currentTotal = near[0];
+  if (labeledCurrent == null) {
+    labeledCurrent = amountsNearLabel(text, /ASSURANCE\s+ACTUELLE\b/i, 80)[0] ?? null;
   }
 
-  // --- Frais dossier / frais retenus (PAS le coût actuel ni l'économie) ---
+  let labeledProposed =
+    amountAfterLabel(text, /NOUVELLES\s+COTISATIONS\b/i, 60) ??
+    amountAfterLabel(text, /NOUVELLE\s+ASSURANCE\b/i, 60) ??
+    amountAfterLabel(text, /NOUVELLE\s+SOLUTION\b/i, 60) ??
+    amountAfterLabel(text, /Nouvelle\s+solution\b/i, 60);
+  if (labeledProposed == null) {
+    labeledProposed =
+      amountsNearLabel(text, /NOUVELLES\s+COTISATIONS\b/i, 80)[0] ??
+      amountsNearLabel(text, /NOUVELLE\s+ASSURANCE\b/i, 80)[0] ??
+      null;
+  }
+
+  // v1 : le TOTAL est fiable. v2/v3 : les blocs labelés évitent de prendre le capital.
+  let currentTotal: number | null;
+  let proposedTotal: number | null;
+  if (templateVersion === "v1_legacy") {
+    currentTotal = totals.current ?? labeledCurrent;
+    proposedTotal = totals.proposed ?? labeledProposed;
+  } else {
+    currentTotal = labeledCurrent ?? totals.current;
+    proposedTotal = labeledProposed ?? totals.proposed;
+  }
+
   let feesAssureur =
-    amountAfterLabel(text, /Frais\s+retenus\s+d[ée]duits\s*:/i, 40) ??
+    amountAfterLabel(text, /Frais\s+retenus\s+deduits\s*:/i, 40) ??
     amountAfterLabel(text, /frais\s+retenus\s+de\s+la\s+nouvelle\s+assurance\s*:/i, 40) ??
+    amountAfterLabel(text, /Frais\s+de\s+dossier\s+inclus\s+dans\s+le\s+calcul\s*:/i, 40) ??
+    amountAfterLabel(
+      text,
+      /Apres\s+deduction\s+des\s+frais\s+de\s+dossier\s+appliques\s+par\s+la\s+nouvelle\s+assurance\s*:/i,
+      40,
+    ) ??
     null;
 
   if (feesAssureur == null) {
@@ -256,7 +322,6 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
     if (m) feesAssureur = parseEuroToken(m[1]);
   }
 
-  // Totaux v2 « Frais » — uniquement si plausible (<< économie / coût actuel).
   if (
     feesAssureur == null &&
     totals.fees != null &&
@@ -266,25 +331,11 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
     feesAssureur = totals.fees;
   }
 
-  // Ancien template : « Frais de dossier 0,00 € » collé au label.
   if (feesAssureur == null && templateVersion !== "v2_personnalisee") {
     const m = text.match(/Frais\s+de\s+dossier\s+(\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?)\s*€/i);
     if (m) feesAssureur = parseEuroToken(m[1]);
   }
 
-  let proposedTotal =
-    totals.proposed ??
-    amountAfterLabel(text, /NOUVELLES\s+COTISATIONS\b/i, 60) ??
-    amountAfterLabel(text, /NOUVELLE\s+SOLUTION\b/i, 60) ??
-    amountAfterLabel(text, /Nouvelle\s+solution\b/i, 60) ??
-    amountAfterLabel(text, /Nouvelle\s+assurance(?:,\s*frais\s+inclus)?\b/i, 50);
-
-  if (proposedTotal == null) {
-    const near = amountsNearLabel(text, /NOUVELLES\s+COTISATIONS\b/i, 80);
-    if (near[0] != null) proposedTotal = near[0];
-  }
-
-  // « Nouvelle assurance, frais inclus » = cotisations + frais — si on a frais, préférer cotisations seules.
   const proposedWithFees = amountAfterLabel(
     text,
     /Nouvelle\s+assurance,\s*frais\s+inclus\b/i,
@@ -299,6 +350,26 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
     proposedTotal = Math.round((proposedWithFees - feesAssureur) * 100) / 100;
   }
 
+  if (currentTotal != null && proposedTotal != null && currentTotal >= proposedTotal) {
+    const derivedGross = Math.round((currentTotal - proposedTotal) * 100) / 100;
+    if (gross == null) {
+      gross = derivedGross;
+    } else if (!nearlyEqual(gross, derivedGross) && nearlyEqual(gross, proposedTotal)) {
+      // Bug classique : économie = colonne « nouvelle assurance » (ex. 1 430 au lieu de 710).
+      gross = derivedGross;
+    } else if (
+      !nearlyEqual(gross, derivedGross) &&
+      totals.capital != null &&
+      nearlyEqual(currentTotal, totals.capital)
+    ) {
+      if (totals.current != null && totals.proposed != null && totals.economy != null) {
+        currentTotal = totals.current;
+        proposedTotal = totals.proposed;
+        gross = totals.economy;
+      }
+    }
+  }
+
   if (
     proposedTotal == null &&
     currentTotal != null &&
@@ -306,14 +377,6 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
     currentTotal >= gross
   ) {
     proposedTotal = Math.round((currentTotal - gross) * 100) / 100;
-  }
-  if (
-    gross == null &&
-    currentTotal != null &&
-    proposedTotal != null &&
-    currentTotal >= proposedTotal
-  ) {
-    gross = Math.round((currentTotal - proposedTotal) * 100) / 100;
   }
 
   const year1IsAnnual = year1LooksAnnual(text, year1.proposed, templateVersion);
@@ -330,25 +393,28 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
     }
   }
 
-  let loanCapitalEur: number | null = null;
+  let loanCapitalEur: number | null = totals.capital;
   const capital =
-    text.match(/Prêt\s+immobilier\s*[—–\-]\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
-    text.match(/capital\s+(?:initial|emprunté|restant)\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
-    text.match(/montant\s+(?:du\s+)?prêt\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
-    text.match(/part\s+assur[ée]e[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})+)\s*€/i);
+    text.match(/Capital\s+assure\s*:\s*((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i) ||
+    text.match(/Pret\s+immobilier\s+amortissable\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i) ||
+    text.match(/Pret\s+immobilier\s*[—–\-]\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
+    text.match(/capital\s+(?:initial|emprunte|restant)\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
+    text.match(/montant\s+(?:du\s+)?pret\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
+    text.match(/part\s+assuree[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})+)\s*€/i);
   if (capital?.[1]) {
-    const n = Number(capital[1].replace(/[\s.]/g, ""));
+    const n = parseEuroToken(capital[1]) ?? Number(String(capital[1]).replace(/[\s.]/g, ""));
     if (Number.isFinite(n) && n > 0) loanCapitalEur = n;
   }
 
   let plannedChangeDate: string | null = null;
   const datePatterns = [
-    /Prise\s+d['’]effet\s+[ée]tudi[ée]e\s*:\s*(\d{1,2}\s+[a-zéûô]+\s+\d{4})/i,
-    /date\s+d['’]effet\s+du\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i,
-    /à\s+compter\s+de\s+la\s+date\s+d['’]effet\s+du\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i,
-    /prise\s+d['’]effet\s*[:=]?\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}|\d{1,2}\s+[a-zéûô]+\s+\d{4})/i,
-    /à\s+compter\s+du\s+(\d{1,2}\s+[a-zéûô]+\s+\d{4})/i,
-    /du\s+(\d{1,2}\s+[a-zéûô]+\s+\d{4})\s+au\s+\d{1,2}\s+[a-zéûô]+\s+\d{4}/i,
+    /Prise\s+d['']effet\s+etudiee\s*:\s*(\d{1,2}\s+[a-zeuo]+\s+\d{4})/i,
+    /date\s+d['']effet\s+du\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i,
+    /a\s+compter\s+de\s+la\s+date\s+d['']effet\s+du\s+(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/i,
+    /prise\s+d['']effet\s*[:=]?\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}|\d{1,2}\s+[a-zeuo]+\s+\d{4})/i,
+    /a\s+compter\s+du\s+(\d{1,2}\s+[a-zeuo]+\s+\d{4})/i,
+    /Les\s+montants\s+sont\s+regroupes\s+par\s+annee\s+contractuelle\s+a\s+compter\s+du\s+(\d{1,2}\s+[a-zeuo]+\s+\d{4})/i,
+    /du\s+(\d{1,2}\s+[a-zeuo]+\s+\d{4})\s+au\s+\d{1,2}\s+[a-zeuo]+\s+\d{4}/i,
   ];
   for (const re of datePatterns) {
     const dateM = text.match(re);
@@ -360,7 +426,7 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
 
   let savingsPercent: number | null = null;
   const pct =
-    text.match(/(\d+(?:[,.]\d+)?)\s*%\s*D['’]?ÉCONOMIE/i) ||
+    text.match(/(\d+(?:[,.]\d+)?)\s*%\s*D['']?ECONOMIE/i) ||
     text.match(/soit\s+(-?\d+(?:[,.]\d+)?)\s*%/i);
   if (pct?.[1]) {
     const n = Number(pct[1].replace(",", "."));
