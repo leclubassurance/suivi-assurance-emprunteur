@@ -212,7 +212,7 @@ export default function ApporteurPortalPage({
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [referralListMode, setReferralListMode] = useState<"active" | "archived">("active");
-  const [submitting, setSubmitting] = useState(false);
+  const [refusingId, setRefusingId] = useState<string | null>(null);
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
   const [form, setForm] = useState({ prenom: "", nom: "", email: "", phone: "", notes: "" });
   const [showPartnerForm, setShowPartnerForm] = useState(false);
@@ -444,6 +444,41 @@ export default function ApporteurPortalPage({
       setSubmitMsg(err?.message || "Erreur");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const refuseSubstitution = async (referral: PortalReferral) => {
+    const name =
+      [referral.contact.prenom, referral.contact.nom].filter(Boolean).join(" ") || "ce client";
+    const signedWarn =
+      referral.status === "SIGNE"
+        ? "\n\nAttention : ce dossier est déjà marqué signé — le refus annulera le signalement d'accord."
+        : "";
+    if (
+      !window.confirm(
+        `Confirmer que ${name} a refusé la substitution d'assurance ?\n\n` +
+          `Le dossier LCIF passera en « REFUSÉ », sortira du pipeline, et vos indicateurs seront mis à jour.` +
+          signedWarn,
+      )
+    ) {
+      return;
+    }
+    setRefusingId(referral.id);
+    setSubmitMsg(null);
+    try {
+      const res = await fetchPortal(
+        `/api/apporteur-portal/${encodeURIComponent(token)}/referrals/${encodeURIComponent(referral.id)}/refuse-substitution`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || json.error || "Enregistrement impossible");
+      setSubmitMsg(`Refus enregistré pour ${name} — dossier archivé, chiffres mis à jour.`);
+      setReferralListMode("archived");
+      await load();
+    } catch (err: any) {
+      setSubmitMsg(err?.message || "Erreur lors de l'enregistrement du refus");
+    } finally {
+      setRefusingId(null);
     }
   };
 
@@ -1156,6 +1191,29 @@ export default function ApporteurPortalPage({
                               await load();
                             }}
                           />
+                        ) : null}
+                        {isConseillerClub &&
+                        !adminViewMode &&
+                        r.status !== "REFUSE" &&
+                        r.status !== "PERDU" ? (
+                          <div className="mt-3 pt-3 border-t border-slate-100">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="w-full sm:w-auto border-rose-200 text-rose-700 hover:bg-rose-50"
+                              disabled={refusingId === r.id}
+                              onClick={() => void refuseSubstitution(r)}
+                            >
+                              {refusingId === r.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : null}
+                              Client a refusé la substitution
+                            </Button>
+                            <p className="text-[11px] text-slate-400 mt-1.5">
+                              Passe le dossier LCIF en refusé et met à jour vos indicateurs (pipeline / conversion).
+                            </p>
+                          </div>
                         ) : null}
                       </article>
                     );

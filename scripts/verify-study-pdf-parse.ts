@@ -118,10 +118,30 @@ async function verifyV3MaxenceMensualites() {
   assert(!/1\s*430/.test(mail.subject + mail.html.split("Nouvelle solution")[0]), "pas 1430 en accroche");
 }
 
+async function verifyV3LorinComparative() {
+  const pdfPath =
+    "/Users/lascaudremi/Desktop/Étude d'économie/Etude_comparative_assurance_Lorin.pdf";
+  if (!fs.existsSync(pdfPath)) {
+    console.log(`(skip v3 Lorin — fichier absent: ${pdfPath})`);
+    return;
+  }
+  console.log("\n=== V3 Lorin (comparative Cotisations+Frais) ===");
+  const { parsed } = await parseFile(pdfPath);
+  console.log(JSON.stringify(parsed, null, 2));
+  assert(parsed.templateVersion === "v3_mensualites", "template v3");
+  assert(parsed.grossSavingsEur != null && Math.abs(parsed.grossSavingsEur - 306.4) < 0.02, "écart brut 306.40");
+  assert(parsed.feesAssureurEur != null && Math.abs(parsed.feesAssureurEur - 220) < 0.02, "frais 220");
+  assert(parsed.currentInsuranceTotalEur != null && Math.abs(parsed.currentInsuranceTotalEur - 3077.76) < 0.02, "actuelle 3077.76");
+  assert(parsed.proposedInsuranceTotalEur != null && Math.abs(parsed.proposedInsuranceTotalEur - 2771.36) < 0.02, "proposée 2771.36");
+  assert(parsed.grossSavingsEur !== 2991.36, "ne pas prendre cotisations+frais pour économie");
+  assert(parsed.plannedChangeDate === "2026-11-05", "date 5 nov 2026");
+}
+
 async function main() {
   await verifyLegacyMartin();
   await verifyV2Raimbault();
   await verifyV3MaxenceMensualites();
+  await verifyV3LorinComparative();
   console.log("\nParse PDF études OK.");
 }
 

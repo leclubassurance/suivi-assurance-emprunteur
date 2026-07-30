@@ -31,7 +31,7 @@ export interface DossierEvent {
   id: string;
   type: DossierEventType;
   at: string;
-  actor?: { kind: "SYSTEM" | "ADMIN" | "AI"; label?: string };
+  actor?: { kind: "SYSTEM" | "ADMIN" | "AI" | "APPORTEUR"; label?: string };
   message?: string;
   meta?: Record<string, any>;
 }

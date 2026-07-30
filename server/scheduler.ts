@@ -251,5 +251,23 @@ export function startScheduler() {
 
   const { startOpsDailyReportScheduler } = require("./opsDailyReport") as typeof import("./opsDailyReport");
   startOpsDailyReportScheduler();
+
+  // Rattrapage Drive : PENDING bloqués / docs encore en localPath non montés
+  const driveRetryMs = Number(process.env.DRIVE_EXPORT_RETRY_MS || 180_000);
+  setInterval(() => {
+    import("./workspaceExportRetry")
+      .then(({ retryStaleWorkspaceExports }) => retryStaleWorkspaceExports())
+      .then((r) => {
+        if (r.tried > 0) {
+          console.log(`[Drive retry] tried=${r.tried} ok=${r.ok} failed=${r.failed}`);
+        }
+      })
+      .catch((err) => console.warn("[Drive retry]", err?.message || err));
+  }, driveRetryMs);
+  setTimeout(() => {
+    import("./workspaceExportRetry")
+      .then(({ retryStaleWorkspaceExports }) => retryStaleWorkspaceExports())
+      .catch(() => undefined);
+  }, 45_000);
 }
 

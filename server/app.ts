@@ -597,10 +597,31 @@ export function createApp() {
           portalBaseUrl: portalBase,
           log: appendLog,
         })
-          .then(() => writeDB(db, newDossier))
+          .then(async () => {
+            // Relecture : ne pas écraser un export Drive terminé entre-temps (race PENDING → SUCCESS).
+            const currentDb = await readDBAsync();
+            const existing = currentDb.dossiers.find((d: any) => d.id === newDossier.id);
+            if (!existing) return;
+            existing.emails = newDossier.emails;
+            existing.communications = newDossier.communications;
+            existing.eventLog = newDossier.eventLog;
+            existing.updatedAt = new Date().toISOString();
+            await writeDB(currentDb, existing);
+          })
           .catch(async (err: any) => {
             appendLog(`[Email Error] Erreur confirmation : ${err?.message || String(err)}`);
-            await writeDB(db, newDossier);
+            try {
+              const currentDb = await readDBAsync();
+              const existing = currentDb.dossiers.find((d: any) => d.id === newDossier.id);
+              if (!existing) return;
+              existing.emails = newDossier.emails;
+              existing.communications = newDossier.communications;
+              existing.eventLog = newDossier.eventLog;
+              existing.updatedAt = new Date().toISOString();
+              await writeDB(currentDb, existing);
+            } catch {
+              /* best-effort */
+            }
           });
       }
 
@@ -627,54 +648,88 @@ export function createApp() {
       } else {
         newDossier.workspaceStatus = "PENDING";
         await writeDB(db, newDossier);
-      }
 
-      let driveTokenForAutoExport: string | null = null;
-      if (requestAccessToken) {
-        driveTokenForAutoExport = requestAccessToken;
-      } else {
-        driveTokenForAutoExport = await resolveAutonomousGoogleAccessToken();
-      }
+        let driveTokenForAutoExport: string | null = null;
+        if (requestAccessToken) {
+          driveTokenForAutoExport = requestAccessToken;
+        } else {
+          driveTokenForAutoExport = await resolveAutonomousGoogleAccessToken();
+        }
 
-      exportDossierToGoogleWorkspace(newDossier, driveTokenForAutoExport)
-        .then(async (result) => {
-          const currentDb = await readDBAsync();
-          const existing = currentDb.dossiers.find((d: any) => d.id === newDossier.id);
-          if (existing) {
-            if (result.success) {
-              existing.status = "EN_COURS";
-              existing.workspaceStatus = result.status;
-              existing.workspaceWarning = result.warning;
-              existing.workspaceFolderId = result.folderId;
-              existing.workspaceSheetId = result.spreadsheetId;
-              existing.updatedAt = new Date().toISOString();
-              // Fusionne (ne remplace pas) : évite d'écraser des uploads admin pendant l'export
-              if (newDossier.formData?.documents?.length) {
-                existing.formData = existing.formData || {};
-                const { unionDossierDocuments } = await import("./gmailAttachments");
-                existing.formData.documents = unionDossierDocuments(
-                  existing.formData.documents || [],
-                  newDossier.formData.documents,
+        const DRIVE_EXPORT_TIMEOUT_MS = 90_000;
+        const driveExportPromise = exportDossierToGoogleWorkspace(
+          newDossier,
+          driveTokenForAutoExport,
+        );
+        const driveExportWithTimeout = Promise.race([
+          driveExportPromise,
+          new Promise<{ success: false; status: "FAILED"; error: string }>((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  success: false,
+                  status: "FAILED",
+                  error: `Export Drive timeout (${DRIVE_EXPORT_TIMEOUT_MS}ms) — relance auto prévue.`,
+                }),
+              DRIVE_EXPORT_TIMEOUT_MS,
+            ),
+          ),
+        ]);
+
+        driveExportWithTimeout
+          .then(async (result) => {
+            const currentDb = await readDBAsync();
+            const existing = currentDb.dossiers.find((d: any) => d.id === newDossier.id);
+            if (existing) {
+              if (result.success) {
+                existing.status = "EN_COURS";
+                existing.workspaceStatus = result.status;
+                existing.workspaceWarning = (result as any).warning;
+                existing.workspaceFolderId = (result as any).folderId;
+                existing.workspaceSheetId = (result as any).spreadsheetId;
+                existing.workspaceError = undefined;
+                existing.updatedAt = new Date().toISOString();
+                // Fusionne (ne remplace pas) : évite d'écraser des uploads admin pendant l'export
+                if (newDossier.formData?.documents?.length) {
+                  existing.formData = existing.formData || {};
+                  const { unionDossierDocuments } = await import("./gmailAttachments");
+                  existing.formData.documents = unionDossierDocuments(
+                    existing.formData.documents || [],
+                    newDossier.formData.documents,
+                  );
+                }
+                await writeDB(currentDb, existing);
+                appendLog(
+                  `Dossier ${newDossier.id} mis à jour au statut EN_COURS après export Google Workspace. (Statut: ${result.status})`,
+                );
+              } else {
+                existing.workspaceStatus = "FAILED";
+                existing.workspaceError = (result as any).error;
+                existing.updatedAt = new Date().toISOString();
+                await writeDB(currentDb, existing);
+                appendLog(
+                  `Échec de l'export Google Workspace pour le dossier ${newDossier.id}: ${(result as any).error}`,
                 );
               }
-              await writeDB(currentDb, existing);
-              appendLog(
-                `Dossier ${newDossier.id} mis à jour au statut EN_COURS après export Google Workspace. (Statut: ${result.status})`,
-              );
-            } else {
+            }
+          })
+          .catch(async (err) => {
+            appendLog(
+              `Erreur de tâche en arrière plan Google Workspace pour ${newDossier.id}: ${err.message || err}`,
+            );
+            try {
+              const currentDb = await readDBAsync();
+              const existing = currentDb.dossiers.find((d: any) => d.id === newDossier.id);
+              if (!existing || existing.workspaceFolderId) return;
               existing.workspaceStatus = "FAILED";
-              existing.workspaceError = result.error;
+              existing.workspaceError = err?.message || String(err);
               existing.updatedAt = new Date().toISOString();
               await writeDB(currentDb, existing);
-              appendLog(`Échec de l'export Google Workspace pour le dossier ${newDossier.id}: ${result.error}`);
+            } catch {
+              /* best-effort */
             }
-          }
-        })
-        .catch((err) => {
-          appendLog(
-            `Erreur de tâche en arrière plan Google Workspace pour ${newDossier.id}: ${err.message || err}`,
-          );
-        });
+          });
+      }
 
       const portalUrl =
         portalUrlForEmail.startsWith("http")
@@ -3409,6 +3464,105 @@ export function createApp() {
           },
         });
       } catch (err: any) {
+        res.status(400).json({ ok: false, error: err?.message || String(err) });
+      }
+    },
+  );
+
+  app.post(
+    "/api/apporteur-portal/:token/referrals/:referralId/refuse-substitution",
+    apporteurPortalPostLimiter,
+    express.json(),
+    async (req, res) => {
+      try {
+        const {
+          findApporteurByPortalToken,
+          findReferralById,
+          updateReferral,
+          syncReferralFromDossier,
+        } = await import("./apporteurStore");
+        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+        const { applyClientSubstitutionRefusal } = await import("./clientSubstitutionRefusal");
+        const { syncNetworkReferralFromDossier } = await import("./networkStore");
+
+        const apporteur = await findApporteurByPortalToken(req.params.token);
+        if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
+        if (!isConseillerImmoClubType(apporteur.type)) {
+          return res.status(403).json({ ok: false, error: "not_conseiller" });
+        }
+        {
+          const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
+          if (!isApporteurPortalUnlocked(apporteur)) {
+            return res.status(403).json({ ok: false, error: "portal_locked" });
+          }
+        }
+
+        const referral = await findReferralById(req.params.referralId);
+        if (!referral || referral.apporteurId !== apporteur.id) {
+          return res.status(404).json({ ok: false, error: "referral_not_found" });
+        }
+        if (referral.status === "REFUSE" || referral.status === "PERDU") {
+          return res.json({
+            ok: true,
+            alreadyClosed: true,
+            referral: { id: referral.id, status: referral.status, dossierId: referral.dossierId },
+          });
+        }
+
+        const actorLabel =
+          String(apporteur.contactName || apporteur.companyName || "Conseiller").trim() || "Conseiller";
+        const note = String((req.body as any)?.note || "").trim() || undefined;
+
+        let dossierId = referral.dossierId || null;
+        let dossierStatus: string | null = null;
+
+        if (referral.dossierId) {
+          const db = await readDBAsync();
+          const dossier = db.dossiers.find((d: any) => d.id === referral.dossierId);
+          if (!dossier) {
+            return res.status(404).json({ ok: false, error: "dossier_not_found" });
+          }
+          applyClientSubstitutionRefusal(dossier, {
+            actorLabel,
+            actorKind: "APPORTEUR",
+            note:
+              note ||
+              `Client a refusé la substitution — signalé depuis l'espace conseiller (${actorLabel}).`,
+          });
+          await writeDB(db, dossier);
+          dossierId = dossier.id;
+          dossierStatus = dossier.status;
+          try {
+            await syncNetworkReferralFromDossier(dossier, "conseiller_portal");
+            await syncReferralFromDossier(dossier, "conseiller_portal");
+          } catch (syncErr: any) {
+            console.warn(
+              "[refuse-substitution] sync referral:",
+              syncErr?.message || syncErr,
+            );
+          }
+        } else {
+          await updateReferral(referral.id, {
+            status: "REFUSE",
+            actor: "conseiller_portal",
+            note:
+              note ||
+              `Client a refusé la substitution — signalé depuis l'espace conseiller (${actorLabel}).`,
+          });
+        }
+
+        const refreshed = await findReferralById(referral.id);
+        res.json({
+          ok: true,
+          referral: {
+            id: referral.id,
+            status: refreshed?.status || "REFUSE",
+            dossierId,
+          },
+          dossierStatus,
+        });
+      } catch (err: any) {
+        console.error("[refuse-substitution]", err?.message || err);
         res.status(400).json({ ok: false, error: err?.message || String(err) });
       }
     },

@@ -129,8 +129,10 @@ function detectTemplateVersion(text: string): ParsedStudyPdfEconomics["templateV
   // Modèle « mensualités » / synthèse en un regard.
   if (
     /Votre\s+economie\s+en\s+un\s+regard/i.test(text) ||
+    /Votre\s+comparaison\s+en\s+un\s+regard/i.test(text) ||
     /Mensualite\s+actuelle\s+Mensualite\s+proposee/i.test(text) ||
-    (/Financement\s+Capital\s+assure/i.test(text) && /NOUVELLE\s+ASSURANCE\b/i.test(text))
+    (/Financement\s+Capital\s+assure/i.test(text) && /NOUVELLE\s+ASSURANCE\b/i.test(text)) ||
+    (/ECART\s+BRUT\b/i.test(text) && /ASSURANCE\s+ACTUELLE\b/i.test(text) && /NOUVELLE\s+ASSURANCE\b/i.test(text))
   ) {
     return "v3_mensualites";
   }
@@ -147,7 +149,15 @@ function parseTotalsRow(text: string): {
   economy: number | null;
   capital: number | null;
 } {
-  const hasFeesColumn = /Assuree?\s+Actuelle.*Cotisations.*Frais.*Economie/i.test(text);
+  // Tableau détaillé « Assuré / Cotisations / Frais / Total » :
+  // TOTAL = cotisations + frais (PAS l'économie). Ex. Lorin : 2 771 + 220 = 2 991.
+  const isCotisationsFraisTotalTable =
+    /Assuree?\s+Cotisations\s+Frais\s+Total/i.test(text) ||
+    /Cotisations\s+Frais\s+Total/i.test(text);
+
+  const hasFeesColumn =
+    !isCotisationsFraisTotalTable &&
+    /Assuree?\s+Actuelle.*Cotisations.*Frais.*Economie/i.test(text);
   if (hasFeesColumn) {
     const v2 = text.match(
       /TOTAL\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
@@ -180,17 +190,34 @@ function parseTotalsRow(text: string): {
     };
   }
 
-  const v1 = text.match(
-    /Total\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
-  );
-  if (v1) {
-    return {
-      current: parseEuroToken(v1[1]),
-      proposed: parseEuroToken(v1[2]),
-      fees: null,
-      economy: parseEuroToken(v1[3]),
-      capital: null,
-    };
+  // Ne pas interpréter « TOTAL cotisations | frais | total TTC » comme économie.
+  if (!isCotisationsFraisTotalTable) {
+    const v1 = text.match(
+      /Total\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
+    );
+    if (v1) {
+      return {
+        current: parseEuroToken(v1[1]),
+        proposed: parseEuroToken(v1[2]),
+        fees: null,
+        economy: parseEuroToken(v1[3]),
+        capital: null,
+      };
+    }
+  } else {
+    // Extraire au moins les frais depuis ce tableau (2e colonne du TOTAL).
+    const feesRow = text.match(
+      /TOTAL\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€\s+((?:\d{1,3}(?:[\s\u00a0.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i,
+    );
+    if (feesRow) {
+      return {
+        current: null,
+        proposed: parseEuroToken(feesRow[1]),
+        fees: parseEuroToken(feesRow[2]),
+        economy: null,
+        capital: null,
+      };
+    }
   }
   return { current: null, proposed: null, fees: null, economy: null, capital: null };
 }
@@ -252,11 +279,19 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
   let gross =
     amountAfterLabel(text, /Economie\s+brute\s*:/i) ??
     amountAfterLabel(text, /ECONOMIE\s+BRUTE\b/i, 60) ??
-    amountAfterLabel(text, /Economie\s+brute\b/i, 60);
+    amountAfterLabel(text, /Economie\s+brute\b/i, 60) ??
+    // Nouveau template comparative : « Écart brut » (souvent sans « économie brute »).
+    amountAfterLabel(text, /Ecart\s+brut\s*:/i, 40) ??
+    amountAfterLabel(text, /ECART\s+BRUT\b/i, 40) ??
+    amountAfterLabel(text, /TOTAL\s+SUR\s+LA\s+DUREE\b/i, 40);
 
   if (gross == null) {
     const near = amountsNearLabel(text, /ECONOMIE\s+BRUTE\b/i, 80);
     if (near[0] != null) gross = near[0];
+  }
+  if (gross == null) {
+    const nearEcart = amountsNearLabel(text, /ECART\s+BRUT\b/i, 60);
+    if (nearEcart[0] != null) gross = nearEcart[0];
   }
   if (gross == null && totals.economy != null) {
     gross = totals.economy;
@@ -359,6 +394,13 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
       gross = derivedGross;
     } else if (
       !nearlyEqual(gross, derivedGross) &&
+      feesAssureur != null &&
+      nearlyEqual(gross, proposedTotal + feesAssureur)
+    ) {
+      // Bug Lorin / tableau Cotisations+Frais=Total : 2 771 + 220 = 2 991 pris pour l'économie.
+      gross = derivedGross;
+    } else if (
+      !nearlyEqual(gross, derivedGross) &&
       totals.capital != null &&
       nearlyEqual(currentTotal, totals.capital)
     ) {
@@ -367,6 +409,14 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
         proposedTotal = totals.proposed;
         gross = totals.economy;
       }
+    } else if (
+      !nearlyEqual(gross, derivedGross) &&
+      derivedGross > 0 &&
+      gross > derivedGross * 2 &&
+      (templateVersion === "v3_mensualites" || templateVersion === "v2_personnalisee")
+    ) {
+      // Écart labelé / actuelle−proposée fiable : ne pas garder un gross aberrant (souvent total TTC).
+      gross = derivedGross;
     }
   }
 
@@ -395,12 +445,12 @@ export function parseStudyEconomicsFromPdfText(rawText: string): ParsedStudyPdfE
 
   let loanCapitalEur: number | null = totals.capital;
   const capital =
+    text.match(/Part\s+assuree\s+retenue\s*:\s*((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i) ||
     text.match(/Capital\s+assure\s*:\s*((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i) ||
     text.match(/Pret\s+immobilier\s+amortissable\s+((?:\d{1,3}(?:[\s.]\d{3})+|\d+)(?:[,.]\d{2})?)\s*€/i) ||
     text.match(/Pret\s+immobilier\s*[—–\-]\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
     text.match(/capital\s+(?:initial|emprunte|restant)\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
-    text.match(/montant\s+(?:du\s+)?pret\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i) ||
-    text.match(/part\s+assuree[^\d]{0,40}?(\d{1,3}(?:[\s.]\d{3})+)\s*€/i);
+    text.match(/montant\s+(?:du\s+)?pret\s*[:=]?\s*(\d{1,3}(?:[\s.]\d{3})+|\d+)\s*€/i);
   if (capital?.[1]) {
     const n = parseEuroToken(capital[1]) ?? Number(String(capital[1]).replace(/[\s.]/g, ""));
     if (Number.isFinite(n) && n > 0) loanCapitalEur = n;

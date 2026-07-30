@@ -56,7 +56,10 @@ export function stripUndefinedForFirestore<T>(value: T): T {
 
 function stripDocForStorage(doc: any) {
   if (!doc || typeof doc !== "object") return normalizeDocumentForPersistence(doc);
-  const { localPath, base64, data, content, rawText, extractedText, ...rest } = doc;
+  // Ne jamais virer localPath tant que Drive n'a pas l'id — sinon perte irréversible
+  // si l'export Drive reste PENDING / échoue (disque Railway éphémère ensuite).
+  const normalized = normalizeDocumentForPersistence(doc);
+  const { base64, data, content, rawText, extractedText, ...rest } = normalized;
   if (rest.loanSignal && typeof rest.loanSignal === "object") {
     const sig = { ...rest.loanSignal };
     delete sig.rawExcerpt;

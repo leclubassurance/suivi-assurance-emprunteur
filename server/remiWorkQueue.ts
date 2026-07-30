@@ -22,7 +22,8 @@ export type WorkQueueKind =
   | "client_waiting"
   | "client_replied"
   | "study_pending"
-  | "drive_failed";
+  | "drive_failed"
+  | "drive_pending";
 
 export interface WorkQueueItem {
   dossierId: string;
@@ -234,6 +235,24 @@ export function buildRemiWorkQueue(dossiers: Dossier[]): WorkQueueItem[] {
         title: "Export Google Drive en échec",
         detail: d.workspaceError || "Erreur technique",
         action: "Onglet Suivi → Vérifier Drive ou relancer l'export dossier.",
+        updatedAt: d.updatedAt,
+      }, d);
+    }
+
+    if (
+      d.workspaceStatus === "PENDING" &&
+      !d.workspaceFolderId &&
+      Date.now() - new Date(d.updatedAt || d.createdAt || 0).getTime() > 10 * 60_000
+    ) {
+      push(items, {
+        dossierId: d.id,
+        clientName: name,
+        clientEmail: email,
+        kind: "drive_pending",
+        priority: "high",
+        title: "Export Drive bloqué (PENDING)",
+        detail: "Dossier Drive non créé — risque de perte des pièces sur disque éphémère",
+        action: "Créer dossier Drive immédiatement, puis vérifier que les documents ont un lien Drive.",
         updatedAt: d.updatedAt,
       }, d);
     }

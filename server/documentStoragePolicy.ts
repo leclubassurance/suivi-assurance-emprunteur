@@ -1,6 +1,7 @@
 /**
- * Stockage des pièces : Drive = source de vérité, Firestore = métadonnées + OCR.
- * Le disque Railway est éphémère — on ne persiste pas localPath si Drive est disponible.
+ * Stockage des pièces : Drive = source de vérité une fois uploadé.
+ * On ne retire localPath que si driveFileId est présent — sinon un export Drive
+ * raté / bloqué en PENDING effacerait toute trace du fichier (disque Railway éphémère).
  */
 
 export function normalizeDocumentForPersistence(doc: any): any {
