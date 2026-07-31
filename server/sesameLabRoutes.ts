@@ -274,6 +274,21 @@ export function buildLabSamplePayload(
       referencePret,
       taux: Number(p.taux ?? 0),
     };
+    if (p.fraisBancaires != null && p.fraisBancaires !== "") {
+      pret.fraisBancaires = Number(p.fraisBancaires);
+    }
+    if (p.dureePrefinancement != null && p.dureePrefinancement !== "") {
+      const pref = Number(p.dureePrefinancement);
+      if (Number.isFinite(pref) && pref > 0) pret.dureePrefinancement = pref;
+    }
+    if (Array.isArray(p.paliers) && p.paliers.length) {
+      pret.paliers = p.paliers
+        .map((pal: any) => ({
+          duree: Number(pal?.duree ?? 0),
+          montantEcheance: Number(pal?.montantEcheance ?? 0),
+        }))
+        .filter((pal: { duree: number; montantEcheance: number }) => pal.duree > 0);
+    }
     if (idTypeAmortissement !== 4) {
       pret.differe = Number.isFinite(differe) ? differe : 0;
       if (Number(pret.differe) > 0) {
@@ -410,9 +425,14 @@ function summarizePayload(body: any) {
       ? {
           differe: body.prets[0].differe,
           idTypeAmortissement: body.prets[0].idTypeAmortissement,
+          idPeriodiciteEcheancePret: body.prets[0].idPeriodiciteEcheancePret,
+          idNatureDiffere: body.prets[0].idNatureDiffere,
           montant: body.prets[0].montant,
           duree: body.prets[0].duree,
           taux: body.prets[0].taux,
+          paliers: Array.isArray(body.prets[0].paliers) ? body.prets[0].paliers.length : 0,
+          loyer: body.prets[0].loyer,
+          valeurResiduelle: body.prets[0].valeurResiduelle,
         }
       : null,
     assures: Array.isArray(body?.assures) ? body.assures.length : 0,

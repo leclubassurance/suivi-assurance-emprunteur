@@ -72,6 +72,9 @@ Ensuite seulement : boutons tarifer / devis / ouvrir contrat sur le dossier admi
 
 - **Assurés** : 1 ou 2 (couple). Quotité, métier / sports à risque = **optionnels** (déclaratif ; ids Sésame non envoyés tant que l’annexe Kereis n’est pas branchée).
 - **Prêts** : montant = **capital restant dû (CRD)** (base substitution).
+  - Nature : amortissable / PTZ / modulable / in fine
+  - Type d’échéances : **constantes** (mensualité constante), **à paliers** (`paliers[]`), **crédit-bail** (loyer + valeur résiduelle)
+  - Périodicité, type de taux, différé + nature du différé, frais bancaires, préfinancement
 - **Propositions** : 1 colonne par assuré ; sélection indépendante ; **coût total** = somme. Réduction couple **seulement** si même société d’assurance (sinon tarifs hors couple).
 - Filtre **Tous / CRD / Capital initial** (heuristique code produit).
 

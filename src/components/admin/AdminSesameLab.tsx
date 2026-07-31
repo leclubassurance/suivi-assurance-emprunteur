@@ -236,13 +236,31 @@ type CallResult = {
   fileName?: string;
 };
 
+type PalierForm = {
+  duree: string;
+  montantEcheance: string;
+};
+
 type PretForm = {
   nature: string;
   /** Montant saisi = capital restant dû (base substitution LCIF). */
   capitalRestant: string;
   taux: string;
+  typeTaux: string;
+  periodicite: string;
   dureeRestante: string;
   dureeDiffere: string;
+  natureDiffere: string;
+  /** constantes | paliers | credit_bail */
+  typeEcheances: string;
+  /** Mensualité actuelle (informatif si constantes ; sinon via paliers). */
+  mensualite: string;
+  paliers: PalierForm[];
+  loyer: string;
+  valeurResiduelle: string;
+  fraisBancaires: string;
+  dureePrefinancement: string;
+  datePremiereEcheance: string;
 };
 
 type AssureForm = {
@@ -275,12 +293,25 @@ type LabForm = {
   banquePreteuse: string;
 };
 
+const EMPTY_PALIER = (): PalierForm => ({ duree: "", montantEcheance: "" });
+
 const EMPTY_PRET = (): PretForm => ({
   nature: "amortissable",
   capitalRestant: "",
   taux: "",
+  typeTaux: "fixe",
+  periodicite: "mensuel",
   dureeRestante: "",
   dureeDiffere: "0",
+  natureDiffere: "total",
+  typeEcheances: "constantes",
+  mensualite: "",
+  paliers: [EMPTY_PALIER(), EMPTY_PALIER()],
+  loyer: "",
+  valeurResiduelle: "",
+  fraisBancaires: "0",
+  dureePrefinancement: "",
+  datePremiereEcheance: "",
 });
 
 const EMPTY_ASSURE = (): AssureForm => ({
@@ -323,10 +354,47 @@ const OBJET_OPTIONS = [
 ];
 
 const NATURE_PRET_OPTIONS = [
-  { value: "amortissable", label: "Prêt Amortissable", idTypePret: 51 },
-  { value: "ptz", label: "Prêt à Taux Zéro", idTypePret: 52 },
+  { value: "amortissable", label: "Prêt amortissable", idTypePret: 51 },
+  { value: "ptz", label: "Prêt à Taux Zéro (PTZ)", idTypePret: 52 },
   { value: "modulable", label: "Prêt échéances modulables", idTypePret: 53 },
   { value: "in_fine", label: "Prêt In Fine", idTypePret: 54 },
+];
+
+/** Type d’échéances → idTypeAmortissement (annexe Sésame). 100 = classique ; 4 = crédit-bail. */
+const TYPE_ECHEANCES_OPTIONS = [
+  {
+    value: "constantes",
+    label: "Mensualités / échéances constantes",
+    idTypeAmortissement: 100,
+  },
+  {
+    value: "paliers",
+    label: "Prêt à paliers (échéances variables)",
+    idTypeAmortissement: 100,
+  },
+  {
+    value: "credit_bail",
+    label: "Crédit-bail",
+    idTypeAmortissement: 4,
+  },
+];
+
+/** Périodicité — id 3 = mensuelle (exemple officiel PartenaireTarification). */
+const PERIODICITE_OPTIONS = [
+  { value: "annuel", label: "Annuelle", id: 1 },
+  { value: "semestriel", label: "Semestrielle", id: 2 },
+  { value: "mensuel", label: "Mensuelle", id: 3 },
+  { value: "trimestriel", label: "Trimestrielle", id: 4 },
+];
+
+const NATURE_DIFFERE_OPTIONS = [
+  { value: "partiel", label: "Différé partiel (intérêts seulement)", id: 1 },
+  { value: "total", label: "Différé total", id: 2 },
+];
+
+const TYPE_TAUX_OPTIONS = [
+  { value: "fixe", label: "Taux fixe" },
+  { value: "variable", label: "Taux variable / révisable" },
 ];
 
 const STATUT_PRO_TO_SESAME_ID: Record<string, number> = {
@@ -445,21 +513,45 @@ function formToOverrides(
       };
     }),
     prets: prets
-      .filter((p) => p.capitalRestant.trim())
+      .filter((p) => p.capitalRestant.trim() || (p.typeEcheances === "credit_bail" && p.loyer.trim()))
       .map((p) => {
         const nature = NATURE_PRET_OPTIONS.find((n) => n.value === p.nature);
+        const echeances = TYPE_ECHEANCES_OPTIONS.find((n) => n.value === p.typeEcheances);
+        const periodicite = PERIODICITE_OPTIONS.find((n) => n.value === p.periodicite);
+        const natureDiffere = NATURE_DIFFERE_OPTIONS.find((n) => n.value === p.natureDiffere);
         const differe = Number(p.dureeDiffere || 0);
-        return {
-          capitalRestant: Number(p.capitalRestant),
-          montant: Number(p.capitalRestant),
+        const idTypeAmortissement = echeances?.idTypeAmortissement ?? 100;
+        const out: Record<string, unknown> = {
+          capitalRestant: Number(p.capitalRestant || 0),
+          montant: Number(p.capitalRestant || 0),
           taux: Number(p.taux || 0),
           duree: Number(p.dureeRestante || 240),
           differe,
-          ...(differe > 0 ? { idNatureDiffere: 2 } : {}),
           idTypePret: nature?.idTypePret ?? 51,
-          idPeriodiciteEcheancePret: 3,
-          idTypeAmortissement: 100,
+          idPeriodiciteEcheancePret: periodicite?.id ?? 3,
+          idTypeAmortissement,
+          typeTaux: p.typeTaux,
+          mensualite: p.mensualite ? Number(p.mensualite) : undefined,
+          datePremiereEcheance: p.datePremiereEcheance || undefined,
         };
+        if (differe > 0 && idTypeAmortissement !== 4) {
+          out.idNatureDiffere = natureDiffere?.id ?? 2;
+        }
+        if (p.fraisBancaires.trim()) out.fraisBancaires = Number(p.fraisBancaires);
+        if (p.dureePrefinancement.trim()) out.dureePrefinancement = Number(p.dureePrefinancement);
+        if (p.typeEcheances === "paliers") {
+          out.paliers = p.paliers
+            .filter((pal) => pal.duree.trim() && pal.montantEcheance.trim())
+            .map((pal) => ({
+              duree: Number(pal.duree),
+              montantEcheance: Number(pal.montantEcheance),
+            }));
+        }
+        if (p.typeEcheances === "credit_bail") {
+          out.loyer = Number(p.loyer || 0);
+          out.valeurResiduelle = Number(p.valeurResiduelle || 0);
+        }
+        return out;
       }),
   };
 }
@@ -489,8 +581,18 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     setAssures((prev) => prev.map((a, i) => (i === index ? { ...a, [key]: value } : a)));
   };
 
-  const setPret = (index: number, key: keyof PretForm, value: string) => {
+  const setPret = <K extends keyof PretForm>(index: number, key: K, value: PretForm[K]) => {
     setPrets((prev) => prev.map((p, i) => (i === index ? { ...p, [key]: value } : p)));
+  };
+
+  const setPalier = (pretIndex: number, palierIndex: number, key: keyof PalierForm, value: string) => {
+    setPrets((prev) =>
+      prev.map((p, i) => {
+        if (i !== pretIndex) return p;
+        const paliers = p.paliers.map((pal, j) => (j === palierIndex ? { ...pal, [key]: value } : pal));
+        return { ...p, paliers };
+      }),
+    );
   };
 
   const toggleSport = (assureIndex: number, sport: string) => {
@@ -1106,8 +1208,8 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">2. Prêts</h2>
           <p className="text-xs text-slate-500">
-            Montant = <strong>capital restant dû (CRD)</strong> — base substitution LCIF. Sésame renvoie ensuite des
-            propositions en CRD et/ou capital initial (filtre plus bas).
+            Montant = <strong>capital restant dû (CRD)</strong> — base substitution. Choisis le type d’échéances
+            (constantes / paliers / crédit-bail) comme dans Kérys.
           </p>
           <div className="grid sm:grid-cols-2 gap-3">
             <Field label="Date d'effet (changement d'assurance)">
@@ -1161,7 +1263,13 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                   <select
                     className={inputCls}
                     value={pret.nature}
-                    onChange={(e) => setPret(index, "nature", e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setPret(index, "nature", v);
+                      if (v === "modulable" && pret.typeEcheances === "constantes") {
+                        setPret(index, "typeEcheances", "paliers");
+                      }
+                    }}
                   >
                     {NATURE_PRET_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -1170,14 +1278,42 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     ))}
                   </select>
                 </Field>
-                <Field label="Capital restant dû — CRD (€)">
-                  <input
+                <Field label="Type d'échéances">
+                  <select
                     className={inputCls}
-                    inputMode="decimal"
-                    value={pret.capitalRestant}
-                    onChange={(e) => setPret(index, "capitalRestant", e.target.value)}
-                  />
+                    value={pret.typeEcheances}
+                    onChange={(e) => setPret(index, "typeEcheances", e.target.value)}
+                  >
+                    {TYPE_ECHEANCES_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
+                <Field label="Périodicité">
+                  <select
+                    className={inputCls}
+                    value={pret.periodicite}
+                    onChange={(e) => setPret(index, "periodicite", e.target.value)}
+                  >
+                    {PERIODICITE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {pret.typeEcheances !== "credit_bail" ? (
+                  <Field label="Capital restant dû — CRD (€)">
+                    <input
+                      className={inputCls}
+                      inputMode="decimal"
+                      value={pret.capitalRestant}
+                      onChange={(e) => setPret(index, "capitalRestant", e.target.value)}
+                    />
+                  </Field>
+                ) : null}
                 <Field label="Taux (%)">
                   <input
                     className={inputCls}
@@ -1186,7 +1322,20 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     onChange={(e) => setPret(index, "taux", e.target.value)}
                   />
                 </Field>
-                <Field label="Durée restante (mois)">
+                <Field label="Type de taux">
+                  <select
+                    className={inputCls}
+                    value={pret.typeTaux}
+                    onChange={(e) => setPret(index, "typeTaux", e.target.value)}
+                  >
+                    {TYPE_TAUX_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Durée restante (mois, incl. différé)">
                   <input
                     className={inputCls}
                     inputMode="numeric"
@@ -1194,15 +1343,155 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     onChange={(e) => setPret(index, "dureeRestante", e.target.value)}
                   />
                 </Field>
-                <Field label="Différé d'amortissement (mois)">
+                {pret.typeEcheances === "constantes" ? (
+                  <Field label="Mensualité / échéance actuelle (€)">
+                    <input
+                      className={inputCls}
+                      inputMode="decimal"
+                      value={pret.mensualite}
+                      onChange={(e) => setPret(index, "mensualite", e.target.value)}
+                      placeholder="optionnel"
+                    />
+                  </Field>
+                ) : null}
+                <Field label="Date 1ère échéance restante">
+                  <input
+                    type="month"
+                    className={inputCls}
+                    value={pret.datePremiereEcheance}
+                    onChange={(e) => setPret(index, "datePremiereEcheance", e.target.value)}
+                  />
+                </Field>
+                {pret.typeEcheances !== "credit_bail" ? (
+                  <>
+                    <Field label="Différé d'amortissement (mois)">
+                      <input
+                        className={inputCls}
+                        inputMode="numeric"
+                        value={pret.dureeDiffere}
+                        onChange={(e) => setPret(index, "dureeDiffere", e.target.value)}
+                      />
+                    </Field>
+                    {Number(pret.dureeDiffere || 0) > 0 ? (
+                      <Field label="Nature du différé">
+                        <select
+                          className={inputCls}
+                          value={pret.natureDiffere}
+                          onChange={(e) => setPret(index, "natureDiffere", e.target.value)}
+                        >
+                          {NATURE_DIFFERE_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    ) : null}
+                  </>
+                ) : null}
+                <Field label="Frais bancaires (€)">
+                  <input
+                    className={inputCls}
+                    inputMode="decimal"
+                    value={pret.fraisBancaires}
+                    onChange={(e) => setPret(index, "fraisBancaires", e.target.value)}
+                  />
+                </Field>
+                <Field label="Préfinancement (mois, optionnel)">
                   <input
                     className={inputCls}
                     inputMode="numeric"
-                    value={pret.dureeDiffere}
-                    onChange={(e) => setPret(index, "dureeDiffere", e.target.value)}
+                    value={pret.dureePrefinancement}
+                    onChange={(e) => setPret(index, "dureePrefinancement", e.target.value)}
+                    placeholder="si exigé par l'offre"
                   />
                 </Field>
               </div>
+
+              {pret.typeEcheances === "paliers" ? (
+                <div className="rounded-lg border border-emerald-300 bg-white p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-bold text-emerald-900">Paliers (échéances variables)</p>
+                      <p className="text-[11px] text-slate-500">
+                        Durée de chaque palier en nombre de périodes (ex. mois si périodicité mensuelle). La somme doit
+                        coller à la durée du prêt.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setPret(index, "paliers", [...pret.paliers, EMPTY_PALIER()])
+                      }
+                    >
+                      <Plus className="w-4 h-4" /> Palier
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {pret.paliers.map((palier, pi) => (
+                      <div key={pi} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                        <Field label={`Palier ${pi + 1} — durée (périodes)`}>
+                          <input
+                            className={inputCls}
+                            inputMode="numeric"
+                            value={palier.duree}
+                            onChange={(e) => setPalier(index, pi, "duree", e.target.value)}
+                          />
+                        </Field>
+                        <Field label="Montant échéance (€)">
+                          <input
+                            className={inputCls}
+                            inputMode="decimal"
+                            value={palier.montantEcheance}
+                            onChange={(e) => setPalier(index, pi, "montantEcheance", e.target.value)}
+                          />
+                        </Field>
+                        {pret.paliers.length > 1 ? (
+                          <button
+                            type="button"
+                            className="mb-1 p-2 text-slate-500 hover:text-red-600"
+                            onClick={() =>
+                              setPret(
+                                index,
+                                "paliers",
+                                pret.paliers.filter((_, j) => j !== pi),
+                              )
+                            }
+                            aria-label="Supprimer ce palier"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <span className="w-9" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {pret.typeEcheances === "credit_bail" ? (
+                <div className="grid sm:grid-cols-2 gap-3 rounded-lg border border-emerald-300 bg-white p-3">
+                  <Field label="Loyer (€)">
+                    <input
+                      className={inputCls}
+                      inputMode="decimal"
+                      value={pret.loyer}
+                      onChange={(e) => setPret(index, "loyer", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Valeur résiduelle (€)">
+                    <input
+                      className={inputCls}
+                      inputMode="decimal"
+                      value={pret.valeurResiduelle}
+                      onChange={(e) => setPret(index, "valeurResiduelle", e.target.value)}
+                    />
+                  </Field>
+                </div>
+              ) : null}
             </div>
           ))}
 
