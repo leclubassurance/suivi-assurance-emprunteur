@@ -51,8 +51,12 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
   const codeProduit = String(o.codeProduit || process.env.SESAME_DEFAULT_CODE_PRODUIT || "7312-CHF").trim();
   const codeBareme = String(o.codeBareme || process.env.SESAME_DEFAULT_CODE_BAREME || "3").trim();
   const idCommissionnement = String(
-    o.idCommissionnement || process.env.SESAME_DEFAULT_ID_COMMISSIONNEMENT || "LIN-01234567890",
+    o.idCommissionnement ?? process.env.SESAME_DEFAULT_ID_COMMISSIONNEMENT ?? "0",
   ).trim();
+  // Substitution ADE : frais / commissionnement client à 0 par défaut (modifiable via env plus tard).
+  const fraisDistribution = Number(
+    o.fraisDistribution ?? process.env.SESAME_DEFAULT_FRAIS_DISTRIBUTION ?? 0,
+  );
   const conseiller = {
     ...defaultConseiller(),
     ...((o.conseiller as object) || {}),
@@ -110,7 +114,7 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
         ],
         dateNaissance,
         encoursImmobilierAssure: Number(o.encoursImmobilierAssure ?? 0),
-        fraisDistribution: Number(o.fraisDistribution ?? 0),
+        fraisDistribution,
         fumeur,
         idCategorieParticuliere: Number(o.idCategorieParticuliere ?? 0),
         idCommissionnement,

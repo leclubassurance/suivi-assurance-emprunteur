@@ -50,6 +50,7 @@ type LabForm = {
   codeProduit: string;
   codeBareme: string;
   idCommissionnement: string;
+  fraisDistribution: string;
   idFormule: string;
   dateEffetGaranties: string;
   civilite: string;
@@ -74,7 +75,8 @@ const EMPTY_FORM: LabForm = {
   codeOffre: "",
   codeProduit: "",
   codeBareme: "",
-  idCommissionnement: "",
+  idCommissionnement: "0",
+  fraisDistribution: "0",
   idFormule: "101",
   dateEffetGaranties: "2026-11-01",
   civilite: "Monsieur",
@@ -142,6 +144,7 @@ function formToOverrides(form: LabForm, extraJson?: Record<string, unknown>): Re
     codeProduit: form.codeProduit.trim() || undefined,
     codeBareme: form.codeBareme.trim() || undefined,
     idCommissionnement: form.idCommissionnement.trim() || undefined,
+    fraisDistribution: form.fraisDistribution.trim() ? Number(form.fraisDistribution) : 0,
     idFormule: form.idFormule.trim() ? Number(form.idFormule) : undefined,
     dateEffetGaranties: form.dateEffetGaranties.trim() || undefined,
     civilite: form.civilite,
@@ -393,15 +396,16 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
           <div>
             <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Saisie devis / tarification</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Remplis à la main comme pour un vrai dossier. Plus tard, ces champs seront préremplis depuis le formulaire
-              client / OCR.
+              Parcours LCIF = <strong>substitution ADE uniquement</strong>. Les codes offre/produit/barème viennent du
+              catalogue Kereis (GET offres / produits), pas du client. Commissionnement / frais = <strong>0</strong> pour
+              l&apos;instant (modifiable plus tard via Railway).
             </p>
           </div>
 
           <div>
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-2">Codes LCIF / Sésame</h3>
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-2">Codes LCIF / Sésame (catalogue)</h3>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <Field label="Code offre *">
+              <Field label="Code offre substitution *">
                 <input
                   className={monoCls}
                   value={form.codeOffre}
@@ -425,12 +429,21 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                   placeholder="ex. 3"
                 />
               </Field>
-              <Field label="Id commissionnement *">
+              <Field label="Id commissionnement (0 pour l’instant)">
                 <input
                   className={monoCls}
                   value={form.idCommissionnement}
                   onChange={(e) => setField("idCommissionnement", e.target.value)}
-                  placeholder="ex. LIN-…"
+                  placeholder="0"
+                />
+              </Field>
+              <Field label="Frais distribution (€)">
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={form.fraisDistribution}
+                  onChange={(e) => setField("fraisDistribution", e.target.value)}
+                  placeholder="0"
                 />
               </Field>
               <Field label="Id formule">
