@@ -242,17 +242,8 @@ export function buildLabSamplePayload(
     ...((o.conseiller as object) || {}),
   };
 
-  const civilite = String(o.civilite || "Monsieur").trim() || "Monsieur";
-  const nom = String(o.nom || "TEST").trim() || "TEST";
-  const prenom = String(o.prenom || "Lab").trim() || "Lab";
-  const dateNaissance = String(o.dateNaissance || "1990-01-15").trim();
-  const codePostal = String(o.codePostal || o.codePostalResidenceFiscale || "44000").trim();
-  const fumeur = o.fumeur === true || o.fumeur === "true" || o.fumeur === 1;
-  const quotite = Number(o.quotite ?? 100);
   const franchise = Number(o.franchise ?? 90);
   const idFormule = Number(o.idFormule ?? 101);
-  const idStatutProfessionnel = Number(o.idStatutProfessionnel ?? 1);
-  const professionLibelle = String(o.professionLibelle || "Employe de bureau").trim();
   const idOptions = Array.isArray(o.idOptions) ? o.idOptions : [];
 
   const pretsInput =
@@ -273,7 +264,6 @@ export function buildLabSamplePayload(
   const prets = pretsInput.map((p, i) => {
     const referencePret = String(p.referencePret || `PRET${String(i + 1).padStart(3, "0")}`);
     const idTypeAmortissement = Number(p.idTypeAmortissement ?? 100);
-    // API : « differe » obligatoire si idTypeAmortissement != 4 (crédit-bail)
     const differe = Number(p.differe ?? p.dureeDiffere ?? 0);
     const pret: Record<string, unknown> = {
       duree: Number(p.duree ?? p.dureeRestante ?? 240),
@@ -286,7 +276,6 @@ export function buildLabSamplePayload(
     };
     if (idTypeAmortissement !== 4) {
       pret.differe = Number.isFinite(differe) ? differe : 0;
-      // idNatureDiffere obligatoire si differe non nul (1=total, 2=partiel — UI Kérys « Partiel »)
       if (Number(pret.differe) > 0) {
         pret.idNatureDiffere = Number(p.idNatureDiffere ?? 2);
       }
@@ -297,58 +286,92 @@ export function buildLabSamplePayload(
     return pret;
   });
 
-  const couvertures = prets.map((p) => ({
-    couverture: {
-      franchise,
-      idFormule,
-      idOptions,
-      idSportsARisque: [],
-      quotite,
-    },
-    referencePret: p.referencePret,
-    veutEtreCouvert: true,
-  }));
+  const couverturesFor = (opts: { quotite: number; idSportsARisque?: number[] }) =>
+    prets.map((p) => ({
+      couverture: {
+        franchise,
+        idFormule,
+        idOptions,
+        idSportsARisque: opts.idSportsARisque || [],
+        quotite: opts.quotite,
+      },
+      referencePret: p.referencePret,
+      veutEtreCouvert: true,
+    }));
 
-  const assure: Record<string, unknown> = {
-    civilite,
-    codePostalResidenceFiscale: codePostal,
-    couvertures,
-    dateNaissance,
-    encoursImmobilierAssure: Number(o.encoursImmobilierAssure ?? 0),
-    fraisDistribution,
-    fumeur,
-    idCategorieParticuliere: Number(o.idCategorieParticuliere ?? 0),
-    idQualite: Number(o.idQualite ?? 3),
-    idSportsARisque: [],
-    nom,
-    paysResidenceFiscale: String(o.paysResidenceFiscale || "FR"),
-    prenom,
-    profession: {
-      idStatutProfessionnel,
-      libelle: professionLibelle,
-      manuelle: o.professionManuelle === true,
-      travailAdministratif: o.travailAdministratif !== false && o.professionManuelle !== true,
-      travauxEnHauteur: o.travauxEnHauteur === true,
-      deplacementsProfessionnels: o.deplacementsProfessionnels === true,
-    },
-    referenceAssure: String(o.referenceAssure || "ASSURE001"),
-  };
+  function buildAssure(src: Record<string, unknown>, index: number): Record<string, unknown> {
+    const idStatutProfessionnel = Number(src.idStatutProfessionnel ?? o.idStatutProfessionnel ?? 1);
+    const professionLibelle = String(
+      src.professionLibelle || o.professionLibelle || "Employe de bureau",
+    ).trim();
+    const idSportsARisque = Array.isArray(src.idSportsARisque)
+      ? (src.idSportsARisque as number[])
+      : Array.isArray(o.idSportsARisque)
+        ? (o.idSportsARisque as number[])
+        : [];
+    const idProfessionARisque =
+      src.idProfessionARisque != null
+        ? Number(src.idProfessionARisque)
+        : o.idProfessionARisque != null
+          ? Number(o.idProfessionARisque)
+          : undefined;
+    const quotite = Number(src.quotite ?? o.quotite ?? 100);
 
-  // Tarification : sans produitsATarifer → tous les produits de l'offre (comme les propositions Kérys).
-  // Si un produit est ciblé : codeProduit seul, + idCommissionnement OU codeBareme (jamais les deux).
-  if (mode === "tarification") {
-    if (codeProduit && o.forceProduitUnique === true) {
-      const produit: Record<string, unknown> = { codeProduit };
-      if (idCommissionnement) produit.idCommissionnement = idCommissionnement;
-      else if (codeBareme) produit.codeBareme = codeBareme;
-      assure.produitsATarifer = [produit];
+    const assure: Record<string, unknown> = {
+      civilite: String(src.civilite || o.civilite || "Monsieur").trim() || "Monsieur",
+      codePostalResidenceFiscale: String(
+        src.codePostal || src.codePostalResidenceFiscale || o.codePostal || "44000",
+      ).trim(),
+      couvertures: couverturesFor({ quotite, idSportsARisque }),
+      dateNaissance: String(src.dateNaissance || o.dateNaissance || "1990-01-15").trim(),
+      encoursImmobilierAssure: Number(src.encoursImmobilierAssure ?? o.encoursImmobilierAssure ?? 0),
+      fraisDistribution,
+      fumeur: src.fumeur === true || src.fumeur === "true" || o.fumeur === true,
+      idCategorieParticuliere: Number(src.idCategorieParticuliere ?? o.idCategorieParticuliere ?? 0),
+      idQualite: Number(src.idQualite ?? o.idQualite ?? 3),
+      idSportsARisque,
+      nom: String(src.nom || o.nom || "TEST").trim() || "TEST",
+      paysResidenceFiscale: String(src.paysResidenceFiscale || o.paysResidenceFiscale || "FR"),
+      prenom: String(src.prenom || o.prenom || "Lab").trim() || "Lab",
+      profession: {
+        idStatutProfessionnel,
+        libelle: professionLibelle,
+        manuelle: src.professionManuelle === true || o.professionManuelle === true,
+        travailAdministratif:
+          src.travailAdministratif !== false &&
+          o.travailAdministratif !== false &&
+          src.professionManuelle !== true &&
+          o.professionManuelle !== true,
+        travauxEnHauteur: src.travauxEnHauteur === true || o.travauxEnHauteur === true,
+        deplacementsProfessionnels:
+          src.deplacementsProfessionnels === true || o.deplacementsProfessionnels === true,
+        ...(idProfessionARisque != null && Number.isFinite(idProfessionARisque) && idProfessionARisque > 0
+          ? { idProfessionARisque }
+          : {}),
+      },
+      referenceAssure: String(src.referenceAssure || `ASSURE${String(index + 1).padStart(3, "0")}`),
+    };
+
+    if (mode === "tarification") {
+      if (codeProduit && o.forceProduitUnique === true) {
+        const produit: Record<string, unknown> = { codeProduit };
+        if (idCommissionnement) produit.idCommissionnement = idCommissionnement;
+        else if (codeBareme) produit.codeBareme = codeBareme;
+        assure.produitsATarifer = [produit];
+      }
+    } else {
+      if (codeProduit) assure.codeProduit = codeProduit;
+      if (idCommissionnement) assure.idCommissionnement = idCommissionnement;
+      else if (codeBareme) assure.codeBareme = codeBareme;
     }
-  } else {
-    // Devis : produit sur l'assuré (pas produitsATarifer)
-    if (codeProduit) assure.codeProduit = codeProduit;
-    if (idCommissionnement) assure.idCommissionnement = idCommissionnement;
-    else if (codeBareme) assure.codeBareme = codeBareme;
+    return assure;
   }
+
+  const assuresInput =
+    Array.isArray(o.assures) && o.assures.length
+      ? (o.assures as Record<string, unknown>[])
+      : [o as Record<string, unknown>];
+  const assures = assuresInput.map((a, i) => buildAssure(a, i));
 
   return {
     codeOffre,
@@ -359,7 +382,7 @@ export function buildLabSamplePayload(
     },
     dateEffetGaranties: String(o.dateEffetGaranties || "2026-11-01"),
     idObjetFinancement: Number(o.idObjetFinancement ?? 8),
-    assures: [assure],
+    assures,
     prets,
     ...(o.extra && typeof o.extra === "object" ? (o.extra as object) : {}),
   };
@@ -424,8 +447,15 @@ export function registerSesameLabRoutes(app: Express) {
         path: "/tarification",
         query: {
           echeancier,
-          reductionCouple:
-            req.body?.reductionCouple != null ? String(req.body.reductionCouple) : undefined,
+          reductionCouple: (() => {
+            const raw =
+              req.body?.reductionCouple ??
+              req.body?.overrides?.reductionCouple ??
+              (Array.isArray(req.body?.overrides?.assures) && req.body.overrides.assures.length >= 2
+                ? true
+                : undefined);
+            return raw != null ? String(raw) : undefined;
+          })(),
         },
         body,
         timeoutMs: 90_000,

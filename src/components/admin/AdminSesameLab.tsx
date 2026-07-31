@@ -13,7 +13,9 @@ import {
 import { adminFetch } from "../../lib/adminApi";
 import {
   DEPLACEMENTS_PRO_OPTIONS,
+  PROFESSION_RISQUE_OPTIONS,
   QUALITE_OPTIONS,
+  SPORTS_RISQUE_CATEGORIES,
   STATUT_PRO_OPTIONS,
 } from "../../constants";
 import { Button } from "../ui/Button";
@@ -54,7 +56,18 @@ type Proposition = TarifProduit & {
   marque: string;
   taea?: number;
   tauxMoyen?: number;
+  baseTarif: "crd" | "capital_initial" | "inconnu";
 };
+
+/** Déduit CRD vs capital initial depuis le code produit (ex. CLEUICD / CLEUICI, …CRD… / …CI…). */
+function baseTarifFromCodeProduit(code: string): "crd" | "capital_initial" | "inconnu" {
+  const c = code.toUpperCase();
+  if (/CRD|CLEUICD|UICD|_CD($|[^A-Z])/.test(c)) return "crd";
+  if (/CLEUICI|INEOCI(?!RD)|UICI|_CI($|[^A-Z])/.test(c)) return "capital_initial";
+  // Heuristique : …CI… en fin de segment produit sans CRD
+  if (/\bCI\b|_CI_|CI$/.test(c) && !/CRD/.test(c)) return "capital_initial";
+  return "inconnu";
+}
 
 function euro(n?: number) {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -100,6 +113,7 @@ function extractPropositions(data: unknown): Proposition[] {
         ...t,
         codeProduit: String(t.codeProduit),
         marque: marqueFromCodeProduit(String(t.codeProduit)),
+        baseTarif: baseTarifFromCodeProduit(String(t.codeProduit)),
         taea: pret0?.taea,
         tauxMoyen: pret0?.tauxMoyen,
       });
@@ -125,17 +139,14 @@ type CallResult = {
 
 type PretForm = {
   nature: string;
+  /** Montant saisi = capital restant dû (base substitution LCIF). */
   capitalRestant: string;
   taux: string;
   dureeRestante: string;
   dureeDiffere: string;
 };
 
-type LabForm = {
-  // Projet / prêts (écran Kérys)
-  dateEffetGaranties: string;
-  objetFinancement: string;
-  // Assuré
+type AssureForm = {
   civilite: string;
   prenom: string;
   nom: string;
@@ -146,12 +157,19 @@ type LabForm = {
   codePostal: string;
   statutPro: string;
   profession: string;
+  professionRisque: string;
   professionManuelle: boolean;
   travauxHauteur: boolean;
   deplacementsPro: string;
   fumeur: boolean;
-  // Simulation
+  sportsRisque: boolean;
+  selectedSports: string[];
   quotite: string;
+};
+
+type LabForm = {
+  dateEffetGaranties: string;
+  objetFinancement: string;
   franchise: string;
   autresCreditsOui: boolean;
   encoursImmobilierAssure: string;
@@ -166,9 +184,7 @@ const EMPTY_PRET = (): PretForm => ({
   dureeDiffere: "0",
 });
 
-const EMPTY_FORM: LabForm = {
-  dateEffetGaranties: "2026-11-01",
-  objetFinancement: "residence_principale",
+const EMPTY_ASSURE = (): AssureForm => ({
   civilite: "Monsieur",
   prenom: "",
   nom: "",
@@ -179,16 +195,26 @@ const EMPTY_FORM: LabForm = {
   codePostal: "",
   statutPro: "employe_bureau",
   profession: "",
+  professionRisque: "aucun",
   professionManuelle: false,
   travauxHauteur: false,
   deplacementsPro: "< 20000 Km",
   fumeur: false,
+  sportsRisque: false,
+  selectedSports: [],
   quotite: "100",
+});
+
+const EMPTY_FORM: LabForm = {
+  dateEffetGaranties: "2026-11-01",
+  objetFinancement: "residence_principale",
   franchise: "90",
   autresCreditsOui: false,
   encoursImmobilierAssure: "0",
   banquePreteuse: "",
 };
+
+const ALL_SPORTS = Object.values(SPORTS_RISQUE_CATEGORIES).flat();
 
 const OBJET_OPTIONS = [
   { value: "residence_principale", label: "Résidence principale", id: 8 },
@@ -275,31 +301,50 @@ function Field({
 
 const inputCls = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm";
 
-function formToOverrides(form: LabForm, prets: PretForm[]): Record<string, unknown> {
-  const statutLabel =
-    STATUT_PRO_OPTIONS.find((o) => o.value === form.statutPro)?.label || form.statutPro;
+function formToOverrides(
+  form: LabForm,
+  assures: AssureForm[],
+  prets: PretForm[],
+): Record<string, unknown> {
   const objet = OBJET_OPTIONS.find((o) => o.value === form.objetFinancement);
   return {
     dateEffetGaranties: form.dateEffetGaranties || undefined,
     idObjetFinancement: objet?.id ?? 8,
-    civilite: form.civilite,
-    prenom: form.prenom.trim() || undefined,
-    nom: form.nom.trim() || undefined,
-    dateNaissance: form.dateNaissance || undefined,
-    codePostal: form.codePostal.trim() || undefined,
-    fumeur: form.fumeur,
-    professionLibelle: form.profession.trim() || statutLabel,
-    idStatutProfessionnel: STATUT_PRO_TO_SESAME_ID[form.statutPro] ?? 1,
-    idQualite: QUALITE_TO_SESAME_ID[form.qualite] ?? 3,
-    professionManuelle: form.professionManuelle,
-    travauxEnHauteur: form.travauxHauteur,
-    deplacementsProfessionnels: form.deplacementsPro !== "< 20000 Km",
-    quotite: Number(form.quotite || 100),
     franchise: Number(form.franchise || 90),
     fraisDistribution: 0,
+    // Base montant = capital restant dû (substitution). Les propositions CI/CRD viennent de Sésame.
+    baseMontantPret: "crd",
     encoursImmobilierAssure: form.autresCreditsOui
       ? Number(form.encoursImmobilierAssure || 0)
       : 0,
+    reductionCouple: assures.length >= 2,
+    assures: assures.map((a, i) => {
+      const statutLabel =
+        STATUT_PRO_OPTIONS.find((o) => o.value === a.statutPro)?.label || a.statutPro;
+      return {
+        civilite: a.civilite,
+        prenom: a.prenom.trim() || undefined,
+        nom: a.nom.trim() || undefined,
+        dateNaissance: a.dateNaissance || undefined,
+        codePostal: a.codePostal.trim() || undefined,
+        fumeur: a.fumeur,
+        professionLibelle: a.profession.trim() || statutLabel,
+        idStatutProfessionnel: STATUT_PRO_TO_SESAME_ID[a.statutPro] ?? 1,
+        idQualite: QUALITE_TO_SESAME_ID[a.qualite] ?? 3,
+        professionManuelle: a.professionManuelle,
+        travauxEnHauteur: a.travauxHauteur,
+        deplacementsProfessionnels: a.deplacementsPro !== "< 20000 Km",
+        // Métier / sports à risque : optionnels. Sans annexe d'ids Kereis on n'envoie pas d'id numérique.
+        professionRisque: a.professionRisque,
+        sportsRisque: a.sportsRisque,
+        selectedSports: a.sportsRisque ? a.selectedSports : [],
+        quotite: Number(a.quotite || 100),
+        referenceAssure: `ASSURE${String(i + 1).padStart(3, "0")}`,
+        encoursImmobilierAssure: form.autresCreditsOui
+          ? Number(form.encoursImmobilierAssure || 0)
+          : 0,
+      };
+    }),
     prets: prets
       .filter((p) => p.capitalRestant.trim())
       .map((p) => {
@@ -327,16 +372,37 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
   const [lastResult, setLastResult] = useState<CallResult | null>(null);
   const [propositions, setPropositions] = useState<Proposition[]>([]);
   const [selectedCodeProduit, setSelectedCodeProduit] = useState<string | null>(null);
+  const [propFilter, setPropFilter] = useState<"tous" | "crd" | "capital_initial">("tous");
   const [showRawJson, setShowRawJson] = useState(false);
   const [form, setForm] = useState<LabForm>(EMPTY_FORM);
+  const [assures, setAssures] = useState<AssureForm[]>([EMPTY_ASSURE()]);
   const [prets, setPrets] = useState<PretForm[]>([EMPTY_PRET()]);
 
   const setField = <K extends keyof LabForm>(key: K, value: LabForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const setAssure = <K extends keyof AssureForm>(index: number, key: K, value: AssureForm[K]) => {
+    setAssures((prev) => prev.map((a, i) => (i === index ? { ...a, [key]: value } : a)));
+  };
+
   const setPret = (index: number, key: keyof PretForm, value: string) => {
     setPrets((prev) => prev.map((p, i) => (i === index ? { ...p, [key]: value } : p)));
+  };
+
+  const toggleSport = (assureIndex: number, sport: string) => {
+    setAssures((prev) =>
+      prev.map((a, i) => {
+        if (i !== assureIndex) return a;
+        const has = a.selectedSports.includes(sport);
+        const selectedSports = has
+          ? a.selectedSports.filter((s) => s !== sport)
+          : a.selectedSports.length >= 10
+            ? a.selectedSports
+            : [...a.selectedSports, sport];
+        return { ...a, selectedSports, sportsRisque: selectedSports.length > 0 || a.sportsRisque };
+      }),
+    );
   };
 
   const refreshStatus = useCallback(async () => {
@@ -357,8 +423,18 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
   }, [refreshStatus]);
 
   function buildBody(extra?: Record<string, unknown>) {
-    return { overrides: { ...formToOverrides(form, prets), ...(extra || {}) } };
+    return { overrides: { ...formToOverrides(form, assures, prets), ...(extra || {}) } };
   }
+
+  const filteredPropositions = propositions.filter((p) => {
+    if (propFilter === "tous") return true;
+    return p.baseTarif === propFilter;
+  });
+
+  const selectedProp =
+    filteredPropositions.find((p) => p.codeProduit === selectedCodeProduit) ||
+    propositions.find((p) => p.codeProduit === selectedCodeProduit) ||
+    null;
 
   async function runCall(key: string, fn: () => Promise<Response>) {
     setBusy(key);
@@ -397,8 +473,6 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     a.download = src.fileName || `sesame-devis-${selectedCodeProduit || "lab"}.pdf`;
     a.click();
   }
-
-  const selectedProp = propositions.find((p) => p.codeProduit === selectedCodeProduit) || null;
 
   return (
     <div className="min-h-[100dvh] bg-slate-50">
@@ -448,135 +522,244 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
           </div>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">1. Coordonnées</h2>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <Field label="Civilité">
-              <select className={inputCls} value={form.civilite} onChange={(e) => setField("civilite", e.target.value)}>
-                <option value="Monsieur">Monsieur</option>
-                <option value="Madame">Madame</option>
-              </select>
-            </Field>
-            <Field label="Nom">
-              <input className={inputCls} value={form.nom} onChange={(e) => setField("nom", e.target.value)} />
-            </Field>
-            <Field label="Prénom">
-              <input className={inputCls} value={form.prenom} onChange={(e) => setField("prenom", e.target.value)} />
-            </Field>
-            <Field label="Date de naissance">
-              <input
-                type="date"
-                className={inputCls}
-                value={form.dateNaissance}
-                onChange={(e) => setField("dateNaissance", e.target.value)}
-              />
-            </Field>
-            <Field label="Email">
-              <input
-                type="email"
-                className={inputCls}
-                value={form.email}
-                onChange={(e) => setField("email", e.target.value)}
-              />
-            </Field>
-            <Field label="Téléphone">
-              <input
-                className={inputCls}
-                value={form.telephone}
-                onChange={(e) => setField("telephone", e.target.value)}
-              />
-            </Field>
+        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">1. Assurés</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Un ou plusieurs assurés (ex. couple). Métier / sports à risque = optionnels, comme sur Kérys.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={assures.length >= 2}
+              onClick={() => setAssures((prev) => [...prev, EMPTY_ASSURE()])}
+            >
+              <Plus className="w-4 h-4" /> Ajouter un assuré
+            </Button>
           </div>
-        </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">2. Informations personnelles</h2>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <Field label="Qualité">
-              <select className={inputCls} value={form.qualite} onChange={(e) => setField("qualite", e.target.value)}>
-                {QUALITE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Code postal résidence fiscale">
-              <input
-                className={inputCls}
-                value={form.codePostal}
-                onChange={(e) => setField("codePostal", e.target.value)}
-              />
-            </Field>
-            <Field label="Statut professionnel">
-              <select
-                className={inputCls}
-                value={form.statutPro}
-                onChange={(e) => setField("statutPro", e.target.value)}
-              >
-                {STATUT_PRO_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Profession" className="sm:col-span-2">
-              <input
-                className={inputCls}
-                value={form.profession}
-                onChange={(e) => setField("profession", e.target.value)}
-                placeholder="ex. Dessinateur-projeteur"
-              />
-            </Field>
-            <Field label="Déplacements pro / an">
-              <select
-                className={inputCls}
-                value={form.deplacementsPro}
-                onChange={(e) => setField("deplacementsPro", e.target.value)}
-              >
-                {DEPLACEMENTS_PRO_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Profession manuelle">
-              <label className="inline-flex items-center gap-2 h-[42px] text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.professionManuelle}
-                  onChange={(e) => setField("professionManuelle", e.target.checked)}
-                />
-                Oui
-              </label>
-            </Field>
-            <Field label="Travaux en hauteur">
-              <label className="inline-flex items-center gap-2 h-[42px] text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.travauxHauteur}
-                  onChange={(e) => setField("travauxHauteur", e.target.checked)}
-                />
-                Oui
-              </label>
-            </Field>
-            <Field label="Fumeur">
-              <label className="inline-flex items-center gap-2 h-[42px] text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.fumeur}
-                  onChange={(e) => setField("fumeur", e.target.checked)}
-                />
-                Oui
-              </label>
-            </Field>
-          </div>
+          {assures.map((assure, index) => (
+            <div key={index} className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-800">Assuré {index + 1}</h3>
+                {assures.length > 1 ? (
+                  <button
+                    type="button"
+                    className="text-slate-500 hover:text-red-600"
+                    onClick={() => setAssures((prev) => prev.filter((_, i) => i !== index))}
+                    aria-label="Supprimer cet assuré"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <Field label="Civilité">
+                  <select
+                    className={inputCls}
+                    value={assure.civilite}
+                    onChange={(e) => setAssure(index, "civilite", e.target.value)}
+                  >
+                    <option value="Monsieur">Monsieur</option>
+                    <option value="Madame">Madame</option>
+                  </select>
+                </Field>
+                <Field label="Nom">
+                  <input
+                    className={inputCls}
+                    value={assure.nom}
+                    onChange={(e) => setAssure(index, "nom", e.target.value)}
+                  />
+                </Field>
+                <Field label="Prénom">
+                  <input
+                    className={inputCls}
+                    value={assure.prenom}
+                    onChange={(e) => setAssure(index, "prenom", e.target.value)}
+                  />
+                </Field>
+                <Field label="Date de naissance">
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={assure.dateNaissance}
+                    onChange={(e) => setAssure(index, "dateNaissance", e.target.value)}
+                  />
+                </Field>
+                <Field label="Email">
+                  <input
+                    type="email"
+                    className={inputCls}
+                    value={assure.email}
+                    onChange={(e) => setAssure(index, "email", e.target.value)}
+                  />
+                </Field>
+                <Field label="Téléphone">
+                  <input
+                    className={inputCls}
+                    value={assure.telephone}
+                    onChange={(e) => setAssure(index, "telephone", e.target.value)}
+                  />
+                </Field>
+                <Field label="Qualité">
+                  <select
+                    className={inputCls}
+                    value={assure.qualite}
+                    onChange={(e) => setAssure(index, "qualite", e.target.value)}
+                  >
+                    {QUALITE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Code postal résidence fiscale">
+                  <input
+                    className={inputCls}
+                    value={assure.codePostal}
+                    onChange={(e) => setAssure(index, "codePostal", e.target.value)}
+                  />
+                </Field>
+                <Field label="Quotité (%)">
+                  <input
+                    className={inputCls}
+                    inputMode="numeric"
+                    value={assure.quotite}
+                    onChange={(e) => setAssure(index, "quotite", e.target.value)}
+                  />
+                </Field>
+                <Field label="Statut professionnel">
+                  <select
+                    className={inputCls}
+                    value={assure.statutPro}
+                    onChange={(e) => setAssure(index, "statutPro", e.target.value)}
+                  >
+                    {STATUT_PRO_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Profession" className="sm:col-span-2">
+                  <input
+                    className={inputCls}
+                    value={assure.profession}
+                    onChange={(e) => setAssure(index, "profession", e.target.value)}
+                    placeholder="ex. Dessinateur-projeteur"
+                  />
+                </Field>
+                <Field label="Profession à risque (optionnel)">
+                  <select
+                    className={inputCls}
+                    value={assure.professionRisque}
+                    onChange={(e) => setAssure(index, "professionRisque", e.target.value)}
+                  >
+                    {PROFESSION_RISQUE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Déplacements pro / an">
+                  <select
+                    className={inputCls}
+                    value={assure.deplacementsPro}
+                    onChange={(e) => setAssure(index, "deplacementsPro", e.target.value)}
+                  >
+                    {DEPLACEMENTS_PRO_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Profession manuelle">
+                  <label className="inline-flex items-center gap-2 h-[42px] text-sm">
+                    <input
+                      type="checkbox"
+                      checked={assure.professionManuelle}
+                      onChange={(e) => setAssure(index, "professionManuelle", e.target.checked)}
+                    />
+                    Oui
+                  </label>
+                </Field>
+                <Field label="Travaux en hauteur">
+                  <label className="inline-flex items-center gap-2 h-[42px] text-sm">
+                    <input
+                      type="checkbox"
+                      checked={assure.travauxHauteur}
+                      onChange={(e) => setAssure(index, "travauxHauteur", e.target.checked)}
+                    />
+                    Oui
+                  </label>
+                </Field>
+                <Field label="Fumeur">
+                  <label className="inline-flex items-center gap-2 h-[42px] text-sm">
+                    <input
+                      type="checkbox"
+                      checked={assure.fumeur}
+                      onChange={(e) => setAssure(index, "fumeur", e.target.checked)}
+                    />
+                    Oui
+                  </label>
+                </Field>
+                <Field label="Sports à risque (optionnel)">
+                  <label className="inline-flex items-center gap-2 h-[42px] text-sm">
+                    <input
+                      type="checkbox"
+                      checked={assure.sportsRisque}
+                      onChange={(e) => {
+                        setAssure(index, "sportsRisque", e.target.checked);
+                        if (!e.target.checked) setAssure(index, "selectedSports", []);
+                      }}
+                    />
+                    Oui
+                  </label>
+                </Field>
+              </div>
+              {assure.sportsRisque ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-[11px] text-slate-500 mb-2">
+                    Sélectionne jusqu’à 10 sports (déclaratif). Les ids Sésame seront branchés quand on aura l’annexe
+                    Kereis — non bloquant pour tarifer.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-auto">
+                    {ALL_SPORTS.map((sport) => {
+                      const on = assure.selectedSports.includes(sport);
+                      return (
+                        <button
+                          key={sport}
+                          type="button"
+                          onClick={() => toggleSport(index, sport)}
+                          className={`rounded-full px-2.5 py-1 text-[11px] border ${
+                            on
+                              ? "bg-indigo-600 text-white border-indigo-600"
+                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          {sport}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ))}
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">3. Prêts</h2>
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">2. Prêts</h2>
+          <p className="text-xs text-slate-500">
+            Montant = <strong>capital restant dû (CRD)</strong> — base substitution LCIF. Sésame renvoie ensuite des
+            propositions en CRD et/ou capital initial (filtre plus bas).
+          </p>
           <div className="grid sm:grid-cols-2 gap-3">
             <Field label="Date d'effet (changement d'assurance)">
               <input
@@ -638,7 +821,7 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     ))}
                   </select>
                 </Field>
-                <Field label="Capital restant dû (€)">
+                <Field label="Capital restant dû — CRD (€)">
                   <input
                     className={inputCls}
                     inputMode="decimal"
@@ -680,16 +863,9 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">4. Simulation (couvertures)</h2>
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">3. Simulation (couvertures)</h2>
+          <p className="text-xs text-slate-500">La quotité se règle par assuré (section 1).</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <Field label="Quotité (%)">
-              <input
-                className={inputCls}
-                inputMode="numeric"
-                value={form.quotite}
-                onChange={(e) => setField("quotite", e.target.value)}
-              />
-            </Field>
             <Field label="Franchise">
               <select
                 className={inputCls}
@@ -726,9 +902,10 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">5. Propositions</h2>
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">4. Propositions</h2>
           <p className="text-xs text-slate-500">
-            Comme dans Kérys : lance la simulation, choisis une offre (CARDIF, AXA, Generali…), puis exporte le devis PDF.
+            Comme dans Kérys : lance la simulation, filtre CRD / capital initial, choisis une offre, puis exporte le devis
+            PDF.
           </p>
           <div className="flex flex-wrap gap-2 items-center">
             <Button
@@ -777,9 +954,11 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               variant="ghost"
               onClick={() => {
                 setForm(EMPTY_FORM);
+                setAssures([EMPTY_ASSURE()]);
                 setPrets([EMPTY_PRET()]);
                 setPropositions([]);
                 setSelectedCodeProduit(null);
+                setPropFilter("tous");
                 setLastResult(null);
               }}
             >
@@ -789,6 +968,11 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               <span className="text-xs text-slate-600">
                 Sélection : <strong>{selectedProp.marque}</strong>{" "}
                 <span className="font-mono text-slate-400">{selectedProp.codeProduit}</span>
+                {selectedProp.baseTarif !== "inconnu" ? (
+                  <span className="ml-1 text-slate-500">
+                    ({selectedProp.baseTarif === "crd" ? "CRD" : "Capital initial"})
+                  </span>
+                ) : null}
               </span>
             ) : null}
           </div>
@@ -799,16 +983,48 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
 
           {propositions.length > 0 ? (
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-800">
-                  {propositions.length} proposition{propositions.length > 1 ? "s" : ""}
+                  {filteredPropositions.length} / {propositions.length} proposition
+                  {propositions.length > 1 ? "s" : ""}
                 </p>
-                <p className="text-[11px] text-slate-500">Triées du moins cher au plus cher (coût total)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      { id: "tous", label: "Tous" },
+                      { id: "crd", label: "CRD" },
+                      { id: "capital_initial", label: "Capital initial" },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setPropFilter(f.id)}
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold border ${
+                        propFilter === f.id
+                          ? "bg-slate-900 text-white border-slate-900"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
               </div>
+              <p className="text-[11px] text-slate-500">
+                Base prêt saisie = CRD. Filtre = type de tarification du produit (heuristique code produit). Tri coût
+                total croissant.
+              </p>
               <ul className="space-y-2">
-                {propositions.map((p) => {
+                {filteredPropositions.map((p) => {
                   const selected = p.codeProduit === selectedCodeProduit;
                   const nonAssurable = p.type && p.type !== "TARIFABLE";
+                  const baseLabel =
+                    p.baseTarif === "crd"
+                      ? "CRD"
+                      : p.baseTarif === "capital_initial"
+                        ? "Capital initial"
+                        : null;
                   return (
                     <li key={p.codeProduit}>
                       <button
@@ -825,6 +1041,17 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-base font-bold text-slate-900">{p.marque}</span>
+                              {baseLabel ? (
+                                <span
+                                  className={`rounded-full text-[10px] font-bold px-2 py-0.5 border ${
+                                    p.baseTarif === "crd"
+                                      ? "bg-teal-50 text-teal-800 border-teal-200"
+                                      : "bg-violet-50 text-violet-800 border-violet-200"
+                                  }`}
+                                >
+                                  {baseLabel}
+                                </span>
+                              ) : null}
                               {selected ? (
                                 <span className="rounded-full bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5">
                                   SÉLECTIONNÉ
@@ -884,6 +1111,9 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                   );
                 })}
               </ul>
+              {filteredPropositions.length === 0 ? (
+                <p className="text-sm text-slate-500">Aucune proposition pour ce filtre.</p>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-slate-500">Aucune proposition pour l’instant — clique sur Simuler.</p>

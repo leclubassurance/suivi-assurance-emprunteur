@@ -68,6 +68,12 @@ Sans Basic Auth + codes entité/offre/produit : le lab UI + client HTTP fonction
 
 Ensuite seulement : boutons tarifer / devis / ouvrir contrat sur le dossier admin prod.
 
+## Formulaire lab (aligné Kérys)
+
+- **Assurés** : 1 ou 2 (couple). Quotité, métier / sports à risque = **optionnels** (déclaratif ; ids Sésame non envoyés tant que l’annexe Kereis n’est pas branchée).
+- **Prêts** : montant = **capital restant dû (CRD)** (base substitution).
+- **Propositions** : badge + filtre **Tous / CRD / Capital initial** (heuristique sur le code produit, ex. `CLEUICD` vs `CLEUICI`).
+
 ## Endpoints lab
 
 | Méthode | Chemin | Sésame |
