@@ -354,7 +354,9 @@ function parseFrNumber(raw: unknown, fallback = 0): number {
 
 const FORMULE_OPTIONS = [
   { value: "101", label: "Décès-PTIA-ITT/IPT", id: 101 },
+  { value: "102", label: "Décès-PTIA-ITT/IPT/IPP", id: 102 },
   { value: "100", label: "Décès-PTIA", id: 100 },
+  { value: "103", label: "Décès seul", id: 103 },
 ];
 
 /**
@@ -447,27 +449,31 @@ const TYPE_TAUX_OPTIONS = [
   { value: "variable", label: "Taux variable / révisable" },
 ];
 
+/**
+ * ids Sésame = ordre exact du référentiel / liste Kérys (mêmes libellés).
+ * L’ancien regroupement (artisan → 6, etc.) faisait réafficher « Employé de bureau » (id 1).
+ */
 const STATUT_PRO_TO_SESAME_ID: Record<string, number> = {
   salarie_cadre: 1,
-  employe_bureau: 1,
-  salarie_noncadre: 1,
-  fonctionnaire_a: 2,
-  fonctionnaire_autre: 2,
-  retraite_cadre: 5,
-  retraite_noncadre: 5,
-  dirigeant: 3,
-  profession_liberale: 4,
-  profession_medicale: 4,
-  profession_paramedical_salarie: 4,
-  profession_paramedical_fonctionnaire: 4,
-  profession_paramedical_liberal: 4,
-  artisan_nonbtp: 6,
-  commercant: 6,
-  artisan_btp: 6,
-  profession_agricole: 6,
-  saisonnier: 7,
-  sans_profession: 7,
-  autre: 1,
+  employe_bureau: 2,
+  salarie_noncadre: 3,
+  fonctionnaire_a: 4,
+  fonctionnaire_autre: 5,
+  retraite_cadre: 6,
+  retraite_noncadre: 7,
+  dirigeant: 8,
+  profession_liberale: 9,
+  profession_medicale: 10,
+  profession_paramedical_salarie: 11,
+  profession_paramedical_fonctionnaire: 12,
+  profession_paramedical_liberal: 13,
+  artisan_nonbtp: 14,
+  commercant: 15,
+  artisan_btp: 16,
+  profession_agricole: 17,
+  saisonnier: 18,
+  sans_profession: 19,
+  autre: 20,
 };
 
 const QUALITE_TO_SESAME_ID: Record<string, number> = {
@@ -551,7 +557,9 @@ function formToOverrides(
         codePostal: a.codePostal.trim() || undefined,
         fumeur: a.fumeur,
         professionLibelle: a.profession.trim() || statutLabel,
-        idStatutProfessionnel: STATUT_PRO_TO_SESAME_ID[a.statutPro] ?? 1,
+        /** Libellé Kérys — pour debug / trace (Sésame tarife via id). */
+        statutProfessionnelLibelle: statutLabel,
+        idStatutProfessionnel: STATUT_PRO_TO_SESAME_ID[a.statutPro] ?? 2,
         idQualite: QUALITE_TO_SESAME_ID[a.qualite] ?? 3,
         professionManuelle: a.professionManuelle,
         travauxEnHauteur: a.travauxHauteur,

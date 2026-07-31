@@ -113,8 +113,9 @@ async function verifyV3MaxenceMensualites() {
     currentInsuranceTotalEur: parsed.currentInsuranceTotalEur,
     proposedInsuranceTotalEur: parsed.proposedInsuranceTotalEur,
   });
-  assert(/mesurée/i.test(mail.html), "intro palier < 2k");
+  assert(/mesurée/i.test(mail.html), "intro palier < 1k (économie mesurée)");
   assert(/710/.test(mail.html), "710 dans le mail");
+  assert(!/Bonne nouvelle/i.test(mail.html), "pas le ton « bonne nouvelle » sous 1k");
   assert(!/1\s*430/.test(mail.subject + mail.html.split("Nouvelle solution")[0]), "pas 1430 en accroche");
 }
 

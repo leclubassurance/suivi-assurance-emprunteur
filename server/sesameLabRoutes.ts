@@ -658,6 +658,14 @@ function summarizePayload(body: any) {
         : 0,
     },
     assures: Array.isArray(body?.assures) ? body.assures.length : 0,
+    assure0Profession: body?.assures?.[0]?.profession
+      ? {
+          idStatutProfessionnel: body.assures[0].profession.idStatutProfessionnel,
+          libelle: body.assures[0].profession.libelle,
+          manuelle: body.assures[0].profession.manuelle,
+          travauxEnHauteur: body.assures[0].profession.travauxEnHauteur,
+        }
+      : null,
     prets: Array.isArray(body?.prets) ? body.prets.length : 0,
     codeEntite: body?.conseiller?.codeEntiteDistributeur,
   };

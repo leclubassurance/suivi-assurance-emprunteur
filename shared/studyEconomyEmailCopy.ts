@@ -3,11 +3,12 @@
  * Ton : subtil, engageant, sans pression commerciale.
  */
 
-export type StudyEconomyTier = "under_2k" | "from_2k" | "from_10k" | "from_20k";
+export type StudyEconomyTier = "under_1k" | "under_2k" | "from_2k" | "from_10k" | "from_20k";
 
 export function resolveStudyEconomyTier(grossSavingsEur: number | null | undefined): StudyEconomyTier | null {
   if (grossSavingsEur == null || !Number.isFinite(grossSavingsEur)) return null;
   const g = Math.round(Number(grossSavingsEur));
+  if (g < 1000) return "under_1k";
   if (g < 2000) return "under_2k";
   if (g < 10000) return "from_2k";
   if (g < 20000) return "from_10k";
@@ -39,10 +40,15 @@ export function buildStudyClientIntroByTier(params: {
   }
 
   switch (tier) {
-    case "under_2k":
+    case "under_1k":
       return {
         tier,
         introHtml: `Nous avons finalisé votre étude. Sur votre crédit, l'économie estimée reste <strong>mesurée</strong> (environ <strong>${x}&nbsp;€</strong>), avec des garanties <strong>équivalentes</strong> à votre contrat actuel. Le détail complet est en pièce jointe.`,
+      };
+    case "under_2k":
+      return {
+        tier,
+        introHtml: `Nous avons finalisé votre étude d'économies. Bonne nouvelle : sur votre crédit, vous pouvez alléger le coût de votre assurance d'environ <strong>${x}&nbsp;€</strong> sur la durée restante, à garanties <strong>équivalentes</strong>. Le détail complet est en pièce jointe.`,
       };
     case "from_2k":
       return {
