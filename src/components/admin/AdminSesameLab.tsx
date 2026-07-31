@@ -1233,14 +1233,22 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                       </option>
                     ))}
                   </select>
+                  <p className="mt-1 text-[10px] text-slate-400 leading-snug">
+                    C’est ce libellé de catégorie qui apparaît sur le devis PDF (ex. « Employé de
+                    bureau », « Artisan du BTP… »).
+                  </p>
                 </Field>
-                <Field label="Profession" className="sm:col-span-2">
+                <Field label="Profession (libellé libre)" className="sm:col-span-2">
                   <input
                     className={inputCls}
                     value={assure.profession}
                     onChange={(e) => setAssure(index, "profession", e.target.value)}
                     placeholder="ex. Dessinateur-projeteur"
                   />
+                  <p className="mt-1 text-[10px] text-slate-400 leading-snug">
+                    Transmis à Sésame pour l’instruction ; le PDF Cardif reprend surtout le statut
+                    ci-dessus, pas ce texte libre.
+                  </p>
                 </Field>
                 <Field label="Profession à risque (optionnel)">
                   <select
