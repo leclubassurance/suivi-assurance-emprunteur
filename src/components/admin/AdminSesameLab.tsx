@@ -289,7 +289,10 @@ type LabForm = {
   objetFinancement: string;
   franchise: string;
   formule: string;
-  options: Array<{ key: string; label: string; enabled: boolean; id: string }>;
+  /** Options Kérys (cases à cocher uniquement — ids résolus côté serveur). */
+  optionKeys: string[];
+  /** Rémunération linéaire Kérys « L 15% » → idCommissionnement Sésame. */
+  remunerationLineairePct: string;
   autresCreditsOui: boolean;
   encoursImmobilierAssure: string;
   banquePreteuse: string;
@@ -355,20 +358,28 @@ const FORMULE_OPTIONS = [
 ];
 
 /**
- * Options Kérys — ids numériques = annexes Sésame (à confirmer / overridables).
- * Exemple doc API : idOptions [55]. Sans id (>0) l’option n’est pas envoyée.
+ * Options comme dans Kérys (libellés métier). Les ids numériques Sésame sont
+ * résolus côté serveur (env / défauts) — jamais saisis dans l’UI.
  */
 const OPTION_PRESETS = [
   {
     key: "dorsales_psy",
     label: "Affections dorsales et psy sans hospitalisation",
-    defaultId: "55",
   },
   {
     key: "forfaitaire",
     label: "Indemnisation forfaitaire",
-    defaultId: "",
   },
+];
+
+/** Réglette Kérys « L 15% » = rémunération / commission linéaire. */
+const REMUNERATION_OPTIONS = [
+  { value: "0", label: "L 0% (sans commission)" },
+  { value: "5", label: "L 5%" },
+  { value: "10", label: "L 10%" },
+  { value: "15", label: "L 15%" },
+  { value: "20", label: "L 20%" },
+  { value: "25", label: "L 25%" },
 ];
 
 const EMPTY_FORM: LabForm = {
@@ -376,12 +387,8 @@ const EMPTY_FORM: LabForm = {
   objetFinancement: "residence_principale",
   franchise: "90",
   formule: "101",
-  options: OPTION_PRESETS.map((o) => ({
-    key: o.key,
-    label: o.label,
-    enabled: Boolean(o.defaultId),
-    id: o.defaultId,
-  })),
+  optionKeys: ["dorsales_psy", "forfaitaire"],
+  remunerationLineairePct: "15",
   autresCreditsOui: false,
   encoursImmobilierAssure: "0",
   banquePreteuse: "",
@@ -518,15 +525,14 @@ function formToOverrides(
 ): Record<string, unknown> {
   const objet = OBJET_OPTIONS.find((o) => o.value === form.objetFinancement);
   const formule = FORMULE_OPTIONS.find((f) => f.value === form.formule) || FORMULE_OPTIONS[0];
-  const idOptions = form.options
-    .filter((o) => o.enabled && parseFrNumber(o.id, 0) > 0)
-    .map((o) => Math.round(parseFrNumber(o.id, 0)));
   return {
     dateEffetGaranties: form.dateEffetGaranties || undefined,
     idObjetFinancement: objet?.id ?? 8,
     franchise: Math.round(parseFrNumber(form.franchise, 90)),
     idFormule: formule.id,
-    idOptions,
+    /** Clés métier → ids résolus serveur (pas d’ids saisis dans l’UI). */
+    optionKeys: form.optionKeys,
+    remunerationLineairePct: Math.round(parseFrNumber(form.remunerationLineairePct, 15)),
     fraisDistribution: 0,
     // Base montant = capital restant dû (substitution). Les propositions CI/CRD viennent de Sésame.
     baseMontantPret: "crd",
@@ -1554,8 +1560,8 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">3. Simulation (couvertures)</h2>
           <p className="text-xs text-slate-500">
-            Comme dans Kérys : formule de garanties + options. La quotité se règle par assuré (section 1). Les ids
-            d’options viennent des annexes Sésame — à ajuster si le tarif ne colle pas.
+            Comme dans Kérys : garanties, options, franchise, et réglette de rémunération linéaire (L 15%). Aucun code
+            technique à saisir.
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <Field label="Garanties (formule)">
@@ -1583,6 +1589,19 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                 <option value="180">180 j</option>
               </select>
             </Field>
+            <Field label="Rémunération linéaire (comme Kérys)">
+              <select
+                className={inputCls}
+                value={form.remunerationLineairePct}
+                onChange={(e) => setField("remunerationLineairePct", e.target.value)}
+              >
+                {REMUNERATION_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Autres crédits immobiliers (Lemoine)">
               <label className="inline-flex items-center gap-2 h-[42px] text-sm">
                 <input
@@ -1606,45 +1625,27 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
             <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Options</p>
-            {form.options.map((opt, oi) => (
-              <div
-                key={opt.key}
-                className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
-              >
-                <label className="inline-flex items-center gap-2 text-sm text-slate-800 min-w-[16rem] flex-1">
+            {OPTION_PRESETS.map((opt) => {
+              const on = form.optionKeys.includes(opt.key);
+              return (
+                <label
+                  key={opt.key}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                >
                   <input
                     type="checkbox"
-                    checked={opt.enabled}
+                    checked={on}
                     onChange={(e) => {
-                      const next = form.options.map((o, i) =>
-                        i === oi ? { ...o, enabled: e.target.checked } : o,
-                      );
-                      setField("options", next);
+                      const next = e.target.checked
+                        ? [...form.optionKeys, opt.key]
+                        : form.optionKeys.filter((k) => k !== opt.key);
+                      setField("optionKeys", next);
                     }}
                   />
                   {opt.label}
                 </label>
-                <label className="text-[11px] text-slate-500 inline-flex items-center gap-1.5">
-                  id Sésame
-                  <input
-                    className="w-20 rounded border border-slate-200 px-2 py-1 text-sm"
-                    inputMode="numeric"
-                    value={opt.id}
-                    placeholder="ex. 55"
-                    onChange={(e) => {
-                      const next = form.options.map((o, i) =>
-                        i === oi ? { ...o, id: e.target.value, enabled: o.enabled || Boolean(e.target.value) } : o,
-                      );
-                      setField("options", next);
-                    }}
-                  />
-                </label>
-              </div>
-            ))}
-            <p className="text-[11px] text-slate-500">
-              Sur Kérys tu as coché dorsales/psy + indemnisation forfaitaire. L’id 55 vient de l’exemple API — si le
-              tarif ne matche pas, remplace par les vrais ids annexes Kereis.
-            </p>
+              );
+            })}
           </div>
         </section>
 

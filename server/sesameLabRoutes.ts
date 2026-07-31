@@ -64,6 +64,125 @@ function parseFrNumber(raw: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function asList(data: unknown): any[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    const o = data as any;
+    if (Array.isArray(o.liste)) return o.liste;
+    if (Array.isArray(o.produits)) return o.produits;
+    if (Array.isArray(o.commissionnements)) return o.commissionnements;
+    if (Array.isArray(o.items)) return o.items;
+  }
+  return data ? [data] : [];
+}
+
+/** Libellés Kérys → ids options Sésame (env overridables). */
+function resolveOptionIds(optionKeys: unknown): number[] {
+  const keys = Array.isArray(optionKeys) ? optionKeys.map((k) => String(k)) : [];
+  const map: Record<string, number> = {
+    dorsales_psy: Math.round(
+      parseFrNumber(process.env.SESAME_ID_OPTION_DORSALES_PSY, 55),
+    ),
+    forfaitaire: Math.round(parseFrNumber(process.env.SESAME_ID_OPTION_FORFAITAIRE, 0)),
+  };
+  // Fallback liste brute env : SESAME_DEFAULT_ID_OPTIONS=55,56
+  const fromEnvDefault = String(process.env.SESAME_DEFAULT_ID_OPTIONS || "")
+    .split(/[,;\s]+/)
+    .map((x) => Math.round(parseFrNumber(x, 0)))
+    .filter((n) => n > 0);
+
+  const out: number[] = [];
+  for (const key of keys) {
+    const id = map[key];
+    if (id && id > 0 && !out.includes(id)) out.push(id);
+  }
+  // Si forfaitaire coché mais pas d'id connu, on ne l'invente pas.
+  if (!out.length && fromEnvDefault.length) return fromEnvDefault;
+  return out;
+}
+
+function matchCommissionByPct(list: any[], pct: number): { id: string; libelle: string } | null {
+  if (!pct || pct <= 0) return null;
+  const scored = list
+    .map((c) => {
+      const id = pickString(c?.id, c?.idCommissionnement, c?.code);
+      const libelle = pickString(c?.libelle, c?.label, c?.name);
+      if (!id || id === "0") return null;
+      const m = libelle.match(/(\d+(?:[.,]\d+)?)\s*%/);
+      const libPct = m ? parseFrNumber(m[1], -1) : -1;
+      const exact = libPct === pct || new RegExp(`\\bL\\s*${pct}\\b`, "i").test(libelle);
+      const soft = libelle.includes(String(pct)) && libelle.includes("%");
+      if (!exact && !soft) return null;
+      return {
+        id,
+        libelle: libelle || id,
+        score: exact ? 2 : 1,
+        defaut: c?.defaut === true ? 1 : 0,
+      };
+    })
+    .filter(Boolean) as Array<{ id: string; libelle: string; score: number; defaut: number }>;
+  scored.sort((a, b) => b.score - a.score || b.defaut - a.defaut);
+  return scored[0] ? { id: scored[0].id, libelle: scored[0].libelle } : null;
+}
+
+async function resolveLineaireCommissionnement(
+  codeOffre: string,
+  codeProduit: string,
+  pct: number,
+): Promise<{ id?: string; libelle?: string; note?: string }> {
+  if (!pct || pct <= 0) return { note: "L 0% — pas de commissionnement" };
+  if (!codeOffre || !codeProduit) {
+    return { note: `L ${pct}% demandé mais offre/produit manquants pour résoudre le commissionnement` };
+  }
+  const path = `/referentiel/offre/${encodeURIComponent(codeOffre)}/produit/${encodeURIComponent(codeProduit)}/commission-distributeur`;
+  const res = await sesameFetchJson({ method: "GET", path });
+  pushLog({
+    at: new Date().toISOString(),
+    method: "GET",
+    path,
+    status: res.status,
+    durationMs: res.durationMs,
+    requestId: res.requestId,
+    ok: res.ok,
+    error: res.error,
+  });
+  if (!res.ok) {
+    // Fallback barème déprécié
+    const pathBar = `/referentiel/offre/${encodeURIComponent(codeOffre)}/produit/${encodeURIComponent(codeProduit)}/bareme-commission`;
+    const bar = await sesameFetchJson({ method: "GET", path: pathBar });
+    pushLog({
+      at: new Date().toISOString(),
+      method: "GET",
+      path: pathBar,
+      status: bar.status,
+      durationMs: bar.durationMs,
+      requestId: bar.requestId,
+      ok: bar.ok,
+      error: bar.error,
+    });
+    if (bar.ok) {
+      const list = asList(bar.data);
+      const hit = matchCommissionByPct(
+        list.map((b) => ({ id: pickString(b?.code, b?.id), libelle: pickString(b?.libelle, b?.code, `${pct}%`) })),
+        pct,
+      );
+      if (hit) return { id: hit.id, libelle: hit.libelle, note: `barème (deprecated) L ${pct}% → ${hit.id}` };
+    }
+    return { note: `Impossible de lister les commissionnements (${res.error || res.status})` };
+  }
+  const hit = matchCommissionByPct(asList(res.data), pct);
+  if (!hit) {
+    const libs = asList(res.data)
+      .map((c) => pickString(c?.libelle, c?.id))
+      .filter(Boolean)
+      .slice(0, 8);
+    return {
+      note: `Aucun commissionnement « L ${pct}% » trouvé. Dispo: ${libs.join(" | ") || "—"}`,
+    };
+  }
+  return { id: hit.id, libelle: hit.libelle, note: `L ${pct}% → ${hit.libelle} (${hit.id})` };
+}
+
 function walkCollect(node: unknown, keys: string[], out: string[]) {
   if (!node) return;
   if (Array.isArray(node)) {
@@ -188,6 +307,30 @@ export async function autoResolveCatalogCodes(
     );
   }
 
+  // Rémunération linéaire Kérys (L 15%) → idCommissionnement
+  const lineairePct = Math.round(parseFrNumber(next.remunerationLineairePct, 0));
+  if (lineairePct > 0 && (!pickString(next.idCommissionnement) || pickString(next.idCommissionnement) === "0")) {
+    const found = await resolveLineaireCommissionnement(codeOffre, codeProduit, lineairePct);
+    if (found.id) {
+      idCommissionnement = found.id;
+      resolved.idCommissionnement = found.id;
+      if (found.libelle) resolved.commissionLibelle = found.libelle;
+    }
+    if (found.note) resolved.commissionNote = found.note;
+  } else if (lineairePct <= 0) {
+    idCommissionnement = "0";
+    resolved.commissionNote = "L 0% — commissionnement omis";
+  }
+
+  // Options Kérys (cases) → idOptions numériques
+  if (!Array.isArray(next.idOptions) || !(next.idOptions as any[]).length) {
+    const fromKeys = resolveOptionIds(next.optionKeys);
+    if (fromKeys.length) {
+      next.idOptions = fromKeys;
+      resolved.idOptions = fromKeys.join(",");
+    }
+  }
+
   next.codeOffre = codeOffre;
   // Produit résolu pour le devis ; en tarification on omet produitsATarifer → toutes les propositions.
   if (codeProduit) next.codeProduit = codeProduit;
@@ -205,6 +348,29 @@ export async function autoResolveCatalogCodes(
   }
   if (next.fraisDistribution == null) {
     next.fraisDistribution = Number(process.env.SESAME_DEFAULT_FRAIS_DISTRIBUTION || 0);
+  }
+
+  // Pour tarifer TOUS les produits AVEC la même rémunération L x%, on remplit produitsATarifer.
+  if (comm && comm !== "0" && codeOffre) {
+    try {
+      const produits = await sesameFetchJson({
+        method: "GET",
+        path: `/referentiel/offre/${encodeURIComponent(codeOffre)}/produit`,
+      });
+      if (produits.ok) {
+        const codes: string[] = [];
+        walkCollect(produits.data, ["codeProduit"], codes);
+        if (codes.length) {
+          next.produitsATarifer = codes.map((cp) => ({
+            codeProduit: cp,
+            idCommissionnement: comm,
+          }));
+          resolved.produitsATarifer = String(codes.length);
+        }
+      }
+    } catch {
+      /* non bloquant */
+    }
   }
 
   const note =
@@ -258,12 +424,12 @@ export function buildLabSamplePayload(
   const idFormule = Math.round(
     parseFrNumber(o.idFormule ?? process.env.SESAME_DEFAULT_ID_FORMULE, 101),
   );
-  const idOptions = Array.isArray(o.idOptions)
+  let idOptions = Array.isArray(o.idOptions)
     ? (o.idOptions as unknown[]).map((x) => Math.round(parseFrNumber(x, 0))).filter((n) => n > 0)
-    : String(process.env.SESAME_DEFAULT_ID_OPTIONS || "")
-        .split(/[,;\s]+/)
-        .map((x) => Math.round(parseFrNumber(x, 0)))
-        .filter((n) => n > 0);
+    : [];
+  if (!idOptions.length) {
+    idOptions = resolveOptionIds(o.optionKeys);
+  }
 
   const pretsInput =
     Array.isArray(o.prets) && o.prets.length
@@ -319,6 +485,21 @@ export function buildLabSamplePayload(
     }
     return pret;
   });
+
+  const produitsATariferOverride = Array.isArray(o.produitsATarifer)
+    ? (o.produitsATarifer as any[])
+        .map((p) => {
+          const cp = pickString(p?.codeProduit, p?.code);
+          if (!cp) return null;
+          const row: Record<string, unknown> = { codeProduit: cp };
+          const idc = pickString(p?.idCommissionnement, idCommissionnement);
+          const cb = pickString(p?.codeBareme, codeBareme);
+          if (idc && idc !== "0") row.idCommissionnement = idc;
+          else if (cb) row.codeBareme = cb;
+          return row;
+        })
+        .filter(Boolean)
+    : null;
 
   const couverturesFor = (opts: { quotite: number; idSportsARisque?: number[] }) =>
     prets.map((p) => ({
@@ -390,12 +571,17 @@ export function buildLabSamplePayload(
     const codeProduitAssure = String(src.codeProduit || "").trim() || codeProduit;
 
     if (mode === "tarification") {
-      if (codeProduitAssure && o.forceProduitUnique === true) {
+      if (produitsATariferOverride?.length) {
+        assure.produitsATarifer = produitsATariferOverride;
+      } else if (codeProduitAssure && o.forceProduitUnique === true) {
         const produit: Record<string, unknown> = { codeProduit: codeProduitAssure };
         if (idCommissionnement) produit.idCommissionnement = idCommissionnement;
         else if (codeBareme) produit.codeBareme = codeBareme;
         assure.produitsATarifer = [produit];
       }
+      // Même en tarification multi-produits : porter la rémunération sur l'assuré si l'API l'accepte.
+      if (idCommissionnement) assure.idCommissionnement = idCommissionnement;
+      else if (codeBareme) assure.codeBareme = codeBareme;
     } else {
       if (codeProduitAssure) assure.codeProduit = codeProduitAssure;
       if (idCommissionnement) assure.idCommissionnement = idCommissionnement;
@@ -462,6 +648,15 @@ function summarizePayload(body: any) {
           quotite: body.assures[0].couvertures[0].couverture.quotite,
         }
       : null,
+    remuneration: {
+      idCommissionnement:
+        body?.assures?.[0]?.idCommissionnement ||
+        body?.assures?.[0]?.produitsATarifer?.[0]?.idCommissionnement,
+      codeBareme: body?.assures?.[0]?.codeBareme || body?.assures?.[0]?.produitsATarifer?.[0]?.codeBareme,
+      produitsATarifer: Array.isArray(body?.assures?.[0]?.produitsATarifer)
+        ? body.assures[0].produitsATarifer.length
+        : 0,
+    },
     assures: Array.isArray(body?.assures) ? body.assures.length : 0,
     prets: Array.isArray(body?.prets) ? body.prets.length : 0,
     codeEntite: body?.conseiller?.codeEntiteDistributeur,

@@ -76,7 +76,7 @@ Ensuite seulement : boutons tarifer / devis / ouvrir contrat sur le dossier admi
   - Type d’échéances : **constantes** (mensualité constante), **à paliers** (`paliers[]`), **crédit-bail** (loyer + valeur résiduelle)
   - Périodicité, type de taux, différé + nature du différé, frais bancaires, préfinancement
   - Saisie FR acceptée (`3,67` → 3.67) — sinon le devis PDF affichait un taux à 0
-- **Couvertures** : formule (ex. Décès-PTIA-ITT/IPT = `idFormule` 101), franchise, **options** (`idOptions`, ex. dorsales/psy) — ids annexes ajustables dans le lab
+- **Couvertures** : formule (Décès-PTIA-ITT/IPT), franchise, **options** (cases Kérys, ids résolus en coulisses), **rémunération linéaire L 15%** (→ `idCommissionnement` via référentiel)
 - **Propositions** : 1 colonne par assuré ; sélection indépendante ; **coût total** = somme. Réduction couple **seulement** si même société d’assurance (sinon tarifs hors couple).
 - Filtre **Tous / CRD / Capital initial** (heuristique code produit).
 
