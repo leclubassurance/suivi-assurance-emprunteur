@@ -79,6 +79,7 @@ Ensuite seulement : boutons tarifer / devis / ouvrir contrat sur le dossier admi
 - **Couvertures** : formule (Décès-PTIA-ITT/IPT), franchise, **options** (cases Kérys, ids résolus en coulisses), **rémunération linéaire L 15%** (→ `idCommissionnement` via référentiel)
 - **Propositions** : 1 colonne par assuré ; sélection indépendante ; **coût total** = somme. Réduction couple **seulement** si même société d’assurance (sinon tarifs hors couple).
 - Filtre **Tous / CRD / Capital initial** (heuristique code produit).
+- Après sélection : **Exporter le devis** (PDF) ou **Ouvrir dans Sésame** (création parcours détaillé → `lienSesame` OTP, nouvel onglet).
 
 ## Endpoints lab
 

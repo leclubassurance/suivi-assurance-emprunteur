@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Download,
+  ExternalLink,
   FlaskConical,
   Loader2,
   Plus,
@@ -234,6 +235,15 @@ type CallResult = {
   requestPayloadPreview?: unknown;
   pdfBase64?: string;
   fileName?: string;
+  lienSesame?: string;
+  idDossier?: number;
+};
+
+type ParcoursLink = {
+  lienSesame: string;
+  idDossier?: number;
+  referenceDossier: string;
+  at: string;
 };
 
 type PalierForm = {
@@ -627,6 +637,7 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<CallResult | null>(null);
+  const [parcoursLink, setParcoursLink] = useState<ParcoursLink | null>(null);
   /** Tarifs avec réduction couple (query true). */
   const [tarifsAvecCouple, setTarifsAvecCouple] = useState<AssurePropositions[]>([]);
   /** Tarifs sans réduction couple — utilisés si marques différentes. */
@@ -890,6 +901,66 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     }
   }
 
+  async function runParcours() {
+    if (!allSelected) return;
+    setBusy("parcours");
+    try {
+      const base = formToOverrides(form, assures, prets);
+      const assuresWithProduit = (Array.isArray(base.assures) ? base.assures : []).map(
+        (a: any, i: number) => {
+          const ref = String(a.referenceAssure || `ASSURE${String(i + 1).padStart(3, "0")}`);
+          return {
+            ...a,
+            codeProduit: selectedByAssure[ref] || selectedProps[i]?.codeProduit,
+          };
+        },
+      );
+      const referenceDossier = `LAB-${Date.now()}`.slice(0, 40);
+      const res = await adminFetch("/api/admin/sesame-lab/dossier/creation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          referenceDossier,
+          overrides: {
+            ...base,
+            assures: assuresWithProduit,
+            reductionCouple: coupleApplies,
+          },
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as CallResult;
+      setLastResult(data);
+      const raw = (data?.data || {}) as Record<string, unknown>;
+      const lien =
+        (typeof data.lienSesame === "string" && data.lienSesame) ||
+        (typeof raw.lienSesame === "string" ? raw.lienSesame : "");
+      const id =
+        (typeof data.idDossier === "number" && data.idDossier) ||
+        (typeof raw.id === "number" ? raw.id : undefined) ||
+        (typeof raw.idDossier === "number" ? raw.idDossier : undefined);
+      if (data?.ok && lien) {
+        setParcoursLink({
+          lienSesame: lien,
+          idDossier: id,
+          referenceDossier,
+          at: new Date().toISOString(),
+        });
+        window.open(lien, "_blank", "noopener,noreferrer");
+      } else if (data?.ok && !lien) {
+        setLastResult({
+          ...data,
+          ok: false,
+          error: "Dossier créé mais aucun lienSesame dans la réponse Sésame.",
+        });
+      }
+      await refreshStatus();
+    } catch (err: any) {
+      setLastResult({ ok: false, error: err?.message || "Erreur réseau" });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function downloadPdf(from?: CallResult | null) {
     const src = from || lastResult;
     if (!src?.pdfBase64) return;
@@ -908,6 +979,7 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     setSelectedByAssure({});
     setPropFilter("tous");
     setLastResult(null);
+    setParcoursLink(null);
   }
 
   function PropositionCard({
@@ -1663,7 +1735,7 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
           <p className="text-xs text-slate-500">
             {assures.length >= 2
               ? "Deux colonnes séparées : à gauche Assuré 1 (ex. Monsieur), à droite Assuré 2 (ex. Madame). Tu peux choisir deux assureurs différents. Même société → réduction couple ; sinon → tarifs hors couple. Total = somme des deux."
-              : "Lance la simulation, filtre CRD / capital initial, choisis une offre, puis exporte le devis PDF."}
+              : "Lance la simulation, filtre CRD / capital initial, choisis une offre, puis exporte le devis ou ouvre le parcours Sésame."}
           </p>
           <div className="flex flex-wrap gap-2 items-center">
             <Button type="button" size="sm" disabled={Boolean(busy)} onClick={() => void runTarification()}>
@@ -1680,6 +1752,18 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               {busy === "devis" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               <Download className="w-4 h-4" />
               Exporter le devis
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={Boolean(busy) || !allSelected}
+              onClick={() => void runParcours()}
+              title="Crée un dossier parcours détaillé côté Sésame (R1) et ouvre le lien OTP"
+            >
+              {busy === "parcours" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              <ExternalLink className="w-4 h-4" />
+              Ouvrir dans Sésame
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={resetLab}>
               Réinitialiser
@@ -1858,6 +1942,30 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               <Button type="button" size="sm" variant="ghost" onClick={() => downloadPdf()}>
                 <Download className="w-4 h-4" /> Télécharger à nouveau
               </Button>
+            </div>
+          ) : null}
+
+          {parcoursLink ? (
+            <div className="flex flex-wrap gap-2 items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+              <ExternalLink className="w-4 h-4 text-sky-700 shrink-0" />
+              <div className="min-w-0 flex-1 text-sm text-sky-950">
+                <span className="font-medium">Parcours Sésame créé</span>
+                {parcoursLink.idDossier != null ? (
+                  <span className="text-sky-700"> · id {parcoursLink.idDossier}</span>
+                ) : null}
+                <span className="text-sky-600 font-mono text-xs ml-1 truncate">
+                  ({parcoursLink.referenceDossier})
+                </span>
+              </div>
+              <a
+                href={parcoursLink.lienSesame}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Réouvrir le lien
+              </a>
             </div>
           ) : null}
 

@@ -815,6 +815,19 @@ export function registerSesameLabRoutes(app: Express) {
     try {
       assertSesameLabAllowed();
       const { body: sample, resolved, note } = await buildPayloadFromRequest(req, "devis");
+      const missingProduit = Array.isArray(sample?.assures)
+        ? sample.assures.findIndex((a: any) => !a?.codeProduit)
+        : 0;
+      if (!sample?.assures?.length || missingProduit >= 0) {
+        return res.status(400).json({
+          ok: false,
+          error:
+            missingProduit > 0
+              ? `Assuré ${missingProduit + 1} : sélectionne un produit avant d'ouvrir le parcours.`
+              : "Aucun code produit résolu. Sélectionne une proposition par assuré.",
+          catalogAuto: { resolved, note },
+        });
+      }
       const conseiller = { ...defaultConseiller(), ...(req.body?.conseiller || {}) };
       const body = req.body?.payload || {
         ...sample,
@@ -831,7 +844,12 @@ export function registerSesameLabRoutes(app: Express) {
           paiementCotisation: false,
         },
       };
-      delete body.assures?.[0]?.produitsATarifer;
+      // Parcours : comme le devis — produit choisi, pas de liste produitsATarifer
+      if (Array.isArray(body.assures)) {
+        for (const a of body.assures) {
+          delete a.produitsATarifer;
+        }
+      }
       const result = await sesameFetchJson({
         method: "POST",
         path: "/dossier/creation",
@@ -849,7 +867,22 @@ export function registerSesameLabRoutes(app: Express) {
         ok: result.ok,
         error: result.error,
       });
-      res.status(result.ok ? 200 : 502).json({ ok: result.ok, catalogAuto: { resolved, note }, ...result });
+      const payload = (result.data || {}) as Record<string, unknown>;
+      const lienSesame =
+        typeof payload.lienSesame === "string" ? payload.lienSesame : undefined;
+      const idDossier =
+        typeof payload.id === "number"
+          ? payload.id
+          : typeof payload.idDossier === "number"
+            ? payload.idDossier
+            : undefined;
+      res.status(result.ok ? 200 : 502).json({
+        ok: result.ok,
+        catalogAuto: { resolved, note },
+        lienSesame,
+        idDossier,
+        ...result,
+      });
     } catch (err: any) {
       handleLabError(res, err);
     }
