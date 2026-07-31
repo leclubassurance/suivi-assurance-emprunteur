@@ -1,11 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
   Download,
   FlaskConical,
   Loader2,
+  Plus,
   RefreshCw,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { adminFetch } from "../../lib/adminApi";
@@ -22,9 +24,7 @@ type LabStatus = {
   baseUrl?: string;
   basicAuthConfigured?: boolean;
   codeEntite?: string | null;
-  defaultCodeOffre?: string | null;
   labAllowed?: boolean;
-  missing?: string[];
   recentCalls?: Array<{
     at: string;
     method: string;
@@ -45,24 +45,25 @@ type CallResult = {
   requestId?: string;
   error?: string;
   data?: unknown;
-  payload?: unknown;
+  catalogAuto?: { resolved?: Record<string, string>; note?: string };
+  requestPayloadPreview?: unknown;
   pdfBase64?: string;
   fileName?: string;
 };
 
-/**
- * Lab = même infos que le formulaire client + codes catalogue Kereis (hors client).
- * Pas de poids / taille (jamais demandés au client).
- */
+type PretForm = {
+  nature: string;
+  capitalRestant: string;
+  taux: string;
+  dureeRestante: string;
+  dureeDiffere: string;
+};
+
 type LabForm = {
-  // Catalogue Kereis (pas client) — à découvrir via GET offres / produits
-  codeOffre: string;
-  codeProduit: string;
-  codeBareme: string;
-  idCommissionnement: string;
-  fraisDistribution: string;
+  // Projet / prêts (écran Kérys)
   dateEffetGaranties: string;
-  // Assuré (formulaire client)
+  objetFinancement: string;
+  // Assuré
   civilite: string;
   prenom: string;
   nom: string;
@@ -77,21 +78,25 @@ type LabForm = {
   travauxHauteur: boolean;
   deplacementsPro: string;
   fumeur: boolean;
-  // Prêt (formulaire client + champs souvent lus sur l’offre de prêt)
-  capitalRestant: string;
+  // Simulation
+  quotite: string;
+  franchise: string;
+  autresCreditsOui: boolean;
+  encoursImmobilierAssure: string;
   banquePreteuse: string;
-  datePremiereEcheance: string;
-  dureeRestante: string;
-  taux: string;
 };
 
+const EMPTY_PRET = (): PretForm => ({
+  nature: "amortissable",
+  capitalRestant: "",
+  taux: "",
+  dureeRestante: "",
+  dureeDiffere: "0",
+});
+
 const EMPTY_FORM: LabForm = {
-  codeOffre: "",
-  codeProduit: "",
-  codeBareme: "",
-  idCommissionnement: "0",
-  fraisDistribution: "0",
   dateEffetGaranties: "2026-11-01",
+  objetFinancement: "residence_principale",
   civilite: "Monsieur",
   prenom: "",
   nom: "",
@@ -106,14 +111,27 @@ const EMPTY_FORM: LabForm = {
   travauxHauteur: false,
   deplacementsPro: "< 20000 Km",
   fumeur: false,
-  capitalRestant: "",
+  quotite: "100",
+  franchise: "90",
+  autresCreditsOui: false,
+  encoursImmobilierAssure: "0",
   banquePreteuse: "",
-  datePremiereEcheance: "",
-  dureeRestante: "",
-  taux: "",
 };
 
-/** Mapping provisoire statut formulaire → id Sésame (à affiner avec annexes Kereis). */
+const OBJET_OPTIONS = [
+  { value: "residence_principale", label: "Résidence principale", id: 8 },
+  { value: "residence_secondaire", label: "Résidence secondaire", id: 9 },
+  { value: "investissement_locatif", label: "Investissement locatif", id: 10 },
+  { value: "autre", label: "Autre", id: 11 },
+];
+
+const NATURE_PRET_OPTIONS = [
+  { value: "amortissable", label: "Prêt Amortissable", idTypePret: 51 },
+  { value: "ptz", label: "Prêt à Taux Zéro", idTypePret: 52 },
+  { value: "modulable", label: "Prêt échéances modulables", idTypePret: 53 },
+  { value: "in_fine", label: "Prêt In Fine", idTypePret: 54 },
+];
+
 const STATUT_PRO_TO_SESAME_ID: Record<string, number> = {
   salarie_cadre: 1,
   employe_bureau: 1,
@@ -147,7 +165,9 @@ function StatusPill({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-        ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-800 border border-amber-200"
+        ok
+          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+          : "bg-amber-50 text-amber-800 border border-amber-200"
       }`}
     >
       {ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
@@ -168,58 +188,32 @@ function Field({
   label,
   children,
   className,
-  hint,
 }: {
   label: string;
   children: React.ReactNode;
   className?: string;
-  hint?: string;
 }) {
   return (
     <label className={`text-xs text-slate-600 block ${className || ""}`}>
       {label}
       <div className="mt-1">{children}</div>
-      {hint ? <p className="mt-1 text-[10px] text-slate-400">{hint}</p> : null}
     </label>
   );
 }
 
 const inputCls = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm";
-const monoCls = `${inputCls} font-mono`;
 
-function extractOfferCodes(data: unknown): string[] {
-  const codes = new Set<string>();
-  const walk = (node: unknown) => {
-    if (!node) return;
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
-    if (typeof node !== "object") return;
-    const o = node as Record<string, unknown>;
-    for (const key of ["codeOffre", "code", "codeProduit", "codeBareme"]) {
-      if (typeof o[key] === "string" && o[key].trim()) codes.add(String(o[key]).trim());
-    }
-    Object.values(o).forEach(walk);
-  };
-  walk(data);
-  return Array.from(codes).slice(0, 40);
-}
-
-function formToOverrides(form: LabForm): Record<string, unknown> {
+function formToOverrides(form: LabForm, prets: PretForm[]): Record<string, unknown> {
   const statutLabel =
-    STATUT_PRO_OPTIONS.find((o) => o.value === form.statutPro)?.label || form.statutPro || "Employé de bureau";
-  const overrides: Record<string, unknown> = {
-    codeOffre: form.codeOffre.trim() || undefined,
-    codeProduit: form.codeProduit.trim() || undefined,
-    codeBareme: form.codeBareme.trim() || undefined,
-    idCommissionnement: form.idCommissionnement.trim() || "0",
-    fraisDistribution: form.fraisDistribution.trim() ? Number(form.fraisDistribution) : 0,
-    dateEffetGaranties: form.dateEffetGaranties.trim() || undefined,
+    STATUT_PRO_OPTIONS.find((o) => o.value === form.statutPro)?.label || form.statutPro;
+  const objet = OBJET_OPTIONS.find((o) => o.value === form.objetFinancement);
+  return {
+    dateEffetGaranties: form.dateEffetGaranties || undefined,
+    idObjetFinancement: objet?.id ?? 8,
     civilite: form.civilite,
     prenom: form.prenom.trim() || undefined,
     nom: form.nom.trim() || undefined,
-    dateNaissance: form.dateNaissance.trim() || undefined,
+    dateNaissance: form.dateNaissance || undefined,
     codePostal: form.codePostal.trim() || undefined,
     fumeur: form.fumeur,
     professionLibelle: form.profession.trim() || statutLabel,
@@ -228,14 +222,29 @@ function formToOverrides(form: LabForm): Record<string, unknown> {
     professionManuelle: form.professionManuelle,
     travauxEnHauteur: form.travauxHauteur,
     deplacementsProfessionnels: form.deplacementsPro !== "< 20000 Km",
-    montantPret: form.capitalRestant.trim() ? Number(form.capitalRestant) : undefined,
-    dureePret: form.dureeRestante.trim() ? Number(form.dureeRestante) : undefined,
-    tauxPret: form.taux.trim() ? Number(form.taux) : undefined,
+    quotite: Number(form.quotite || 100),
+    franchise: Number(form.franchise || 90),
+    fraisDistribution: 0,
+    idCommissionnement: "0",
+    encoursImmobilierAssure: form.autresCreditsOui
+      ? Number(form.encoursImmobilierAssure || 0)
+      : 0,
+    prets: prets
+      .filter((p) => p.capitalRestant.trim())
+      .map((p) => {
+        const nature = NATURE_PRET_OPTIONS.find((n) => n.value === p.nature);
+        return {
+          capitalRestant: Number(p.capitalRestant),
+          montant: Number(p.capitalRestant),
+          taux: Number(p.taux || 0),
+          duree: Number(p.dureeRestante || 240),
+          dureeDiffere: Number(p.dureeDiffere || 0),
+          idTypePret: nature?.idTypePret ?? 51,
+          idPeriodiciteEcheancePret: 3,
+          idTypeAmortissement: 100,
+        };
+      }),
   };
-  for (const k of Object.keys(overrides)) {
-    if (overrides[k] === undefined || overrides[k] === "") delete overrides[k];
-  }
-  return overrides;
 }
 
 export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
@@ -243,13 +252,15 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<CallResult | null>(null);
-  const [idDossier, setIdDossier] = useState("");
   const [form, setForm] = useState<LabForm>(EMPTY_FORM);
-  const [defaultsHydrated, setDefaultsHydrated] = useState(false);
-  const [discoveredCodes, setDiscoveredCodes] = useState<string[]>([]);
+  const [prets, setPrets] = useState<PretForm[]>([EMPTY_PRET()]);
 
   const setField = <K extends keyof LabForm>(key: K, value: LabForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const setPret = (index: number, key: keyof PretForm, value: string) => {
+    setPrets((prev) => prev.map((p, i) => (i === index ? { ...p, [key]: value } : p)));
   };
 
   const refreshStatus = useCallback(async () => {
@@ -258,26 +269,19 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
       const res = await adminFetch("/api/admin/sesame-lab/status");
       const data = await res.json().catch(() => ({}));
       setStatus(data);
-      if (!defaultsHydrated) {
-        setForm((prev) => ({
-          ...prev,
-          codeOffre: prev.codeOffre || String(data?.defaultCodeOffre || ""),
-        }));
-        setDefaultsHydrated(true);
-      }
     } catch (err: any) {
       setStatus({ ok: false, error: err?.message || "Erreur réseau" });
     } finally {
       setLoadingStatus(false);
     }
-  }, [defaultsHydrated]);
+  }, []);
 
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
 
   function buildBody() {
-    return { overrides: formToOverrides(form) };
+    return { overrides: formToOverrides(form, prets) };
   }
 
   async function runCall(key: string, fn: () => Promise<Response>) {
@@ -287,10 +291,6 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
       const res = await fn();
       const data = await res.json().catch(() => ({}));
       setLastResult(data);
-      if ((key === "offres" || key === "produits") && data?.data) {
-        const codes = extractOfferCodes(data.data);
-        if (codes.length) setDiscoveredCodes(codes);
-      }
       await refreshStatus();
     } catch (err: any) {
       setLastResult({ ok: false, error: err?.message || "Erreur réseau" });
@@ -307,23 +307,6 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     a.click();
   }
 
-  const envBanner =
-    status?.env === "production" ? (
-      <div className="rounded-lg border border-red-300 bg-red-50 text-red-800 px-4 py-3 text-sm font-medium">
-        SESAME_ENV=production — le lab est bloqué. Passez SESAME_ENV=test sur Railway pour tester R1.
-      </div>
-    ) : (
-      <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-950 px-4 py-3 text-sm font-semibold flex items-center gap-2">
-        <FlaskConical className="w-4 h-4 shrink-0" />
-        ENV TEST — substitution ADE · appels R1 uniquement · aucune écriture CRM
-      </div>
-    );
-
-  const statutHint = useMemo(
-    () => STATUT_PRO_OPTIONS.find((o) => o.value === form.statutPro)?.label,
-    [form.statutPro],
-  );
-
   return (
     <div className="min-h-[100dvh] bg-slate-50">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -337,7 +320,7 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
           </button>
           <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
             <FlaskConical className="w-4 h-4 text-amber-600" />
-            Lab Sésame (test)
+            Lab Sésame (comme Kérys)
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={() => void refreshStatus()} disabled={loadingStatus}>
             {loadingStatus ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -347,158 +330,162 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        {envBanner}
+        <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-950 px-4 py-3 text-sm space-y-1">
+          <p className="font-semibold flex items-center gap-2">
+            <FlaskConical className="w-4 h-4 shrink-0" />
+            Même logique que Kérys : tu saisis le dossier, pas les codes techniques.
+          </p>
+          <p className="text-xs text-amber-900/80">
+            Offre / produit / barème = ce que Kérys calcule en coulisses quand tu vois CARDIF, Generali, etc. Ici le lab
+            les récupère automatiquement via l’API avant de tarifer. Commissionnement &amp; frais = 0.
+          </p>
+        </div>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <StatusPill ok={Boolean(status?.labAllowed)} label={status?.labAllowed ? "Lab OK" : "Lab bloqué"} />
+            <StatusPill
+              ok={Boolean(status?.basicAuthConfigured)}
+              label={status?.basicAuthConfigured ? "Auth OK" : "Auth manquante"}
+            />
+            <StatusPill
+              ok={Boolean(status?.codeEntite)}
+              label={status?.codeEntite ? `Entité ${status.codeEntite}` : "Entité manquante"}
+            />
+          </div>
+        </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Statut connexion</h2>
-          {loadingStatus && !status ? (
-            <p className="text-sm text-slate-500">Chargement…</p>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-2">
-                <StatusPill ok={Boolean(status?.labAllowed)} label={status?.labAllowed ? "Lab autorisé" : "Lab bloqué"} />
-                <StatusPill
-                  ok={Boolean(status?.basicAuthConfigured)}
-                  label={status?.basicAuthConfigured ? "Basic Auth configuré" : "Basic Auth manquant"}
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">1. Coordonnées</h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <Field label="Civilité">
+              <select className={inputCls} value={form.civilite} onChange={(e) => setField("civilite", e.target.value)}>
+                <option value="Monsieur">Monsieur</option>
+                <option value="Madame">Madame</option>
+              </select>
+            </Field>
+            <Field label="Nom">
+              <input className={inputCls} value={form.nom} onChange={(e) => setField("nom", e.target.value)} />
+            </Field>
+            <Field label="Prénom">
+              <input className={inputCls} value={form.prenom} onChange={(e) => setField("prenom", e.target.value)} />
+            </Field>
+            <Field label="Date de naissance">
+              <input
+                type="date"
+                className={inputCls}
+                value={form.dateNaissance}
+                onChange={(e) => setField("dateNaissance", e.target.value)}
+              />
+            </Field>
+            <Field label="Email">
+              <input
+                type="email"
+                className={inputCls}
+                value={form.email}
+                onChange={(e) => setField("email", e.target.value)}
+              />
+            </Field>
+            <Field label="Téléphone">
+              <input
+                className={inputCls}
+                value={form.telephone}
+                onChange={(e) => setField("telephone", e.target.value)}
+              />
+            </Field>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">2. Informations personnelles</h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <Field label="Qualité">
+              <select className={inputCls} value={form.qualite} onChange={(e) => setField("qualite", e.target.value)}>
+                {QUALITE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Code postal résidence fiscale">
+              <input
+                className={inputCls}
+                value={form.codePostal}
+                onChange={(e) => setField("codePostal", e.target.value)}
+              />
+            </Field>
+            <Field label="Statut professionnel">
+              <select
+                className={inputCls}
+                value={form.statutPro}
+                onChange={(e) => setField("statutPro", e.target.value)}
+              >
+                {STATUT_PRO_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Profession" className="sm:col-span-2">
+              <input
+                className={inputCls}
+                value={form.profession}
+                onChange={(e) => setField("profession", e.target.value)}
+                placeholder="ex. Dessinateur-projeteur"
+              />
+            </Field>
+            <Field label="Déplacements pro / an">
+              <select
+                className={inputCls}
+                value={form.deplacementsPro}
+                onChange={(e) => setField("deplacementsPro", e.target.value)}
+              >
+                {DEPLACEMENTS_PRO_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Profession manuelle">
+              <label className="inline-flex items-center gap-2 h-[42px] text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.professionManuelle}
+                  onChange={(e) => setField("professionManuelle", e.target.checked)}
                 />
-                <StatusPill
-                  ok={Boolean(status?.codeEntite)}
-                  label={status?.codeEntite ? `codeEntite ${status.codeEntite}` : "codeEntite manquant"}
+                Oui
+              </label>
+            </Field>
+            <Field label="Travaux en hauteur">
+              <label className="inline-flex items-center gap-2 h-[42px] text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.travauxHauteur}
+                  onChange={(e) => setField("travauxHauteur", e.target.checked)}
                 />
-              </div>
-              <dl className="grid sm:grid-cols-2 gap-2 text-sm text-slate-700">
-                <div>
-                  <dt className="text-xs text-slate-500">Base URL</dt>
-                  <dd className="font-mono text-xs break-all">{status?.baseUrl || "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-slate-500">ENV</dt>
-                  <dd className="font-semibold">{status?.env || "—"}</dd>
-                </div>
-              </dl>
-              {status?.error ? <p className="text-sm text-red-600">{status.error}</p> : null}
-            </>
-          )}
+                Oui
+              </label>
+            </Field>
+            <Field label="Fumeur">
+              <label className="inline-flex items-center gap-2 h-[42px] text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.fumeur}
+                  onChange={(e) => setField("fumeur", e.target.checked)}
+                />
+                Oui
+              </label>
+            </Field>
+          </div>
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
-              Codes catalogue Kereis (pas le client)
-            </h2>
-            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Tu ne les connais pas encore : c’est normal. Clique <strong>GET offres</strong>, puis choisis une offre de
-              substitution dans la liste / le JSON. Ensuite <strong>GET produits</strong> pour obtenir produit + barème.
-              Une fois trouvés, on les figera sur Railway — le client ne les saisit jamais.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                void runCall("offres", () => adminFetch("/api/admin/sesame-lab/referentiel/offres"))
-              }
-            >
-              {busy === "offres" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              1. GET offres
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={Boolean(busy) || !form.codeOffre.trim()}
-              onClick={() =>
-                void runCall("produits", () =>
-                  adminFetch(
-                    `/api/admin/sesame-lab/referentiel/offre/${encodeURIComponent(form.codeOffre.trim())}/produits`,
-                  ),
-                )
-              }
-            >
-              {busy === "produits" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              2. GET produits
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                void runCall("frais", () => adminFetch("/api/admin/sesame-lab/referentiel/frais-distribution"))
-              }
-            >
-              {busy === "frais" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              GET frais
-            </Button>
-          </div>
-
-          {discoveredCodes.length > 0 ? (
-            <div>
-              <p className="text-xs text-slate-500 mb-2">Codes détectés dans la dernière réponse — clique pour remplir :</p>
-              <div className="flex flex-wrap gap-1.5">
-                {discoveredCodes.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-mono hover:bg-indigo-50 hover:border-indigo-200"
-                    onClick={() => {
-                      if (!form.codeOffre) setField("codeOffre", c);
-                      else if (!form.codeProduit) setField("codeProduit", c);
-                      else if (!form.codeBareme) setField("codeBareme", c);
-                      else setField("codeOffre", c);
-                    }}
-                    title="Remplit le prochain champ catalogue vide"
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <Field label="Code offre substitution" hint="Depuis GET offres">
-              <input
-                className={monoCls}
-                value={form.codeOffre}
-                onChange={(e) => setField("codeOffre", e.target.value)}
-                placeholder="après GET offres"
-              />
-            </Field>
-            <Field label="Code produit" hint="Depuis GET produits">
-              <input
-                className={monoCls}
-                value={form.codeProduit}
-                onChange={(e) => setField("codeProduit", e.target.value)}
-                placeholder="après GET produits"
-              />
-            </Field>
-            <Field label="Code barème" hint="Souvent dans la fiche produit">
-              <input
-                className={monoCls}
-                value={form.codeBareme}
-                onChange={(e) => setField("codeBareme", e.target.value)}
-                placeholder="après GET produits"
-              />
-            </Field>
-            <Field label="Commissionnement" hint="0 pour l’instant">
-              <input
-                className={monoCls}
-                value={form.idCommissionnement}
-                onChange={(e) => setField("idCommissionnement", e.target.value)}
-              />
-            </Field>
-            <Field label="Frais distribution (€)" hint="0 pour l’instant">
-              <input
-                className={inputCls}
-                inputMode="decimal"
-                value={form.fraisDistribution}
-                onChange={(e) => setField("fraisDistribution", e.target.value)}
-              />
-            </Field>
-            <Field label="Date effet garanties">
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">3. Prêts</h2>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label="Date d'effet (changement d'assurance)">
               <input
                 type="date"
                 className={inputCls}
@@ -506,206 +493,152 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                 onChange={(e) => setField("dateEffetGaranties", e.target.value)}
               />
             </Field>
+            <Field label="Objet du financement">
+              <select
+                className={inputCls}
+                value={form.objetFinancement}
+                onChange={(e) => setField("objetFinancement", e.target.value)}
+              >
+                {OBJET_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Banque / prêteur (optionnel)">
+              <input
+                className={inputCls}
+                value={form.banquePreteuse}
+                onChange={(e) => setField("banquePreteuse", e.target.value)}
+                placeholder="ex. CIC"
+              />
+            </Field>
+          </div>
+
+          {prets.map((pret, index) => (
+            <div key={index} className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-emerald-900">Prêt {index + 1}</h3>
+                {prets.length > 1 ? (
+                  <button
+                    type="button"
+                    className="text-slate-500 hover:text-red-600"
+                    onClick={() => setPrets((prev) => prev.filter((_, i) => i !== index))}
+                    aria-label="Supprimer ce prêt"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <Field label="Nature de prêt">
+                  <select
+                    className={inputCls}
+                    value={pret.nature}
+                    onChange={(e) => setPret(index, "nature", e.target.value)}
+                  >
+                    {NATURE_PRET_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Capital restant dû (€)">
+                  <input
+                    className={inputCls}
+                    inputMode="decimal"
+                    value={pret.capitalRestant}
+                    onChange={(e) => setPret(index, "capitalRestant", e.target.value)}
+                  />
+                </Field>
+                <Field label="Taux (%)">
+                  <input
+                    className={inputCls}
+                    inputMode="decimal"
+                    value={pret.taux}
+                    onChange={(e) => setPret(index, "taux", e.target.value)}
+                  />
+                </Field>
+                <Field label="Durée restante (mois)">
+                  <input
+                    className={inputCls}
+                    inputMode="numeric"
+                    value={pret.dureeRestante}
+                    onChange={(e) => setPret(index, "dureeRestante", e.target.value)}
+                  />
+                </Field>
+                <Field label="Différé d'amortissement (mois)">
+                  <input
+                    className={inputCls}
+                    inputMode="numeric"
+                    value={pret.dureeDiffere}
+                    onChange={(e) => setPret(index, "dureeDiffere", e.target.value)}
+                  />
+                </Field>
+              </div>
+            </div>
+          ))}
+
+          <Button type="button" size="sm" variant="outline" onClick={() => setPrets((prev) => [...prev, EMPTY_PRET()])}>
+            <Plus className="w-4 h-4" /> Ajouter un prêt
+          </Button>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">4. Simulation (couvertures)</h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <Field label="Quotité (%)">
+              <input
+                className={inputCls}
+                inputMode="numeric"
+                value={form.quotite}
+                onChange={(e) => setField("quotite", e.target.value)}
+              />
+            </Field>
+            <Field label="Franchise">
+              <select
+                className={inputCls}
+                value={form.franchise}
+                onChange={(e) => setField("franchise", e.target.value)}
+              >
+                <option value="30">30 j</option>
+                <option value="60">60 j</option>
+                <option value="90">90 j</option>
+                <option value="180">180 j</option>
+              </select>
+            </Field>
+            <Field label="Autres crédits immobiliers (Lemoine)">
+              <label className="inline-flex items-center gap-2 h-[42px] text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.autresCreditsOui}
+                  onChange={(e) => setField("autresCreditsOui", e.target.checked)}
+                />
+                Oui
+              </label>
+            </Field>
+            {form.autresCreditsOui ? (
+              <Field label="Capitaux restants autres crédits (€)">
+                <input
+                  className={inputCls}
+                  inputMode="decimal"
+                  value={form.encoursImmobilierAssure}
+                  onChange={(e) => setField("encoursImmobilierAssure", e.target.value)}
+                />
+              </Field>
+            ) : null}
           </div>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-5">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
-              Données client (= formulaire site)
-            </h2>
-            <p className="text-xs text-slate-500 mt-1">
-              Uniquement ce que tu demandes au client. Pas de poids / taille. Plus tard : prérempli depuis le dossier CRM.
-            </p>
-          </div>
-
-          <div>
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-2">Assuré</h3>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <Field label="Civilité">
-                <select className={inputCls} value={form.civilite} onChange={(e) => setField("civilite", e.target.value)}>
-                  <option value="Monsieur">Monsieur</option>
-                  <option value="Madame">Madame</option>
-                </select>
-              </Field>
-              <Field label="Prénom">
-                <input className={inputCls} value={form.prenom} onChange={(e) => setField("prenom", e.target.value)} />
-              </Field>
-              <Field label="Nom">
-                <input className={inputCls} value={form.nom} onChange={(e) => setField("nom", e.target.value)} />
-              </Field>
-              <Field label="Date de naissance">
-                <input
-                  type="date"
-                  className={inputCls}
-                  value={form.dateNaissance}
-                  onChange={(e) => setField("dateNaissance", e.target.value)}
-                />
-              </Field>
-              <Field label="Email">
-                <input
-                  type="email"
-                  className={inputCls}
-                  value={form.email}
-                  onChange={(e) => setField("email", e.target.value)}
-                />
-              </Field>
-              <Field label="Téléphone">
-                <input
-                  className={inputCls}
-                  value={form.telephone}
-                  onChange={(e) => setField("telephone", e.target.value)}
-                />
-              </Field>
-              <Field label="Qualité">
-                <select className={inputCls} value={form.qualite} onChange={(e) => setField("qualite", e.target.value)}>
-                  {QUALITE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Code postal de résidence">
-                <input
-                  className={monoCls}
-                  value={form.codePostal}
-                  onChange={(e) => setField("codePostal", e.target.value)}
-                />
-              </Field>
-              <Field label="Statut professionnel" hint={statutHint}>
-                <select
-                  className={inputCls}
-                  value={form.statutPro}
-                  onChange={(e) => setField("statutPro", e.target.value)}
-                >
-                  {STATUT_PRO_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Métier exercé" className="sm:col-span-2">
-                <input
-                  className={inputCls}
-                  value={form.profession}
-                  onChange={(e) => setField("profession", e.target.value)}
-                  placeholder="ex. Comptable"
-                />
-              </Field>
-              <Field label="Déplacements pro">
-                <select
-                  className={inputCls}
-                  value={form.deplacementsPro}
-                  onChange={(e) => setField("deplacementsPro", e.target.value)}
-                >
-                  {DEPLACEMENTS_PRO_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Profession manuelle">
-                <label className="inline-flex items-center gap-2 h-[42px] text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.professionManuelle}
-                    onChange={(e) => setField("professionManuelle", e.target.checked)}
-                  />
-                  Oui
-                </label>
-              </Field>
-              <Field label="Travaux en hauteur">
-                <label className="inline-flex items-center gap-2 h-[42px] text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.travauxHauteur}
-                    onChange={(e) => setField("travauxHauteur", e.target.checked)}
-                  />
-                  Oui
-                </label>
-              </Field>
-              <Field label="Fumeur">
-                <label className="inline-flex items-center gap-2 h-[42px] text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.fumeur}
-                    onChange={(e) => setField("fumeur", e.target.checked)}
-                  />
-                  Oui
-                </label>
-              </Field>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-2">Prêt</h3>
-            <p className="text-[11px] text-slate-500 mb-2">
-              Capital restant = formulaire client. Durée / taux = en général lus sur l’offre de prêt / tableau
-              d’amortissement (pas saisis par le client sur le site).
-            </p>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <Field label="Capital restant dû (€)">
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={form.capitalRestant}
-                  onChange={(e) => setField("capitalRestant", e.target.value)}
-                />
-              </Field>
-              <Field label="Banque prêteuse">
-                <input
-                  className={inputCls}
-                  value={form.banquePreteuse}
-                  onChange={(e) => setField("banquePreteuse", e.target.value)}
-                />
-              </Field>
-              <Field label="Date 1ère échéance">
-                <input
-                  type="month"
-                  className={inputCls}
-                  value={form.datePremiereEcheance}
-                  onChange={(e) => setField("datePremiereEcheance", e.target.value)}
-                />
-              </Field>
-              <Field label="Durée restante (mois)" hint="Souvent depuis le tableau d’amortissement">
-                <input
-                  className={inputCls}
-                  inputMode="numeric"
-                  value={form.dureeRestante}
-                  onChange={(e) => setField("dureeRestante", e.target.value)}
-                />
-              </Field>
-              <Field label="Taux (%)" hint="Souvent depuis l’offre de prêt">
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={form.taux}
-                  onChange={(e) => setField("taux", e.target.value)}
-                />
-              </Field>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button
-              type="button"
-              size="sm"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                void runCall("sample", () =>
-                  adminFetch("/api/admin/sesame-lab/sample-payload", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(buildBody()),
-                  }),
-                )
-              }
-            >
-              Voir payload construit
-            </Button>
+        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Actions</h2>
+          <p className="text-xs text-slate-500">
+            Comme « Suivant » / propositions dans Kérys : le serveur choisit offre + produit automatiquement, puis appelle
+            Sésame.
+          </p>
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
@@ -721,7 +654,7 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               }
             >
               {busy === "tarif" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              POST tarification
+              Simuler (tarification)
             </Button>
             <Button
               type="button"
@@ -739,89 +672,29 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               }
             >
               {busy === "devis" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              POST devis (PDF)
+              Exporter le devis (PDF)
             </Button>
             {lastResult?.pdfBase64 ? (
               <Button type="button" size="sm" variant="ghost" onClick={downloadPdf}>
                 <Download className="w-4 h-4" /> Télécharger PDF
               </Button>
             ) : null}
-            <Button type="button" size="sm" variant="ghost" onClick={() => setForm(EMPTY_FORM)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setForm(EMPTY_FORM);
+                setPrets([EMPTY_PRET()]);
+              }}
+            >
               Réinitialiser
             </Button>
           </div>
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Parcours détaillé</h2>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                void runCall("connexion", () =>
-                  adminFetch("/api/admin/sesame-lab/connexion", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: "{}",
-                  }),
-                )
-              }
-            >
-              {busy === "connexion" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              POST connexion
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                void runCall("creation", () =>
-                  adminFetch("/api/admin/sesame-lab/dossier/creation", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(buildBody()),
-                  }),
-                )
-              }
-            >
-              {busy === "creation" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              POST création parcours
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs text-slate-600">
-              idDossier
-              <input
-                className="mt-1 block w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
-                value={idDossier}
-                onChange={(e) => setIdDossier(e.target.value)}
-              />
-            </label>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={Boolean(busy) || !idDossier.trim()}
-              onClick={() =>
-                void runCall("ouverture", () =>
-                  adminFetch("/api/admin/sesame-lab/dossier/ouverture", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ idDossier: Number(idDossier) }),
-                  }),
-                )
-              }
-            >
-              {busy === "ouverture" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              POST ouverture
-            </Button>
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Dernier résultat</h2>
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Résultat</h2>
           {lastResult ? (
             <>
               <div className="flex flex-wrap gap-2 text-xs">
@@ -830,29 +703,13 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                 {lastResult.durationMs != null ? (
                   <span className="text-slate-600">{lastResult.durationMs} ms</span>
                 ) : null}
-                {lastResult.requestId ? (
-                  <span className="font-mono text-slate-500">requestId {lastResult.requestId}</span>
-                ) : null}
               </div>
+              {lastResult.catalogAuto?.note ? (
+                <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                  {lastResult.catalogAuto.note}
+                </p>
+              ) : null}
               {lastResult.error ? <p className="text-sm text-red-600">{lastResult.error}</p> : null}
-              {(() => {
-                const lien =
-                  lastResult.data &&
-                  typeof lastResult.data === "object" &&
-                  (lastResult.data as any).lienSesame
-                    ? String((lastResult.data as any).lienSesame)
-                    : null;
-                return lien ? (
-                  <a
-                    href={lien}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-semibold text-blue-700 underline break-all"
-                  >
-                    Ouvrir lienSesame
-                  </a>
-                ) : null;
-              })()}
               <JsonBlock
                 value={
                   lastResult.pdfBase64
@@ -862,15 +719,13 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               />
             </>
           ) : (
-            <p className="text-sm text-slate-500">Aucun appel pour l&apos;instant.</p>
+            <p className="text-sm text-slate-500">Remplis le dossier puis lance une simulation.</p>
           )}
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Journal des appels</h2>
-          {!status?.recentCalls?.length ? (
-            <p className="text-sm text-slate-500">Vide.</p>
-          ) : (
+        {status?.recentCalls?.length ? (
+          <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Journal</h2>
             <ul className="divide-y divide-slate-100 text-xs font-mono">
               {status.recentCalls.map((c, i) => (
                 <li key={`${c.at}-${i}`} className="py-2 flex flex-wrap gap-x-3 gap-y-1">
@@ -879,13 +734,11 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     {c.method} {c.path} → {c.status}
                   </span>
                   <span className="text-slate-500">{c.durationMs}ms</span>
-                  {c.requestId ? <span className="text-slate-400">{c.requestId}</span> : null}
-                  {c.error ? <span className="text-red-500 truncate max-w-full">{c.error}</span> : null}
                 </li>
               ))}
             </ul>
-          )}
-        </section>
+          </section>
+        ) : null}
       </main>
     </div>
   );
