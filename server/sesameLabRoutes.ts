@@ -113,6 +113,7 @@ export async function autoResolveCatalogCodes(
   }
 
   if (!codeProduit || !codeBareme) {
+    // On tente de résoudre un produit (utile pour devis). Tarification peut s'en passer.
     const produits = await sesameFetchJson({
       method: "GET",
       path: `/referentiel/offre/${encodeURIComponent(codeOffre)}/produit`,
@@ -164,21 +165,32 @@ export async function autoResolveCatalogCodes(
     if (!codeBareme) {
       const bars: string[] = [];
       walkCollect(produits.data, ["codeBareme", "bareme"], bars);
-      codeBareme = bars[0] || "3";
-      resolved.codeBareme = codeBareme;
+      codeBareme = bars[0] || "";
+      if (codeBareme) resolved.codeBareme = codeBareme;
     }
   }
 
   if (!codeProduit) {
-    throw new Error(
-      `Offre trouvée (${codeOffre}) mais aucun code produit dans le référentiel. Contacte Kereis / vérifie l'habilitation.`,
+    console.warn(
+      "[SesameLab] Aucun codeProduit résolu — tarification sur tous les produits de l'offre ; devis nécessitera un produit.",
     );
   }
 
   next.codeOffre = codeOffre;
-  next.codeProduit = codeProduit;
-  next.codeBareme = codeBareme || "3";
-  next.idCommissionnement = idCommissionnement || "0";
+  // Produit résolu pour le devis ; en tarification on omet produitsATarifer → toutes les propositions.
+  if (codeProduit) next.codeProduit = codeProduit;
+  // Ne jamais pousser codeBareme + idCommissionnement ensemble.
+  const comm = pickString(idCommissionnement);
+  if (comm && comm !== "0") {
+    next.idCommissionnement = comm;
+    delete next.codeBareme;
+  } else if (codeBareme) {
+    next.codeBareme = codeBareme;
+    delete next.idCommissionnement;
+  } else {
+    delete next.codeBareme;
+    delete next.idCommissionnement;
+  }
   if (next.fraisDistribution == null) {
     next.fraisDistribution = Number(process.env.SESAME_DEFAULT_FRAIS_DISTRIBUTION || 0);
   }
@@ -191,7 +203,7 @@ export async function autoResolveCatalogCodes(
   return { overrides: next, resolved, note };
 }
 
-async function buildPayloadFromRequest(req: Request) {
+async function buildPayloadFromRequest(req: Request, mode: "tarification" | "devis" = "tarification") {
   const rawOverrides =
     (req.body?.overrides && typeof req.body.overrides === "object" ? req.body.overrides : null) ||
     {};
@@ -199,19 +211,29 @@ async function buildPayloadFromRequest(req: Request) {
   const body =
     req.body?.payload ||
     (req.body?.codeOffre && Array.isArray(req.body?.assures) ? req.body : null) ||
-    buildLabSamplePayload(overrides);
+    buildLabSamplePayload(overrides, { mode });
   return { body, resolved, note, overrides };
 }
 
-/** Payload aligné saisie Kérys (codes techniques injectés en coulisses). */
-export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
+/** Payload aligné saisie Kérys + règles API PartenaireTarification v2026.7.4. */
+export function buildLabSamplePayload(
+  overrides?: Record<string, unknown>,
+  opts?: { mode?: "tarification" | "devis" },
+) {
   const o = overrides || {};
+  const mode = opts?.mode || "tarification";
   const codeOffre = String(o.codeOffre || process.env.SESAME_DEFAULT_CODE_OFFRE || "").trim();
   const codeProduit = String(o.codeProduit || process.env.SESAME_DEFAULT_CODE_PRODUIT || "").trim();
-  const codeBareme = String(o.codeBareme || process.env.SESAME_DEFAULT_CODE_BAREME || "3").trim();
-  const idCommissionnement = String(
-    o.idCommissionnement ?? process.env.SESAME_DEFAULT_ID_COMMISSIONNEMENT ?? "0",
+  // codeBareme et idCommissionnement sont MUTUELLEMENT EXCLUSIFS (API). Préférer idCommissionnement.
+  const idCommissionnementRaw = String(
+    o.idCommissionnement ?? process.env.SESAME_DEFAULT_ID_COMMISSIONNEMENT ?? "",
   ).trim();
+  // "0" n'est pas un id commissionnement Kereis valide → on omet (frais à 0 restent via fraisDistribution).
+  const idCommissionnement =
+    idCommissionnementRaw && idCommissionnementRaw !== "0" ? idCommissionnementRaw : "";
+  const codeBareme = idCommissionnement
+    ? ""
+    : String(o.codeBareme || process.env.SESAME_DEFAULT_CODE_BAREME || "").trim();
   const fraisDistribution = Number(
     o.fraisDistribution ?? process.env.SESAME_DEFAULT_FRAIS_DISTRIBUTION ?? 0,
   );
@@ -244,22 +266,35 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
             idTypePret: Number(o.idTypePret ?? 51),
             idTypeAmortissement: Number(o.idTypeAmortissement ?? 100),
             idPeriodiciteEcheancePret: Number(o.idPeriodiciteEcheancePret ?? 3),
-            dureeDiffere: Number(o.dureeDiffere ?? 0),
+            differe: Number(o.differe ?? o.dureeDiffere ?? 0),
           },
         ];
 
   const prets = pretsInput.map((p, i) => {
     const referencePret = String(p.referencePret || `PRET${String(i + 1).padStart(3, "0")}`);
-    return {
+    const idTypeAmortissement = Number(p.idTypeAmortissement ?? 100);
+    // API : « differe » obligatoire si idTypeAmortissement != 4 (crédit-bail)
+    const differe = Number(p.differe ?? p.dureeDiffere ?? 0);
+    const pret: Record<string, unknown> = {
       duree: Number(p.duree ?? p.dureeRestante ?? 240),
       idPeriodiciteEcheancePret: Number(p.idPeriodiciteEcheancePret ?? 3),
-      idTypeAmortissement: Number(p.idTypeAmortissement ?? 100),
+      idTypeAmortissement,
       idTypePret: Number(p.idTypePret ?? 51),
       montant: Number(p.montant ?? p.capitalRestant ?? 0),
       referencePret,
       taux: Number(p.taux ?? 0),
-      ...(Number(p.dureeDiffere ?? 0) > 0 ? { dureeDiffere: Number(p.dureeDiffere) } : {}),
     };
+    if (idTypeAmortissement !== 4) {
+      pret.differe = Number.isFinite(differe) ? differe : 0;
+      // idNatureDiffere obligatoire si differe non nul (1=total, 2=partiel — UI Kérys « Partiel »)
+      if (Number(pret.differe) > 0) {
+        pret.idNatureDiffere = Number(p.idNatureDiffere ?? 2);
+      }
+    } else {
+      if (p.loyer != null) pret.loyer = Number(p.loyer);
+      if (p.valeurResiduelle != null) pret.valeurResiduelle = Number(p.valeurResiduelle);
+    }
+    return pret;
   });
 
   const couvertures = prets.map((p) => ({
@@ -276,16 +311,13 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
 
   const assure: Record<string, unknown> = {
     civilite,
-    codeBareme,
     codePostalResidenceFiscale: codePostal,
-    codeProduit,
     couvertures,
     dateNaissance,
     encoursImmobilierAssure: Number(o.encoursImmobilierAssure ?? 0),
     fraisDistribution,
     fumeur,
     idCategorieParticuliere: Number(o.idCategorieParticuliere ?? 0),
-    idCommissionnement,
     idQualite: Number(o.idQualite ?? 3),
     idSportsARisque: [],
     nom,
@@ -300,8 +332,23 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
       deplacementsProfessionnels: o.deplacementsProfessionnels === true,
     },
     referenceAssure: String(o.referenceAssure || "ASSURE001"),
-    produitsATarifer: [{ codeBareme, codeProduit, idCommissionnement }],
   };
+
+  // Tarification : sans produitsATarifer → tous les produits de l'offre (comme les propositions Kérys).
+  // Si un produit est ciblé : codeProduit seul, + idCommissionnement OU codeBareme (jamais les deux).
+  if (mode === "tarification") {
+    if (codeProduit && o.forceProduitUnique === true) {
+      const produit: Record<string, unknown> = { codeProduit };
+      if (idCommissionnement) produit.idCommissionnement = idCommissionnement;
+      else if (codeBareme) produit.codeBareme = codeBareme;
+      assure.produitsATarifer = [produit];
+    }
+  } else {
+    // Devis : produit sur l'assuré (pas produitsATarifer)
+    if (codeProduit) assure.codeProduit = codeProduit;
+    if (idCommissionnement) assure.idCommissionnement = idCommissionnement;
+    else if (codeBareme) assure.codeBareme = codeBareme;
+  }
 
   return {
     codeOffre,
@@ -328,8 +375,20 @@ function handleLabError(res: Response, err: any) {
 function summarizePayload(body: any) {
   return {
     codeOffre: body?.codeOffre,
-    codeProduit: body?.assures?.[0]?.codeProduit,
-    codeBareme: body?.assures?.[0]?.codeBareme,
+    codeProduit: body?.assures?.[0]?.codeProduit || body?.assures?.[0]?.produitsATarifer?.[0]?.codeProduit,
+    codeBareme: body?.assures?.[0]?.codeBareme || body?.assures?.[0]?.produitsATarifer?.[0]?.codeBareme,
+    idCommissionnement:
+      body?.assures?.[0]?.idCommissionnement || body?.assures?.[0]?.produitsATarifer?.[0]?.idCommissionnement,
+    produitsATarifer: body?.assures?.[0]?.produitsATarifer,
+    pret0: body?.prets?.[0]
+      ? {
+          differe: body.prets[0].differe,
+          idTypeAmortissement: body.prets[0].idTypeAmortissement,
+          montant: body.prets[0].montant,
+          duree: body.prets[0].duree,
+          taux: body.prets[0].taux,
+        }
+      : null,
     assures: Array.isArray(body?.assures) ? body.assures.length : 0,
     prets: Array.isArray(body?.prets) ? body.prets.length : 0,
     codeEntite: body?.conseiller?.codeEntiteDistributeur,
@@ -358,7 +417,7 @@ export function registerSesameLabRoutes(app: Express) {
   app.post("/api/admin/sesame-lab/tarification", async (req: Request, res: Response) => {
     try {
       assertSesameLabAllowed();
-      const { body, resolved, note } = await buildPayloadFromRequest(req);
+      const { body, resolved, note } = await buildPayloadFromRequest(req, "tarification");
       const echeancier = String(req.query.echeancier || req.body?.echeancier || "").trim() || undefined;
       const result = await sesameFetchJson({
         method: "POST",
@@ -395,14 +454,18 @@ export function registerSesameLabRoutes(app: Express) {
   app.post("/api/admin/sesame-lab/devis", async (req: Request, res: Response) => {
     try {
       assertSesameLabAllowed();
-      const { body, resolved, note } = await buildPayloadFromRequest(req);
+      const { body, resolved, note } = await buildPayloadFromRequest(req, "devis");
+      if (!body?.assures?.[0]?.codeProduit) {
+        return res.status(400).json({
+          ok: false,
+          error:
+            "Aucun code produit résolu pour le devis. Vérifie que l'offre a des produits dans le référentiel.",
+          catalogAuto: { resolved, note },
+        });
+      }
+      // Devis : pas de produitsATarifer
       if (Array.isArray(body.assures)) {
         for (const a of body.assures) {
-          if (a.produitsATarifer?.[0]) {
-            a.codeProduit = a.codeProduit || a.produitsATarifer[0].codeProduit;
-            a.codeBareme = a.codeBareme || a.produitsATarifer[0].codeBareme;
-            a.idCommissionnement = a.idCommissionnement || a.produitsATarifer[0].idCommissionnement;
-          }
           delete a.produitsATarifer;
         }
       }
@@ -463,7 +526,7 @@ export function registerSesameLabRoutes(app: Express) {
   app.post("/api/admin/sesame-lab/dossier/creation", async (req: Request, res: Response) => {
     try {
       assertSesameLabAllowed();
-      const { body: sample, resolved, note } = await buildPayloadFromRequest(req);
+      const { body: sample, resolved, note } = await buildPayloadFromRequest(req, "devis");
       const conseiller = { ...defaultConseiller(), ...(req.body?.conseiller || {}) };
       const body = req.body?.payload || {
         ...sample,
@@ -542,7 +605,8 @@ export function registerSesameLabRoutes(app: Express) {
   app.post("/api/admin/sesame-lab/sample-payload", async (req, res) => {
     try {
       assertSesameLabAllowed();
-      const { body, resolved, note } = await buildPayloadFromRequest(req);
+      const mode = String(req.body?.mode || "tarification") === "devis" ? "devis" : "tarification";
+      const { body, resolved, note } = await buildPayloadFromRequest(req, mode);
       res.json({ ok: true, payload: body, catalogAuto: { resolved, note } });
     } catch (err: any) {
       handleLabError(res, err);

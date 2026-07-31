@@ -225,7 +225,6 @@ function formToOverrides(form: LabForm, prets: PretForm[]): Record<string, unkno
     quotite: Number(form.quotite || 100),
     franchise: Number(form.franchise || 90),
     fraisDistribution: 0,
-    idCommissionnement: "0",
     encoursImmobilierAssure: form.autresCreditsOui
       ? Number(form.encoursImmobilierAssure || 0)
       : 0,
@@ -233,12 +232,14 @@ function formToOverrides(form: LabForm, prets: PretForm[]): Record<string, unkno
       .filter((p) => p.capitalRestant.trim())
       .map((p) => {
         const nature = NATURE_PRET_OPTIONS.find((n) => n.value === p.nature);
+        const differe = Number(p.dureeDiffere || 0);
         return {
           capitalRestant: Number(p.capitalRestant),
           montant: Number(p.capitalRestant),
           taux: Number(p.taux || 0),
           duree: Number(p.dureeRestante || 240),
-          dureeDiffere: Number(p.dureeDiffere || 0),
+          differe,
+          ...(differe > 0 ? { idNatureDiffere: 2 } : {}),
           idTypePret: nature?.idTypePret ?? 51,
           idPeriodiciteEcheancePret: 3,
           idTypeAmortissement: 100,
