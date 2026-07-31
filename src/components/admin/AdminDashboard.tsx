@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Dossier, UserInfo } from "../../types";
-import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, Upload, Users, Building2, Menu, X, Trash2 } from "lucide-react";
+import { LogOut, Search, MessageSquareText, Mail, Send, Eye, FileText, Download, CheckCircle, AlertTriangle, CalendarClock, ListTodo, Bell, Sparkles, FlaskConical, Upload, Users, Building2, Menu, X, Trash2 } from "lucide-react";
 import { showToast } from "../../lib/toast";
 import { getApiUrl } from "../../lib/utils";
 import { getAccessToken } from "../../lib/auth";
@@ -38,13 +38,13 @@ export default function AdminDashboard({
   onLogout,
   onOpenApporteurs,
   onOpenConseillersClub,
-  onOpenClientLandingPreview,
+  onOpenSesameLab,
 }: {
   user: UserInfo;
   onLogout: () => void;
   onOpenApporteurs?: () => void;
   onOpenConseillersClub?: () => void;
-  onOpenClientLandingPreview?: () => void;
+  onOpenSesameLab?: () => void;
 }) {
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [search, setSearch] = useState("");
@@ -1213,6 +1213,8 @@ export default function AdminDashboard({
         return "Relance pièces manquantes";
       case "FOLLOWUP_NO_REPLY":
         return "Relance sans réponse";
+      case "FOLLOWUP_CONSEILLER_DECISION":
+        return "Relance conseiller (attente décision)";
       case "INTERNAL_ALERT":
         return "Alerte interne";
       default:
@@ -1601,9 +1603,12 @@ export default function AdminDashboard({
         </div>
         {/* Desktop actions */}
         <div className="hidden lg:flex items-center gap-4">
-          {user.role === "ADMIN" && onOpenClientLandingPreview ? (
-            <Button type="button" variant="ghost" size="sm" onClick={onOpenClientLandingPreview}>
-              <Sparkles className="w-4 h-4" /> Preview site client
+          {user.role === "ADMIN" && onOpenSesameLab ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onOpenSesameLab} title="Environnement test Kereis / Sésame R1">
+              <FlaskConical className="w-4 h-4 text-amber-600" /> Lab Sésame (test)
+              <span className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-800">
+                ENV TEST
+              </span>
             </Button>
           ) : null}
           {user.role === "ADMIN" && onOpenApporteurs ? (
@@ -1656,13 +1661,16 @@ export default function AdminDashboard({
                 >
                   <CalendarClock className="w-4 h-4" /> Lancer les relances
                 </button>
-                {user.role === "ADMIN" && onOpenClientLandingPreview ? (
+                {user.role === "ADMIN" && onOpenSesameLab ? (
                   <button
                     type="button"
-                    onClick={() => { setMobileMenuOpen(false); onOpenClientLandingPreview(); }}
+                    onClick={() => { setMobileMenuOpen(false); onOpenSesameLab(); }}
                     className="flex items-center gap-2 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-100 rounded-lg text-left"
                   >
-                    <Sparkles className="w-4 h-4" /> Preview site client
+                    <FlaskConical className="w-4 h-4 text-amber-600" /> Lab Sésame (test)
+                    <span className="ml-auto rounded px-1.5 py-0.5 text-[10px] font-bold uppercase bg-amber-100 text-amber-800">
+                      TEST
+                    </span>
                   </button>
                 ) : null}
                 {user.role === "ADMIN" && onOpenApporteurs ? (

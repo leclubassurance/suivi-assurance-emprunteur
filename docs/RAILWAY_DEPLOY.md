@@ -81,6 +81,8 @@ Dans les **logs de déploiement** au démarrage, cherchez :
 
 Voir [FIREBASE_CONFIGURATION_ASSURANCE.md](./FIREBASE_CONFIGURATION_ASSURANCE.md) pour `FIREBASE_*`, `DATA_STORE=firestore`, compte de service Google, etc.
 
+Lab Sésame (test Kereis R1) : variables `SESAME_*` — voir [SESAME_LAB.md](./SESAME_LAB.md).
+
 ## Si aucun déploiement ne part après un push GitHub
 
 Le webhook Railway ↔ GitHub est souvent coupé. Trois solutions (par ordre de simplicité) :

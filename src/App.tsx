@@ -25,6 +25,7 @@ import AdminLogin from './components/admin/AdminLogin';
 import AdminDashboard from './components/admin/AdminDashboard';
 import AdminApporteursPanel from './components/admin/AdminApporteursPanel';
 import AdminClientLandingPreview from './components/admin/AdminClientLandingPreview';
+import AdminSesameLab from './components/admin/AdminSesameLab';
 import ClientPortalPage from './components/portal/ClientPortalPage';
 import ClientPortalDemoPage from './components/portal/ClientPortalDemoPage';
 import ApporteurPortalPage from './components/portal/ApporteurPortalPage';
@@ -124,6 +125,7 @@ export default function App() {
   const [conseillerLoginToken, setConseillerLoginToken] = useState<string | null>(null);
   const [adminPartnersView, setAdminPartnersView] = useState<'none' | 'apporteurs' | 'conseillers'>('none');
   const [showClientLandingPreview, setShowClientLandingPreview] = useState(false);
+  const [showSesameLab, setShowSesameLab] = useState(false);
   const [referralProfile, setReferralProfile] = useState<LandingReferralProfile | null>(null);
 
   const goHome = () => {
@@ -136,6 +138,7 @@ export default function App() {
     setConseillerLoginToken(null);
     setAdminPartnersView('none');
     setShowClientLandingPreview(false);
+    setShowSesameLab(false);
     setCurrentStep(Step.LANDING);
     window.history.pushState({}, '', '/');
   };
@@ -159,6 +162,7 @@ export default function App() {
       if (path === "/admin/apporteurs" || path === "/admin/reseau") {
         setAdminPartnersView('apporteurs');
         setShowClientLandingPreview(false);
+        setShowSesameLab(false);
         setPortalDemo(false);
         setApporteurPortalToken(null);
         setPortalToken(null);
@@ -167,6 +171,16 @@ export default function App() {
       if (path === "/admin/conseillers-club" || path === "/admin/conseillers") {
         setAdminPartnersView('conseillers');
         setShowClientLandingPreview(false);
+        setShowSesameLab(false);
+        setPortalDemo(false);
+        setApporteurPortalToken(null);
+        setPortalToken(null);
+        return;
+      }
+      if (path === "/admin/lab-sesame" || path === "/admin/sesame-lab") {
+        setShowSesameLab(true);
+        setShowClientLandingPreview(false);
+        setAdminPartnersView('none');
         setPortalDemo(false);
         setApporteurPortalToken(null);
         setPortalToken(null);
@@ -174,6 +188,7 @@ export default function App() {
       }
       if (path === "/admin/preview-site-client" || path === "/admin/preview-landing-client") {
         setShowClientLandingPreview(true);
+        setShowSesameLab(false);
         setAdminPartnersView('none');
         setPortalDemo(false);
         setApporteurPortalToken(null);
@@ -181,6 +196,7 @@ export default function App() {
         return;
       }
       setShowClientLandingPreview(false);
+      setShowSesameLab(false);
       setAdminPartnersView('none');
       if (path === "/demo/suivi" || path === "/apercu-suivi-client") {
         setPortalDemo(true);
@@ -500,7 +516,7 @@ export default function App() {
 
   const handleLogin = (user: UserInfo) => {
     setCurrentUser(user);
-    if ((adminPartnersView !== 'none' || showClientLandingPreview) && user.role === 'ADMIN') {
+    if ((adminPartnersView !== 'none' || showClientLandingPreview || showSesameLab) && user.role === 'ADMIN') {
       goToStep(Step.ADMIN_DASHBOARD);
       return;
     }
@@ -511,10 +527,19 @@ export default function App() {
     }
   };
 
-  const openAdminClientLandingPreview = () => {
-    setShowClientLandingPreview(true);
+  const closeAdminClientLandingPreview = () => {
+    setShowClientLandingPreview(false);
+    window.history.pushState({}, '', '/');
+    if (currentUser) {
+      goToStep(currentUser.role === 'ADMIN' ? Step.ADMIN_DASHBOARD : Step.CONSEILLER_DASHBOARD);
+    }
+  };
+
+  const openAdminSesameLab = () => {
+    setShowSesameLab(true);
+    setShowClientLandingPreview(false);
     setAdminPartnersView('none');
-    window.history.pushState({}, '', '/admin/preview-site-client');
+    window.history.pushState({}, '', '/admin/lab-sesame');
     if (currentUser?.role === 'ADMIN') {
       goToStep(Step.ADMIN_DASHBOARD);
     } else {
@@ -522,8 +547,8 @@ export default function App() {
     }
   };
 
-  const closeAdminClientLandingPreview = () => {
-    setShowClientLandingPreview(false);
+  const closeAdminSesameLab = () => {
+    setShowSesameLab(false);
     window.history.pushState({}, '', '/');
     if (currentUser) {
       goToStep(currentUser.role === 'ADMIN' ? Step.ADMIN_DASHBOARD : Step.CONSEILLER_DASHBOARD);
@@ -596,6 +621,13 @@ export default function App() {
 
   if (apporteurPortalToken) {
     return <ApporteurPortalPage token={apporteurPortalToken} />;
+  }
+
+  if (showSesameLab) {
+    if (!currentUser || currentUser.role !== 'ADMIN') {
+      return <AdminLogin onLogin={handleLogin} onBack={closeAdminSesameLab} />;
+    }
+    return <AdminSesameLab onBack={closeAdminSesameLab} />;
   }
 
   if (showClientLandingPreview) {
@@ -765,7 +797,7 @@ export default function App() {
             onLogout={handleLogout}
             onOpenApporteurs={openAdminApporteurs}
             onOpenConseillersClub={openAdminConseillersClub}
-            onOpenClientLandingPreview={openAdminClientLandingPreview}
+            onOpenSesameLab={openAdminSesameLab}
           />
         )}
       </main>
