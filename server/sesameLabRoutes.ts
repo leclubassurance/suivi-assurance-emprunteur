@@ -502,17 +502,22 @@ export function buildLabSamplePayload(
     : null;
 
   const couverturesFor = (opts: { quotite: number; idSportsARisque?: number[] }) =>
-    prets.map((p) => ({
-      couverture: {
+    prets.map((p) => {
+      const sports = (opts.idSportsARisque || []).filter((n) => Number.isFinite(n) && n > 0);
+      const couverture: Record<string, unknown> = {
         franchise,
         idFormule,
-        idOptions,
-        idSportsARisque: opts.idSportsARisque || [],
         quotite: opts.quotite,
-      },
-      referencePret: p.referencePret,
-      veutEtreCouvert: true,
-    }));
+      };
+      // Pas de tableaux vides : certaines validations devis R1 les rejettent en 422.
+      if (idOptions.length) couverture.idOptions = idOptions;
+      if (sports.length) couverture.idSportsARisque = sports;
+      return {
+        couverture,
+        referencePret: p.referencePret,
+        veutEtreCouvert: true,
+      };
+    });
 
   function buildAssure(src: Record<string, unknown>, index: number): Record<string, unknown> {
     const idStatutProfessionnel = Number(src.idStatutProfessionnel ?? o.idStatutProfessionnel ?? 1);
@@ -544,10 +549,12 @@ export function buildLabSamplePayload(
       fumeur: src.fumeur === true || src.fumeur === "true" || o.fumeur === true,
       idCategorieParticuliere: Number(src.idCategorieParticuliere ?? o.idCategorieParticuliere ?? 0),
       idQualite: Number(src.idQualite ?? o.idQualite ?? 3),
-      idSportsARisque,
       nom: String(src.nom || o.nom || "TEST").trim() || "TEST",
       paysResidenceFiscale: String(src.paysResidenceFiscale || o.paysResidenceFiscale || "FR"),
       prenom: String(src.prenom || o.prenom || "Lab").trim() || "Lab",
+      // IMC optionnel mais attendu sur certaines offres devis.
+      poids: Math.round(parseFrNumber(src.poids ?? o.poids, 70)),
+      taille: Math.round(parseFrNumber(src.taille ?? o.taille, 175)),
       profession: {
         idStatutProfessionnel,
         libelle: professionLibelle,
@@ -566,6 +573,8 @@ export function buildLabSamplePayload(
       },
       referenceAssure: String(src.referenceAssure || `ASSURE${String(index + 1).padStart(3, "0")}`),
     };
+    const sportsOk = idSportsARisque.filter((n) => Number.isFinite(n) && n > 0);
+    if (sportsOk.length) assure.idSportsARisque = sportsOk;
 
     // Produit : priorité au code de cet assuré (colonnes couple), sinon fallback global.
     const codeProduitAssure = String(src.codeProduit || "").trim() || codeProduit;
@@ -778,9 +787,15 @@ export function registerSesameLabRoutes(app: Express) {
           pdfBase64: result.binaryBase64,
           fileName: `sesame-devis-${body?.assures?.[0]?.codeProduit || "lab"}-${Date.now()}.pdf`,
           catalogAuto: { resolved, note },
+          requestPayloadPreview: summarizePayload(body),
         });
       }
-      res.status(502).json({ ok: false, catalogAuto: { resolved, note }, ...result });
+      res.status(result.status >= 400 && result.status < 600 ? result.status : 502).json({
+        ok: false,
+        catalogAuto: { resolved, note },
+        requestPayloadPreview: summarizePayload(body),
+        ...result,
+      });
     } catch (err: any) {
       handleLabError(res, err);
     }

@@ -1994,12 +1994,19 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
             <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Journal</h2>
             <ul className="divide-y divide-slate-100 text-xs font-mono">
               {status.recentCalls.map((c, i) => (
-                <li key={`${c.at}-${i}`} className="py-2 flex flex-wrap gap-x-3 gap-y-1">
-                  <span className="text-slate-400">{c.at.slice(11, 19)}</span>
-                  <span className={c.ok ? "text-emerald-700" : "text-red-600"}>
-                    {c.method} {c.path} → {c.status}
-                  </span>
-                  <span className="text-slate-500">{c.durationMs}ms</span>
+                <li key={`${c.at}-${i}`} className="py-2 space-y-0.5">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    <span className="text-slate-400">{c.at.slice(11, 19)}</span>
+                    <span className={c.ok ? "text-emerald-700" : "text-red-600"}>
+                      {c.method} {c.path} → {c.status}
+                    </span>
+                    <span className="text-slate-500">{c.durationMs}ms</span>
+                  </div>
+                  {!c.ok && c.error ? (
+                    <p className="text-[11px] text-red-600/90 font-sans whitespace-pre-wrap break-words">
+                      {c.error}
+                    </p>
+                  ) : null}
                 </li>
               ))}
             </ul>

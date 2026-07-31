@@ -84,6 +84,31 @@ export function assertSesameLabAllowed(): void {
 
 const PARTENAIRES_PREFIX = "/sesame/public/secure/services/partenaires";
 
+function formatSesameErrorMessage(status: number, payload: any, rawText?: string): string {
+  if (payload && typeof payload === "object") {
+    const parts: string[] = [];
+    const main = payload.message || payload.error || payload.title || payload.detail;
+    if (main) parts.push(String(main));
+    const errors = payload.errors || payload.violations || payload.fieldErrors;
+    if (Array.isArray(errors) && errors.length) {
+      parts.push(
+        errors
+          .slice(0, 8)
+          .map((e: any) => {
+            if (typeof e === "string") return e;
+            const field = e?.field || e?.path || e?.property || e?.code || "";
+            const msg = e?.message || e?.defaultMessage || e?.msg || JSON.stringify(e);
+            return field ? `${field}: ${msg}` : String(msg);
+          })
+          .join(" · "),
+      );
+    }
+    if (parts.length) return parts.join(" — ");
+  }
+  if (rawText?.trim()) return rawText.trim().slice(0, 500);
+  return `HTTP ${status}`;
+}
+
 export async function sesameFetchJson<T = unknown>(params: {
   method: "GET" | "POST";
   path: string;
@@ -154,9 +179,7 @@ export async function sesameFetchJson<T = unknown>(params: {
       data = text ? { raw: text.slice(0, 2000) } : null;
     }
 
-    const errMsg =
-      (data && typeof data === "object" && (data.message || data.error)) ||
-      (!res.ok ? `HTTP ${res.status}` : undefined);
+    const errMsg = !res.ok ? formatSesameErrorMessage(res.status, data, text) : undefined;
 
     return {
       ok: res.ok,
@@ -165,7 +188,7 @@ export async function sesameFetchJson<T = unknown>(params: {
       requestId: requestId || (data && data.requestId) || undefined,
       data: data as T,
       contentType,
-      error: errMsg ? String(errMsg) : undefined,
+      error: errMsg,
     };
   } catch (err: any) {
     const durationMs = Date.now() - started;
@@ -222,29 +245,25 @@ export async function sesameFetchPdf(params: {
 
     if (!res.ok) {
       const text = await res.text();
-      let message = `HTTP ${res.status}`;
+      let parsed: any = null;
       try {
-        const j = JSON.parse(text);
-        message = j.message || j.error || message;
-        return {
-          ok: false,
-          status: res.status,
-          durationMs,
-          requestId: requestId || j.requestId,
-          error: String(message),
-          data: j,
-          contentType,
-        };
+        parsed = text ? JSON.parse(text) : null;
       } catch {
-        return {
-          ok: false,
-          status: res.status,
-          durationMs,
-          requestId,
-          error: text.slice(0, 500) || message,
-          contentType,
-        };
+        parsed = null;
       }
+      console.warn(
+        `[Sesame] ${params.path} → ${res.status} (${durationMs}ms)`,
+        formatSesameErrorMessage(res.status, parsed, text),
+      );
+      return {
+        ok: false,
+        status: res.status,
+        durationMs,
+        requestId: requestId || parsed?.requestId,
+        error: formatSesameErrorMessage(res.status, parsed, text),
+        data: parsed || (text ? { raw: text.slice(0, 2000) } : undefined),
+        contentType,
+      };
     }
 
     const buf = Buffer.from(await res.arrayBuffer());
