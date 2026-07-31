@@ -45,17 +45,40 @@ function defaultConseiller() {
 
 /** Payload minimal pour smoke tests (à remplacer par vraies données + codes LCIF). */
 export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
+  const o = overrides || {};
   const codeOffre =
-    String(overrides?.codeOffre || process.env.SESAME_DEFAULT_CODE_OFFRE || "OFFRE 20 SUB").trim();
-  const codeProduit = String(overrides?.codeProduit || process.env.SESAME_DEFAULT_CODE_PRODUIT || "7312-CHF").trim();
-  const codeBareme = String(overrides?.codeBareme || process.env.SESAME_DEFAULT_CODE_BAREME || "3").trim();
+    String(o.codeOffre || process.env.SESAME_DEFAULT_CODE_OFFRE || "OFFRE 20 SUB").trim();
+  const codeProduit = String(o.codeProduit || process.env.SESAME_DEFAULT_CODE_PRODUIT || "7312-CHF").trim();
+  const codeBareme = String(o.codeBareme || process.env.SESAME_DEFAULT_CODE_BAREME || "3").trim();
   const idCommissionnement = String(
-    overrides?.idCommissionnement || process.env.SESAME_DEFAULT_ID_COMMISSIONNEMENT || "LIN-01234567890",
+    o.idCommissionnement || process.env.SESAME_DEFAULT_ID_COMMISSIONNEMENT || "LIN-01234567890",
   ).trim();
   const conseiller = {
     ...defaultConseiller(),
-    ...((overrides?.conseiller as object) || {}),
+    ...((o.conseiller as object) || {}),
   };
+
+  const civilite = String(o.civilite || "Monsieur").trim() || "Monsieur";
+  const nom = String(o.nom || "TEST").trim() || "TEST";
+  const prenom = String(o.prenom || "Lab").trim() || "Lab";
+  const dateNaissance = String(o.dateNaissance || "1990-01-15").trim();
+  const codePostal = String(o.codePostal || o.codePostalResidenceFiscale || "44000").trim();
+  const fumeur = o.fumeur === true || o.fumeur === "true" || o.fumeur === 1;
+  const poids = Number(o.poids ?? 75);
+  const taille = Number(o.taille ?? 178);
+  const quotite = Number(o.quotite ?? 100);
+  const franchise = Number(o.franchise ?? 90);
+  const idFormule = Number(o.idFormule ?? 101);
+  const idStatutProfessionnel = Number(o.idStatutProfessionnel ?? 1);
+  const professionLibelle = String(o.professionLibelle || "Employe de bureau").trim();
+  const montantPret = Number(o.montantPret ?? o.montant ?? 150000);
+  const dureePret = Number(o.dureePret ?? o.duree ?? 240);
+  const tauxPret = Number(o.tauxPret ?? o.taux ?? 3.5);
+  const idTypePret = Number(o.idTypePret ?? 51);
+  const idTypeAmortissement = Number(o.idTypeAmortissement ?? 100);
+  const idPeriodiciteEcheancePret = Number(o.idPeriodiciteEcheancePret ?? 3);
+  const referencePret = String(o.referencePret || "PRET001").trim() || "PRET001";
+  const referenceAssure = String(o.referenceAssure || "ASSURE001").trim() || "ASSURE001";
 
   return {
     codeOffre,
@@ -64,49 +87,49 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
       nom: conseiller.nom,
       prenom: conseiller.prenom,
     },
-    dateEffetGaranties: String(overrides?.dateEffetGaranties || "2026-11-01"),
-    idObjetFinancement: Number(overrides?.idObjetFinancement ?? 8),
+    dateEffetGaranties: String(o.dateEffetGaranties || "2026-11-01"),
+    idObjetFinancement: Number(o.idObjetFinancement ?? 8),
     assures: [
       {
-        civilite: "Monsieur",
+        civilite,
         codeBareme,
-        codePostalResidenceFiscale: "44000",
+        codePostalResidenceFiscale: codePostal,
         codeProduit,
         couvertures: [
           {
             couverture: {
-              franchise: 90,
-              idFormule: Number(overrides?.idFormule ?? 101),
+              franchise,
+              idFormule,
               idOptions: [],
               idSportsARisque: [],
-              quotite: 100.0,
+              quotite,
             },
-            referencePret: "PRET001",
+            referencePret,
             veutEtreCouvert: true,
           },
         ],
-        dateNaissance: "1990-01-15",
-        encoursImmobilierAssure: 0,
-        fraisDistribution: Number(overrides?.fraisDistribution ?? 0),
-        fumeur: false,
-        idCategorieParticuliere: 0,
+        dateNaissance,
+        encoursImmobilierAssure: Number(o.encoursImmobilierAssure ?? 0),
+        fraisDistribution: Number(o.fraisDistribution ?? 0),
+        fumeur,
+        idCategorieParticuliere: Number(o.idCategorieParticuliere ?? 0),
         idCommissionnement,
-        idQualite: 3,
+        idQualite: Number(o.idQualite ?? 3),
         idSportsARisque: [],
-        nom: "TEST",
-        paysResidenceFiscale: "FR",
-        poids: 75,
-        prenom: "Lab",
+        nom,
+        paysResidenceFiscale: String(o.paysResidenceFiscale || "FR"),
+        poids,
+        prenom,
         profession: {
-          idStatutProfessionnel: Number(overrides?.idStatutProfessionnel ?? 1),
-          libelle: "Employe de bureau",
-          manuelle: false,
-          travailAdministratif: true,
-          travauxEnHauteur: false,
-          deplacementsProfessionnels: false,
+          idStatutProfessionnel,
+          libelle: professionLibelle,
+          manuelle: o.professionManuelle === true,
+          travailAdministratif: o.travailAdministratif !== false,
+          travauxEnHauteur: o.travauxEnHauteur === true,
+          deplacementsProfessionnels: o.deplacementsProfessionnels === true,
         },
-        referenceAssure: "ASSURE001",
-        taille: 178,
+        referenceAssure,
+        taille,
         produitsATarifer: [
           {
             codeBareme,
@@ -118,16 +141,16 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
     ],
     prets: [
       {
-        duree: 240,
-        idPeriodiciteEcheancePret: 3,
-        idTypeAmortissement: 100,
-        idTypePret: 51,
-        montant: 150000.0,
-        referencePret: "PRET001",
-        taux: 3.5,
+        duree: dureePret,
+        idPeriodiciteEcheancePret,
+        idTypeAmortissement,
+        idTypePret,
+        montant: montantPret,
+        referencePret,
+        taux: tauxPret,
       },
     ],
-    ...(overrides?.extra && typeof overrides.extra === "object" ? overrides.extra : {}),
+    ...(o.extra && typeof o.extra === "object" ? (o.extra as object) : {}),
   };
 }
 
@@ -444,18 +467,23 @@ export function registerSesameLabRoutes(app: Express) {
     }
   });
 
-  app.get("/api/admin/sesame-lab/sample-payload", (_req, res) => {
+  const samplePayloadHandler = (req: Request, res: Response) => {
     try {
       assertSesameLabAllowed();
     } catch {
       /* sample still useful even if auth missing */
     }
+    const overrides =
+      (req.body && typeof req.body === "object" && req.body.overrides) ||
+      (req.body && typeof req.body === "object" && Object.keys(req.body).length ? req.body : undefined);
     res.json({
       ok: true,
-      payload: buildLabSamplePayload(),
-      note: "Payload d'exemple — remplacer les codes offre/produit/barème par ceux LCIF (annexes Kereis).",
+      payload: buildLabSamplePayload(overrides),
+      note: "Payload construit depuis le formulaire lab (ou exemple si champs vides).",
     });
-  });
+  };
+  app.get("/api/admin/sesame-lab/sample-payload", samplePayloadHandler);
+  app.post("/api/admin/sesame-lab/sample-payload", samplePayloadHandler);
 }
 
 function summarizePayload(body: any) {
