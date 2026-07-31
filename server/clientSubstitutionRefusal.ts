@@ -1,5 +1,6 @@
 import { addEvent, type Dossier } from "./dossierModel";
 import { clearClientInsuranceAcceptance } from "./insuranceAcceptance";
+import { cancelConseillerDecisionFollowUps } from "./conseillerDecisionFollowUp";
 
 /**
  * Refus client de la substitution ADE — source de vérité = statut CRM dossier.
@@ -50,4 +51,6 @@ export function applyClientSubstitutionRefusal(
       options.note ||
       "Refus de substitution enregistré — accord client auto éventuel effacé, dossier hors pipeline.",
   });
+
+  cancelConseillerDecisionFollowUps(dossier, "Refus client enregistré.");
 }

@@ -100,6 +100,12 @@ export function recordClientInsuranceAcceptance(
     if (meta?.note?.trim()) {
       dossier.clientAcceptedInsuranceNote = meta.note.trim().slice(0, 500);
     }
+    try {
+      const { cancelConseillerDecisionFollowUps } = require("./conseillerDecisionFollowUp") as typeof import("./conseillerDecisionFollowUp");
+      cancelConseillerDecisionFollowUps(dossier, "Accord client enregistré.");
+    } catch {
+      /* ignore circular / load */
+    }
     return true;
   }
   if (meta?.note?.trim() && !dossier.clientAcceptedInsuranceNote) {

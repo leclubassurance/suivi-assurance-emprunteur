@@ -39,6 +39,7 @@ export interface DossierEvent {
 export type ReminderTaskType =
   | "FOLLOWUP_MISSING_DOCS"
   | "FOLLOWUP_NO_REPLY"
+  | "FOLLOWUP_CONSEILLER_DECISION"
   | "INTERNAL_ALERT";
 
 export interface ReminderTask {

@@ -181,6 +181,39 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
             sent += 1;
             addEvent(dossier, { type: "EMAIL_SENT", actor: { kind: "SYSTEM" }, meta: { emailId: queued.id, template: queued.template, to } });
           }
+        } else if (task.type === "FOLLOWUP_CONSEILLER_DECISION") {
+          const {
+            shouldSendConseillerDecisionFollowUp,
+            sendConseillerDecisionFollowUp,
+            cancelConseillerDecisionFollowUps,
+          } = await import("./conseillerDecisionFollowUp");
+          const gate = shouldSendConseillerDecisionFollowUp(dossier);
+          if (!gate.ok) {
+            task.status = "DONE";
+            cancelConseillerDecisionFollowUps(dossier, gate.reason);
+            addEvent(dossier, {
+              type: "REMINDER_SENT",
+              actor: { kind: "SYSTEM" },
+              message: `Relance conseiller annulée : ${gate.reason}`,
+              meta: { template: "FOLLOWUP_CONSEILLER_DECISION", stage: task.payload?.stage },
+            });
+            continue;
+          }
+          const stage = Number(task.payload?.stage) || 1;
+          const r = await sendConseillerDecisionFollowUp(dossier, stage);
+          if (!r.ok) {
+            task.lastError = r.reason || "Échec envoi";
+            failed += 1;
+            addEvent(dossier, {
+              type: "EMAIL_FAILED",
+              actor: { kind: "SYSTEM" },
+              message: `Relance conseiller échouée : ${r.reason || "erreur"}`,
+              meta: { template: "FOLLOWUP_CONSEILLER_DECISION", stage, to: r.to },
+            });
+          } else {
+            task.status = "DONE";
+            sent += 1;
+          }
         } else {
           task.lastError = `Type de task inconnu: ${task.type}`;
         }
@@ -194,6 +227,23 @@ export async function runSchedulerOnce(): Promise<SchedulerRunResult> {
   if (dirtyIds.size > 0) {
     await writeDirtyDossiers(db, dirtyIds);
   }
+
+  // Rattrapage : dossiers étude envoyée + conseiller, sans relances planifiées
+  try {
+    const { ensureConseillerDecisionFollowUps } = await import("./conseillerDecisionFollowUp");
+    const dirtyEnsure = new Set<string>();
+    for (const dossier of db.dossiers) {
+      if (String(dossier.id || "").startsWith("LCIF-99999")) continue;
+      const added = ensureConseillerDecisionFollowUps(dossier);
+      if (added > 0) dirtyEnsure.add(dossier.id);
+    }
+    if (dirtyEnsure.size > 0) {
+      await writeDirtyDossiers(db, dirtyEnsure);
+    }
+  } catch (err: any) {
+    console.warn("[Scheduler] ensure conseiller follow-ups:", err?.message || err);
+  }
+
   return { processed, sent, failed };
 }
 

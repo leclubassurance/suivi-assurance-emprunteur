@@ -245,6 +245,21 @@ export async function sendClientStudyEmail(params: {
     } catch {
       /* non bloquant */
     }
+
+    try {
+      const { scheduleConseillerDecisionFollowUps } = await import("./conseillerDecisionFollowUp");
+      const n = scheduleConseillerDecisionFollowUps(dossier);
+      if (n > 0) {
+        addEvent(dossier, {
+          type: "REMINDER_SCHEDULED",
+          actor: { kind: "SYSTEM" },
+          message: `${n} relance(s) conseiller planifiée(s) (attente décision client, J+2 / J+5 / J+9).`,
+          meta: { template: "FOLLOWUP_CONSEILLER_DECISION", count: n },
+        });
+      }
+    } catch {
+      /* non bloquant */
+    }
   }
 
   return { ok: true, providerId, channel };

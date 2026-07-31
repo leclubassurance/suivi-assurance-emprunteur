@@ -74,6 +74,20 @@ export function canScheduleClientReminder(
   }
 
   if (taskType === "FOLLOWUP_NO_REPLY") {
+    // Après étude + conseiller rattaché : on relance le conseiller, pas le client.
+    if (
+      (dossier as any).apporteur?.apporteurId &&
+      dossier.tasks?.some(
+        (t) =>
+          t.type === "FOLLOWUP_CONSEILLER_DECISION" &&
+          (t.status === "PENDING" || t.status === "DONE"),
+      )
+    ) {
+      return {
+        ok: false,
+        reason: "Relances conseiller actives — pas de relance client auto.",
+      };
+    }
     const cooldown = COOLDOWN_DAYS.FOLLOWUP_NO_REPLY || 8;
     if (recentReminderSent(dossier, "FOLLOWUP_NO_REPLY", cooldown)) {
       return { ok: false, reason: `Relance sans réponse déjà faite (< ${cooldown} j).` };
