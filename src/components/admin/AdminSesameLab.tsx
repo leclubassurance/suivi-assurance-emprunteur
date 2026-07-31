@@ -38,6 +38,78 @@ type LabStatus = {
   error?: string;
 };
 
+type TarifProduit = {
+  type?: string;
+  codeProduit: string;
+  messages?: Array<{ texte?: string }>;
+  tarifTotalAssurance?: number;
+  tarifTotalCotisations?: number;
+  tarifCotisationsXPremieresAnnees?: number;
+  xPremieresAnnees?: number;
+  reductionCouple?: boolean;
+  prets?: Array<{ taea?: number; tauxMoyen?: number }>;
+};
+
+type Proposition = TarifProduit & {
+  marque: string;
+  taea?: number;
+  tauxMoyen?: number;
+};
+
+function euro(n?: number) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+function pct(n?: number) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${n.toFixed(3).replace(".", ",")} %`;
+}
+
+/** Préfixes codes Sésame → marques affichées comme dans Kérys. */
+function marqueFromCodeProduit(code: string): string {
+  const c = code.toUpperCase();
+  if (c.startsWith("AXA_") || c.startsWith("AXA")) return "AXA";
+  if (c.startsWith("CDI_") || c.includes("CARDIF") || c.includes("CLEU")) return "CARDIF";
+  if (c.startsWith("GLI_") || c.startsWith("GENERALI")) return "GENERALI VIE";
+  if (c.startsWith("HAMU_") || c.startsWith("HAM_")) return "Harmonie Mutuelle";
+  if (c.startsWith("MCP_")) return "MCP";
+  if (c.startsWith("MLF_") || c.startsWith("METLIFE")) return "MetLife";
+  if (c.startsWith("MUL_")) return "SwissLife / Multirisque";
+  if (c.startsWith("QTM_") || c.startsWith("QUATREM")) return "Quatrem / CNP";
+  if (c.startsWith("SL_") || c.startsWith("SWISSLIFE")) return "SwissLife";
+  if (c.startsWith("ALL_") || c.startsWith("ALLIANZ")) return "Allianz";
+  const head = code.split(/[_-]/)[0];
+  return head || code;
+}
+
+function extractPropositions(data: unknown): Proposition[] {
+  if (!Array.isArray(data)) return [];
+  const out: Proposition[] = [];
+  for (const block of data) {
+    const tarifs = (block as any)?.tarifs;
+    if (!Array.isArray(tarifs)) continue;
+    for (const t of tarifs) {
+      if (!t?.codeProduit) continue;
+      const pret0 = Array.isArray(t.prets) ? t.prets[0] : undefined;
+      out.push({
+        ...t,
+        codeProduit: String(t.codeProduit),
+        marque: marqueFromCodeProduit(String(t.codeProduit)),
+        taea: pret0?.taea,
+        tauxMoyen: pret0?.tauxMoyen,
+      });
+    }
+  }
+  return out.sort(
+    (a, b) => (a.tarifTotalAssurance ?? Infinity) - (b.tarifTotalAssurance ?? Infinity),
+  );
+}
+
 type CallResult = {
   ok?: boolean;
   status?: number;
@@ -253,6 +325,9 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<CallResult | null>(null);
+  const [propositions, setPropositions] = useState<Proposition[]>([]);
+  const [selectedCodeProduit, setSelectedCodeProduit] = useState<string | null>(null);
+  const [showRawJson, setShowRawJson] = useState(false);
   const [form, setForm] = useState<LabForm>(EMPTY_FORM);
   const [prets, setPrets] = useState<PretForm[]>([EMPTY_PRET()]);
 
@@ -281,17 +356,31 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     void refreshStatus();
   }, [refreshStatus]);
 
-  function buildBody() {
-    return { overrides: formToOverrides(form, prets) };
+  function buildBody(extra?: Record<string, unknown>) {
+    return { overrides: { ...formToOverrides(form, prets), ...(extra || {}) } };
   }
 
   async function runCall(key: string, fn: () => Promise<Response>) {
     setBusy(key);
-    setLastResult(null);
+    if (key !== "devis") setLastResult(null);
     try {
       const res = await fn();
       const data = await res.json().catch(() => ({}));
       setLastResult(data);
+      if (key === "tarif" && data?.ok) {
+        const props = extractPropositions(data.data);
+        setPropositions(props);
+        setSelectedCodeProduit((prev) => {
+          if (prev && props.some((p) => p.codeProduit === prev)) return prev;
+          return props[0]?.codeProduit || null;
+        });
+      }
+      if (key === "devis" && data?.ok && data?.pdfBase64) {
+        const a = document.createElement("a");
+        a.href = `data:application/pdf;base64,${data.pdfBase64}`;
+        a.download = data.fileName || `devis-${selectedCodeProduit || "lab"}-${Date.now()}.pdf`;
+        a.click();
+      }
       await refreshStatus();
     } catch (err: any) {
       setLastResult({ ok: false, error: err?.message || "Erreur réseau" });
@@ -300,13 +389,16 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     }
   }
 
-  function downloadPdf() {
-    if (!lastResult?.pdfBase64) return;
+  function downloadPdf(from?: CallResult | null) {
+    const src = from || lastResult;
+    if (!src?.pdfBase64) return;
     const a = document.createElement("a");
-    a.href = `data:application/pdf;base64,${lastResult.pdfBase64}`;
-    a.download = lastResult.fileName || "sesame-lab-devis.pdf";
+    a.href = `data:application/pdf;base64,${src.pdfBase64}`;
+    a.download = src.fileName || `sesame-devis-${selectedCodeProduit || "lab"}.pdf`;
     a.click();
   }
+
+  const selectedProp = propositions.find((p) => p.codeProduit === selectedCodeProduit) || null;
 
   return (
     <div className="min-h-[100dvh] bg-slate-50">
@@ -634,12 +726,11 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Actions</h2>
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">5. Propositions</h2>
           <p className="text-xs text-slate-500">
-            Comme « Suivant » / propositions dans Kérys : le serveur choisit offre + produit automatiquement, puis appelle
-            Sésame.
+            Comme dans Kérys : lance la simulation, choisis une offre (CARDIF, AXA, Generali…), puis exporte le devis PDF.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
             <Button
               type="button"
               size="sm"
@@ -655,31 +746,31 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               }
             >
               {busy === "tarif" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Simuler (tarification)
+              Simuler
             </Button>
             <Button
               type="button"
               size="sm"
               variant="secondary"
-              disabled={Boolean(busy)}
+              disabled={Boolean(busy) || !selectedCodeProduit}
               onClick={() =>
                 void runCall("devis", () =>
                   adminFetch("/api/admin/sesame-lab/devis", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(buildBody()),
+                    body: JSON.stringify(
+                      buildBody({
+                        codeProduit: selectedCodeProduit,
+                      }),
+                    ),
                   }),
                 )
               }
             >
               {busy === "devis" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Exporter le devis (PDF)
+              <Download className="w-4 h-4" />
+              Exporter le devis (produit sélectionné)
             </Button>
-            {lastResult?.pdfBase64 ? (
-              <Button type="button" size="sm" variant="ghost" onClick={downloadPdf}>
-                <Download className="w-4 h-4" /> Télécharger PDF
-              </Button>
-            ) : null}
             <Button
               type="button"
               size="sm"
@@ -687,30 +778,136 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
               onClick={() => {
                 setForm(EMPTY_FORM);
                 setPrets([EMPTY_PRET()]);
+                setPropositions([]);
+                setSelectedCodeProduit(null);
+                setLastResult(null);
               }}
             >
               Réinitialiser
             </Button>
+            {selectedProp ? (
+              <span className="text-xs text-slate-600">
+                Sélection : <strong>{selectedProp.marque}</strong>{" "}
+                <span className="font-mono text-slate-400">{selectedProp.codeProduit}</span>
+              </span>
+            ) : null}
           </div>
-        </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Résultat</h2>
-          {lastResult ? (
-            <>
-              <div className="flex flex-wrap gap-2 text-xs">
-                <StatusPill ok={Boolean(lastResult.ok)} label={lastResult.ok ? "OK" : "Erreur"} />
-                {lastResult.status != null ? <span className="text-slate-600">HTTP {lastResult.status}</span> : null}
-                {lastResult.durationMs != null ? (
-                  <span className="text-slate-600">{lastResult.durationMs} ms</span>
-                ) : null}
-              </div>
-              {lastResult.catalogAuto?.note ? (
-                <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
-                  {lastResult.catalogAuto.note}
+          {lastResult && !lastResult.ok && lastResult.error ? (
+            <p className="text-sm text-red-600">{lastResult.error}</p>
+          ) : null}
+
+          {propositions.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-800">
+                  {propositions.length} proposition{propositions.length > 1 ? "s" : ""}
                 </p>
-              ) : null}
-              {lastResult.error ? <p className="text-sm text-red-600">{lastResult.error}</p> : null}
+                <p className="text-[11px] text-slate-500">Triées du moins cher au plus cher (coût total)</p>
+              </div>
+              <ul className="space-y-2">
+                {propositions.map((p) => {
+                  const selected = p.codeProduit === selectedCodeProduit;
+                  const nonAssurable = p.type && p.type !== "TARIFABLE";
+                  return (
+                    <li key={p.codeProduit}>
+                      <button
+                        type="button"
+                        disabled={Boolean(nonAssurable)}
+                        onClick={() => setSelectedCodeProduit(p.codeProduit)}
+                        className={`w-full text-left rounded-xl border px-4 py-3 transition ${
+                          selected
+                            ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        } ${nonAssurable ? "opacity-60 cursor-not-allowed" : ""}`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-base font-bold text-slate-900">{p.marque}</span>
+                              {selected ? (
+                                <span className="rounded-full bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5">
+                                  SÉLECTIONNÉ
+                                </span>
+                              ) : null}
+                              {p.reductionCouple ? (
+                                <span className="rounded-full bg-blue-50 text-blue-700 text-[10px] font-semibold px-2 py-0.5 border border-blue-100">
+                                  Réduction couple
+                                </span>
+                              ) : null}
+                              {nonAssurable ? (
+                                <span className="rounded-full bg-amber-50 text-amber-800 text-[10px] font-semibold px-2 py-0.5 border border-amber-100">
+                                  {p.type}
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5">
+                                  Tarifable
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] font-mono text-slate-400 mt-0.5">{p.codeProduit}</p>
+                            {p.messages?.length ? (
+                              <p className="text-xs text-amber-700 mt-1">
+                                {p.messages.map((m) => m.texte).filter(Boolean).join(" · ")}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-slate-900">{euro(p.tarifTotalAssurance)}</p>
+                            <p className="text-[11px] text-slate-500">Coût total assurance</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                            <p className="text-slate-500">Cotisations</p>
+                            <p className="font-semibold text-slate-800">{euro(p.tarifTotalCotisations)}</p>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                            <p className="text-slate-500">
+                              Les {p.xPremieresAnnees ?? 8} premières années
+                            </p>
+                            <p className="font-semibold text-slate-800">
+                              {euro(p.tarifCotisationsXPremieresAnnees)}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                            <p className="text-slate-500">TAEA</p>
+                            <p className="font-semibold text-slate-800">{pct(p.taea)}</p>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                            <p className="text-slate-500">Taux moyen</p>
+                            <p className="font-semibold text-slate-800">{pct(p.tauxMoyen)}</p>
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Aucune proposition pour l’instant — clique sur Simuler.</p>
+          )}
+
+          {lastResult?.pdfBase64 ? (
+            <div className="flex flex-wrap gap-2 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+              <span className="text-sm text-emerald-900 font-medium">Devis PDF prêt</span>
+              <Button type="button" size="sm" variant="ghost" onClick={() => downloadPdf()}>
+                <Download className="w-4 h-4" /> Télécharger à nouveau
+              </Button>
+            </div>
+          ) : null}
+
+          <div>
+            <button
+              type="button"
+              className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+              onClick={() => setShowRawJson((v) => !v)}
+            >
+              {showRawJson ? "▾" : "▸"} JSON technique (debug)
+            </button>
+            {showRawJson && lastResult ? (
               <JsonBlock
                 value={
                   lastResult.pdfBase64
@@ -718,10 +915,8 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     : lastResult
                 }
               />
-            </>
-          ) : (
-            <p className="text-sm text-slate-500">Remplis le dossier puis lance une simulation.</p>
-          )}
+            ) : null}
+          </div>
         </section>
 
         {status?.recentCalls?.length ? (

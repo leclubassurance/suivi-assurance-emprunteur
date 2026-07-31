@@ -488,7 +488,7 @@ export function registerSesameLabRoutes(app: Express) {
           requestId: result.requestId,
           contentType: result.contentType || "application/pdf",
           pdfBase64: result.binaryBase64,
-          fileName: `sesame-lab-devis-${Date.now()}.pdf`,
+          fileName: `sesame-devis-${body?.assures?.[0]?.codeProduit || "lab"}-${Date.now()}.pdf`,
           catalogAuto: { resolved, note },
         });
       }
