@@ -68,8 +68,6 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
   const dateNaissance = String(o.dateNaissance || "1990-01-15").trim();
   const codePostal = String(o.codePostal || o.codePostalResidenceFiscale || "44000").trim();
   const fumeur = o.fumeur === true || o.fumeur === "true" || o.fumeur === 1;
-  const poids = Number(o.poids ?? 75);
-  const taille = Number(o.taille ?? 178);
   const quotite = Number(o.quotite ?? 100);
   const franchise = Number(o.franchise ?? 90);
   const idFormule = Number(o.idFormule ?? 101);
@@ -84,6 +82,56 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
   const referencePret = String(o.referencePret || "PRET001").trim() || "PRET001";
   const referenceAssure = String(o.referenceAssure || "ASSURE001").trim() || "ASSURE001";
 
+  const assure: Record<string, unknown> = {
+    civilite,
+    codeBareme,
+    codePostalResidenceFiscale: codePostal,
+    codeProduit,
+    couvertures: [
+      {
+        couverture: {
+          franchise,
+          idFormule,
+          idOptions: [],
+          idSportsARisque: [],
+          quotite,
+        },
+        referencePret,
+        veutEtreCouvert: true,
+      },
+    ],
+    dateNaissance,
+    encoursImmobilierAssure: Number(o.encoursImmobilierAssure ?? 0),
+    fraisDistribution,
+    fumeur,
+    idCategorieParticuliere: Number(o.idCategorieParticuliere ?? 0),
+    idCommissionnement,
+    idQualite: Number(o.idQualite ?? 3),
+    idSportsARisque: [],
+    nom,
+    paysResidenceFiscale: String(o.paysResidenceFiscale || "FR"),
+    prenom,
+    profession: {
+      idStatutProfessionnel,
+      libelle: professionLibelle,
+      manuelle: o.professionManuelle === true,
+      travailAdministratif: o.travailAdministratif !== false && o.professionManuelle !== true,
+      travauxEnHauteur: o.travauxEnHauteur === true,
+      deplacementsProfessionnels: o.deplacementsProfessionnels === true,
+    },
+    referenceAssure,
+    produitsATarifer: [
+      {
+        codeBareme,
+        codeProduit,
+        idCommissionnement,
+      },
+    ],
+  };
+  // Poids / taille : jamais demandés au client — omis sauf override explicite (si Kereis l’exige un jour).
+  if (o.poids != null && o.poids !== "") assure.poids = Number(o.poids);
+  if (o.taille != null && o.taille !== "") assure.taille = Number(o.taille);
+
   return {
     codeOffre,
     conseiller: {
@@ -93,56 +141,7 @@ export function buildLabSamplePayload(overrides?: Record<string, unknown>) {
     },
     dateEffetGaranties: String(o.dateEffetGaranties || "2026-11-01"),
     idObjetFinancement: Number(o.idObjetFinancement ?? 8),
-    assures: [
-      {
-        civilite,
-        codeBareme,
-        codePostalResidenceFiscale: codePostal,
-        codeProduit,
-        couvertures: [
-          {
-            couverture: {
-              franchise,
-              idFormule,
-              idOptions: [],
-              idSportsARisque: [],
-              quotite,
-            },
-            referencePret,
-            veutEtreCouvert: true,
-          },
-        ],
-        dateNaissance,
-        encoursImmobilierAssure: Number(o.encoursImmobilierAssure ?? 0),
-        fraisDistribution,
-        fumeur,
-        idCategorieParticuliere: Number(o.idCategorieParticuliere ?? 0),
-        idCommissionnement,
-        idQualite: Number(o.idQualite ?? 3),
-        idSportsARisque: [],
-        nom,
-        paysResidenceFiscale: String(o.paysResidenceFiscale || "FR"),
-        poids,
-        prenom,
-        profession: {
-          idStatutProfessionnel,
-          libelle: professionLibelle,
-          manuelle: o.professionManuelle === true,
-          travailAdministratif: o.travailAdministratif !== false,
-          travauxEnHauteur: o.travauxEnHauteur === true,
-          deplacementsProfessionnels: o.deplacementsProfessionnels === true,
-        },
-        referenceAssure,
-        taille,
-        produitsATarifer: [
-          {
-            codeBareme,
-            codeProduit,
-            idCommissionnement,
-          },
-        ],
-      },
-    ],
+    assures: [assure],
     prets: [
       {
         duree: dureePret,
