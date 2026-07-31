@@ -52,6 +52,18 @@ function pickString(...vals: unknown[]): string {
   return "";
 }
 
+/** Accepte 3,67 / 3.67 / 69 933,75 — évite taux PDF à 0 quand la saisie FR utilise une virgule. */
+function parseFrNumber(raw: unknown, fallback = 0): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const s = String(raw ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(",", ".");
+  if (!s) return fallback;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function walkCollect(node: unknown, keys: string[], out: string[]) {
   if (!node) return;
   if (Array.isArray(node)) {
@@ -242,50 +254,57 @@ export function buildLabSamplePayload(
     ...((o.conseiller as object) || {}),
   };
 
-  const franchise = Number(o.franchise ?? 90);
-  const idFormule = Number(o.idFormule ?? 101);
-  const idOptions = Array.isArray(o.idOptions) ? o.idOptions : [];
+  const franchise = Math.round(parseFrNumber(o.franchise, 90));
+  const idFormule = Math.round(
+    parseFrNumber(o.idFormule ?? process.env.SESAME_DEFAULT_ID_FORMULE, 101),
+  );
+  const idOptions = Array.isArray(o.idOptions)
+    ? (o.idOptions as unknown[]).map((x) => Math.round(parseFrNumber(x, 0))).filter((n) => n > 0)
+    : String(process.env.SESAME_DEFAULT_ID_OPTIONS || "")
+        .split(/[,;\s]+/)
+        .map((x) => Math.round(parseFrNumber(x, 0)))
+        .filter((n) => n > 0);
 
   const pretsInput =
     Array.isArray(o.prets) && o.prets.length
       ? (o.prets as any[])
       : [
           {
-            montant: Number(o.montantPret ?? o.montant ?? 150000),
-            duree: Number(o.dureePret ?? o.duree ?? 240),
-            taux: Number(o.tauxPret ?? o.taux ?? 3.5),
+            montant: parseFrNumber(o.montantPret ?? o.montant, 150000),
+            duree: Math.round(parseFrNumber(o.dureePret ?? o.duree, 240)),
+            taux: parseFrNumber(o.tauxPret ?? o.taux, 3.5),
             idTypePret: Number(o.idTypePret ?? 51),
             idTypeAmortissement: Number(o.idTypeAmortissement ?? 100),
             idPeriodiciteEcheancePret: Number(o.idPeriodiciteEcheancePret ?? 3),
-            differe: Number(o.differe ?? o.dureeDiffere ?? 0),
+            differe: Math.round(parseFrNumber(o.differe ?? o.dureeDiffere, 0)),
           },
         ];
 
   const prets = pretsInput.map((p, i) => {
     const referencePret = String(p.referencePret || `PRET${String(i + 1).padStart(3, "0")}`);
     const idTypeAmortissement = Number(p.idTypeAmortissement ?? 100);
-    const differe = Number(p.differe ?? p.dureeDiffere ?? 0);
+    const differe = Math.round(parseFrNumber(p.differe ?? p.dureeDiffere, 0));
     const pret: Record<string, unknown> = {
-      duree: Number(p.duree ?? p.dureeRestante ?? 240),
+      duree: Math.round(parseFrNumber(p.duree ?? p.dureeRestante, 240)),
       idPeriodiciteEcheancePret: Number(p.idPeriodiciteEcheancePret ?? 3),
       idTypeAmortissement,
       idTypePret: Number(p.idTypePret ?? 51),
-      montant: Number(p.montant ?? p.capitalRestant ?? 0),
+      montant: parseFrNumber(p.montant ?? p.capitalRestant, 0),
       referencePret,
-      taux: Number(p.taux ?? 0),
+      taux: parseFrNumber(p.taux, 0),
     };
     if (p.fraisBancaires != null && p.fraisBancaires !== "") {
-      pret.fraisBancaires = Number(p.fraisBancaires);
+      pret.fraisBancaires = parseFrNumber(p.fraisBancaires, 0);
     }
     if (p.dureePrefinancement != null && p.dureePrefinancement !== "") {
-      const pref = Number(p.dureePrefinancement);
-      if (Number.isFinite(pref) && pref > 0) pret.dureePrefinancement = pref;
+      const pref = Math.round(parseFrNumber(p.dureePrefinancement, 0));
+      if (pref > 0) pret.dureePrefinancement = pref;
     }
     if (Array.isArray(p.paliers) && p.paliers.length) {
       pret.paliers = p.paliers
         .map((pal: any) => ({
-          duree: Number(pal?.duree ?? 0),
-          montantEcheance: Number(pal?.montantEcheance ?? 0),
+          duree: Math.round(parseFrNumber(pal?.duree, 0)),
+          montantEcheance: parseFrNumber(pal?.montantEcheance, 0),
         }))
         .filter((pal: { duree: number; montantEcheance: number }) => pal.duree > 0);
     }
@@ -295,8 +314,8 @@ export function buildLabSamplePayload(
         pret.idNatureDiffere = Number(p.idNatureDiffere ?? 2);
       }
     } else {
-      if (p.loyer != null) pret.loyer = Number(p.loyer);
-      if (p.valeurResiduelle != null) pret.valeurResiduelle = Number(p.valeurResiduelle);
+      if (p.loyer != null) pret.loyer = parseFrNumber(p.loyer, 0);
+      if (p.valeurResiduelle != null) pret.valeurResiduelle = parseFrNumber(p.valeurResiduelle, 0);
     }
     return pret;
   });
@@ -433,6 +452,14 @@ function summarizePayload(body: any) {
           paliers: Array.isArray(body.prets[0].paliers) ? body.prets[0].paliers.length : 0,
           loyer: body.prets[0].loyer,
           valeurResiduelle: body.prets[0].valeurResiduelle,
+        }
+      : null,
+    couverture0: body?.assures?.[0]?.couvertures?.[0]?.couverture
+      ? {
+          franchise: body.assures[0].couvertures[0].couverture.franchise,
+          idFormule: body.assures[0].couvertures[0].couverture.idFormule,
+          idOptions: body.assures[0].couvertures[0].couverture.idOptions,
+          quotite: body.assures[0].couvertures[0].couverture.quotite,
         }
       : null,
     assures: Array.isArray(body?.assures) ? body.assures.length : 0,

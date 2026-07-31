@@ -288,6 +288,8 @@ type LabForm = {
   dateEffetGaranties: string;
   objetFinancement: string;
   franchise: string;
+  formule: string;
+  options: Array<{ key: string; label: string; enabled: boolean; id: string }>;
   autresCreditsOui: boolean;
   encoursImmobilierAssure: string;
   banquePreteuse: string;
@@ -335,10 +337,51 @@ const EMPTY_ASSURE = (): AssureForm => ({
   quotite: "100",
 });
 
+/** Accepte 3,67 / 3.67 / 69 933,75 (saisie FR). */
+function parseFrNumber(raw: unknown, fallback = 0): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const s = String(raw ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(",", ".");
+  if (!s) return fallback;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+const FORMULE_OPTIONS = [
+  { value: "101", label: "Décès-PTIA-ITT/IPT", id: 101 },
+  { value: "100", label: "Décès-PTIA", id: 100 },
+];
+
+/**
+ * Options Kérys — ids numériques = annexes Sésame (à confirmer / overridables).
+ * Exemple doc API : idOptions [55]. Sans id (>0) l’option n’est pas envoyée.
+ */
+const OPTION_PRESETS = [
+  {
+    key: "dorsales_psy",
+    label: "Affections dorsales et psy sans hospitalisation",
+    defaultId: "55",
+  },
+  {
+    key: "forfaitaire",
+    label: "Indemnisation forfaitaire",
+    defaultId: "",
+  },
+];
+
 const EMPTY_FORM: LabForm = {
   dateEffetGaranties: "2026-11-01",
   objetFinancement: "residence_principale",
   franchise: "90",
+  formule: "101",
+  options: OPTION_PRESETS.map((o) => ({
+    key: o.key,
+    label: o.label,
+    enabled: Boolean(o.defaultId),
+    id: o.defaultId,
+  })),
   autresCreditsOui: false,
   encoursImmobilierAssure: "0",
   banquePreteuse: "",
@@ -474,15 +517,21 @@ function formToOverrides(
   prets: PretForm[],
 ): Record<string, unknown> {
   const objet = OBJET_OPTIONS.find((o) => o.value === form.objetFinancement);
+  const formule = FORMULE_OPTIONS.find((f) => f.value === form.formule) || FORMULE_OPTIONS[0];
+  const idOptions = form.options
+    .filter((o) => o.enabled && parseFrNumber(o.id, 0) > 0)
+    .map((o) => Math.round(parseFrNumber(o.id, 0)));
   return {
     dateEffetGaranties: form.dateEffetGaranties || undefined,
     idObjetFinancement: objet?.id ?? 8,
-    franchise: Number(form.franchise || 90),
+    franchise: Math.round(parseFrNumber(form.franchise, 90)),
+    idFormule: formule.id,
+    idOptions,
     fraisDistribution: 0,
     // Base montant = capital restant dû (substitution). Les propositions CI/CRD viennent de Sésame.
     baseMontantPret: "crd",
     encoursImmobilierAssure: form.autresCreditsOui
-      ? Number(form.encoursImmobilierAssure || 0)
+      ? parseFrNumber(form.encoursImmobilierAssure, 0)
       : 0,
     reductionCouple: assures.length >= 2,
     assures: assures.map((a, i) => {
@@ -505,10 +554,10 @@ function formToOverrides(
         professionRisque: a.professionRisque,
         sportsRisque: a.sportsRisque,
         selectedSports: a.sportsRisque ? a.selectedSports : [],
-        quotite: Number(a.quotite || 100),
+        quotite: parseFrNumber(a.quotite, 100),
         referenceAssure: `ASSURE${String(i + 1).padStart(3, "0")}`,
         encoursImmobilierAssure: form.autresCreditsOui
-          ? Number(form.encoursImmobilierAssure || 0)
+          ? parseFrNumber(form.encoursImmobilierAssure, 0)
           : 0,
       };
     }),
@@ -519,37 +568,39 @@ function formToOverrides(
         const echeances = TYPE_ECHEANCES_OPTIONS.find((n) => n.value === p.typeEcheances);
         const periodicite = PERIODICITE_OPTIONS.find((n) => n.value === p.periodicite);
         const natureDiffere = NATURE_DIFFERE_OPTIONS.find((n) => n.value === p.natureDiffere);
-        const differe = Number(p.dureeDiffere || 0);
+        const differe = Math.round(parseFrNumber(p.dureeDiffere, 0));
         const idTypeAmortissement = echeances?.idTypeAmortissement ?? 100;
         const out: Record<string, unknown> = {
-          capitalRestant: Number(p.capitalRestant || 0),
-          montant: Number(p.capitalRestant || 0),
-          taux: Number(p.taux || 0),
-          duree: Number(p.dureeRestante || 240),
+          capitalRestant: parseFrNumber(p.capitalRestant, 0),
+          montant: parseFrNumber(p.capitalRestant, 0),
+          taux: parseFrNumber(p.taux, 0),
+          duree: Math.round(parseFrNumber(p.dureeRestante, 240)),
           differe,
           idTypePret: nature?.idTypePret ?? 51,
           idPeriodiciteEcheancePret: periodicite?.id ?? 3,
           idTypeAmortissement,
           typeTaux: p.typeTaux,
-          mensualite: p.mensualite ? Number(p.mensualite) : undefined,
+          mensualite: p.mensualite.trim() ? parseFrNumber(p.mensualite, 0) : undefined,
           datePremiereEcheance: p.datePremiereEcheance || undefined,
         };
         if (differe > 0 && idTypeAmortissement !== 4) {
           out.idNatureDiffere = natureDiffere?.id ?? 2;
         }
-        if (p.fraisBancaires.trim()) out.fraisBancaires = Number(p.fraisBancaires);
-        if (p.dureePrefinancement.trim()) out.dureePrefinancement = Number(p.dureePrefinancement);
+        if (p.fraisBancaires.trim()) out.fraisBancaires = parseFrNumber(p.fraisBancaires, 0);
+        if (p.dureePrefinancement.trim()) {
+          out.dureePrefinancement = Math.round(parseFrNumber(p.dureePrefinancement, 0));
+        }
         if (p.typeEcheances === "paliers") {
           out.paliers = p.paliers
             .filter((pal) => pal.duree.trim() && pal.montantEcheance.trim())
             .map((pal) => ({
-              duree: Number(pal.duree),
-              montantEcheance: Number(pal.montantEcheance),
+              duree: Math.round(parseFrNumber(pal.duree, 0)),
+              montantEcheance: parseFrNumber(pal.montantEcheance, 0),
             }));
         }
         if (p.typeEcheances === "credit_bail") {
-          out.loyer = Number(p.loyer || 0);
-          out.valeurResiduelle = Number(p.valeurResiduelle || 0);
+          out.loyer = parseFrNumber(p.loyer, 0);
+          out.valeurResiduelle = parseFrNumber(p.valeurResiduelle, 0);
         }
         return out;
       }),
@@ -1502,8 +1553,24 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">3. Simulation (couvertures)</h2>
-          <p className="text-xs text-slate-500">La quotité se règle par assuré (section 1).</p>
+          <p className="text-xs text-slate-500">
+            Comme dans Kérys : formule de garanties + options. La quotité se règle par assuré (section 1). Les ids
+            d’options viennent des annexes Sésame — à ajuster si le tarif ne colle pas.
+          </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <Field label="Garanties (formule)">
+              <select
+                className={inputCls}
+                value={form.formule}
+                onChange={(e) => setField("formule", e.target.value)}
+              >
+                {FORMULE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Franchise">
               <select
                 className={inputCls}
@@ -1536,6 +1603,48 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                 />
               </Field>
             ) : null}
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Options</p>
+            {form.options.map((opt, oi) => (
+              <div
+                key={opt.key}
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+              >
+                <label className="inline-flex items-center gap-2 text-sm text-slate-800 min-w-[16rem] flex-1">
+                  <input
+                    type="checkbox"
+                    checked={opt.enabled}
+                    onChange={(e) => {
+                      const next = form.options.map((o, i) =>
+                        i === oi ? { ...o, enabled: e.target.checked } : o,
+                      );
+                      setField("options", next);
+                    }}
+                  />
+                  {opt.label}
+                </label>
+                <label className="text-[11px] text-slate-500 inline-flex items-center gap-1.5">
+                  id Sésame
+                  <input
+                    className="w-20 rounded border border-slate-200 px-2 py-1 text-sm"
+                    inputMode="numeric"
+                    value={opt.id}
+                    placeholder="ex. 55"
+                    onChange={(e) => {
+                      const next = form.options.map((o, i) =>
+                        i === oi ? { ...o, id: e.target.value, enabled: o.enabled || Boolean(e.target.value) } : o,
+                      );
+                      setField("options", next);
+                    }}
+                  />
+                </label>
+              </div>
+            ))}
+            <p className="text-[11px] text-slate-500">
+              Sur Kérys tu as coché dorsales/psy + indemnisation forfaitaire. L’id 55 vient de l’exemple API — si le
+              tarif ne matche pas, remplace par les vrais ids annexes Kereis.
+            </p>
           </div>
         </section>
 
