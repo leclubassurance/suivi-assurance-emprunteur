@@ -59,6 +59,12 @@ type Proposition = TarifProduit & {
   baseTarif: "crd" | "capital_initial" | "inconnu";
 };
 
+type AssurePropositions = {
+  referenceAssure: string;
+  label: string;
+  propositions: Proposition[];
+};
+
 /** Déduit CRD vs capital initial depuis le code produit (ex. CLEUICD / CLEUICI, …CRD… / …CI…). */
 function baseTarifFromCodeProduit(code: string): "crd" | "capital_initial" | "inconnu" {
   const c = code.toUpperCase();
@@ -100,28 +106,121 @@ function marqueFromCodeProduit(code: string): string {
   return head || code;
 }
 
-function extractPropositions(data: unknown): Proposition[] {
+function mapTarifToProposition(t: any): Proposition | null {
+  if (!t?.codeProduit) return null;
+  const pret0 = Array.isArray(t.prets) ? t.prets[0] : undefined;
+  return {
+    ...t,
+    codeProduit: String(t.codeProduit),
+    marque: marqueFromCodeProduit(String(t.codeProduit)),
+    baseTarif: baseTarifFromCodeProduit(String(t.codeProduit)),
+    taea: pret0?.taea,
+    tauxMoyen: pret0?.tauxMoyen,
+  };
+}
+
+/** Réponse Sésame = 1 bloc par assuré (`referenceAssure` + `tarifs[]`). */
+function extractPropositionsByAssure(
+  data: unknown,
+  assureForms: Array<{ civilite?: string; prenom?: string; nom?: string }>,
+): AssurePropositions[] {
   if (!Array.isArray(data)) return [];
-  const out: Proposition[] = [];
-  for (const block of data) {
-    const tarifs = (block as any)?.tarifs;
-    if (!Array.isArray(tarifs)) continue;
-    for (const t of tarifs) {
-      if (!t?.codeProduit) continue;
-      const pret0 = Array.isArray(t.prets) ? t.prets[0] : undefined;
-      out.push({
-        ...t,
-        codeProduit: String(t.codeProduit),
-        marque: marqueFromCodeProduit(String(t.codeProduit)),
-        baseTarif: baseTarifFromCodeProduit(String(t.codeProduit)),
-        taea: pret0?.taea,
-        tauxMoyen: pret0?.tauxMoyen,
-      });
+
+  // Si Sésame renvoie déjà des blocs { referenceAssure, tarifs }
+  const looksLikeAssureBlocks = data.some(
+    (block: any) => block && (Array.isArray(block.tarifs) || block.referenceAssure),
+  );
+
+  if (looksLikeAssureBlocks) {
+    return data.map((block: any, i: number) => {
+      const ref = String(block?.referenceAssure || `ASSURE${String(i + 1).padStart(3, "0")}`);
+      const form = assureForms[i];
+      const name = [form?.prenom, form?.nom].filter(Boolean).join(" ").trim();
+      const civilite = form?.civilite || "";
+      const who = [civilite, name].filter(Boolean).join(" ").trim();
+      const tarifs = Array.isArray(block?.tarifs) ? block.tarifs : [];
+      const propositions = tarifs
+        .map(mapTarifToProposition)
+        .filter((p: Proposition | null): p is Proposition => Boolean(p))
+        .sort(
+          (a: Proposition, b: Proposition) =>
+            (a.tarifTotalAssurance ?? Infinity) - (b.tarifTotalAssurance ?? Infinity),
+        );
+      return {
+        referenceAssure: ref,
+        label: who ? `Assuré ${i + 1} — ${who}` : `Assuré ${i + 1}`,
+        propositions,
+      };
+    });
+  }
+
+  // Fallback improbable : liste plate de tarifs → une seule colonne
+  const propositions = data
+    .map(mapTarifToProposition)
+    .filter((p: Proposition | null): p is Proposition => Boolean(p))
+    .sort(
+      (a: Proposition, b: Proposition) =>
+        (a.tarifTotalAssurance ?? Infinity) - (b.tarifTotalAssurance ?? Infinity),
+    );
+  const form = assureForms[0];
+  const name = [form?.prenom, form?.nom].filter(Boolean).join(" ").trim();
+  return [
+    {
+      referenceAssure: "ASSURE001",
+      label: name ? `Assuré 1 — ${name}` : "Assuré 1",
+      propositions,
+    },
+  ];
+}
+
+function isTarifable(p: Proposition) {
+  return !p.type || p.type === "TARIFABLE";
+}
+
+function filterProps(list: Proposition[], propFilter: "tous" | "crd" | "capital_initial") {
+  if (propFilter === "tous") return list;
+  return list.filter((p) => p.baseTarif === propFilter);
+}
+
+/** Même produit pour tous les assurés si possible (réduction couple), sinon moins cher par colonne. */
+function defaultSelections(byAssure: AssurePropositions[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!byAssure.length) return out;
+  if (byAssure.length === 1) {
+    const best = byAssure[0].propositions.find(isTarifable);
+    if (best) out[byAssure[0].referenceAssure] = best.codeProduit;
+    return out;
+  }
+  let bestCode: string | null = null;
+  let bestTotal = Infinity;
+  for (const p0 of byAssure[0].propositions.filter(isTarifable)) {
+    const matches = byAssure.slice(1).map((a) =>
+      a.propositions.find((p) => p.codeProduit === p0.codeProduit && isTarifable(p)),
+    );
+    if (matches.some((m) => !m)) continue;
+    const total =
+      (p0.tarifTotalAssurance ?? 0) +
+      matches.reduce((s, m) => s + (m!.tarifTotalAssurance ?? 0), 0);
+    if (total < bestTotal) {
+      bestTotal = total;
+      bestCode = p0.codeProduit;
     }
   }
-  return out.sort(
-    (a, b) => (a.tarifTotalAssurance ?? Infinity) - (b.tarifTotalAssurance ?? Infinity),
-  );
+  if (bestCode) {
+    for (const a of byAssure) out[a.referenceAssure] = bestCode;
+    return out;
+  }
+  for (const a of byAssure) {
+    const best = a.propositions.find(isTarifable);
+    if (best) out[a.referenceAssure] = best.codeProduit;
+  }
+  return out;
+}
+
+function findProp(byAssure: AssurePropositions[], ref: string, code: string | undefined): Proposition | null {
+  if (!code) return null;
+  const col = byAssure.find((a) => a.referenceAssure === ref);
+  return col?.propositions.find((p) => p.codeProduit === code) || null;
 }
 
 type CallResult = {
@@ -370,8 +469,12 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<CallResult | null>(null);
-  const [propositions, setPropositions] = useState<Proposition[]>([]);
-  const [selectedCodeProduit, setSelectedCodeProduit] = useState<string | null>(null);
+  /** Tarifs avec réduction couple (query true). */
+  const [tarifsAvecCouple, setTarifsAvecCouple] = useState<AssurePropositions[]>([]);
+  /** Tarifs sans réduction couple — utilisés si marques différentes. */
+  const [tarifsSansCouple, setTarifsSansCouple] = useState<AssurePropositions[]>([]);
+  /** Sélection par referenceAssure → codeProduit */
+  const [selectedByAssure, setSelectedByAssure] = useState<Record<string, string>>({});
   const [propFilter, setPropFilter] = useState<"tous" | "crd" | "capital_initial">("tous");
   const [showRawJson, setShowRawJson] = useState(false);
   const [form, setForm] = useState<LabForm>(EMPTY_FORM);
@@ -422,39 +525,193 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     void refreshStatus();
   }, [refreshStatus]);
 
-  function buildBody(extra?: Record<string, unknown>) {
-    return { overrides: { ...formToOverrides(form, assures, prets), ...(extra || {}) } };
-  }
+  const columnRefs: AssurePropositions[] =
+    tarifsAvecCouple.length >= 2
+      ? tarifsAvecCouple
+      : tarifsSansCouple.length >= 2
+        ? tarifsSansCouple
+        : tarifsAvecCouple.length
+          ? tarifsAvecCouple
+          : tarifsSansCouple;
 
-  const filteredPropositions = propositions.filter((p) => {
-    if (propFilter === "tous") return true;
-    return p.baseTarif === propFilter;
-  });
+  const hasCoupleColumns = columnRefs.length >= 2;
 
-  const selectedProp =
-    filteredPropositions.find((p) => p.codeProduit === selectedCodeProduit) ||
-    propositions.find((p) => p.codeProduit === selectedCodeProduit) ||
-    null;
+  const selectedMarques = columnRefs
+    .map((col) => {
+      const code = selectedByAssure[col.referenceAssure];
+      return (
+        findProp(tarifsAvecCouple, col.referenceAssure, code)?.marque ||
+        findProp(tarifsSansCouple, col.referenceAssure, code)?.marque
+      );
+    })
+    .filter(Boolean) as string[];
 
-  async function runCall(key: string, fn: () => Promise<Response>) {
-    setBusy(key);
-    if (key !== "devis") setLastResult(null);
+  const coupleApplies =
+    hasCoupleColumns &&
+    selectedMarques.length >= 2 &&
+    selectedMarques.every((m) => m === selectedMarques[0]);
+
+  const activeByAssure: AssurePropositions[] = (() => {
+    if (!hasCoupleColumns) return columnRefs;
+    if (coupleApplies) return tarifsAvecCouple.length ? tarifsAvecCouple : tarifsSansCouple;
+    return tarifsSansCouple.length ? tarifsSansCouple : tarifsAvecCouple;
+  })();
+
+  const selectedProps = activeByAssure.map((col) =>
+    findProp(activeByAssure, col.referenceAssure, selectedByAssure[col.referenceAssure]),
+  );
+
+  const allSelected = activeByAssure.length > 0 && selectedProps.every(Boolean);
+
+  const totalAssurance = selectedProps.reduce(
+    (s, p) => s + (p?.tarifTotalAssurance != null && Number.isFinite(p.tarifTotalAssurance) ? p.tarifTotalAssurance : 0),
+    0,
+  );
+  const totalCotisations = selectedProps.reduce(
+    (s, p) =>
+      s + (p?.tarifTotalCotisations != null && Number.isFinite(p.tarifTotalCotisations) ? p.tarifTotalCotisations : 0),
+    0,
+  );
+  const total8Ans = selectedProps.reduce(
+    (s, p) =>
+      s +
+      (p?.tarifCotisationsXPremieresAnnees != null && Number.isFinite(p.tarifCotisationsXPremieresAnnees)
+        ? p.tarifCotisationsXPremieresAnnees
+        : 0),
+    0,
+  );
+
+  /** Total hors réduction (même sélection) pour afficher l’économie couple. */
+  const totalSansCouple = (() => {
+    if (!coupleApplies || !tarifsSansCouple.length) return null;
+    let sum = 0;
+    for (const col of tarifsSansCouple) {
+      const code = selectedByAssure[col.referenceAssure];
+      const p = findProp(tarifsSansCouple, col.referenceAssure, code);
+      if (!p?.tarifTotalAssurance) return null;
+      sum += p.tarifTotalAssurance;
+    }
+    return sum;
+  })();
+
+  const economieCouple =
+    coupleApplies && totalSansCouple != null && totalSansCouple > totalAssurance
+      ? totalSansCouple - totalAssurance
+      : null;
+
+  async function runTarification() {
+    setBusy("tarif");
+    setLastResult(null);
     try {
-      const res = await fn();
-      const data = await res.json().catch(() => ({}));
-      setLastResult(data);
-      if (key === "tarif" && data?.ok) {
-        const props = extractPropositions(data.data);
-        setPropositions(props);
-        setSelectedCodeProduit((prev) => {
-          if (prev && props.some((p) => p.codeProduit === prev)) return prev;
-          return props[0]?.codeProduit || null;
+      const baseOverrides = formToOverrides(form, assures, prets);
+      const isCouple = assures.length >= 2;
+
+      const fetchTarif = (reductionCouple: boolean | undefined) =>
+        adminFetch("/api/admin/sesame-lab/tarification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            overrides: {
+              ...baseOverrides,
+              ...(reductionCouple != null ? { reductionCouple } : {}),
+            },
+          }),
+        }).then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          return data as CallResult;
+        });
+
+      if (isCouple) {
+        const [avec, sans] = await Promise.all([fetchTarif(true), fetchTarif(false)]);
+        setLastResult(avec?.ok ? avec : sans);
+        if (!avec?.ok && !sans?.ok) {
+          setTarifsAvecCouple([]);
+          setTarifsSansCouple([]);
+          setSelectedByAssure({});
+          return;
+        }
+        const avecCols = avec?.ok ? extractPropositionsByAssure(avec.data, assures) : [];
+        const sansCols = sans?.ok ? extractPropositionsByAssure(sans.data, assures) : [];
+        setTarifsAvecCouple(avecCols);
+        setTarifsSansCouple(sansCols);
+        const seed = avecCols.length ? avecCols : sansCols;
+        setSelectedByAssure((prev) => {
+          const next = defaultSelections(seed);
+          // conserve si encore valide
+          for (const col of seed) {
+            const prevCode = prev[col.referenceAssure];
+            if (prevCode && col.propositions.some((p) => p.codeProduit === prevCode)) {
+              next[col.referenceAssure] = prevCode;
+            }
+          }
+          return next;
+        });
+      } else {
+        const one = await fetchTarif(undefined);
+        setLastResult(one);
+        if (!one?.ok) {
+          setTarifsAvecCouple([]);
+          setTarifsSansCouple([]);
+          setSelectedByAssure({});
+          return;
+        }
+        const cols = extractPropositionsByAssure(one.data, assures);
+        setTarifsAvecCouple(cols);
+        setTarifsSansCouple([]);
+        setSelectedByAssure((prev) => {
+          const next = defaultSelections(cols);
+          for (const col of cols) {
+            const prevCode = prev[col.referenceAssure];
+            if (prevCode && col.propositions.some((p) => p.codeProduit === prevCode)) {
+              next[col.referenceAssure] = prevCode;
+            }
+          }
+          return next;
         });
       }
-      if (key === "devis" && data?.ok && data?.pdfBase64) {
+      await refreshStatus();
+    } catch (err: any) {
+      setLastResult({ ok: false, error: err?.message || "Erreur réseau" });
+      setTarifsAvecCouple([]);
+      setTarifsSansCouple([]);
+      setSelectedByAssure({});
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runDevis() {
+    if (!allSelected) return;
+    setBusy("devis");
+    try {
+      const base = formToOverrides(form, assures, prets);
+      const assuresWithProduit = (Array.isArray(base.assures) ? base.assures : []).map(
+        (a: any, i: number) => {
+          const ref = String(a.referenceAssure || `ASSURE${String(i + 1).padStart(3, "0")}`);
+          return {
+            ...a,
+            codeProduit: selectedByAssure[ref] || selectedProps[i]?.codeProduit,
+          };
+        },
+      );
+      const res = await adminFetch("/api/admin/sesame-lab/devis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          overrides: {
+            ...base,
+            assures: assuresWithProduit,
+            reductionCouple: coupleApplies,
+          },
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as CallResult;
+      setLastResult(data);
+      if (data?.ok && data?.pdfBase64) {
         const a = document.createElement("a");
         a.href = `data:application/pdf;base64,${data.pdfBase64}`;
-        a.download = data.fileName || `devis-${selectedCodeProduit || "lab"}-${Date.now()}.pdf`;
+        const codes = Object.values(selectedByAssure).join("-") || "lab";
+        a.download = data.fileName || `devis-${codes}-${Date.now()}.pdf`;
         a.click();
       }
       await refreshStatus();
@@ -470,14 +727,106 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     if (!src?.pdfBase64) return;
     const a = document.createElement("a");
     a.href = `data:application/pdf;base64,${src.pdfBase64}`;
-    a.download = src.fileName || `sesame-devis-${selectedCodeProduit || "lab"}.pdf`;
+    a.download = src.fileName || `sesame-devis-lab.pdf`;
     a.click();
+  }
+
+  function resetLab() {
+    setForm(EMPTY_FORM);
+    setAssures([EMPTY_ASSURE()]);
+    setPrets([EMPTY_PRET()]);
+    setTarifsAvecCouple([]);
+    setTarifsSansCouple([]);
+    setSelectedByAssure({});
+    setPropFilter("tous");
+    setLastResult(null);
+  }
+
+  function PropositionCard({
+    p,
+    selected,
+    showCoupleBadge,
+    onSelect,
+  }: {
+    p: Proposition;
+    selected: boolean;
+    showCoupleBadge: boolean;
+    onSelect: () => void;
+  }) {
+    const nonAssurable = !isTarifable(p);
+    const baseLabel =
+      p.baseTarif === "crd" ? "CRD" : p.baseTarif === "capital_initial" ? "Capital initial" : null;
+    return (
+      <button
+        type="button"
+        disabled={Boolean(nonAssurable)}
+        onClick={onSelect}
+        className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
+          selected
+            ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200"
+            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+        } ${nonAssurable ? "opacity-60 cursor-not-allowed" : ""}`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-bold text-slate-900">{p.marque}</span>
+              {baseLabel ? (
+                <span
+                  className={`rounded-full text-[10px] font-bold px-1.5 py-0.5 border ${
+                    p.baseTarif === "crd"
+                      ? "bg-teal-50 text-teal-800 border-teal-200"
+                      : "bg-violet-50 text-violet-800 border-violet-200"
+                  }`}
+                >
+                  {baseLabel}
+                </span>
+              ) : null}
+              {selected ? (
+                <span className="rounded-full bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5">
+                  OK
+                </span>
+              ) : null}
+              {showCoupleBadge && p.reductionCouple ? (
+                <span className="rounded-full bg-blue-50 text-blue-700 text-[10px] font-semibold px-1.5 py-0.5 border border-blue-100">
+                  Couple
+                </span>
+              ) : null}
+              {nonAssurable ? (
+                <span className="rounded-full bg-amber-50 text-amber-800 text-[10px] font-semibold px-1.5 py-0.5 border border-amber-100">
+                  {p.type}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-[10px] font-mono text-slate-400 mt-0.5 truncate">{p.codeProduit}</p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-base font-bold text-slate-900">{euro(p.tarifTotalAssurance)}</p>
+            <p className="text-[10px] text-slate-500">assurance</p>
+          </div>
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px]">
+          <div className="rounded bg-slate-50 px-1.5 py-1">
+            <p className="text-slate-500">8 ans</p>
+            <p className="font-semibold text-slate-800">{euro(p.tarifCotisationsXPremieresAnnees)}</p>
+          </div>
+          <div className="rounded bg-slate-50 px-1.5 py-1">
+            <p className="text-slate-500">TAEA</p>
+            <p className="font-semibold text-slate-800">{pct(p.taea)}</p>
+          </div>
+          <div className="rounded bg-slate-50 px-1.5 py-1">
+            <p className="text-slate-500">Taux moy.</p>
+            <p className="font-semibold text-slate-800">{pct(p.tauxMoyen)}</p>
+          </div>
+        </div>
+      </button>
+    );
   }
 
   return (
     <div className="min-h-[100dvh] bg-slate-50">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={onBack}
@@ -496,7 +845,7 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-950 px-4 py-3 text-sm space-y-1">
           <p className="font-semibold flex items-center gap-2">
             <FlaskConical className="w-4 h-4 shrink-0" />
@@ -904,215 +1253,190 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
         <section className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">4. Propositions</h2>
           <p className="text-xs text-slate-500">
-            Comme dans Kérys : lance la simulation, filtre CRD / capital initial, choisis une offre, puis exporte le devis
-            PDF.
+            {assures.length >= 2
+              ? "Deux colonnes séparées : à gauche Assuré 1 (ex. Monsieur), à droite Assuré 2 (ex. Madame). Tu peux choisir deux assureurs différents. Même société → réduction couple ; sinon → tarifs hors couple. Total = somme des deux."
+              : "Lance la simulation, filtre CRD / capital initial, choisis une offre, puis exporte le devis PDF."}
           </p>
           <div className="flex flex-wrap gap-2 items-center">
-            <Button
-              type="button"
-              size="sm"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                void runCall("tarif", () =>
-                  adminFetch("/api/admin/sesame-lab/tarification", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(buildBody()),
-                  }),
-                )
-              }
-            >
+            <Button type="button" size="sm" disabled={Boolean(busy)} onClick={() => void runTarification()}>
               {busy === "tarif" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Simuler
+              Simuler{assures.length >= 2 ? " (×2 tarifs couple)" : ""}
             </Button>
             <Button
               type="button"
               size="sm"
               variant="secondary"
-              disabled={Boolean(busy) || !selectedCodeProduit}
-              onClick={() =>
-                void runCall("devis", () =>
-                  adminFetch("/api/admin/sesame-lab/devis", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(
-                      buildBody({
-                        codeProduit: selectedCodeProduit,
-                      }),
-                    ),
-                  }),
-                )
-              }
+              disabled={Boolean(busy) || !allSelected}
+              onClick={() => void runDevis()}
             >
               {busy === "devis" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               <Download className="w-4 h-4" />
-              Exporter le devis (produit sélectionné)
+              Exporter le devis
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setForm(EMPTY_FORM);
-                setAssures([EMPTY_ASSURE()]);
-                setPrets([EMPTY_PRET()]);
-                setPropositions([]);
-                setSelectedCodeProduit(null);
-                setPropFilter("tous");
-                setLastResult(null);
-              }}
-            >
+            <Button type="button" size="sm" variant="ghost" onClick={resetLab}>
               Réinitialiser
             </Button>
-            {selectedProp ? (
-              <span className="text-xs text-slate-600">
-                Sélection : <strong>{selectedProp.marque}</strong>{" "}
-                <span className="font-mono text-slate-400">{selectedProp.codeProduit}</span>
-                {selectedProp.baseTarif !== "inconnu" ? (
-                  <span className="ml-1 text-slate-500">
-                    ({selectedProp.baseTarif === "crd" ? "CRD" : "Capital initial"})
-                  </span>
-                ) : null}
-              </span>
-            ) : null}
+            <div className="flex flex-wrap gap-1.5 ml-auto">
+              {(
+                [
+                  { id: "tous", label: "Tous" },
+                  { id: "crd", label: "CRD" },
+                  { id: "capital_initial", label: "Capital initial" },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setPropFilter(f.id)}
+                  className={`rounded-full px-3 py-1 text-[11px] font-semibold border ${
+                    propFilter === f.id
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {lastResult && !lastResult.ok && lastResult.error ? (
             <p className="text-sm text-red-600">{lastResult.error}</p>
           ) : null}
 
-          {propositions.length > 0 ? (
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-800">
-                  {filteredPropositions.length} / {propositions.length} proposition
-                  {propositions.length > 1 ? "s" : ""}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {(
-                    [
-                      { id: "tous", label: "Tous" },
-                      { id: "crd", label: "CRD" },
-                      { id: "capital_initial", label: "Capital initial" },
-                    ] as const
-                  ).map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => setPropFilter(f.id)}
-                      className={`rounded-full px-3 py-1 text-[11px] font-semibold border ${
-                        propFilter === f.id
-                          ? "bg-slate-900 text-white border-slate-900"
-                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
+          {activeByAssure.length > 0 ? (
+            <div className="space-y-3">
+              {hasCoupleColumns ? (
+                <div
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    coupleApplies
+                      ? "border-blue-200 bg-blue-50 text-blue-900"
+                      : "border-amber-200 bg-amber-50 text-amber-950"
+                  }`}
+                >
+                  {coupleApplies ? (
+                    <p>
+                      <strong>Réduction couple active</strong> — même société ({selectedMarques[0]}). Tarifs issus de
+                      l’appel Sésame avec réduction couple.
+                      {economieCouple != null ? (
+                        <span className="ml-1">Économie couple estimée : {euro(economieCouple)}.</span>
+                      ) : null}
+                    </p>
+                  ) : (
+                    <p>
+                      <strong>Réduction couple inactive</strong> — sociétés différentes
+                      {selectedMarques.length
+                        ? ` (${selectedMarques.join(" ≠ ")})`
+                        : ""}. Tarifs hors réduction couple.
+                    </p>
+                  )}
                 </div>
-              </div>
-              <p className="text-[11px] text-slate-500">
-                Base prêt saisie = CRD. Filtre = type de tarification du produit (heuristique code produit). Tri coût
-                total croissant.
-              </p>
-              <ul className="space-y-2">
-                {filteredPropositions.map((p) => {
-                  const selected = p.codeProduit === selectedCodeProduit;
-                  const nonAssurable = p.type && p.type !== "TARIFABLE";
-                  const baseLabel =
-                    p.baseTarif === "crd"
-                      ? "CRD"
-                      : p.baseTarif === "capital_initial"
-                        ? "Capital initial"
-                        : null;
+              ) : null}
+
+              <div
+                className={`grid gap-4 items-start ${
+                  activeByAssure.length >= 2 ? "md:grid-cols-2" : "grid-cols-1"
+                }`}
+              >
+                {activeByAssure.map((col, colIndex) => {
+                  const filtered = filterProps(col.propositions, propFilter);
+                  const selectedCode = selectedByAssure[col.referenceAssure];
+                  const accent =
+                    colIndex === 0
+                      ? {
+                          wrap: "border-sky-300 bg-sky-50/70",
+                          title: "text-sky-950",
+                          chip: "bg-sky-700 text-white",
+                        }
+                      : {
+                          wrap: "border-rose-300 bg-rose-50/70",
+                          title: "text-rose-950",
+                          chip: "bg-rose-700 text-white",
+                        };
                   return (
-                    <li key={p.codeProduit}>
-                      <button
-                        type="button"
-                        disabled={Boolean(nonAssurable)}
-                        onClick={() => setSelectedCodeProduit(p.codeProduit)}
-                        className={`w-full text-left rounded-xl border px-4 py-3 transition ${
-                          selected
-                            ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200"
-                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                        } ${nonAssurable ? "opacity-60 cursor-not-allowed" : ""}`}
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-base font-bold text-slate-900">{p.marque}</span>
-                              {baseLabel ? (
-                                <span
-                                  className={`rounded-full text-[10px] font-bold px-2 py-0.5 border ${
-                                    p.baseTarif === "crd"
-                                      ? "bg-teal-50 text-teal-800 border-teal-200"
-                                      : "bg-violet-50 text-violet-800 border-violet-200"
-                                  }`}
-                                >
-                                  {baseLabel}
-                                </span>
-                              ) : null}
-                              {selected ? (
-                                <span className="rounded-full bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5">
-                                  SÉLECTIONNÉ
-                                </span>
-                              ) : null}
-                              {p.reductionCouple ? (
-                                <span className="rounded-full bg-blue-50 text-blue-700 text-[10px] font-semibold px-2 py-0.5 border border-blue-100">
-                                  Réduction couple
-                                </span>
-                              ) : null}
-                              {nonAssurable ? (
-                                <span className="rounded-full bg-amber-50 text-amber-800 text-[10px] font-semibold px-2 py-0.5 border border-amber-100">
-                                  {p.type}
-                                </span>
-                              ) : (
-                                <span className="rounded-full bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5">
-                                  Tarifable
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[11px] font-mono text-slate-400 mt-0.5">{p.codeProduit}</p>
-                            {p.messages?.length ? (
-                              <p className="text-xs text-amber-700 mt-1">
-                                {p.messages.map((m) => m.texte).filter(Boolean).join(" · ")}
-                              </p>
-                            ) : null}
-                          </div>
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-slate-900">{euro(p.tarifTotalAssurance)}</p>
-                            <p className="text-[11px] text-slate-500">Coût total assurance</p>
-                          </div>
+                    <div
+                      key={col.referenceAssure}
+                      className={`rounded-xl border-2 p-3 space-y-2 min-w-0 ${accent.wrap}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <span
+                            className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${accent.chip}`}
+                          >
+                            Colonne {colIndex + 1}
+                          </span>
+                          <h3 className={`text-base font-bold mt-1 ${accent.title}`}>{col.label}</h3>
+                          <p className="text-[11px] text-slate-600">
+                            Choisis l’assurance pour cette personne uniquement
+                          </p>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
-                            <p className="text-slate-500">Cotisations</p>
-                            <p className="font-semibold text-slate-800">{euro(p.tarifTotalCotisations)}</p>
-                          </div>
-                          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
-                            <p className="text-slate-500">
-                              Les {p.xPremieresAnnees ?? 8} premières années
-                            </p>
-                            <p className="font-semibold text-slate-800">
-                              {euro(p.tarifCotisationsXPremieresAnnees)}
-                            </p>
-                          </div>
-                          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
-                            <p className="text-slate-500">TAEA</p>
-                            <p className="font-semibold text-slate-800">{pct(p.taea)}</p>
-                          </div>
-                          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
-                            <p className="text-slate-500">Taux moyen</p>
-                            <p className="font-semibold text-slate-800">{pct(p.tauxMoyen)}</p>
-                          </div>
-                        </div>
-                      </button>
-                    </li>
+                        <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                          {col.referenceAssure}
+                        </span>
+                      </div>
+                      {selectedCode ? (
+                        <p className={`text-xs font-medium ${accent.title}`}>
+                          Sélection :{" "}
+                          <strong>
+                            {findProp(activeByAssure, col.referenceAssure, selectedCode)?.marque || "—"}
+                          </strong>{" "}
+                          <span className="font-mono opacity-70">{selectedCode}</span>
+                          {" · "}
+                          {euro(findProp(activeByAssure, col.referenceAssure, selectedCode)?.tarifTotalAssurance)}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-amber-800 font-medium">Sélectionne une proposition ci-dessous</p>
+                      )}
+                      <ul className="space-y-2 max-h-[32rem] overflow-auto pr-1">
+                        {filtered.map((p) => (
+                          <li key={`${col.referenceAssure}-${p.codeProduit}`}>
+                            <PropositionCard
+                              p={p}
+                              selected={p.codeProduit === selectedCode}
+                              showCoupleBadge={coupleApplies}
+                              onSelect={() =>
+                                setSelectedByAssure((prev) => ({
+                                  ...prev,
+                                  [col.referenceAssure]: p.codeProduit,
+                                }))
+                              }
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                      {filtered.length === 0 ? (
+                        <p className="text-sm text-slate-500">Aucune proposition pour ce filtre.</p>
+                      ) : null}
+                    </div>
                   );
                 })}
-              </ul>
-              {filteredPropositions.length === 0 ? (
-                <p className="text-sm text-slate-500">Aucune proposition pour ce filtre.</p>
+              </div>
+
+              {allSelected ? (
+                <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                        Coût total sélection
+                      </p>
+                      <p className="text-2xl font-bold text-emerald-950">{euro(totalAssurance)}</p>
+                      <p className="text-xs text-emerald-800/80 mt-0.5">
+                        Cotisations {euro(totalCotisations)}
+                        {" · "}8 premières années {euro(total8Ans)}
+                        {coupleApplies ? " · réduction couple incluse" : hasCoupleColumns ? " · hors couple" : ""}
+                      </p>
+                    </div>
+                    <div className="text-xs text-emerald-900 space-y-0.5">
+                      {selectedProps.map((p, i) =>
+                        p ? (
+                          <p key={activeByAssure[i]?.referenceAssure || i}>
+                            Assuré {i + 1} : <strong>{p.marque}</strong> {euro(p.tarifTotalAssurance)}
+                          </p>
+                        ) : null,
+                      )}
+                    </div>
+                  </div>
+                </div>
               ) : null}
             </div>
           ) : (

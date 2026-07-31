@@ -352,15 +352,18 @@ export function buildLabSamplePayload(
       referenceAssure: String(src.referenceAssure || `ASSURE${String(index + 1).padStart(3, "0")}`),
     };
 
+    // Produit : priorité au code de cet assuré (colonnes couple), sinon fallback global.
+    const codeProduitAssure = String(src.codeProduit || "").trim() || codeProduit;
+
     if (mode === "tarification") {
-      if (codeProduit && o.forceProduitUnique === true) {
-        const produit: Record<string, unknown> = { codeProduit };
+      if (codeProduitAssure && o.forceProduitUnique === true) {
+        const produit: Record<string, unknown> = { codeProduit: codeProduitAssure };
         if (idCommissionnement) produit.idCommissionnement = idCommissionnement;
         else if (codeBareme) produit.codeBareme = codeBareme;
         assure.produitsATarifer = [produit];
       }
     } else {
-      if (codeProduit) assure.codeProduit = codeProduit;
+      if (codeProduitAssure) assure.codeProduit = codeProduitAssure;
       if (idCommissionnement) assure.idCommissionnement = idCommissionnement;
       else if (codeBareme) assure.codeBareme = codeBareme;
     }
@@ -485,11 +488,16 @@ export function registerSesameLabRoutes(app: Express) {
     try {
       assertSesameLabAllowed();
       const { body, resolved, note } = await buildPayloadFromRequest(req, "devis");
-      if (!body?.assures?.[0]?.codeProduit) {
+      const missingProduit = Array.isArray(body?.assures)
+        ? body.assures.findIndex((a: any) => !a?.codeProduit)
+        : 0;
+      if (!body?.assures?.length || missingProduit >= 0) {
         return res.status(400).json({
           ok: false,
           error:
-            "Aucun code produit résolu pour le devis. Vérifie que l'offre a des produits dans le référentiel.",
+            missingProduit > 0
+              ? `Assuré ${missingProduit + 1} : sélectionne un produit avant d'exporter le devis.`
+              : "Aucun code produit résolu pour le devis. Sélectionne une proposition par assuré.",
           catalogAuto: { resolved, note },
         });
       }

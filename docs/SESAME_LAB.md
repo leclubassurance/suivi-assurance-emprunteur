@@ -72,7 +72,8 @@ Ensuite seulement : boutons tarifer / devis / ouvrir contrat sur le dossier admi
 
 - **Assurés** : 1 ou 2 (couple). Quotité, métier / sports à risque = **optionnels** (déclaratif ; ids Sésame non envoyés tant que l’annexe Kereis n’est pas branchée).
 - **Prêts** : montant = **capital restant dû (CRD)** (base substitution).
-- **Propositions** : badge + filtre **Tous / CRD / Capital initial** (heuristique sur le code produit, ex. `CLEUICD` vs `CLEUICI`).
+- **Propositions** : 1 colonne par assuré ; sélection indépendante ; **coût total** = somme. Réduction couple **seulement** si même société d’assurance (sinon tarifs hors couple).
+- Filtre **Tous / CRD / Capital initial** (heuristique code produit).
 
 ## Endpoints lab
 
