@@ -560,6 +560,17 @@ function formToOverrides(
     assures: assures.map((a, i) => {
       const statutLabel =
         STATUT_PRO_OPTIONS.find((o) => o.value === a.statutPro)?.label || a.statutPro;
+      const idStatutProfessionnel = STATUT_PRO_TO_SESAME_ID[a.statutPro] ?? 1;
+      const isOfficeStatut =
+        a.statutPro === "employe_bureau" ||
+        a.statutPro === "salarie_cadre" ||
+        a.statutPro === "salarie_noncadre";
+      const isManualStatut =
+        a.statutPro === "artisan_btp" ||
+        a.statutPro === "artisan_nonbtp" ||
+        a.statutPro === "profession_agricole" ||
+        a.statutPro === "commercant";
+      const professionManuelle = a.professionManuelle || isManualStatut;
       return {
         civilite: a.civilite,
         prenom: a.prenom.trim() || undefined,
@@ -567,15 +578,16 @@ function formToOverrides(
         dateNaissance: a.dateNaissance || undefined,
         codePostal: a.codePostal.trim() || undefined,
         fumeur: a.fumeur,
+        // Libellé libre, sinon le libellé fin du statut (ex. Artisan du BTP…) — jamais un défaut « bureau ».
         professionLibelle: a.profession.trim() || statutLabel,
-        /** Libellé Kérys — pour debug / trace (Sésame tarife via id). */
         statutProfessionnelLibelle: statutLabel,
-        idStatutProfessionnel: STATUT_PRO_TO_SESAME_ID[a.statutPro] ?? 1,
+        idStatutProfessionnel,
         idQualite: QUALITE_TO_SESAME_ID[a.qualite] ?? 3,
-        professionManuelle: a.professionManuelle,
+        professionManuelle,
+        // Cardif PDF : travailAdministratif=true → libellé type « Employé de bureau » même si id statut = artisan.
+        travailAdministratif: isOfficeStatut && !professionManuelle,
         travauxEnHauteur: a.travauxHauteur,
         deplacementsProfessionnels: a.deplacementsPro !== "< 20000 Km",
-        // Métier / sports à risque : optionnels. Sans annexe d'ids Kereis on n'envoie pas d'id numérique.
         professionRisque: a.professionRisque,
         sportsRisque: a.sportsRisque,
         selectedSports: a.sportsRisque ? a.selectedSports : [],
@@ -1234,8 +1246,8 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     ))}
                   </select>
                   <p className="mt-1 text-[10px] text-slate-400 leading-snug">
-                    C’est ce libellé de catégorie qui apparaît sur le devis PDF (ex. « Employé de
-                    bureau », « Artisan du BTP… »).
+                    Catégorie Sésame (id) + flags métier. Pour artisan BTP on envoie statut id&nbsp;6,
+                    manuelle=true, administratif=false — c’est ce qui pilote le libellé du PDF Cardif.
                   </p>
                 </Field>
                 <Field label="Profession (libellé libre)" className="sm:col-span-2">
@@ -1246,8 +1258,8 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     placeholder="ex. Dessinateur-projeteur"
                   />
                   <p className="mt-1 text-[10px] text-slate-400 leading-snug">
-                    Transmis à Sésame pour l’instruction ; le PDF Cardif reprend surtout le statut
-                    ci-dessus, pas ce texte libre.
+                    Optionnel. Si vide, on envoie le libellé du statut sélectionné (tronqué à 50
+                    car. Sésame).
                   </p>
                 </Field>
                 <Field label="Profession à risque (optionnel)">

@@ -522,7 +522,11 @@ export function buildLabSamplePayload(
   function buildAssure(src: Record<string, unknown>, index: number): Record<string, unknown> {
     const idStatutProfessionnel = Number(src.idStatutProfessionnel ?? o.idStatutProfessionnel ?? 1);
     const professionLibelle = String(
-      src.professionLibelle || o.professionLibelle || "Employe de bureau",
+      src.professionLibelle ||
+        src.statutProfessionnelLibelle ||
+        o.professionLibelle ||
+        o.statutProfessionnelLibelle ||
+        "",
     ).trim();
     const idSportsARisque = Array.isArray(src.idSportsARisque)
       ? (src.idSportsARisque as number[])
@@ -536,6 +540,21 @@ export function buildLabSamplePayload(
           ? Number(o.idProfessionARisque)
           : undefined;
     const quotite = Number(src.quotite ?? o.quotite ?? 100);
+
+    const professionManuelle =
+      src.professionManuelle === true ||
+      o.professionManuelle === true ||
+      // Ids annexe manuels / indépendants (6) — ne jamais forcer « administratif ».
+      idStatutProfessionnel === 6;
+    // IMPORTANT : l’ancien défaut `!== false` → true faisait afficher « Employé de bureau »
+    // sur le PDF Cardif même avec statut artisan (id 6) correctement sélectionné.
+    const travailAdministratif = professionManuelle
+      ? false
+      : typeof src.travailAdministratif === "boolean"
+        ? src.travailAdministratif
+        : typeof o.travailAdministratif === "boolean"
+          ? (o.travailAdministratif as boolean)
+          : idStatutProfessionnel === 1;
 
     const assure: Record<string, unknown> = {
       civilite: String(src.civilite || o.civilite || "Monsieur").trim() || "Monsieur",
@@ -557,13 +576,9 @@ export function buildLabSamplePayload(
       taille: Math.round(parseFrNumber(src.taille ?? o.taille, 175)),
       profession: {
         idStatutProfessionnel,
-        libelle: professionLibelle,
-        manuelle: src.professionManuelle === true || o.professionManuelle === true,
-        travailAdministratif:
-          src.travailAdministratif !== false &&
-          o.travailAdministratif !== false &&
-          src.professionManuelle !== true &&
-          o.professionManuelle !== true,
+        ...(professionLibelle ? { libelle: professionLibelle.slice(0, 50) } : {}),
+        manuelle: professionManuelle,
+        travailAdministratif,
         travauxEnHauteur: src.travauxEnHauteur === true || o.travauxEnHauteur === true,
         deplacementsProfessionnels:
           src.deplacementsProfessionnels === true || o.deplacementsProfessionnels === true,
@@ -672,6 +687,7 @@ function summarizePayload(body: any) {
           idStatutProfessionnel: body.assures[0].profession.idStatutProfessionnel,
           libelle: body.assures[0].profession.libelle,
           manuelle: body.assures[0].profession.manuelle,
+          travailAdministratif: body.assures[0].profession.travailAdministratif,
           travauxEnHauteur: body.assures[0].profession.travauxEnHauteur,
         }
       : null,
