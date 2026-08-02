@@ -714,36 +714,51 @@ function formatMarkdown(report: Omit<DailyOpsReport, "markdown" | "telegramHtml"
 function formatTelegramHtml(report: Omit<DailyOpsReport, "markdown" | "telegramHtml">): string {
   const m = report.metrics;
   const lines: string[] = [];
-  lines.push(`<b>📊 Rapport ops — ${escapeHtml(m.periodLabel)}</b>`);
+  const toTreat = m.incidentsCritical + m.incidentsWarning;
+
+  lines.push(`<b>🧭 Briefing LCIF — ${escapeHtml(m.periodLabel)}</b>`);
   lines.push("");
   lines.push(
-    `Actifs: <b>${m.dossiersWithActivity}</b> · Nouveaux: <b>${m.newDossiers}</b> · Mails client: <b>${m.clientMessagesIn}</b>`,
+    toTreat > 0
+      ? `À traiter : <b>${toTreat}</b> alerte(s) · 🔴 ${m.incidentsCritical} · 🟠 ${m.incidentsWarning}`
+      : "✅ Rien de critique détecté hier.",
   );
   lines.push(
-    `🔴 ${m.incidentsCritical} · 🟠 ${m.incidentsWarning} · ℹ️ ${m.incidentsInfo} · Escalades ouvertes: <b>${m.openEscalationsEndOfDay}</b>`,
+    `Business : +<b>${m.newDossiers}</b> dossier(s) · <b>${m.studiesSentOrDetected}</b> étude(s) · <b>${m.documentsUploaded}</b> PJ · <b>${m.clientMessagesIn}</b> mail(s) client`,
+  );
+  lines.push(
+    `Camille : <b>${m.camilleRepliesOut}</b> réponse(s) · <b>${m.openEscalationsEndOfDay}</b> escalade(s) ouverte(s) · <b>${m.emailFailures}</b> échec(s) email`,
   );
   lines.push("");
 
-  const top = report.priorityQueue.slice(0, 8);
+  const top = report.priorityQueue.slice(0, 5);
   if (top.length) {
-    lines.push("<b>Priorité</b>");
-    for (const p of top) {
-      lines.push(`• <b>${escapeHtml(p.dossierId)}</b> ${escapeHtml(p.clientName)} (${p.score})`);
-      lines.push(`  <i>${escapeHtml(p.reasons[0] || "")}</i>`);
+    lines.push("<b>🎯 Priorités du jour</b>");
+    for (const [idx, p] of top.entries()) {
+      lines.push(`${idx + 1}. <b>${escapeHtml(p.dossierId)}</b> — ${escapeHtml(p.clientName)}`);
+      lines.push(`   ${escapeHtml(p.reasons[0] || "À vérifier")}`);
     }
     lines.push("");
   }
 
-  const critical = report.incidents.filter((i) => i.severity === "critical").slice(0, 6);
-  if (critical.length) {
-    lines.push("<b>🔴 Critiques</b>");
-    for (const inc of critical) {
-      lines.push(`• <b>${escapeHtml(inc.dossierId)}</b> — ${escapeHtml(inc.title)}`);
+  const actionables = report.incidents
+    .filter((i) => i.severity !== "info")
+    .slice(0, 5);
+  if (actionables.length) {
+    lines.push("<b>✅ Actions concrètes</b>");
+    for (const inc of actionables) {
+      lines.push(`• <b>${escapeHtml(inc.dossierId)}</b> — ${escapeHtml(inc.suggestedAction)}`);
     }
+    lines.push("");
   }
 
-  lines.push("");
-  lines.push(`<i>Rapport complet par email · ${escapeHtml(adminBaseUrl())}</i>`);
+  if (report.productNotes.length) {
+    const note = report.productNotes[0];
+    lines.push(`<b>🛠 Process</b> ${escapeHtml(note.title)} — ${escapeHtml(note.detail)}`);
+    lines.push("");
+  }
+
+  lines.push(`<i>Admin : ${escapeHtml(adminBaseUrl())}</i>`);
   return lines.join("\n");
 }
 
@@ -908,7 +923,9 @@ export async function deliverOpsDailyReport(
 ): Promise<{ email?: { ok: boolean; error?: string }; telegram?: { sent: number } }> {
   const result: { email?: { ok: boolean; error?: string }; telegram?: { sent: number } } = {};
 
-  const wantEmail = options.sendEmail !== false;
+  const wantEmail =
+    options.sendEmail === true ||
+    (options.sendEmail == null && envFlag("OPS_DAILY_REPORT_EMAIL_ENABLED", "false"));
   const wantTelegram = options.sendTelegram !== false;
 
   if (wantEmail) {

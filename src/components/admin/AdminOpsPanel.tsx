@@ -455,7 +455,7 @@ export function AdminOpsDailyReportPanel() {
         body: JSON.stringify({
           date: reportYmd || undefined,
           deliver,
-          sendEmail: deliver,
+          sendEmail: false,
           sendTelegram: deliver,
         }),
       });

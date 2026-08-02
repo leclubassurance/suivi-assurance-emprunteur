@@ -5077,7 +5077,7 @@ export function createApp() {
     const result = await runOpsDailyReport({
       reportYmd: body.date,
       deliver: Boolean(body.deliver),
-      sendEmail: body.sendEmail !== false,
+      sendEmail: body.sendEmail === true,
       sendTelegram: body.sendTelegram !== false,
     });
     res.json({
