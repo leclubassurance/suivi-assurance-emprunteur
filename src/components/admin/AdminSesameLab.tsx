@@ -460,32 +460,56 @@ const TYPE_TAUX_OPTIONS = [
 ];
 
 /**
- * Annexe Sésame idStatutProfessionnel (valeurs acceptées ~1–7).
- * Les libellés fins Kérys (Cadre / Employé bureau / Artisan BTP…) sont regroupés
- * sur ces ids — c’est ce que Kérys envoie aussi (devis OK = « Artisan du BTP… » via id 6).
+ * Annexe Sésame idStatutProfessionnel — Offre Changement d’assurance (10157)
+ * (= mêmes ids sur offres 44 et 10158).
+ * Source : « Annexe des services partenaires Sésame ».
+ * Ce ne sont PAS les ids 1–7 (hypothèse lab erronée) : Employé de bureau = 10095,
+ * Artisan du BTP = 10140.
  */
 const STATUT_PRO_TO_SESAME_ID: Record<string, number> = {
-  salarie_cadre: 1,
-  employe_bureau: 1,
-  salarie_noncadre: 1,
-  fonctionnaire_a: 2,
-  fonctionnaire_autre: 2,
-  dirigeant: 3,
-  profession_liberale: 4,
-  profession_medicale: 4,
-  profession_paramedical_salarie: 4,
-  profession_paramedical_fonctionnaire: 4,
-  profession_paramedical_liberal: 4,
-  retraite_cadre: 5,
-  retraite_noncadre: 5,
-  artisan_nonbtp: 6,
-  commercant: 6,
-  artisan_btp: 6,
-  profession_agricole: 6,
-  saisonnier: 7,
-  sans_profession: 7,
-  autre: 1,
+  salarie_cadre: 10131,
+  employe_bureau: 10095,
+  salarie_noncadre: 10132,
+  fonctionnaire_a: 34,
+  fonctionnaire_autre: 10135,
+  retraite_cadre: 10133,
+  retraite_noncadre: 10134,
+  dirigeant: 10136,
+  profession_liberale: 10137,
+  profession_medicale: 10138,
+  profession_paramedical_salarie: 10139,
+  profession_paramedical_fonctionnaire: 10139,
+  profession_paramedical_liberal: 10139,
+  artisan_nonbtp: 10127,
+  commercant: 48,
+  artisan_btp: 10140,
+  profession_agricole: 10100,
+  saisonnier: 10141,
+  sans_profession: 22,
+  autre: 10095,
 };
+
+/** Annexe §1.3 Profession à risque (offre 10157). */
+const PROFESSION_RISQUE_TO_SESAME_ID: Record<string, number> = {
+  aucun: 0,
+  marin_pecheur: 596,
+  aviation: 592,
+  armee_police: 590,
+  securite: 591,
+  cirque: 588,
+  plongeur: 595,
+  pompier: 593,
+  missions_humanitaires: 589,
+  sportif_pro: 594,
+  transport_explosifs: 584,
+  manipulation_explosifs: 583,
+  travail_hauteur: 587,
+  travail_souterrain: 585,
+  travail_site_specifique: 586,
+};
+
+/** Statuts « manuels / indépendants » → manuelle=true, administratif=false. */
+const STATUT_MANUEL_IDS = new Set([10127, 10140, 48, 10100]);
 
 const QUALITE_TO_SESAME_ID: Record<string, number> = {
   EMPRUNTEUR: 3,
@@ -560,7 +584,7 @@ function formToOverrides(
     assures: assures.map((a, i) => {
       const statutLabel =
         STATUT_PRO_OPTIONS.find((o) => o.value === a.statutPro)?.label || a.statutPro;
-      const idStatutProfessionnel = STATUT_PRO_TO_SESAME_ID[a.statutPro] ?? 1;
+      const idStatutProfessionnel = STATUT_PRO_TO_SESAME_ID[a.statutPro] ?? 10095;
       const isOfficeStatut =
         a.statutPro === "employe_bureau" ||
         a.statutPro === "salarie_cadre" ||
@@ -571,6 +595,7 @@ function formToOverrides(
         a.statutPro === "profession_agricole" ||
         a.statutPro === "commercant";
       const professionManuelle = a.professionManuelle || isManualStatut;
+      const idProfessionARisque = PROFESSION_RISQUE_TO_SESAME_ID[a.professionRisque];
       return {
         civilite: a.civilite,
         prenom: a.prenom.trim() || undefined,
@@ -588,6 +613,9 @@ function formToOverrides(
         travailAdministratif: isOfficeStatut && !professionManuelle,
         travauxEnHauteur: a.travauxHauteur,
         deplacementsProfessionnels: a.deplacementsPro !== "< 20000 Km",
+        ...(idProfessionARisque != null && idProfessionARisque > 0
+          ? { idProfessionARisque }
+          : {}),
         professionRisque: a.professionRisque,
         sportsRisque: a.sportsRisque,
         selectedSports: a.sportsRisque ? a.selectedSports : [],
@@ -1246,8 +1274,9 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
                     ))}
                   </select>
                   <p className="mt-1 text-[10px] text-slate-400 leading-snug">
-                    Catégorie Sésame (id) + flags métier. Pour artisan BTP on envoie statut id&nbsp;6,
-                    manuelle=true, administratif=false — c’est ce qui pilote le libellé du PDF Cardif.
+                    Ids annexe offre 10157 (ex. Employé bureau=10095, Artisan BTP=10140). C’est
+                    ce libellé d’annexe qui apparaît sur la ligne « Statut professionnel » du
+                    devis PDF.
                   </p>
                 </Field>
                 <Field label="Profession (libellé libre)" className="sm:col-span-2">

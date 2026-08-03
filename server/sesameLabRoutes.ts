@@ -520,7 +520,7 @@ export function buildLabSamplePayload(
     });
 
   function buildAssure(src: Record<string, unknown>, index: number): Record<string, unknown> {
-    const idStatutProfessionnel = Number(src.idStatutProfessionnel ?? o.idStatutProfessionnel ?? 1);
+    const idStatutProfessionnel = Number(src.idStatutProfessionnel ?? o.idStatutProfessionnel ?? 10095);
     const professionLibelle = String(
       src.professionLibelle ||
         src.statutProfessionnelLibelle ||
@@ -541,20 +541,20 @@ export function buildLabSamplePayload(
           : undefined;
     const quotite = Number(src.quotite ?? o.quotite ?? 100);
 
+    // Annexe 10157 : artisans / commerçant / agricole
+    const STATUT_MANUEL_IDS = new Set([10127, 10140, 48, 10100]);
     const professionManuelle =
       src.professionManuelle === true ||
       o.professionManuelle === true ||
-      // Ids annexe manuels / indépendants (6) — ne jamais forcer « administratif ».
-      idStatutProfessionnel === 6;
-    // IMPORTANT : l’ancien défaut `!== false` → true faisait afficher « Employé de bureau »
-    // sur le PDF Cardif même avec statut artisan (id 6) correctement sélectionné.
+      STATUT_MANUEL_IDS.has(idStatutProfessionnel);
+    // Ne plus défauter à true : sinon PDF Cardif affiche « Employé de bureau ».
     const travailAdministratif = professionManuelle
       ? false
       : typeof src.travailAdministratif === "boolean"
         ? src.travailAdministratif
         : typeof o.travailAdministratif === "boolean"
           ? (o.travailAdministratif as boolean)
-          : idStatutProfessionnel === 1;
+          : idStatutProfessionnel === 10095;
 
     const assure: Record<string, unknown> = {
       civilite: String(src.civilite || o.civilite || "Monsieur").trim() || "Monsieur",

@@ -70,7 +70,9 @@ Ensuite seulement : boutons tarifer / devis / ouvrir contrat sur le dossier admi
 
 ## Formulaire lab (aligné Kérys)
 
-- **Assurés** : 1 ou 2 (couple). Quotité, métier / sports à risque = **optionnels** (déclaratif ; ids Sésame non envoyés tant que l’annexe Kereis n’est pas branchée).
+- **Assurés** : 1 ou 2 (couple). Quotité, métier / sports à risque.
+  - `idStatutProfessionnel` = **annexe offre** (ex. changement d’assurance **10157**) : Employé de bureau=`10095`, Artisan BTP=`10140`, etc. (pas les ids 1–7).
+  - `idProfessionARisque` = annexe §1.3 (0 = aucune).
 - **Prêts** : montant = **capital restant dû (CRD)** (base substitution).
   - Nature : amortissable / PTZ / modulable / in fine
   - Type d’échéances : **constantes** (mensualité constante), **à paliers** (`paliers[]`), **crédit-bail** (loyer + valeur résiduelle)
