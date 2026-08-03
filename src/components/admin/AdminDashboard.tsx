@@ -2783,6 +2783,7 @@ export default function AdminDashboard({
                           (kereisDraft as any) || (selectedDossier as any)?.kereisDraft || null
                         }
                         initialFeasibility={(selectedDossier as any)?.adeStudyFeasibility || null}
+                        initialDossier={selectedDossier}
                         adminFetch={adminFetch}
                         onDossierUpdated={() => {
                           loadDossiers();

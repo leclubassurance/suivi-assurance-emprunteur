@@ -60,58 +60,13 @@ export const INITIAL_FORM_DATA: InsuranceFormData = {
 export const PROFESSION_MANUELLE_HELP =
   "Le postulant exerce une « profession manuelle » s'il utilise des machines ou des outils pour lesquels le port d'équipement de sécurité est obligatoire, ou s'il fait de la manutention de charges de plus de 15 kilos.";
 
-export const QUALITE_OPTIONS = [
-  { value: 'EMPRUNTEUR', label: 'Emprunteur' },
-  { value: 'CAUTION_PP', label: 'Caution de personne physique' },
-  { value: 'CAUTION_PM', label: 'Caution ou dirigeant de personne morale' }
-];
-
-export const STATUT_PRO_OPTIONS = [
-  { value: 'salarie_cadre', label: 'Salarié Cadre' },
-  { value: 'employe_bureau', label: 'Employé de bureau' },
-  { value: 'salarie_noncadre', label: 'Salarié Non-Cadre' },
-  { value: 'fonctionnaire_a', label: 'Fonctionnaire Classe A' },
-  { value: 'fonctionnaire_autre', label: 'Fonctionnaire hors Classe A' },
-  { value: 'retraite_cadre', label: 'Retraité Cadre' },
-  { value: 'retraite_noncadre', label: 'Retraité Non-Cadre' },
-  { value: 'dirigeant', label: 'Dirigeant de Société' },
-  { value: 'profession_liberale', label: 'Profession Libérale (hors Médical/Paramédical)' },
-  { value: 'profession_medicale', label: 'Profession Médicale/Pharmacien' },
-  { value: 'profession_paramedical_salarie', label: 'Profession Paramédicale (Salarié)' },
-  { value: 'profession_paramedical_fonctionnaire', label: 'Profession Paramédicale (Fonctionnaire)' },
-  { value: 'profession_paramedical_liberal', label: 'Profession Paramédicale (Libéral)' },
-  { value: 'artisan_nonbtp', label: 'Artisan (hors BTP)' },
-  { value: 'commercant', label: 'Commerçant' },
-  { value: 'artisan_btp', label: 'Artisan du BTP/Ouvrier/Professions du Transport' },
-  { value: 'profession_agricole', label: 'Profession agricole' },
-  { value: 'saisonnier', label: 'Saisonnier/Étudiant' },
-  { value: 'sans_profession', label: 'Sans profession' },
-  { value: 'autre', label: 'Autre (saisie manuelle)' }
-];
-
-export const PROFESSION_RISQUE_OPTIONS = [
-  { value: 'aucun', label: "N'exerce aucune de ces professions" },
-  { value: 'marin_pecheur', label: 'Marin pêcheur' },
-  { value: 'aviation', label: "Métier de l'aviation hors lignes régulières" },
-  { value: 'armee_police', label: "Métiers de l'armée, police, gendarmerie" },
-  { value: 'securite', label: 'Métiers de la sécurité (agent, vigile)' },
-  { value: 'cirque', label: 'Métiers du cirque, cascadeurs, intermittents du spectacle' },
-  { value: 'plongeur', label: 'Plongeur avec appareil autonome' },
-  { value: 'pompier', label: 'Pompier, Secouriste, Sauveteur' },
-  { value: 'missions_humanitaires', label: 'Missions humanitaires hors UE' },
-  { value: 'sportif_pro', label: 'Sportif professionnel' },
-  { value: 'transport_explosifs', label: "Transport d'explosifs/matières dangereuses" },
-  { value: 'manipulation_explosifs', label: "Manipulation d'explosifs/substances chimiques" },
-  { value: 'travail_hauteur', label: 'Travail en hauteur > 20m' },
-  { value: 'travail_souterrain', label: 'Travail souterrain/Mineur' },
-  { value: 'travail_site_specifique', label: 'Travail site on-shore/volcanique/archéologique/minière/forestière/pétrolière/nucléaire' }
-];
-
-export const DEPLACEMENTS_PRO_OPTIONS = [
-  { value: '< 20000 Km', label: '< 20 000 Km' },
-  { value: '20000-50000 Km', label: '20 000 - 50 000 Km' },
-  { value: '> 50000 Km', label: '> 50 000 Km' }
-];
+/** Listes Sésame : source unique = shared/sesameLabForm (Lab + parcours étude). */
+export {
+  QUALITE_OPTIONS,
+  STATUT_PRO_OPTIONS,
+  PROFESSION_RISQUE_OPTIONS,
+  DEPLACEMENTS_PRO_OPTIONS,
+} from "../shared/sesameLabForm";
 
 export const SPORTS_RISQUE_CATEGORIES: Record<string, string[]> = {
   'aériens': [

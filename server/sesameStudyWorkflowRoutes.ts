@@ -167,22 +167,25 @@ export function registerSesameStudyWorkflowRoutes(
     const { db, dossier } = await loadDossier(deps, req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     try {
-      // Persiste d'éventuels patches avant simuler
-      if (req.body?.patches && typeof req.body.patches === "object") {
-        const draft = (dossier as any).kereisDraft;
-        if (draft) {
-          (dossier as any).kereisDraft = applyKereisDraftPatches(draft, req.body.patches);
-        }
-      }
-      const built = buildSesameOverridesFromDossier(dossier);
+      // Priorité : overrides typés du formulaire Lab (client).
+      // Fallback : mapping fiche Kereis (legacy).
       const uiOverrides =
-        req.body?.overrides && typeof req.body.overrides === "object" ? req.body.overrides : {};
-      // Toujours repartir de la fiche Kereis à jour — ne pas laisser un ancien
-      // overrides corrompu (CRD=3, taux=0) écraser le mapping.
-      const rawOverrides = {
-        ...built.overrides,
-        ...uiOverrides,
-      };
+        req.body?.overrides && typeof req.body.overrides === "object" ? req.body.overrides : null;
+      let builtWarnings: string[] = [];
+      let rawOverrides: Record<string, unknown>;
+      if (uiOverrides) {
+        rawOverrides = uiOverrides as Record<string, unknown>;
+      } else {
+        if (req.body?.patches && typeof req.body.patches === "object") {
+          const draft = (dossier as any).kereisDraft;
+          if (draft) {
+            (dossier as any).kereisDraft = applyKereisDraftPatches(draft, req.body.patches);
+          }
+        }
+        const built = buildSesameOverridesFromDossier(dossier);
+        builtWarnings = built.warnings;
+        rawOverrides = built.overrides;
+      }
       const { overrides, resolved, note } = await autoResolveCatalogCodes(rawOverrides);
       const body = buildLabSamplePayload(overrides, { mode: "tarification" });
 
@@ -197,7 +200,7 @@ export function registerSesameStudyWorkflowRoutes(
           error:
             `Données prêt invalides pour Sésame (CRD=${montant || 0} €, taux=${taux || 0} %). ` +
             `Corrigez Capital restant dû (≥ 1 000 €) et Taux nominal (ex. 3,45) puis réessayez.`,
-          warnings: built.warnings,
+          warnings: builtWarnings,
           requestPayloadPreview: summarizePayload(body),
           kereisDraft: (dossier as any).kereisDraft,
         });
@@ -228,7 +231,7 @@ export function registerSesameStudyWorkflowRoutes(
       saveWorkflow(dossier, {
         step: result.ok ? 4 : 3,
         overrides,
-        warnings: built.warnings,
+        warnings: builtWarnings,
         catalogNote: note,
         lastSimulateAt: new Date().toISOString(),
       });
@@ -238,12 +241,11 @@ export function registerSesameStudyWorkflowRoutes(
         message: result.ok
           ? "Simulation Sésame OK — choisir une assurance."
           : `Simulation Sésame échouée : ${result.error || result.status}`,
-        meta: { template: "SESAME_SIMULATE", ok: result.ok },
+        meta: { template: "SESAME_SIMULATE", ok: result.ok, source: uiOverrides ? "lab_form" : "kereis_draft" },
       });
       dossier.updatedAt = new Date().toISOString();
       await deps.writeDB(db, dossier);
 
-      // Aide debug UI : combien de tarifs bruts + échantillon
       let tarifCount = 0;
       let tarifableCount = 0;
       const samples: Array<{ code?: string; type?: string; message?: string }> = [];
@@ -290,7 +292,7 @@ export function registerSesameStudyWorkflowRoutes(
         requestId: result.requestId,
         catalogAuto: { resolved, note },
         requestPayloadPreview: summarizePayload(body),
-        warnings: built.warnings,
+        warnings: builtWarnings,
         workflow: (dossier as any).sesameStudyWorkflow,
         kereisDraft: (dossier as any).kereisDraft,
         feasibility,
@@ -343,15 +345,11 @@ export function registerSesameStudyWorkflowRoutes(
         }
 
         const built = buildSesameOverridesFromDossier(dossier);
-        const prevOverrides =
-          ((dossier as any).sesameStudyWorkflow?.overrides as Record<string, unknown>) || {};
-        const rawOverrides: Record<string, unknown> = {
-          ...prevOverrides,
-          ...built.overrides,
-          ...((req.body?.overrides && typeof req.body.overrides === "object"
-            ? req.body.overrides
-            : {}) as object),
-        };
+        const uiOverrides =
+          req.body?.overrides && typeof req.body.overrides === "object" ? req.body.overrides : null;
+        const rawOverrides: Record<string, unknown> = uiOverrides
+          ? { ...(uiOverrides as Record<string, unknown>) }
+          : { ...built.overrides };
 
         // Appliquer le code produit choisi par assuré
         const assures = Array.isArray(rawOverrides.assures)
