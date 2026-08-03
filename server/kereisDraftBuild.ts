@@ -226,9 +226,21 @@ export function applyKereisDraftPatches(
 
   const patchEntries = Object.entries(patches).map(([k, v]) => [norm(k), v, k] as const);
 
+  const findPatch = (label: string) => {
+    const fn = norm(label);
+    if (!fn) return null;
+    // 1) Exact uniquement — évite « Nom » → « Taux nominal » (includes "nom").
+    const exact = patchEntries.find(([pn]) => pn === fn);
+    if (exact) return exact;
+    // 2) Soft match réservé aux clés longues (assistant ADE), jamais aux tokens courts.
+    const soft = patchEntries
+      .filter(([pn]) => pn.length >= 8 && (fn.includes(pn) || (pn.includes(fn) && fn.length >= 8)))
+      .sort((a, b) => b[0].length - a[0].length)[0];
+    return soft || null;
+  };
+
   const patchField = (f: KereisField): KereisField => {
-    const fn = norm(f.label);
-    const hit = patchEntries.find(([pn]) => pn === fn || fn.includes(pn) || pn.includes(fn));
+    const hit = findPatch(f.label);
     if (!hit) return f;
     const value = hit[1];
     return {

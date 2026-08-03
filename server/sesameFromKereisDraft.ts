@@ -57,8 +57,10 @@ function fieldVal(fields: KereisField[] | undefined, labelPart: string): string 
 }
 
 function parseNum(raw: string): number | null {
-  const s = raw.replace(/\s/g, "").replace("%", "").replace(",", ".");
-  const m = s.match(/-?\d+(?:\.\d+)?/);
+  const cleaned = raw.replace(/\s/g, "").replace("%", "").replace(",", ".");
+  // Refuse les libellés (ex. "MARCHANDE" collé par erreur dans le taux).
+  if (/[a-zA-Zàâäéèêëïîôùûüç]/.test(cleaned.replace(/[eE][+-]?\d+$/, ""))) return null;
+  const m = cleaned.match(/-?\d+(?:\.\d+)?/);
   if (!m) return null;
   const n = Number(m[0]);
   return Number.isFinite(n) ? n : null;
@@ -97,8 +99,8 @@ function statutIdFromLabel(label: string): number {
   for (const [k, id] of Object.entries(STATUT_LABEL_TO_ID)) {
     if (n.includes(k) || k.includes(n)) return id;
   }
-  if (/btp|transport/.test(n)) return 10140;
-  if (/artisan/.test(n)) return 10127;
+  if (/btp|transport|paysag|ouvrier|manutention/.test(n)) return 10140;
+  if (/artisan|chef d.?equipe/.test(n)) return 10127;
   if (/bureau/.test(n)) return 10095;
   if (/cadre/.test(n) && !/non/.test(n)) return 10131;
   return 10095;

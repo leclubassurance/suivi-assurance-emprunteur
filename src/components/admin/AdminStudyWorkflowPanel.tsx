@@ -9,6 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { KereisDraft, KereisField } from "../../../shared/kereisDraftTypes";
+import { STATUT_PRO_OPTIONS } from "../../constants";
 
 type Feasibility = {
   score?: number;
@@ -49,23 +50,49 @@ const STEPS = [
   { n: 5, label: "Générer l'étude" },
 ];
 
+const CIVILITE_OPTS = ["Monsieur", "Madame", "M.", "Mme"];
+const OUI_NON = ["Oui", "Non"];
+const QUALITE_OPTS = ["Emprunteur", "Co-emprunteur", "Caution"];
+const KEREIS_STATUTS = [
+  "Salarié Cadre",
+  "Employé de bureau",
+  "Salarié Non-Cadre (hors employé de bureau)",
+  "Fonctionnaire Classe A",
+  "Fonctionnaire hors Classe A",
+  "Retraité Cadre",
+  "Retraité Non-Cadre",
+  "Dirigeant de Société",
+  "Profession Libérale (hors Médical/Paramédical)",
+  "Profession Médicale/Pharmacien",
+  "Profession Paramédicale",
+  "Artisan (hors BTP)",
+  "Commerçant",
+  "Artisan du BTP/Ouvrier/Professions du Transport",
+  "Profession agricole",
+  "Saisonnier/Étudiant",
+  "Sans profession",
+];
+
 function marqueFromCode(code: string): string {
   const c = code.toUpperCase();
   if (c.startsWith("GEN_") || c.startsWith("GENERALI")) return "Generali";
-  if (c.startsWith("CAR_") || c.startsWith("CARDIF")) return "Cardif";
+  if (c.startsWith("CAR_") || c.startsWith("CARDIF") || c.startsWith("CLE")) return "Cardif";
   if (c.startsWith("CNP_") || c.startsWith("CNPA_")) return "CNP";
   if (c.startsWith("AXA")) return "AXA";
   if (c.startsWith("MCP_")) return "MCP";
   if (c.startsWith("MLF_") || c.startsWith("METLIFE")) return "MetLife";
-  if (c.startsWith("SL_") || c.startsWith("SWISSLIFE")) return "SwissLife";
+  if (c.startsWith("SL_") || c.startsWith("SWISSLIFE") || c.startsWith("MUL_")) return "SwissLife";
   if (c.startsWith("ALL_") || c.startsWith("ALLIANZ")) return "Allianz";
+  if (c.startsWith("QTM_") || c.startsWith("QUATREM")) return "Quatrem / CNP";
   return code.split(/[_-]/)[0] || code;
 }
 
+/** Aligné Lab Sésame : CLEUICD / CRD vs CLEUICI / CI. */
 function baseTarifFromCode(code: string): Proposition["baseTarif"] {
   const c = code.toUpperCase();
-  if (/_CI_|CAPITAL.?INITIAL|CI$/.test(c) || /_CI_/.test(c)) return "capital_initial";
-  if (/_CRD_|CRD/.test(c)) return "crd";
+  if (/CRD|CLEUICD|UICD|_CD($|[^A-Z])/.test(c)) return "crd";
+  if (/CLEUICI|INEOCI(?!RD)|UICI|_CI($|[^A-Z])/.test(c)) return "capital_initial";
+  if (/\bCI\b|_CI_|CI$/.test(c) && !/CRD/.test(c)) return "capital_initial";
   return "autre";
 }
 
@@ -79,17 +106,36 @@ function mapProp(t: any): Proposition | null {
   };
 }
 
+/** Normalise la réponse Sésame (array, {assures}, {liste}, {tarifs}). */
+function normalizeTarifPayload(data: unknown): any[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    const o = data as any;
+    if (Array.isArray(o.assures)) return o.assures;
+    if (Array.isArray(o.liste)) return o.liste;
+    if (Array.isArray(o.propositions)) return o.propositions;
+    if (Array.isArray(o.tarifs)) {
+      return [{ referenceAssure: "ASSURE001", tarifs: o.tarifs }];
+    }
+    if (Array.isArray(o.data)) return normalizeTarifPayload(o.data);
+  }
+  return [];
+}
+
 function extractByAssure(data: unknown, draft: KereisDraft | null): AssureCol[] {
-  if (!Array.isArray(data)) return [];
-  const prenom = draft?.steps?.coordonnees?.find((f) => /prenom/i.test(f.label))?.value;
-  const nom = draft?.steps?.coordonnees?.find((f) => /^nom$/i.test(f.label) || /nom$/i.test(f.label))?.value;
+  const list = normalizeTarifPayload(data);
+  if (!list.length) return [];
+
+  const prenom = draft?.steps?.coordonnees?.find((f) => /^pr[eé]nom$/i.test(f.label))?.value;
+  const nom = draft?.steps?.coordonnees?.find((f) => /^nom$/i.test(f.label))?.value;
   const who = [prenom, nom].filter(Boolean).join(" ").trim();
 
-  const looksLikeBlocks = data.some(
+  const looksLikeBlocks = list.some(
     (b: any) => b && (Array.isArray(b.tarifs) || b.referenceAssure),
   );
+
   if (looksLikeBlocks) {
-    return data.map((block: any, i: number) => {
+    return list.map((block: any, i: number) => {
       const ref = String(block?.referenceAssure || `ASSURE${String(i + 1).padStart(3, "0")}`);
       const tarifs = Array.isArray(block?.tarifs) ? block.tarifs : [];
       const propositions = tarifs
@@ -105,7 +151,8 @@ function extractByAssure(data: unknown, draft: KereisDraft | null): AssureCol[] 
       };
     });
   }
-  const propositions = data
+
+  const propositions = list
     .map(mapProp)
     .filter((p: Proposition | null): p is Proposition => Boolean(p))
     .sort((a, b) => (a.tarifTotalAssurance ?? Infinity) - (b.tarifTotalAssurance ?? Infinity));
@@ -165,7 +212,61 @@ function fieldKey(section: string, idx: number, label: string) {
   return `${section}:${idx}:${label}`;
 }
 
-function FeasibilityBadge({ f }: { f: Feasibility | null }) {
+function normLabel(s: string) {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+type FieldKind = "text" | "number" | "date" | "select" | "textarea";
+
+function detectFieldKind(label: string): { kind: FieldKind; options?: string[] } {
+  const l = normLabel(label);
+  if (/^civilite$/.test(l)) return { kind: "select", options: CIVILITE_OPTS };
+  if (/^qualite$/.test(l)) return { kind: "select", options: QUALITE_OPTS };
+  if (/statut professionnel/.test(l)) {
+    const opts = [
+      ...KEREIS_STATUTS,
+      ...STATUT_PRO_OPTIONS.map((o) => o.label).filter((x) => !KEREIS_STATUTS.includes(x)),
+    ];
+    return { kind: "select", options: opts };
+  }
+  if (/fumeur|profession manuelle|travaux|hauteur|sport/.test(l)) {
+    return { kind: "select", options: OUI_NON };
+  }
+  if (/date/.test(l)) return { kind: "date" };
+  if (/capital|taux|duree|quotite|franchise|crd|montant|differe|encours/.test(l)) {
+    return { kind: "number" };
+  }
+  if (/options|garanties|lemoine|autres credits/.test(l)) return { kind: "textarea" };
+  return { kind: "text" };
+}
+
+/** Affiche date ISO → input date ; FR jj/mm/aaaa → ISO pour l'input. */
+function toDateInputValue(raw: string): string {
+  const s = String(raw || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const fr = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (fr) return `${fr[3]}-${fr[2].padStart(2, "0")}-${fr[1].padStart(2, "0")}`;
+  return "";
+}
+
+function fromDateInputValue(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function FeasibilityBadge({ f, busy }: { f: Feasibility | null; busy?: boolean }) {
+  if (busy) {
+    return (
+      <span className="text-xs text-slate-500 border border-slate-200 bg-white px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+        <Loader2 className="w-3 h-3 animate-spin" /> Score…
+      </span>
+    );
+  }
   if (!f || f.score == null) {
     return (
       <span className="text-xs text-slate-500 border border-slate-200 bg-white px-2.5 py-1.5 rounded-lg">
@@ -200,6 +301,65 @@ function renderKereisField(
 ) {
   const missing = f.confidence === "missing" || value === "";
   const display = value == null ? "" : String(value);
+  const { kind, options } = detectFieldKind(f.label);
+  const inputClass = `mt-1 w-full rounded-lg border px-2.5 py-1.5 text-sm ${
+    missing ? "border-amber-300 bg-amber-50/40" : "border-slate-200 bg-white"
+  }`;
+
+  let control: React.ReactNode;
+  if (kind === "select" && options?.length) {
+    const opts = options.includes(display) || !display ? options : [display, ...options];
+    control = (
+      <select className={inputClass} value={display} onChange={(e) => onChange(e.target.value)}>
+        {!display ? <option value="">— Choisir —</option> : null}
+        {opts.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    );
+  } else if (kind === "date") {
+    const iso = toDateInputValue(display);
+    control = (
+      <input
+        type="date"
+        className={inputClass}
+        value={iso}
+        onChange={(e) => onChange(fromDateInputValue(e.target.value))}
+      />
+    );
+  } else if (kind === "number") {
+    control = (
+      <input
+        type="text"
+        inputMode="decimal"
+        className={inputClass}
+        value={display}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="ex. 3,45"
+      />
+    );
+  } else if (kind === "textarea") {
+    control = (
+      <textarea
+        className={`${inputClass} min-h-[56px]`}
+        value={display}
+        onChange={(e) => onChange(e.target.value)}
+        rows={2}
+      />
+    );
+  } else {
+    control = (
+      <input
+        type="text"
+        className={inputClass}
+        value={display}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+
   return (
     <label className="block text-xs">
       <span className="font-semibold text-slate-700 flex items-center gap-1.5">
@@ -210,13 +370,7 @@ function renderKereisField(
           </span>
         ) : null}
       </span>
-      <input
-        className={`mt-1 w-full rounded-lg border px-2.5 py-1.5 text-sm ${
-          missing ? "border-amber-300 bg-amber-50/40" : "border-slate-200 bg-white"
-        }`}
-        value={display}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      {control}
       {f.note ? <span className="text-[10px] text-slate-500 mt-0.5 block">{f.note}</span> : null}
     </label>
   );
@@ -245,6 +399,7 @@ export default function AdminStudyWorkflowPanel({
   const [step, setStep] = useState(1);
   const [draft, setDraft] = useState<KereisDraft | null>(initialDraft || null);
   const [feasibility, setFeasibility] = useState<Feasibility | null>(initialFeasibility || null);
+  const [scoreBusy, setScoreBusy] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -252,17 +407,43 @@ export default function AdminStudyWorkflowPanel({
   const [hint, setHint] = useState<string | null>(null);
   const [cols, setCols] = useState<AssureCol[]>([]);
   const [selected, setSelected] = useState<Record<string, string>>({});
-  const [filter, setFilter] = useState<"tous" | "crd" | "capital_initial">("crd");
+  const [filter, setFilter] = useState<"tous" | "crd" | "capital_initial">("tous");
   const [forceGenerate, setForceGenerate] = useState(false);
   const [sesameOk, setSesameOk] = useState<boolean | null>(null);
+  const [simMeta, setSimMeta] = useState<{ tarifCount?: number; requestId?: string } | null>(null);
 
   useEffect(() => {
     setDraft(initialDraft || null);
+    setCols([]);
+    setSelected({});
+    setSimMeta(null);
+    setStep(initialDraft ? 2 : 1);
   }, [initialDraft, dossierId]);
 
   useEffect(() => {
     setFeasibility(initialFeasibility || null);
   }, [initialFeasibility, dossierId]);
+
+  const refreshScore = useCallback(async () => {
+    setScoreBusy(true);
+    try {
+      const res = await adminFetch(`/api/admin/dossiers/${dossierId}/ade-feasibility`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.feasibility) setFeasibility(data.feasibility);
+    } catch {
+      /* non bloquant */
+    } finally {
+      setScoreBusy(false);
+    }
+  }, [adminFetch, dossierId]);
+
+  // Score au chargement du panneau si absent
+  useEffect(() => {
+    if (feasibility?.score != null) return;
+    void refreshScore();
+  }, [dossierId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patchesFromEdits = useCallback(() => {
     const patches: Record<string, string> = {};
@@ -311,6 +492,9 @@ export default function AdminStudyWorkflowPanel({
       setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
       setFeasibility(data.feasibility || null);
       setSesameOk(data.sesameStatus?.labAllowed !== false && data.sesameStatus?.basicAuthConfigured);
+      setCols([]);
+      setSelected({});
+      setSimMeta(null);
       setStep(2);
       onDossierUpdated?.();
     } catch {
@@ -335,6 +519,7 @@ export default function AdminStudyWorkflowPanel({
         return false;
       }
       setDraft(data.kereisDraft || null);
+      if (data.kereisDraft) syncEditsFromDraft(data.kereisDraft);
       setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
       onDossierUpdated?.();
       return true;
@@ -350,6 +535,7 @@ export default function AdminStudyWorkflowPanel({
     setBusy("simulate");
     setError(null);
     setHint(null);
+    setSimMeta(null);
     try {
       const saved = await saveControl({ quiet: true });
       if (!saved && !draft) return;
@@ -359,17 +545,45 @@ export default function AdminStudyWorkflowPanel({
         body: JSON.stringify({ patches: patchesFromEdits() }),
       });
       const data = await res.json().catch(() => ({}));
+      if (data.feasibility) setFeasibility(data.feasibility);
+      if (data.kereisDraft) {
+        setDraft(data.kereisDraft);
+        syncEditsFromDraft(data.kereisDraft);
+      }
       if (!res.ok || !data.ok) {
         setError(data.error || "Simulation Sésame impossible");
+        setHint(
+          data.requestPayloadPreview
+            ? `Payload : taux=${data.requestPayloadPreview?.prets?.[0]?.taux ?? "?"} · CRD=${data.requestPayloadPreview?.prets?.[0]?.montant ?? "?"}`
+            : null,
+        );
+        setCols([]);
+        setSelected({});
         setStep(3);
         return;
       }
-      if (data.kereisDraft) setDraft(data.kereisDraft);
       const extracted = extractByAssure(data.data, data.kereisDraft || draft);
+      const totalProps = extracted.reduce((n, c) => n + c.propositions.filter(isTarifable).length, 0);
       setCols(extracted);
       setSelected(defaultSelections(extracted));
       setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
-      setStep(4);
+      setSimMeta({ tarifCount: data.tarifCount ?? totalProps, requestId: data.requestId });
+      setFilter("tous");
+      if (totalProps === 0) {
+        setError(
+          `Simulation OK mais 0 proposition tarifable (brut Sésame : ${data.tarifCount ?? 0}). Vérifiez le taux / CRD / statut puis régénérez la fiche si besoin.`,
+        );
+        setHint(
+          data.requestPayloadPreview
+            ? `Contrôle payload — taux ${data.requestPayloadPreview?.prets?.[0]?.taux ?? "?"} · montant ${data.requestPayloadPreview?.prets?.[0]?.montant ?? "?"} · statut ${data.requestPayloadPreview?.assures?.[0]?.idStatut ?? "?"}`
+            : "Souvent causé par un taux corrompu (ex. nom client dans le champ taux).",
+        );
+        setStep(4);
+      } else {
+        setError(null);
+        setHint(null);
+        setStep(4);
+      }
       onDossierUpdated?.();
     } catch {
       setError("Erreur réseau (simulation)");
@@ -421,11 +635,15 @@ export default function AdminStudyWorkflowPanel({
       propositions:
         filter === "tous"
           ? c.propositions
-          : c.propositions.filter((p) => p.baseTarif === filter || !isTarifable(p)),
+          : c.propositions.filter((p) => p.baseTarif === filter),
     }));
   }, [cols, filter]);
 
   const allSelected = cols.length > 0 && cols.every((c) => selected[c.referenceAssure]);
+  const totalVisible = filteredCols.reduce(
+    (n, c) => n + c.propositions.filter(isTarifable).length,
+    0,
+  );
 
   return (
     <div className="rounded-xl border border-teal-200 bg-teal-50/40 px-4 py-4 space-y-4">
@@ -438,7 +656,17 @@ export default function AdminStudyWorkflowPanel({
             vient de Sésame.
           </p>
         </div>
-        <FeasibilityBadge f={feasibility} />
+        <div className="flex flex-col items-end gap-1">
+          <FeasibilityBadge f={feasibility} busy={scoreBusy} />
+          <button
+            type="button"
+            className="text-[10px] font-bold text-slate-600 underline"
+            disabled={scoreBusy || Boolean(busy)}
+            onClick={() => void refreshScore()}
+          >
+            Recalculer le score
+          </button>
+        </div>
       </div>
 
       <ol className="flex flex-wrap gap-1.5">
@@ -485,7 +713,6 @@ export default function AdminStudyWorkflowPanel({
         <p className="text-xs text-amber-900">{warnings.slice(0, 3).join(" · ")}</p>
       ) : null}
 
-      {/* Actions principales */}
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -537,7 +764,6 @@ export default function AdminStudyWorkflowPanel({
         ) : null}
       </div>
 
-      {/* Formulaire contrôle */}
       {draft ? (
         <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -606,17 +832,22 @@ export default function AdminStudyWorkflowPanel({
         </p>
       )}
 
-      {/* Propositions */}
       {cols.length > 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-bold text-slate-900">4. Choisir l&apos;assurance</p>
+            <div>
+              <p className="text-sm font-bold text-slate-900">4. Choisir l&apos;assurance</p>
+              <p className="text-[11px] text-slate-500">
+                {totalVisible} proposition(s) affichée(s)
+                {simMeta?.tarifCount != null ? ` · ${simMeta.tarifCount} tarif(s) Sésame` : ""}
+              </p>
+            </div>
             <div className="flex gap-1">
               {(
                 [
+                  ["tous", "Tous"],
                   ["crd", "CRD"],
                   ["capital_initial", "CI"],
-                  ["tous", "Tous"],
                 ] as const
               ).map(([k, label]) => (
                 <button
@@ -635,54 +866,73 @@ export default function AdminStudyWorkflowPanel({
             </div>
           </div>
           <div className={`grid gap-3 ${filteredCols.length > 1 ? "md:grid-cols-2" : ""}`}>
-            {filteredCols.map((col) => (
-              <div key={col.referenceAssure} className="space-y-2">
-                <p className="text-xs font-bold text-slate-700">{col.label}</p>
-                <div className="max-h-64 overflow-auto space-y-1.5">
-                  {col.propositions.filter(isTarifable).length === 0 ? (
-                    <p className="text-xs text-slate-500">Aucune proposition pour ce filtre.</p>
-                  ) : (
-                    col.propositions.filter(isTarifable).map((p) => {
-                      const active = selected[col.referenceAssure] === p.codeProduit;
-                      return (
-                        <button
-                          key={p.codeProduit}
-                          type="button"
-                          onClick={() =>
-                            setSelected((prev) => ({
-                              ...prev,
-                              [col.referenceAssure]: p.codeProduit,
-                            }))
-                          }
-                          className={`w-full text-left rounded-lg border px-2.5 py-2 text-xs ${
-                            active
-                              ? "border-teal-500 bg-teal-50 ring-1 ring-teal-400"
-                              : "border-slate-200 bg-white hover:bg-slate-50"
-                          }`}
-                        >
-                          <div className="flex justify-between gap-2">
-                            <span className="font-bold text-slate-900">
-                              {p.marque || marqueFromCode(p.codeProduit)}
-                            </span>
-                            <span className="font-bold text-teal-800">
-                              {fmtEur(p.tarifTotalAssurance)}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-slate-500 mt-0.5 flex justify-between gap-2">
-                            <span className="font-mono truncate">{p.codeProduit}</span>
-                            <span>
-                              {p.cotisationMensuelleMoyenne != null
-                                ? `${fmtEur(p.cotisationMensuelleMoyenne)}/mois`
-                                : p.baseTarif || ""}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
+            {filteredCols.map((col) => {
+              const visible = col.propositions.filter(isTarifable);
+              return (
+                <div key={col.referenceAssure} className="space-y-2">
+                  <p className="text-xs font-bold text-slate-700">{col.label}</p>
+                  <div className="max-h-72 overflow-auto space-y-1.5">
+                    {visible.length === 0 ? (
+                      <p className="text-xs text-slate-500">
+                        Aucune proposition pour ce filtre
+                        {col.propositions.length
+                          ? ` (${col.propositions.length} hors filtre — passez sur « Tous »).`
+                          : "."}
+                      </p>
+                    ) : (
+                      visible.map((p) => {
+                        const active = selected[col.referenceAssure] === p.codeProduit;
+                        const baseLabel =
+                          p.baseTarif === "crd"
+                            ? "CRD"
+                            : p.baseTarif === "capital_initial"
+                              ? "CI"
+                              : "";
+                        return (
+                          <button
+                            key={p.codeProduit}
+                            type="button"
+                            onClick={() =>
+                              setSelected((prev) => ({
+                                ...prev,
+                                [col.referenceAssure]: p.codeProduit,
+                              }))
+                            }
+                            className={`w-full text-left rounded-lg border px-2.5 py-2 text-xs ${
+                              active
+                                ? "border-teal-500 bg-teal-50 ring-1 ring-teal-400"
+                                : "border-slate-200 bg-white hover:bg-slate-50"
+                            }`}
+                          >
+                            <div className="flex justify-between gap-2">
+                              <span className="font-bold text-slate-900">
+                                {p.marque || marqueFromCode(p.codeProduit)}
+                                {baseLabel ? (
+                                  <span className="ml-1.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1 rounded">
+                                    {baseLabel}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="font-bold text-teal-800">
+                                {fmtEur(p.tarifTotalAssurance)}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5 flex justify-between gap-2">
+                              <span className="font-mono truncate">{p.codeProduit}</span>
+                              <span>
+                                {p.cotisationMensuelleMoyenne != null
+                                  ? `${fmtEur(p.cotisationMensuelleMoyenne)}/mois`
+                                  : ""}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : null}

@@ -202,6 +202,10 @@ export function registerSesameStudyWorkflowRoutes(
         timeoutMs: 90_000,
       });
 
+      const { assessAdeStudyFeasibility } = await import("./adeStudyFeasibility");
+      const feasibility = await assessAdeStudyFeasibility(dossier);
+      (dossier as any).adeStudyFeasibility = feasibility;
+
       saveWorkflow(dossier, {
         step: result.ok ? 4 : 3,
         overrides,
@@ -220,6 +224,26 @@ export function registerSesameStudyWorkflowRoutes(
       dossier.updatedAt = new Date().toISOString();
       await deps.writeDB(db, dossier);
 
+      // Aide debug UI : combien de tarifs bruts côté Sésame
+      let tarifCount = 0;
+      const raw = result.data as any;
+      if (Array.isArray(raw)) {
+        for (const block of raw) {
+          if (Array.isArray(block?.tarifs)) tarifCount += block.tarifs.length;
+          else if (block?.codeProduit) tarifCount += 1;
+        }
+      } else if (raw && typeof raw === "object") {
+        if (Array.isArray(raw.assures)) {
+          for (const a of raw.assures) {
+            if (Array.isArray(a?.tarifs)) tarifCount += a.tarifs.length;
+          }
+        } else if (Array.isArray(raw.tarifs)) {
+          tarifCount = raw.tarifs.length;
+        } else if (Array.isArray(raw.liste)) {
+          tarifCount = raw.liste.length;
+        }
+      }
+
       return res.status(result.ok ? 200 : 502).json({
         success: result.ok,
         ok: result.ok,
@@ -233,6 +257,8 @@ export function registerSesameStudyWorkflowRoutes(
         warnings: built.warnings,
         workflow: (dossier as any).sesameStudyWorkflow,
         kereisDraft: (dossier as any).kereisDraft,
+        feasibility,
+        tarifCount,
       });
     } catch (err: any) {
       console.error("[study-workflow/simulate]", err?.message || err);
