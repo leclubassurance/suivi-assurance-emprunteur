@@ -1468,7 +1468,7 @@ export function createApp() {
     }
   });
 
-  /** Démarre / relance l'assistant ADE (chat ancrages si score < 8). */
+  /** Démarre / relance l'assistant ADE (aide extraction ; PDF auto seulement à 10/10). */
   app.post("/api/admin/dossiers/:id/ade-assist/start", async (req, res) => {
     await ensureBackgroundServicesStarted();
     const db = await readDBAsync();

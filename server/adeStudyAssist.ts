@@ -605,7 +605,7 @@ export async function startAdeStudyAssist(params: {
   const next = agenda[0];
   const scoreBit =
     params.feasibility && !params.feasibility.pass
-      ? `Score faisabilité ${params.feasibility.score}/${params.feasibility.max} — génération auto bloquée. `
+      ? `Score faisabilité ${params.feasibility.score}/${params.feasibility.max} (${params.feasibility.modeLabel || params.feasibility.mode || "manuel"}) — PDF auto seulement à 10/10. `
       : "";
   const intro =
     `**Mode Étude économie** — ${scoreBit}je complète les ancrages manquants (rigueur courtier ADE, jamais d'invention).\n\n${snapshotLines(eco, state.overrides)}\n\n`;

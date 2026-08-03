@@ -53,8 +53,9 @@ async function main() {
     "fees",
     killian.summary.feesAssureurEur,
   );
-  assert(killian.score >= ADE_FEASIBILITY_PASS_SCORE, `Killian score ≥ ${ADE_FEASIBILITY_PASS_SCORE}`);
-  assert(killian.pass === true, "Killian pass");
+  assert(killian.score >= ADE_FEASIBILITY_PASS_SCORE, `Killian score ≥ ${ADE_FEASIBILITY_PASS_SCORE} (auto PDF)`);
+  assert(killian.pass === true, "Killian pass (mode auto)");
+  assert(killian.mode === "auto", "Killian mode auto");
   assert(killian.summary.currentTotalEur === 4426.94, "Killian current 4426.94");
 
   const incomplete = await assessAdeStudyFeasibility({
@@ -70,9 +71,9 @@ async function main() {
       ],
     },
   });
-  console.log("Incomplete (no devis) score", incomplete.score, "/", incomplete.max, "pass=", incomplete.pass);
+  console.log("Incomplete (no devis) score", incomplete.score, "/", incomplete.max, "pass=", incomplete.pass, "mode=", incomplete.mode);
   assert(incomplete.pass === false, "Incomplete must not pass");
-  assert(incomplete.score < ADE_FEASIBILITY_PASS_SCORE, "Incomplete score under threshold");
+  assert(incomplete.mode === "full_manual", "Incomplete → full_manual");
 
   console.log("\nADE feasibility OK.");
 }

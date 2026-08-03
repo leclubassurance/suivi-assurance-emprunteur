@@ -297,7 +297,7 @@ export default function AdminAdeStudyAssistPanel({
         <div className="mx-4 mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 font-bold">
           {mode === "kereis"
             ? "Fiche Kereis prête — copiez-la puis générez le devis."
-            : "Ancrages prêts — vous pouvez cliquer sur « Générer étude depuis devis »."}
+            : "Ancrages prêts — utile pour le mail. Le PDF auto ne se lance qu'à 10/10 ; sinon importez un PDF manuel."}
         </div>
       ) : null}
       {clarifying ? (

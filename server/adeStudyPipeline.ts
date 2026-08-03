@@ -508,31 +508,32 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     }
   }
 
-  // Score faisabilité : < 8/10 → pas de PDF auto, sauf ancrages assistant ADE complets
-  const { assessAdeStudyFeasibility, ADE_FEASIBILITY_PASS_SCORE } = await import(
-    "./adeStudyFeasibility"
-  );
+  // PDF auto uniquement à 10/10 — pas de bypass assistant (PDF manuel en dessous).
   const {
-    dossierHasAdeAssistBypass,
-    getAdeAssistOverrides,
-    applyAdeAssistOverrides,
-  } = await import("./adeStudyAssist");
+    assessAdeStudyFeasibility,
+    ADE_FEASIBILITY_PASS_SCORE,
+    ADE_FEASIBILITY_PDF_MANUAL_MIN,
+  } = await import("./adeStudyFeasibility");
+  const { getAdeAssistOverrides, applyAdeAssistOverrides } = await import("./adeStudyAssist");
   const feasibility = await assessAdeStudyFeasibility(dossier);
   (dossier as any).adeStudyFeasibility = feasibility;
-  const assistBypass = dossierHasAdeAssistBypass(dossier);
 
-  if (!feasibility.pass && !assistBypass) {
+  if (!feasibility.pass) {
+    const mode = feasibility.mode || "full_manual";
+    const hint =
+      mode === "pdf_manual"
+        ? `Score ${feasibility.score}/10 (zone ${ADE_FEASIBILITY_PDF_MANUAL_MIN}–9) : créez le PDF d'étude manuellement (skill présentation), puis importez-le ci-dessous.`
+        : `Score ${feasibility.score}/10 (< ${ADE_FEASIBILITY_PDF_MANUAL_MIN}) : faites l'étude d'économie et le PDF entièrement à la main, puis importez le PDF.`;
     return {
       ok: false,
       code: "low_feasibility",
-      error: `Score faisabilité ${feasibility.score}/${feasibility.max} — génération auto refusée.`,
-      hint:
-        feasibility.score < ADE_FEASIBILITY_PASS_SCORE
-          ? `Sous ${ADE_FEASIBILITY_PASS_SCORE}/10 : ouvrez l'assistant ADE dans l'admin pour compléter les montants, puis régénérez.`
-          : "Documents incomplets ou montants illisibles — complétez via l'assistant ADE ou les documents.",
+      error: `Score faisabilité ${feasibility.score}/${feasibility.max} — génération auto refusée (${feasibility.modeLabel || mode}).`,
+      hint,
       reasons: [
         ...feasibility.blockers,
-        ...feasibility.checks.filter((c) => !c.ok).map((c) => `✗ ${c.label}${c.detail ? ` (${c.detail})` : ""}`),
+        ...feasibility.checks
+          .filter((c) => !c.ok)
+          .map((c) => `✗ ${c.label}${c.detail ? ` (${c.detail})` : ""}`),
         ...resolveWarnings.slice(0, 3),
       ].slice(0, 10),
       feasibility,
@@ -551,9 +552,7 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   let computation: AdeStudyComputation | null = null;
   const skillReasons: string[] = [
     ...resolveWarnings,
-    assistBypass
-      ? `Faisabilité ADE ${feasibility.score}/${feasibility.max} — génération via ancrages manuels assistant ADE.`
-      : `Faisabilité ADE ${feasibility.score}/${feasibility.max} (≥ ${ADE_FEASIBILITY_PASS_SCORE} → auto).`,
+    `Faisabilité ADE ${feasibility.score}/${feasibility.max} (= ${ADE_FEASIBILITY_PASS_SCORE} → auto PDF).`,
   ];
 
   // Extraction locale + overrides assistant ADE (ancrages)

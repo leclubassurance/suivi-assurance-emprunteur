@@ -671,16 +671,19 @@ export default function AdminDashboard({
         return;
       }
       const f = data.feasibility;
+      const mode = String(f.mode || (f.pass ? "auto" : f.score >= 8 ? "pdf_manual" : "full_manual"));
       setStudyGenerateFeedback({
         type: f.pass ? "success" : "manual",
         title: f.pass
-          ? `Score ${f.score}/${f.max} — génération auto possible`
-          : `Score ${f.score}/${f.max} — assistant ADE recommandé`,
+          ? `Score ${f.score}/${f.max} — génération PDF auto OK`
+          : `Score ${f.score}/${f.max} — ${f.modeLabel || (mode === "pdf_manual" ? "PDF manuel" : "étude + PDF manuels")}`,
         message: f.pass
-          ? "Les documents sont assez fiables pour générer le PDF automatiquement."
-          : "Sous le seuil de 8/10 : ouvrez l'assistant ADE pour compléter les montants manquants, puis générez le PDF.",
+          ? "Documents assez fiables : vous pouvez cliquer sur « Générer étude depuis devis »."
+          : mode === "pdf_manual"
+            ? "Zone 8–9/10 : pas de PDF auto. Créez le PDF d'étude manuellement (skill présentation), puis importez-le."
+            : "Sous 8/10 : faites l'étude d'économie et le PDF entièrement à la main, puis importez le PDF.",
         hint: f.pass
-          ? "Vous pouvez cliquer sur « Générer étude depuis devis »."
+          ? "Étape suivante : Générer étude depuis devis (après devis uploadé)."
           : Array.isArray(f.blockers) && f.blockers[0]
             ? String(f.blockers[0])
             : undefined,
@@ -689,7 +692,7 @@ export default function AdminDashboard({
           .slice(0, 10),
         feasibility: f,
       });
-      if (!f.pass) {
+      if (!f.pass && mode === "full_manual") {
         setAdeAssistMode("study");
         setAdeAssistOpen(true);
       }
@@ -723,27 +726,28 @@ export default function AdminDashboard({
           ? data.reasons.map((r: unknown) => String(r)).filter(Boolean)
           : [];
         const isManual = data.code === "low_feasibility";
+        const mode = String(data.feasibility?.mode || "");
         setStudyGenerateFeedback({
           type: isManual ? "manual" : "error",
           title: isManual
-            ? `Score insuffisant — ouvrez l'assistant ADE`
+            ? mode === "pdf_manual"
+              ? `Score ${data.feasibility?.score ?? "?"}/10 — PDF à faire manuellement`
+              : `Score ${data.feasibility?.score ?? "?"}/10 — étude + PDF manuels`
             : "Génération de l'étude impossible",
           message: String(data.error || "La génération a échoué."),
           hint: data.hint
             ? String(data.hint)
             : isManual
-              ? "Complétez les montants avec l'assistant ADE, puis cliquez à nouveau sur Générer."
+              ? mode === "pdf_manual"
+                ? "Créez le PDF hors app puis utilisez « Importer PDF d'étude »."
+                : "Faites l'étude et le PDF à la main, puis importez le PDF."
               : undefined,
           reasons: reasons.slice(0, 8),
           feasibility: data.feasibility || undefined,
         });
-        if (isManual) {
-          setAdeAssistMode("study");
-          setAdeAssistOpen(true);
-        }
         showToast(
           isManual
-            ? `Score ${data.feasibility?.score ?? "?"}/10 — assistant ADE`
+            ? `Score ${data.feasibility?.score ?? "?"}/10 — PDF manuel`
             : String(data.error || "Génération étude impossible"),
           "error",
         );
@@ -2931,24 +2935,31 @@ export default function AdminDashboard({
                           const f = (selectedDossier as any)?.adeStudyFeasibility;
                           if (!f || f.score == null) return null;
                           const pass = Boolean(f.pass);
-                          const assistReady = (selectedDossier as any)?.adeStudyAssist?.status === "ready";
+                          const mode = String(f.mode || (pass ? "auto" : f.score >= 8 ? "pdf_manual" : "full_manual"));
                           return (
                             <span
                               className={`text-xs font-bold px-2.5 py-1.5 rounded-lg ${
-                                pass || assistReady
+                                pass
                                   ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                  : "bg-amber-50 text-amber-900 border border-amber-200"
+                                  : mode === "pdf_manual"
+                                    ? "bg-amber-50 text-amber-900 border border-amber-200"
+                                    : "bg-orange-50 text-orange-950 border border-orange-200"
                               }`}
                             >
                               Dernier score {f.score}/{f.max ?? 10}
-                              {pass ? " · auto OK" : assistReady ? " · assist OK" : " · assist"}
+                              {pass
+                                ? " · auto PDF"
+                                : mode === "pdf_manual"
+                                  ? " · PDF manuel"
+                                  : " · étude + PDF manuels"}
                             </span>
                           );
                         })()}
                       </div>
                       <p className="text-[11px] text-slate-500">
-                        Score ≥ 8/10 : génération auto. En dessous : utilisez l&apos;assistant étude pour
-                        compléter les montants, puis générez le PDF dans l&apos;app.
+                        <strong>10/10</strong> : génération PDF auto. <strong>8–9/10</strong> : PDF
+                        d&apos;étude manuel (import). <strong>&lt; 8/10</strong> : étude + PDF
+                        entièrement manuels.
                       </p>
                       {studyGenerateFeedback ? (
                         <div
@@ -2972,8 +2983,12 @@ export default function AdminDashboard({
                           {studyGenerateFeedback.feasibility?.score != null ? (
                             <p className="text-xs mt-1 font-bold">
                               Faisabilité {studyGenerateFeedback.feasibility.score}/
-                              {studyGenerateFeedback.feasibility.max} (seuil{" "}
-                              {studyGenerateFeedback.feasibility.threshold ?? 8})
+                              {studyGenerateFeedback.feasibility.max} (auto à{" "}
+                              {studyGenerateFeedback.feasibility.threshold ?? 10}/10
+                              {studyGenerateFeedback.feasibility.mode
+                                ? ` · ${studyGenerateFeedback.feasibility.mode}`
+                                : ""}
+                              )
                             </p>
                           ) : null}
                           <p className="text-xs mt-1 leading-relaxed">{studyGenerateFeedback.message}</p>

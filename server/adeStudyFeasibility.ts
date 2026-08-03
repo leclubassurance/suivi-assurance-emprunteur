@@ -1,14 +1,22 @@
 /**
  * Score de faisabilité étude ADE auto (/10).
- * ≥ ADE_FEASIBILITY_PASS_SCORE → génération PDF autorisée
- * &lt; seuil → assistant ADE (ancrages manuels) ou étude hors app.
+ *
+ * Règles LCIF :
+ * - 10/10 → génération PDF auto autorisée
+ * - 8–9/10 → pas de PDF auto (PDF d'étude manuel ; extractions peuvent aider)
+ * - < 8/10 → étude d'économie + PDF entièrement manuels
  */
 import fs from "fs";
 import { extractPdfTextFromBuffer } from "./pdfTextExtract";
 import { computeEconomyFromDossierDocs, type EconomyComputation } from "./economyFromDocs";
 
-export const ADE_FEASIBILITY_PASS_SCORE = 8;
+/** Seuil pour génération PDF automatique (strict). */
+export const ADE_FEASIBILITY_PASS_SCORE = 10;
+/** Seuil bas de la zone « PDF manuel » (8 et 9). */
+export const ADE_FEASIBILITY_PDF_MANUAL_MIN = 8;
 export const ADE_FEASIBILITY_MAX = 10;
+
+export type AdeFeasibilityMode = "auto" | "pdf_manual" | "full_manual";
 
 export type AdeFeasibilityCheck = {
   id: string;
@@ -22,8 +30,12 @@ export type AdeFeasibilityCheck = {
 export type AdeFeasibilityAssessment = {
   score: number;
   max: number;
+  /** true uniquement si mode === "auto" (10/10 + montants OK). */
   pass: boolean;
   threshold: number;
+  pdfManualMin: number;
+  mode: AdeFeasibilityMode;
+  modeLabel: string;
   checks: AdeFeasibilityCheck[];
   blockers: string[];
   summary: {
@@ -40,6 +52,27 @@ export type AdeFeasibilityAssessment = {
   reasons: string[];
   assessedAt: string;
 };
+
+export function resolveAdeFeasibilityMode(
+  score: number,
+  opts?: { currentOk?: boolean; proposedOk?: boolean },
+): AdeFeasibilityMode {
+  const amountsOk = opts?.currentOk !== false && opts?.proposedOk !== false;
+  if (score >= ADE_FEASIBILITY_PASS_SCORE && amountsOk) return "auto";
+  if (score >= ADE_FEASIBILITY_PDF_MANUAL_MIN) return "pdf_manual";
+  return "full_manual";
+}
+
+export function adeFeasibilityModeLabel(mode: AdeFeasibilityMode): string {
+  switch (mode) {
+    case "auto":
+      return "10/10 — génération PDF automatique";
+    case "pdf_manual":
+      return "8–9/10 — PDF d'étude à créer manuellement";
+    default:
+      return "< 8/10 — étude d'économie et PDF manuels";
+  }
+}
 
 async function pdfTextLen(localPath?: string): Promise<number> {
   if (!localPath || !fs.existsSync(localPath)) return 0;
@@ -231,7 +264,9 @@ export async function assessAdeStudyFeasibility(dossier: any): Promise<AdeFeasib
     ADE_FEASIBILITY_MAX,
     checks.reduce((s, c) => s + c.earned, 0),
   );
-  const pass = score >= ADE_FEASIBILITY_PASS_SCORE && currentOk && proposedOk;
+  const mode = resolveAdeFeasibilityMode(score, { currentOk, proposedOk });
+  const pass = mode === "auto";
+  const modeLabel = adeFeasibilityModeLabel(mode);
 
   // Alertes non bloquantes dans reasons
   const reasons = [...eco.reasons];
@@ -244,9 +279,13 @@ export async function assessAdeStudyFeasibility(dossier: any): Promise<AdeFeasib
     );
   }
 
-  if (!pass && score < ADE_FEASIBILITY_PASS_SCORE && !blockers.some((b) => /manuelle|assistant/i.test(b))) {
+  if (mode === "pdf_manual") {
     blockers.push(
-      `Score ${score}/${ADE_FEASIBILITY_MAX} < ${ADE_FEASIBILITY_PASS_SCORE} — ouvrez l'assistant ADE pour compléter les montants.`,
+      `Score ${score}/${ADE_FEASIBILITY_MAX} (zone 8–9) — créez le PDF d'étude manuellement puis importez-le dans l'admin.`,
+    );
+  } else if (mode === "full_manual") {
+    blockers.push(
+      `Score ${score}/${ADE_FEASIBILITY_MAX} (< ${ADE_FEASIBILITY_PDF_MANUAL_MIN}) — étude d'économie et PDF entièrement manuels.`,
     );
   }
 
@@ -255,6 +294,9 @@ export async function assessAdeStudyFeasibility(dossier: any): Promise<AdeFeasib
     max: ADE_FEASIBILITY_MAX,
     pass,
     threshold: ADE_FEASIBILITY_PASS_SCORE,
+    pdfManualMin: ADE_FEASIBILITY_PDF_MANUAL_MIN,
+    mode,
+    modeLabel,
     checks,
     blockers: [...new Set(blockers)],
     summary: {
