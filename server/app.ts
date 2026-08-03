@@ -43,6 +43,7 @@ import {
   loadServiceAccountDetails,
 } from "./serviceAccount";
 import { registerSesameLabRoutes } from "./sesameLabRoutes";
+import { registerSesameStudyWorkflowRoutes } from "./sesameStudyWorkflowRoutes";
 
 function getRuntimeDataDir() {
   // Vercel serverless + Railway : disque éphémère → /tmp
@@ -5900,6 +5901,12 @@ export function createApp() {
   scheduleOcrHybridBackfill();
 
   registerSesameLabRoutes(app);
+  registerSesameStudyWorkflowRoutes(app, {
+    uploadsDir: UPLOADS_DIR,
+    readDBAsync,
+    writeDB,
+    ensureBackgroundServicesStarted,
+  });
 
   return app;
 }

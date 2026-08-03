@@ -26,6 +26,7 @@ import AdminClubRevenueChart from "./AdminClubRevenueChart";
 import AdminDossierBannerControls from "./AdminDossierBannerControls";
 import AdminDossierApporteurAttach from "./AdminDossierApporteurAttach";
 import AdminAdeStudyAssistPanel from "./AdminAdeStudyAssistPanel";
+import AdminStudyWorkflowPanel from "./AdminStudyWorkflowPanel";
 import { isVisibleAdminDossier } from "../../../shared/camilleMeta";
 import { isLeadDossier } from "../../../shared/leadDossierStatus";
 import { isArchivedDossier } from "../../../shared/dossierInactive";
@@ -2774,284 +2775,168 @@ export default function AdminDashboard({
                   </div>
 
                   <div className="flex flex-col gap-3">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-3">
-                      <p className="text-sm font-bold text-slate-900">Parcours étude (Kereis → devis → PDF)</p>
-                      <ol className="text-xs text-slate-600 leading-relaxed list-decimal pl-4 space-y-1">
-                        <li>Préparer / copier la fiche Kereis</li>
-                        <li>Uploader le devis assureur (PDF)</li>
-                        <li>Générer le PDF comparatif via Gemini + skill ADE (ou importer un PDF déjà produit)</li>
-                      </ol>
-                      {adeAssistOpen && selectedDossier ? (
-                        <AdminAdeStudyAssistPanel
-                          dossierId={selectedDossier.id}
-                          open={adeAssistOpen}
-                          initialMode={adeAssistMode}
-                          onClose={() => setAdeAssistOpen(false)}
-                          adminFetch={adminFetch}
-                          onReady={(m) => {
-                            showToast(
-                              m === "kereis"
-                                ? "Fiche Kereis prête — vous pouvez copier"
-                                : "Ancrages ADE prêts — vous pouvez générer l'étude",
-                              "success",
-                            );
-                            loadDossiers();
-                          }}
-                          onDossierUpdated={() => loadDossiers()}
-                          onKereisDraft={(draft) => {
-                            if (draft) setKereisDraft(draft);
-                          }}
-                        />
-                      ) : null}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleGenerateKereisDraft()}
-                          disabled={kereisBusy}
-                          className="bg-slate-800 hover:bg-slate-900 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          {kereisBusy ? "Extraction…" : "1. Préparer fiche Kereis"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAdeAssistMode("kereis");
-                            setAdeAssistOpen(true);
-                          }}
-                          className="border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          Assistant Kereis
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleCopyKereisDraft()}
-                          disabled={!kereisDraft?.copyText}
-                          className="border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 px-3 py-2 rounded-xl font-bold text-sm"
-                        >
-                          Copier la fiche
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <label
-                          className={`border border-teal-300 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2 ${
-                            quoteBusy || generateStudyBusy
-                              ? "bg-slate-100 text-slate-500 cursor-wait"
-                              : "bg-white hover:bg-teal-50 text-teal-900 cursor-pointer"
-                          }`}
-                        >
-                          <Upload className="w-4 h-4" />
-                          {quoteBusy ? "Envoi devis…" : "2. Uploader le devis"}
-                          <input
-                            type="file"
-                            accept="application/pdf,.pdf"
-                            className="hidden"
-                            disabled={generateStudyBusy || quoteBusy}
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              e.target.value = "";
-                              if (f) void handleUploadQuote(f);
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteQuote()}
-                          disabled={quoteBusy || generateStudyBusy}
-                          className="border border-red-200 bg-white hover:bg-red-50 disabled:opacity-50 text-red-800 px-3 py-2 rounded-xl font-bold text-sm"
-                        >
-                          Supprimer devis
-                        </button>
-                        {(() => {
-                          const devisDocs = ((selectedDossier as any)?.formData?.documents || []).filter(
-                            (d: any) => String(d?.category || "").toLowerCase() === "devis",
+                    {selectedDossier ? (
+                      <AdminStudyWorkflowPanel
+                        key={selectedDossier.id}
+                        dossierId={selectedDossier.id}
+                        initialDraft={
+                          (kereisDraft as any) || (selectedDossier as any)?.kereisDraft || null
+                        }
+                        initialFeasibility={(selectedDossier as any)?.adeStudyFeasibility || null}
+                        adminFetch={adminFetch}
+                        onDossierUpdated={() => {
+                          loadDossiers();
+                          reloadMetrics();
+                        }}
+                        onStudyGenerated={(data) => {
+                          if (data.subject) setEmailSubject(data.subject);
+                          if (data.html) setEmailHtml(data.html);
+                          setStudyGenerateFeedback({
+                            type: "success",
+                            title: "Étude PDF générée (parcours Sésame)",
+                            message:
+                              data.grossSavingsEur != null
+                                ? `Économie brute estimée ${Math.round(data.grossSavingsEur).toLocaleString("fr-FR")} €.`
+                                : "PDF d'étude prêt — vous pouvez l'envoyer ou le télécharger.",
+                            fileName: data.fileName,
+                          });
+                          showToast(
+                            data.grossSavingsEur != null
+                              ? `Étude générée — économie ${Math.round(data.grossSavingsEur).toLocaleString("fr-FR")} €`
+                              : "Étude PDF générée",
+                            "success",
                           );
-                          const assuresN = ((selectedDossier as any)?.formData?.assures || []).length || 1;
-                          if (!devisDocs.length) {
-                            return <span className="text-xs text-amber-700">Aucun devis sur le dossier</span>;
+                          void refreshConseillerStudyFlow(selectedDossier.id);
+                          if (data.fileName) {
+                            void downloadStudyPdfForDossier(selectedDossier.id, data.fileName);
                           }
-                          return (
-                            <span className="text-xs font-bold text-teal-800">
-                              {devisDocs.length} devis — {devisDocs.map((d: any) => d.name).join(", ")}
-                              {assuresN > 1
-                                ? ` (${assuresN} assurés — un PDF Kereis couple suffit souvent)`
-                                : ""}
-                            </span>
+                        }}
+                      />
+                    ) : null}
+
+                    {adeAssistOpen && selectedDossier ? (
+                      <AdminAdeStudyAssistPanel
+                        dossierId={selectedDossier.id}
+                        open={adeAssistOpen}
+                        initialMode={adeAssistMode}
+                        onClose={() => setAdeAssistOpen(false)}
+                        adminFetch={adminFetch}
+                        onReady={(m) => {
+                          showToast(
+                            m === "kereis"
+                              ? "Fiche Kereis prête — vous pouvez copier"
+                              : "Ancrages ADE prêts — vous pouvez générer l'étude",
+                            "success",
                           );
-                        })()}
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Couple / co-emprunteurs : le PDF Kereis contient souvent les deux assurés dans
-                        le même fichier (totaux cumulés automatiquement). Vous pouvez aussi uploader
-                        plusieurs devis. Si le tableau a disparu après un déploiement, réimportez-le
-                        aussi dans Documents.
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleAssessAdeFeasibility()}
-                          disabled={generateStudyBusy || feasibilityBusy}
-                          className="border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
-                        >
-                          {feasibilityBusy ? "Score…" : "Vérifier score /10"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleGenerateStudyFromDevis()}
-                          disabled={generateStudyBusy || feasibilityBusy}
-                          className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
-                        >
-                          <FileText className="w-4 h-4" />
-                          {generateStudyBusy ? "Génération…" : "3. Générer étude depuis devis"}
-                        </button>
-                        <label className="border border-teal-600 bg-teal-50 hover:bg-teal-100 text-teal-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2 cursor-pointer">
-                          <Upload className="w-4 h-4" />
-                          Devis + générer
-                          <input
-                            type="file"
-                            accept="application/pdf,.pdf"
-                            className="hidden"
-                            disabled={generateStudyBusy || feasibilityBusy}
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              e.target.value = "";
-                              if (f) void handleGenerateStudyFromDevis(f);
-                            }}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAdeAssistMode("study");
-                            setAdeAssistOpen(true);
-                          }}
-                          className="border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          Assistant étude
-                        </button>
-                        {(() => {
-                          const f = (selectedDossier as any)?.adeStudyFeasibility;
-                          if (!f || f.score == null) return null;
-                          const pass = Boolean(f.pass);
-                          const mode = String(f.mode || (pass ? "auto" : f.score >= 8 ? "pdf_manual" : "full_manual"));
-                          return (
-                            <span
-                              className={`text-xs font-bold px-2.5 py-1.5 rounded-lg ${
-                                pass
-                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                  : mode === "pdf_manual"
-                                    ? "bg-amber-50 text-amber-900 border border-amber-200"
-                                    : "bg-orange-50 text-orange-950 border border-orange-200"
-                              }`}
-                            >
-                              Dernier score {f.score}/{f.max ?? 10}
-                              {pass
-                                ? " · auto PDF"
-                                : mode === "pdf_manual"
-                                  ? " · PDF manuel"
-                                  : " · étude + PDF manuels"}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        <strong>10/10</strong> : génération PDF auto. <strong>8–9/10</strong> : PDF
-                        d&apos;étude manuel (import). <strong>&lt; 8/10</strong> : étude + PDF
-                        entièrement manuels.
-                      </p>
-                      {studyGenerateFeedback ? (
-                        <div
-                          className={`rounded-xl border px-4 py-3 text-sm ${
-                            studyGenerateFeedback.type === "error"
-                              ? "border-red-200 bg-red-50 text-red-950"
-                              : studyGenerateFeedback.type === "manual"
-                                ? "border-amber-200 bg-amber-50 text-amber-950"
-                                : "border-emerald-200 bg-emerald-50 text-emerald-950"
-                          }`}
-                          role="status"
-                        >
-                          <p className="font-bold inline-flex items-center gap-2">
-                            {studyGenerateFeedback.type === "success" ? (
-                              <CheckCircle className="w-4 h-4 shrink-0" />
-                            ) : (
-                              <AlertTriangle className="w-4 h-4 shrink-0" />
-                            )}
-                            {studyGenerateFeedback.title}
-                          </p>
-                          {studyGenerateFeedback.feasibility?.score != null ? (
-                            <p className="text-xs mt-1 font-bold">
-                              Faisabilité {studyGenerateFeedback.feasibility.score}/
-                              {studyGenerateFeedback.feasibility.max} (auto à{" "}
-                              {studyGenerateFeedback.feasibility.threshold ?? 10}/10
-                              {studyGenerateFeedback.feasibility.mode
-                                ? ` · ${studyGenerateFeedback.feasibility.mode}`
-                                : ""}
+                          loadDossiers();
+                        }}
+                        onDossierUpdated={() => loadDossiers()}
+                        onKereisDraft={(draft) => {
+                          if (draft) setKereisDraft(draft);
+                        }}
+                      />
+                    ) : null}
+
+                    {studyGenerateFeedback ? (
+                      <div
+                        className={`rounded-xl border px-4 py-3 text-sm ${
+                          studyGenerateFeedback.type === "error"
+                            ? "border-red-200 bg-red-50 text-red-950"
+                            : studyGenerateFeedback.type === "manual"
+                              ? "border-amber-200 bg-amber-50 text-amber-950"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-950"
+                        }`}
+                        role="status"
+                      >
+                        <p className="font-bold inline-flex items-center gap-2">
+                          {studyGenerateFeedback.type === "success" ? (
+                            <CheckCircle className="w-4 h-4 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-4 h-4 shrink-0" />
+                          )}
+                          {studyGenerateFeedback.title}
+                        </p>
+                        <p className="text-xs mt-1 leading-relaxed">{studyGenerateFeedback.message}</p>
+                        {studyGenerateFeedback.type === "success" && studyGenerateFeedback.fileName ? (
+                          <button
+                            type="button"
+                            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-xs font-bold"
+                            onClick={() =>
+                              void downloadStudyPdfForDossier(
+                                selectedDossier!.id,
+                                studyGenerateFeedback.fileName,
                               )
-                            </p>
-                          ) : null}
-                          <p className="text-xs mt-1 leading-relaxed">{studyGenerateFeedback.message}</p>
-                          {studyGenerateFeedback.hint ? (
-                            <p className="text-xs mt-2 font-medium leading-relaxed">
-                              {studyGenerateFeedback.hint}
-                            </p>
-                          ) : null}
-                          {studyGenerateFeedback.reasons?.length ? (
-                            <ul className="mt-2 text-xs list-disc pl-4 space-y-0.5 opacity-90">
-                              {studyGenerateFeedback.reasons.map((r) => (
-                                <li key={r}>{r}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                          {studyGenerateFeedback.type === "manual" ? (
-                            <button
-                              type="button"
-                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold"
-                              onClick={() => {
-                                setAdeAssistMode("study");
-                                setAdeAssistOpen(true);
+                            }
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Télécharger le PDF
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <details className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <summary className="text-sm font-bold text-slate-800 cursor-pointer">
+                        Secours : devis manuel / import PDF / assistants
+                      </summary>
+                      <div className="mt-3 space-y-3">
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Si Sésame est indisponible : uploader un devis PDF, ou importer une étude déjà
+                          produite. Score &lt; 8 hors parcours Sésame → PDF manuel recommandé.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleCopyKereisDraft()}
+                            disabled={!kereisDraft?.copyText && !(selectedDossier as any)?.kereisDraft?.copyText}
+                            className="border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 px-3 py-2 rounded-xl font-bold text-sm"
+                          >
+                            Copier fiche Kereis
+                          </button>
+                          <label
+                            className={`border border-teal-300 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2 ${
+                              quoteBusy || generateStudyBusy
+                                ? "bg-slate-100 text-slate-500 cursor-wait"
+                                : "bg-white hover:bg-teal-50 text-teal-900 cursor-pointer"
+                            }`}
+                          >
+                            <Upload className="w-4 h-4" />
+                            {quoteBusy ? "Envoi devis…" : "Uploader devis"}
+                            <input
+                              type="file"
+                              accept="application/pdf,.pdf"
+                              className="hidden"
+                              disabled={generateStudyBusy || quoteBusy}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = "";
+                                if (f) void handleUploadQuote(f);
                               }}
-                            >
-                              <Sparkles className="w-3.5 h-3.5" />
-                              Ouvrir l&apos;assistant étude
-                            </button>
-                          ) : null}
-                          {studyGenerateFeedback.type === "success" && studyGenerateFeedback.fileName ? (
-                            <button
-                              type="button"
-                              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-xs font-bold"
-                              onClick={() =>
-                                void downloadStudyPdfForDossier(
-                                  selectedDossier!.id,
-                                  studyGenerateFeedback.fileName,
-                                )
-                              }
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                              Télécharger le PDF
-                            </button>
-                          ) : null}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => void handleGenerateStudyFromDevis()}
+                            disabled={generateStudyBusy || feasibilityBusy}
+                            className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                          >
+                            <FileText className="w-4 h-4" />
+                            {generateStudyBusy ? "Génération…" : "Générer depuis devis uploadé"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdeAssistMode("study");
+                              setAdeAssistOpen(true);
+                            }}
+                            className="border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            Assistant étude
+                          </button>
                         </div>
-                      ) : null}
-                      {kereisDraft ? (
-                        <div className="text-xs text-slate-700 space-y-1">
-                          <p>
-                            Effet <strong>{kereisDraft.effectDateLabel}</strong>
-                            {kereisDraft.missing?.length
-                              ? ` · ${kereisDraft.missing.length} champ(s) manquant(s)`
-                              : " · champs principaux OK"}
-                            {` · source ${kereisDraft.provider}`}
-                          </p>
-                          {kereisDraft.warnings?.length ? (
-                            <p className="text-amber-800">{kereisDraft.warnings.slice(0, 2).join(" · ")}</p>
-                          ) : null}
-                          <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-white border border-slate-200 p-2 text-[10px] whitespace-pre-wrap font-mono text-slate-800">
-                            {String(kereisDraft.copyText || "").slice(0, 2500)}
-                          </pre>
-                        </div>
-                      ) : null}
-                    </div>
+                      </div>
+                    </details>
                     <div className="flex flex-wrap items-center gap-3">
                       <label className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-colors inline-flex items-center gap-2 cursor-pointer">
                         <Upload className="w-4 h-4" />

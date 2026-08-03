@@ -120,6 +120,17 @@ export interface Dossier {
   };
   /** Fiche de saisie Kereis (génération auto depuis docs). */
   kereisDraft?: import("../shared/kereisDraftTypes").KereisDraft;
+  /** Parcours étude étapes (Kereis → Sésame → PDF). */
+  sesameStudyWorkflow?: {
+    step?: number;
+    overrides?: Record<string, unknown>;
+    warnings?: string[];
+    selectedByAssure?: Record<string, string>;
+    lastSimulateAt?: string;
+    lastDevisDocId?: string;
+    catalogNote?: string;
+    updatedAt?: string;
+  };
   /** Dernier calcul d'étude ADE auto (avant PDF). */
   adeStudyComputation?: Record<string, unknown>;
   /** Dernier score de faisabilité génération auto ADE (/10). */
@@ -376,6 +387,7 @@ export function ensureDossierShape(d: any): Dossier {
     studyPdfSuppressed: d.studyPdfSuppressed === true ? true : undefined,
     studyPdfClearedAt: d.studyPdfClearedAt,
     kereisDraft: d.kereisDraft,
+    sesameStudyWorkflow: d.sesameStudyWorkflow,
     adeStudyComputation: d.adeStudyComputation,
     adeStudyFeasibility: d.adeStudyFeasibility,
     adeStudyAssist: d.adeStudyAssist,

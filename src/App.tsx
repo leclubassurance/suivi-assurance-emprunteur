@@ -44,16 +44,18 @@ const STATUT_PRO_DRAFT_VALUES = new Set(
   STATUT_PRO_OPTIONS.flatMap((option) => [option.value, option.label]),
 );
 
+function purgeLegacyApporteurRefStorage(): void {
+  try {
+    localStorage.removeItem(APPORTEUR_REF_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 function readStoredApporteurRef(): string | undefined {
   try {
     const fromSession = sessionStorage.getItem(APPORTEUR_REF_SESSION_KEY)?.trim();
     if (fromSession) return fromSession.toLowerCase();
-  } catch {
-    /* ignore */
-  }
-  try {
-    const fromPersistent = localStorage.getItem(APPORTEUR_REF_STORAGE_KEY)?.trim();
-    if (fromPersistent) return fromPersistent.toLowerCase();
   } catch {
     /* ignore */
   }
@@ -67,11 +69,8 @@ function persistApporteurRef(raw: string): string {
   } catch {
     /* ignore */
   }
-  try {
-    localStorage.setItem(APPORTEUR_REF_STORAGE_KEY, normalized);
-  } catch {
-    /* ignore */
-  }
+  // Ne plus écrire en localStorage global (causait : site principal → Jean).
+  purgeLegacyApporteurRefStorage();
   return normalized;
 }
 
@@ -81,11 +80,7 @@ function clearStoredApporteurRef(): void {
   } catch {
     /* ignore */
   }
-  try {
-    localStorage.removeItem(APPORTEUR_REF_STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
+  purgeLegacyApporteurRefStorage();
 }
 
 function sanitizeAssuresDraft(assures: any[] = []) {
@@ -237,49 +232,73 @@ export default function App() {
       }
     };
     syncRoute();
+    let urlRef: string | undefined;
     try {
       const ref = new URLSearchParams(window.location.search).get("ref");
-      if (ref && ref.trim()) {
-        const normalized = persistApporteurRef(ref);
-        try {
-          const sessionKey = "lcif_ref_click_session";
-          let sessionId = sessionStorage.getItem(sessionKey);
-          if (!sessionId) {
-            sessionId =
-              typeof crypto !== "undefined" && "randomUUID" in crypto
-                ? crypto.randomUUID()
-                : `s-${Date.now()}`;
-            sessionStorage.setItem(sessionKey, sessionId);
-          }
-          fetch(getRefClickUrl(), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ref: normalized, sessionId }),
-          }).catch(() => {});
-        } catch {
-          /* ignore */
-        }
-        fetch(getApiUrl(`/api/public/apporteur-ref/${encodeURIComponent(normalized)}`))
-          .then((r) => r.json())
-          .then((json) => {
-            if (json?.ok && json.publicProfile) {
-              setReferralProfile({
-                contactName: String(json.contactName || "").trim() || "Votre conseiller",
-                companyName: json.companyName || null,
-                profile: {
-                  photoUrl: json.publicProfile.photoUrl,
-                  title: json.publicProfile.title,
-                  bio: json.publicProfile.bio,
-                },
-              });
-            } else {
-              setReferralProfile(null);
-            }
-          })
-          .catch(() => setReferralProfile(null));
+      if (ref && ref.trim()) urlRef = ref.trim().toLowerCase();
+    } catch {
+      /* ignore */
+    }
+
+    let draftRef: string | undefined;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const t = String(parsed?.apporteurRefToken || "").trim().toLowerCase();
+        if (t) draftRef = t;
       }
     } catch {
       /* ignore */
+    }
+
+    if (urlRef) {
+      const normalized = persistApporteurRef(urlRef);
+      setFormData((prev) => ({ ...prev, apporteurRefToken: normalized }));
+      try {
+        const sessionKey = "lcif_ref_click_session";
+        let sessionId = sessionStorage.getItem(sessionKey);
+        if (!sessionId) {
+          sessionId =
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `s-${Date.now()}`;
+          sessionStorage.setItem(sessionKey, sessionId);
+        }
+        fetch(getRefClickUrl(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ref: normalized, sessionId }),
+        }).catch(() => {});
+      } catch {
+        /* ignore */
+      }
+      fetch(getApiUrl(`/api/public/apporteur-ref/${encodeURIComponent(normalized)}`))
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.ok && json.publicProfile) {
+            setReferralProfile({
+              contactName: String(json.contactName || "").trim() || "Votre conseiller",
+              companyName: json.companyName || null,
+              profile: {
+                photoUrl: json.publicProfile.photoUrl,
+                title: json.publicProfile.title,
+                bio: json.publicProfile.bio,
+              },
+            });
+          } else {
+            setReferralProfile(null);
+          }
+        })
+        .catch(() => setReferralProfile(null));
+    } else if (draftRef) {
+      // Reprise d'un formulaire commencé via lien ?ref= (brouillon).
+      persistApporteurRef(draftRef);
+      setFormData((prev) => ({ ...prev, apporteurRefToken: draftRef }));
+    } else {
+      // Site principal / visite organique : aucun porteur d'affaires.
+      clearStoredApporteurRef();
+      setReferralProfile(null);
     }
     window.addEventListener('popstate', syncRoute);
     return () => window.removeEventListener('popstate', syncRoute);
@@ -296,11 +315,20 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed) {
+          const draftToken = String(parsed.apporteurRefToken || "").trim().toLowerCase() || undefined;
+          let urlRef: string | undefined;
+          try {
+            const ref = new URLSearchParams(window.location.search).get("ref");
+            if (ref?.trim()) urlRef = ref.trim().toLowerCase();
+          } catch {
+            /* ignore */
+          }
+          const token = urlRef || draftToken;
           setFormData({
             ...parsed,
             assures: sanitizeAssuresDraft(parsed.assures || []),
+            ...(token ? { apporteurRefToken: token } : { apporteurRefToken: undefined }),
           });
-          // Don't restore step automatically to avoid getting stuck, or we could if we saved it.
         }
       } catch (e) {
         console.error('Failed to parse draft from local storage');
@@ -431,16 +459,18 @@ export default function App() {
       });
       let apporteurRefToken: string | undefined;
       try {
-        apporteurRefToken = readStoredApporteurRef();
+        const fromForm = String((formData as any).apporteurRefToken || "").trim().toLowerCase();
+        apporteurRefToken = fromForm || readStoredApporteurRef();
       } catch {
         apporteurRefToken = undefined;
       }
-      const cleanedFormData = {
+      const cleanedFormData: Record<string, unknown> = {
         ...formData,
         documents: strippedDocuments,
         privacyConsent: buildClientPrivacyConsentPayload(),
-        ...(apporteurRefToken ? { apporteurRefToken } : {}),
       };
+      if (apporteurRefToken) cleanedFormData.apporteurRefToken = apporteurRefToken;
+      else delete cleanedFormData.apporteurRefToken;
 
       const formPayload = new FormData();
       formPayload.append("formData", JSON.stringify(cleanedFormData));
@@ -508,6 +538,8 @@ export default function App() {
 
   const resetForm = () => {
     setFormData(INITIAL_FORM_DATA);
+    clearStoredApporteurRef();
+    setReferralProfile(null);
     goToStep(Step.LANDING);
   }
 

@@ -271,6 +271,27 @@ export function applyKereisDraftPatches(
   next.missing = [...new Set(missing)];
   next.computedAt = new Date().toISOString();
 
+  // Sync date d'effet ISO si le champ prêt a été modifié.
+  const effectField = next.steps.prets
+    .flatMap((p) => p.fields)
+    .find((f) => /date d.?effet/i.test(String(f.label || "")));
+  if (effectField?.value != null && effectField.value !== "") {
+    const raw = String(effectField.value).trim();
+    const iso =
+      /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? raw
+        : (() => {
+            const fr = raw.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+            return fr
+              ? `${fr[3]}-${fr[2].padStart(2, "0")}-${fr[1].padStart(2, "0")}`
+              : "";
+          })();
+    if (iso) {
+      next.effectDateIso = iso;
+      next.effectDateLabel = formatFrDate(iso);
+    }
+  }
+
   return { ...next, copyText: buildCopyText(next) };
 }
 

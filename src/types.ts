@@ -27,6 +27,12 @@ export interface InsuranceFormData {
   autresCreditsImmobiliers?: "" | "oui" | "non";
   /** Montant total des autres crédits si oui (€). */
   autresCreditsMontant?: string;
+  /**
+   * Token ?ref= du parcours (conseiller / apporteur).
+   * Conservé dans le brouillon local — pas dans un localStorage global,
+   * pour ne pas attribuer les visiteurs du site principal à un porteur précédent.
+   */
+  apporteurRefToken?: string;
 }
 
 export interface FormErrors {

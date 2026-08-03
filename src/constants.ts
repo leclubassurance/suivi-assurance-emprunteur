@@ -1,13 +1,13 @@
 import { Step, InsuranceFormData } from './types';
 
 export const CLIENT_PORTAL_URL_KEY = 'lcif-client-portal-url';
-/** Clé historique (session) — conservée pour compatibilité. */
-export const APPORTEUR_REF_SESSION_KEY = 'lcif-apporteur-ref';
 /**
- * Persistance longue du ?ref= conseiller/apporteur.
- * Le brouillon formulaire est déjà en localStorage : sans ceci, un client qui
- * ferme le navigateur puis revient sans ?ref= soumet un dossier non rattaché.
+ * Token ?ref= en session uniquement (plus de localStorage global).
+ * Le brouillon formulaire porte le token pour reprendre un parcours conseiller
+ * sans polluer les visites organiques du site principal.
  */
+export const APPORTEUR_REF_SESSION_KEY = 'lcif-apporteur-ref';
+/** @deprecated Clé legacy — vidée au chargement pour stopper les attributions fantômes. */
 export const APPORTEUR_REF_STORAGE_KEY = 'lcif-apporteur-ref-persistent';
 
 export const INITIAL_ASSURE = {

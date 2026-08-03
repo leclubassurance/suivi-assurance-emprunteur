@@ -446,13 +446,24 @@ function enrichComputationFromDossier(
 
 /**
  * Devis + échéancier → calcul → PDF comparatif → ingest KPI (parcours existant).
+ *
+ * feasibilityPolicy:
+ * - strict : PDF auto seulement à 10/10 (historique)
+ * - sesame_guided : devis Sésame + contrôle manuel → seuil 8/10 (forceGenerate sous 8)
  */
 export async function generateAndIngestAdeStudyForDossier(params: {
   dossier: Dossier;
   uploadsDir: string;
   actorLabel?: string;
+  feasibilityPolicy?: "strict" | "sesame_guided";
+  forceGenerate?: boolean;
 }): Promise<AdeStudyGenerateResult> {
-  const { dossier, uploadsDir } = params;
+  const {
+    dossier,
+    uploadsDir,
+    feasibilityPolicy = "strict",
+    forceGenerate = false,
+  } = params;
   const resolveWarnings = await materializeLoanDocs(dossier, uploadsDir);
 
   const docs = (dossier.formData?.documents || []) as any[];
@@ -508,7 +519,6 @@ export async function generateAndIngestAdeStudyForDossier(params: {
     }
   }
 
-  // PDF auto uniquement à 10/10 — pas de bypass assistant (PDF manuel en dessous).
   const {
     assessAdeStudyFeasibility,
     ADE_FEASIBILITY_PASS_SCORE,
@@ -518,7 +528,29 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   const feasibility = await assessAdeStudyFeasibility(dossier);
   (dossier as any).adeStudyFeasibility = feasibility;
 
-  if (!feasibility.pass) {
+  const sesameGuided = feasibilityPolicy === "sesame_guided";
+  if (sesameGuided) {
+    // Parcours Sésame : score = guide qualité tableaux / coût actuel.
+    // ≥ 8 → OK ; < 8 → refus soft sauf forceGenerate (contrôle humain assumé).
+    if (feasibility.score < ADE_FEASIBILITY_PDF_MANUAL_MIN && !forceGenerate) {
+      return {
+        ok: false,
+        code: "low_feasibility",
+        error: `Score faisabilité ${feasibility.score}/${feasibility.max} — tableaux / coût actuel peu fiables.`,
+        hint:
+          `Sous ${ADE_FEASIBILITY_PDF_MANUAL_MIN}/10, vérifiez le tableau d'amortissement ou forcez la génération après contrôle manuel. ` +
+          `Le devis Sésame couvre déjà la proposition ; le risque porte surtout sur le coût actuel.`,
+        reasons: [
+          ...feasibility.blockers,
+          ...feasibility.checks
+            .filter((c) => !c.ok)
+            .map((c) => `✗ ${c.label}${c.detail ? ` (${c.detail})` : ""}`),
+          ...resolveWarnings.slice(0, 3),
+        ].slice(0, 10),
+        feasibility,
+      };
+    }
+  } else if (!feasibility.pass) {
     const mode = feasibility.mode || "full_manual";
     const hint =
       mode === "pdf_manual"
@@ -552,7 +584,9 @@ export async function generateAndIngestAdeStudyForDossier(params: {
   let computation: AdeStudyComputation | null = null;
   const skillReasons: string[] = [
     ...resolveWarnings,
-    `Faisabilité ADE ${feasibility.score}/${feasibility.max} (= ${ADE_FEASIBILITY_PASS_SCORE} → auto PDF).`,
+    sesameGuided
+      ? `Parcours Sésame guidé — faisabilité ${feasibility.score}/${feasibility.max} (seuil ${ADE_FEASIBILITY_PDF_MANUAL_MIN}${forceGenerate ? ", forcé" : ""}).`
+      : `Faisabilité ADE ${feasibility.score}/${feasibility.max} (= ${ADE_FEASIBILITY_PASS_SCORE} → auto PDF).`,
   ];
 
   // Extraction locale + overrides assistant ADE (ancrages)

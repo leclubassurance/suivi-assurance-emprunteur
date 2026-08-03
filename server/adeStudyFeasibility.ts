@@ -1,10 +1,14 @@
 /**
- * Score de faisabilité étude ADE auto (/10).
+ * Score de faisabilité étude ADE (/10).
  *
- * Règles LCIF :
- * - 10/10 → génération PDF auto autorisée
- * - 8–9/10 → pas de PDF auto (PDF d'étude manuel ; extractions peuvent aider)
- * - < 8/10 → étude d'économie + PDF entièrement manuels
+ * Hors parcours Sésame (upload devis manuel) :
+ * - 10/10 → génération PDF auto
+ * - 8–9/10 → PDF d'étude manuel
+ * - < 8/10 → étude + PDF manuels
+ *
+ * Parcours Sésame guidé (contrôle manuel + devis API) :
+ * - score = guide sur la fiabilité du coût actuel (tableaux)
+ * - génération autorisée dès 8/10 ; < 8 avec confirmation « forcer »
  */
 import fs from "fs";
 import { extractPdfTextFromBuffer } from "./pdfTextExtract";
