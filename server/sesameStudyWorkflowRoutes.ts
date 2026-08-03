@@ -177,13 +177,32 @@ export function registerSesameStudyWorkflowRoutes(
       const built = buildSesameOverridesFromDossier(dossier);
       const uiOverrides =
         req.body?.overrides && typeof req.body.overrides === "object" ? req.body.overrides : {};
+      // Toujours repartir de la fiche Kereis à jour — ne pas laisser un ancien
+      // overrides corrompu (CRD=3, taux=0) écraser le mapping.
       const rawOverrides = {
         ...built.overrides,
-        ...((dossier as any).sesameStudyWorkflow?.overrides || {}),
         ...uiOverrides,
       };
       const { overrides, resolved, note } = await autoResolveCatalogCodes(rawOverrides);
       const body = buildLabSamplePayload(overrides, { mode: "tarification" });
+
+      const pret0 = body?.prets?.[0];
+      const montant = Number(pret0?.montant || 0);
+      const taux = Number(pret0?.taux || 0);
+      if (montant < 1000 || taux <= 0 || taux > 25) {
+        await deps.writeDB(db, dossier);
+        return res.status(400).json({
+          success: false,
+          ok: false,
+          error:
+            `Données prêt invalides pour Sésame (CRD=${montant || 0} €, taux=${taux || 0} %). ` +
+            `Corrigez Capital restant dû (≥ 1 000 €) et Taux nominal (ex. 3,45) puis réessayez.`,
+          warnings: built.warnings,
+          requestPayloadPreview: summarizePayload(body),
+          kereisDraft: (dossier as any).kereisDraft,
+        });
+      }
+
       const reductionCouple =
         req.body?.reductionCouple ??
         overrides.reductionCouple ??
@@ -224,23 +243,40 @@ export function registerSesameStudyWorkflowRoutes(
       dossier.updatedAt = new Date().toISOString();
       await deps.writeDB(db, dossier);
 
-      // Aide debug UI : combien de tarifs bruts côté Sésame
+      // Aide debug UI : combien de tarifs bruts + échantillon
       let tarifCount = 0;
+      let tarifableCount = 0;
+      const samples: Array<{ code?: string; type?: string; message?: string }> = [];
+      const walkTarifs = (tarifs: any[]) => {
+        for (const t of tarifs) {
+          tarifCount += 1;
+          const code = pickString(t?.codeProduit, t?.produit?.codeProduit, t?.code, t?.produit?.code);
+          const type = pickString(t?.type, t?.statut, t?.etat);
+          if (!type || type === "TARIFABLE") tarifableCount += 1;
+          if (samples.length < 5) {
+            samples.push({
+              code: code || undefined,
+              type: type || undefined,
+              message: pickString(t?.message, t?.motif, t?.libelleErreur, t?.erreur).slice(0, 160) || undefined,
+            });
+          }
+        }
+      };
       const raw = result.data as any;
       if (Array.isArray(raw)) {
         for (const block of raw) {
-          if (Array.isArray(block?.tarifs)) tarifCount += block.tarifs.length;
-          else if (block?.codeProduit) tarifCount += 1;
+          if (Array.isArray(block?.tarifs)) walkTarifs(block.tarifs);
+          else if (block?.codeProduit || block?.produit) walkTarifs([block]);
         }
       } else if (raw && typeof raw === "object") {
         if (Array.isArray(raw.assures)) {
           for (const a of raw.assures) {
-            if (Array.isArray(a?.tarifs)) tarifCount += a.tarifs.length;
+            if (Array.isArray(a?.tarifs)) walkTarifs(a.tarifs);
           }
         } else if (Array.isArray(raw.tarifs)) {
-          tarifCount = raw.tarifs.length;
+          walkTarifs(raw.tarifs);
         } else if (Array.isArray(raw.liste)) {
-          tarifCount = raw.liste.length;
+          walkTarifs(raw.liste);
         }
       }
 
@@ -259,6 +295,8 @@ export function registerSesameStudyWorkflowRoutes(
         kereisDraft: (dossier as any).kereisDraft,
         feasibility,
         tarifCount,
+        tarifableCount,
+        tarifSamples: samples,
       });
     } catch (err: any) {
       console.error("[study-workflow/simulate]", err?.message || err);
@@ -308,8 +346,8 @@ export function registerSesameStudyWorkflowRoutes(
         const prevOverrides =
           ((dossier as any).sesameStudyWorkflow?.overrides as Record<string, unknown>) || {};
         const rawOverrides: Record<string, unknown> = {
-          ...built.overrides,
           ...prevOverrides,
+          ...built.overrides,
           ...((req.body?.overrides && typeof req.body.overrides === "object"
             ? req.body.overrides
             : {}) as object),

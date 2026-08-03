@@ -48,22 +48,58 @@ function norm(s: string): string {
     .trim();
 }
 
+/** Match précis sur le début du libellé (évite les collisions floues). */
 function fieldVal(fields: KereisField[] | undefined, labelPart: string): string {
   if (!fields?.length) return "";
   const want = norm(labelPart);
-  const hit = fields.find((f) => norm(String(f.label || "")).includes(want));
+  const ranked = fields
+    .map((f) => {
+      const fl = norm(String(f.label || ""));
+      let score = 0;
+      if (fl === want) score = 3;
+      else if (fl.startsWith(want)) score = 2;
+      else if (want.length >= 10 && fl.includes(want)) score = 1;
+      return { f, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const hit = ranked[0]?.f;
   if (!hit || hit.value == null || hit.value === "") return "";
   return String(hit.value).trim();
 }
 
+/** Refuse dates / libellés ; extrait un nombre FR. */
 function parseNum(raw: string): number | null {
-  const cleaned = raw.replace(/\s/g, "").replace("%", "").replace(",", ".");
-  // Refuse les libellés (ex. "MARCHANDE" collé par erreur dans le taux).
+  const s0 = String(raw || "").trim();
+  if (!s0) return null;
+  // Dates → ne jamais prendre le jour comme montant (03/11/2026 → 3).
+  if (/^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/.test(s0)) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s0)) return null;
+  const cleaned = s0.replace(/\s/g, "").replace("%", "").replace("€", "").replace(",", ".");
   if (/[a-zA-Zàâäéèêëïîôùûüç]/.test(cleaned.replace(/[eE][+-]?\d+$/, ""))) return null;
   const m = cleaned.match(/-?\d+(?:\.\d+)?/);
   if (!m) return null;
   const n = Number(m[0]);
   return Number.isFinite(n) ? n : null;
+}
+
+function parseCapital(raw: string): number | null {
+  const n = parseNum(raw);
+  // CRD réaliste pour une ADE ; refuse 3 (jour de date) etc.
+  if (n == null || n < 1000) return null;
+  return n;
+}
+
+function parseTaux(raw: string): number | null {
+  const n = parseNum(raw);
+  if (n == null || n <= 0 || n > 25) return null;
+  return n;
+}
+
+function parseDuree(raw: string): number | null {
+  const n = parseNum(raw);
+  if (n == null || n < 1 || n > 600) return null;
+  return Math.round(n);
 }
 
 function parseDateIso(raw: string): string {
@@ -106,10 +142,12 @@ function statutIdFromLabel(label: string): number {
   return 10095;
 }
 
-function civiliteFromAssure(a: any): string {
-  const c = String(a?.civilite || "Monsieur").trim();
+function civiliteFromAssure(a: any, draftCivilite?: string): string {
+  const c = String(a?.civilite || draftCivilite || "Monsieur").trim();
+  if (/^mme|^madame|^m\s*\./i.test(c) && /mme|madame/i.test(c)) return "Madame";
   if (/^mme|^madame/i.test(c)) return "Madame";
   if (/^mlle|^mademoiselle/i.test(c)) return "Madame";
+  if (/^m\.?$/i.test(c) || /^m\s/i.test(c) || /^monsieur/i.test(c)) return "Monsieur";
   return "Monsieur";
 }
 
@@ -137,24 +175,41 @@ export function buildSesameOverridesFromDossier(dossier: Dossier): {
     "";
   if (!effectIso) warnings.push("Date d'effet absente — défaut lab utilisé.");
 
-  const capital =
-    parseNum(fieldVal(loan0, "capital restant")) ??
-    parseNum(String(pretsForm[0]?.capitalRestantDu || pretsForm[0]?.montant || "")) ??
-    null;
-  const duree =
-    parseNum(fieldVal(loan0, "duree restante")) ??
-    parseNum(String(pretsForm[0]?.dureeMois || pretsForm[0]?.duree || "")) ??
-    null;
-  const taux =
-    parseNum(fieldVal(loan0, "taux nominal")) ??
-    parseNum(String(pretsForm[0]?.taux || "")) ??
-    null;
+  const capitalDraft = parseCapital(fieldVal(loan0, "capital restant"));
+  const capitalForm = parseCapital(
+    String(
+      pretsForm[0]?.capitalRestantDu ||
+        pretsForm[0]?.capitalRestant ||
+        pretsForm[0]?.montant ||
+        "",
+    ),
+  );
+  const capital = capitalDraft ?? capitalForm;
+  if (capitalDraft == null && fieldVal(loan0, "capital restant")) {
+    warnings.push(
+      `CRD fiche invalide (« ${fieldVal(loan0, "capital restant")} ») — repli formulaire/docs.`,
+    );
+  }
 
-  if (capital == null) warnings.push("CRD manquant.");
+  const dureeDraft = parseDuree(fieldVal(loan0, "duree restante"));
+  const dureeForm = parseDuree(String(pretsForm[0]?.dureeMois || pretsForm[0]?.duree || ""));
+  const duree = dureeDraft ?? dureeForm;
+
+  const tauxDraft = parseTaux(fieldVal(loan0, "taux nominal"));
+  const tauxForm = parseTaux(String(pretsForm[0]?.taux || ""));
+  const taux = tauxDraft ?? tauxForm;
+  if (tauxDraft == null && fieldVal(loan0, "taux nominal")) {
+    warnings.push(
+      `Taux fiche invalide (« ${fieldVal(loan0, "taux nominal")} ») — repli formulaire.`,
+    );
+  }
+
+  if (capital == null) warnings.push("CRD manquant ou < 1 000 €.");
   if (duree == null) warnings.push("Durée restante manquante.");
+  if (taux == null) warnings.push("Taux nominal manquant (0–25 %).");
 
   const franchise =
-    parseNum(fieldVal(sim, "franchise")) ??
+    parseDuree(fieldVal(sim, "franchise")) ??
     parseNum(String(form.franchiseItt || form.franchise || "90")) ??
     90;
   const quotite =
@@ -174,12 +229,15 @@ export function buildSesameOverridesFromDossier(dossier: Dossier): {
 
   const cp =
     fieldVal(coords, "code postal") ||
-    String(form.codePostal || assuresForm[0]?.codePostal || "44000").trim() ||
+    String(form.codePostal || assuresForm[0]?.codePostal || assuresForm[0]?.cpResidence || "44000").trim() ||
     "44000";
+
+  const draftCivilite = fieldVal(coords, "civilite");
 
   const assures = (assuresForm.length ? assuresForm : [{}]).map((a: any, i: number) => {
     const birth =
       parseDateIso(String(a?.dateNaissance || "")) ||
+      parseDateIso(fieldVal(coords, "date de naissance")) ||
       parseDateIso(fieldVal(infos, "date de naissance")) ||
       "1990-01-15";
     const manuelle =
@@ -187,11 +245,11 @@ export function buildSesameOverridesFromDossier(dossier: Dossier): {
       /oui|true/i.test(fieldVal(infos, "profession manuelle")) ||
       Boolean(a?.professionManuelle);
     return {
-      civilite: civiliteFromAssure(a),
+      civilite: civiliteFromAssure(a, draftCivilite),
       prenom: String(a?.prenom || fieldVal(coords, "prenom") || "Lab").trim(),
       nom: String(a?.nom || fieldVal(coords, "nom") || "TEST").trim(),
       dateNaissance: birth,
-      codePostal: cp,
+      codePostal: cp.replace(/\D/g, "").slice(0, 5) || "44000",
       fumeur: a?.fumeur === true || /oui|true/i.test(fieldVal(infos, "fumeur")),
       professionLibelle: i === 0 ? professionLibelle : String(a?.profession || professionLibelle),
       statutProfessionnelLibelle: statutLabel,
@@ -211,7 +269,7 @@ export function buildSesameOverridesFromDossier(dossier: Dossier): {
   const overrides: Record<string, unknown> = {
     dateEffetGaranties: effectIso || undefined,
     idObjetFinancement: 8,
-    franchise,
+    franchise: franchise && franchise > 0 ? franchise : 90,
     idFormule: 101,
     optionKeys: ["dorsales_psy", "forfaitaire"],
     remunerationLineairePct: 15,
@@ -226,7 +284,7 @@ export function buildSesameOverridesFromDossier(dossier: Dossier): {
         montant: capital ?? 0,
         taux: taux ?? 0,
         duree: duree ?? 240,
-        differe: 0,
+        differe: parseDuree(fieldVal(loan0, "duree differe")) ?? 0,
         idTypePret: 51,
         idPeriodiciteEcheancePret: 3,
         idTypeAmortissement: 100,

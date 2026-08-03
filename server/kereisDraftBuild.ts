@@ -247,8 +247,8 @@ export function applyKereisDraftPatches(
       ...f,
       value,
       confidence: "high",
-      source: "assistant ADE",
-      note: f.note ? `${f.note} · confirmé assistant` : "Confirmé via assistant ADE",
+      source: "contrôle admin",
+      note: f.note && !/confirmé/i.test(f.note) ? f.note : undefined,
     };
   };
 

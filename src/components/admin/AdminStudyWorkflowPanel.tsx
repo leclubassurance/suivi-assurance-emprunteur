@@ -31,6 +31,7 @@ type Proposition = {
   marque?: string;
   baseTarif?: "crd" | "capital_initial" | "autre";
   type?: string;
+  message?: string;
   tarifTotalAssurance?: number;
   cotisationMensuelleMoyenne?: number;
   prets?: Array<{ taea?: number; tauxMoyen?: number }>;
@@ -96,13 +97,30 @@ function baseTarifFromCode(code: string): Proposition["baseTarif"] {
   return "autre";
 }
 
+function pickCodeProduit(t: any): string {
+  return String(
+    t?.codeProduit ||
+      t?.produit?.codeProduit ||
+      t?.code ||
+      t?.produit?.code ||
+      t?.produitCode ||
+      "",
+  ).trim();
+}
+
 function mapProp(t: any): Proposition | null {
-  if (!t?.codeProduit) return null;
+  const codeProduit = pickCodeProduit(t);
+  if (!codeProduit) return null;
+  const pret0 = Array.isArray(t.prets) ? t.prets[0] : undefined;
   return {
     ...t,
-    codeProduit: String(t.codeProduit),
-    marque: marqueFromCode(String(t.codeProduit)),
-    baseTarif: baseTarifFromCode(String(t.codeProduit)),
+    codeProduit,
+    marque: marqueFromCode(codeProduit),
+    baseTarif: baseTarifFromCode(codeProduit),
+    type: t?.type || t?.statut || t?.etat || undefined,
+    message: String(t?.message || t?.motif || t?.libelleErreur || t?.erreur || "").trim() || undefined,
+    tarifTotalAssurance: t?.tarifTotalAssurance ?? pret0?.tarifTotalAssurance,
+    cotisationMensuelleMoyenne: t?.cotisationMensuelleMoyenne ?? pret0?.cotisationMensuelleMoyenne,
   };
 }
 
@@ -246,7 +264,7 @@ function detectFieldKind(label: string): { kind: FieldKind; options?: string[] }
 
 /** Affiche date ISO → input date ; FR jj/mm/aaaa → ISO pour l'input. */
 function toDateInputValue(raw: string): string {
-  const s = String(raw || "").trim();
+  const s = String(raw || "").replace(/\s/g, "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const fr = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
   if (fr) return `${fr[3]}-${fr[2].padStart(2, "0")}-${fr[1].padStart(2, "0")}`;
@@ -563,20 +581,34 @@ export default function AdminStudyWorkflowPanel({
         return;
       }
       const extracted = extractByAssure(data.data, data.kereisDraft || draft);
-      const totalProps = extracted.reduce((n, c) => n + c.propositions.filter(isTarifable).length, 0);
+      const tarifable = extracted.reduce((n, c) => n + c.propositions.filter(isTarifable).length, 0);
+      const allProps = extracted.reduce((n, c) => n + c.propositions.length, 0);
       setCols(extracted);
       setSelected(defaultSelections(extracted));
       setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
-      setSimMeta({ tarifCount: data.tarifCount ?? totalProps, requestId: data.requestId });
+      setSimMeta({
+        tarifCount: data.tarifCount ?? allProps,
+        requestId: data.requestId,
+      });
       setFilter("tous");
-      if (totalProps === 0) {
+      if (tarifable === 0) {
+        const sampleHint = Array.isArray(data.tarifSamples)
+          ? data.tarifSamples
+              .map((s: any) => [s.type, s.code, s.message].filter(Boolean).join(" "))
+              .filter(Boolean)
+              .slice(0, 3)
+              .join(" · ")
+          : "";
         setError(
-          `Simulation OK mais 0 proposition tarifable (brut Sésame : ${data.tarifCount ?? 0}). Vérifiez le taux / CRD / statut puis régénérez la fiche si besoin.`,
+          allProps > 0
+            ? `Sésame a renvoyé ${allProps} offre(s) mais aucune n'est tarifable (souvent dossier non assurable / données prêt).`
+            : `Simulation OK mais 0 proposition (brut Sésame : ${data.tarifCount ?? 0}, tarifables : ${data.tarifableCount ?? 0}).`,
         );
         setHint(
-          data.requestPayloadPreview
-            ? `Contrôle payload — taux ${data.requestPayloadPreview?.prets?.[0]?.taux ?? "?"} · montant ${data.requestPayloadPreview?.prets?.[0]?.montant ?? "?"} · statut ${data.requestPayloadPreview?.assures?.[0]?.idStatut ?? "?"}`
-            : "Souvent causé par un taux corrompu (ex. nom client dans le champ taux).",
+          sampleHint ||
+            (data.requestPayloadPreview
+              ? `Payload — taux ${data.requestPayloadPreview?.prets?.[0]?.taux ?? "?"} · montant ${data.requestPayloadPreview?.prets?.[0]?.montant ?? "?"} · statut ${data.requestPayloadPreview?.assures?.[0]?.idStatut ?? "?"}`
+              : "Vérifiez CRD (≥ 1000 €) et taux (ex. 3,45) dans la fiche prêt."),
         );
         setStep(4);
       } else {
@@ -868,16 +900,19 @@ export default function AdminStudyWorkflowPanel({
           <div className={`grid gap-3 ${filteredCols.length > 1 ? "md:grid-cols-2" : ""}`}>
             {filteredCols.map((col) => {
               const visible = col.propositions.filter(isTarifable);
+              const rejected = col.propositions.filter((p) => !isTarifable(p));
               return (
                 <div key={col.referenceAssure} className="space-y-2">
                   <p className="text-xs font-bold text-slate-700">{col.label}</p>
                   <div className="max-h-72 overflow-auto space-y-1.5">
                     {visible.length === 0 ? (
                       <p className="text-xs text-slate-500">
-                        Aucune proposition pour ce filtre
-                        {col.propositions.length
-                          ? ` (${col.propositions.length} hors filtre — passez sur « Tous »).`
-                          : "."}
+                        Aucune offre tarifable
+                        {rejected.length
+                          ? ` — ${rejected.length} refusée(s) ci-dessous.`
+                          : col.propositions.length
+                            ? ` (${col.propositions.length} hors filtre — passez sur « Tous »).`
+                            : "."}
                       </p>
                     ) : (
                       visible.map((p) => {
@@ -929,6 +964,27 @@ export default function AdminStudyWorkflowPanel({
                         );
                       })
                     )}
+                    {rejected.length > 0 ? (
+                      <details className="mt-2">
+                        <summary className="text-[11px] font-bold text-amber-800 cursor-pointer">
+                          {rejected.length} offre(s) non tarifable(s)
+                        </summary>
+                        <ul className="mt-1 space-y-1">
+                          {rejected.slice(0, 12).map((p) => (
+                            <li
+                              key={`rej-${p.codeProduit}`}
+                              className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-950"
+                            >
+                              <span className="font-bold">{p.marque || p.codeProduit}</span>
+                              {p.type ? ` · ${p.type}` : ""}
+                              {p.message ? (
+                                <span className="block text-amber-800 mt-0.5">{p.message}</span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
                   </div>
                 </div>
               );
