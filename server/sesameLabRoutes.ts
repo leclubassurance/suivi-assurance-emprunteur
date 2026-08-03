@@ -76,14 +76,16 @@ function asList(data: unknown): any[] {
   return data ? [data] : [];
 }
 
-/** Libellés Kérys → ids options Sésame (env overridables). */
+/** Libellés Kérys → ids options Sésame (annexe offre 10157, overridables). */
 function resolveOptionIds(optionKeys: unknown): number[] {
   const keys = Array.isArray(optionKeys) ? optionKeys.map((k) => String(k)) : [];
   const map: Record<string, number> = {
+    // Annexe §3.7 Option : 55 = M.N.O. (dorsales / psy)
     dorsales_psy: Math.round(
       parseFrNumber(process.env.SESAME_ID_OPTION_DORSALES_PSY, 55),
     ),
-    forfaitaire: Math.round(parseFrNumber(process.env.SESAME_ID_OPTION_FORFAITAIRE, 0)),
+    // Annexe §3.7 : 56 = « Perte de salaire » → PDF Generali « Indemnisation non limitée à la perte de salaire »
+    forfaitaire: Math.round(parseFrNumber(process.env.SESAME_ID_OPTION_FORFAITAIRE, 56)),
   };
   // Fallback liste brute env : SESAME_DEFAULT_ID_OPTIONS=55,56
   const fromEnvDefault = String(process.env.SESAME_DEFAULT_ID_OPTIONS || "")
@@ -96,7 +98,6 @@ function resolveOptionIds(optionKeys: unknown): number[] {
     const id = map[key];
     if (id && id > 0 && !out.includes(id)) out.push(id);
   }
-  // Si forfaitaire coché mais pas d'id connu, on ne l'invente pas.
   if (!out.length && fromEnvDefault.length) return fromEnvDefault;
   return out;
 }

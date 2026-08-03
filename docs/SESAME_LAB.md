@@ -78,7 +78,7 @@ Ensuite seulement : boutons tarifer / devis / ouvrir contrat sur le dossier admi
   - Type d’échéances : **constantes** (mensualité constante), **à paliers** (`paliers[]`), **crédit-bail** (loyer + valeur résiduelle)
   - Périodicité, type de taux, différé + nature du différé, frais bancaires, préfinancement
   - Saisie FR acceptée (`3,67` → 3.67) — sinon le devis PDF affichait un taux à 0
-- **Couvertures** : formule (Décès-PTIA-ITT/IPT), franchise, **options** (cases Kérys, ids résolus en coulisses), **rémunération linéaire L 15%** (→ `idCommissionnement` via référentiel)
+- **Couvertures** : formule (Décès-PTIA-ITT/IPT = id `101` annexe), franchise, **options** annexe 10157 §3.7 : M.N.O./dorsales-psy=`55`, forfaitaire (« Perte de salaire »)=`56`, **rémunération linéaire L %** (→ `idCommissionnement` via référentiel)
 - **Propositions** : 1 colonne par assuré ; sélection indépendante ; **coût total** = somme. Réduction couple **seulement** si même société d’assurance (sinon tarifs hors couple).
 - Filtre **Tous / CRD / Capital initial** (heuristique code produit).
 - Après sélection : **Exporter le devis** (PDF) ou **Ouvrir dans Sésame** (création parcours détaillé → `lienSesame` OTP, nouvel onglet).

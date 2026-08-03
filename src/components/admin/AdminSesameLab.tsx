@@ -380,7 +380,7 @@ const OPTION_PRESETS = [
   },
   {
     key: "forfaitaire",
-    label: "Indemnisation forfaitaire",
+    label: "Indemnisation forfaitaire (non limitée à la perte de salaire)",
   },
 ];
 
