@@ -34,6 +34,13 @@ import {
   validateLabFormForTarif,
   parseFrNumber,
 } from "../../../shared/sesameLabForm";
+import {
+  type SesameAssureColumn,
+  SesamePropositionsBoard,
+  defaultSelections,
+  extractPropositionsByAssure,
+  isTarifable,
+} from "./SesamePropositionsPanel";
 
 type Feasibility = {
   score?: number;
@@ -43,27 +50,6 @@ type Feasibility = {
   modeLabel?: string;
   blockers?: string[];
   checks?: Array<{ ok: boolean; label: string; detail?: string; earned: number; points: number }>;
-};
-
-type Proposition = {
-  codeProduit: string;
-  marque?: string;
-  baseTarif?: "crd" | "capital_initial" | "autre";
-  type?: string;
-  message?: string;
-  tarifTotalAssurance?: number;
-  tarifTotalCotisations?: number;
-  tarifCotisationsXPremieresAnnees?: number;
-  cotisationMensuelleMoyenne?: number;
-  taea?: number;
-  tauxMoyen?: number;
-  reductionCouple?: boolean;
-};
-
-type AssureCol = {
-  referenceAssure: string;
-  label: string;
-  propositions: Proposition[];
 };
 
 const STEPS = [
@@ -92,128 +78,6 @@ function Field({
       {hint ? <span className="text-[10px] text-slate-500 mt-0.5 block">{hint}</span> : null}
     </label>
   );
-}
-
-function marqueFromCode(code: string): string {
-  const c = code.toUpperCase();
-  if (c.startsWith("GEN_") || c.startsWith("GENERALI")) return "Generali";
-  if (c.startsWith("CAR_") || c.startsWith("CARDIF") || c.startsWith("CLE")) return "Cardif";
-  if (c.startsWith("CNP_") || c.startsWith("CNPA_")) return "CNP";
-  if (c.startsWith("AXA")) return "AXA";
-  if (c.startsWith("MCP_")) return "MCP";
-  if (c.startsWith("MLF_") || c.startsWith("METLIFE")) return "MetLife";
-  if (c.startsWith("SL_") || c.startsWith("SWISSLIFE") || c.startsWith("MUL_")) return "SwissLife";
-  if (c.startsWith("ALL_") || c.startsWith("ALLIANZ")) return "Allianz";
-  return code.split(/[_-]/)[0] || code;
-}
-
-function baseTarifFromCode(code: string): Proposition["baseTarif"] {
-  const c = code.toUpperCase();
-  if (/CRD|CLEUICD|UICD|_CD($|[^A-Z])/.test(c)) return "crd";
-  if (/CLEUICI|INEOCI(?!RD)|UICI|_CI($|[^A-Z])/.test(c)) return "capital_initial";
-  if (/\bCI\b|_CI_|CI$/.test(c) && !/CRD/.test(c)) return "capital_initial";
-  return "autre";
-}
-
-function pickCodeProduit(t: any): string {
-  return String(
-    t?.codeProduit || t?.produit?.codeProduit || t?.code || t?.produit?.code || "",
-  ).trim();
-}
-
-function mapProp(t: any): Proposition | null {
-  const codeProduit = pickCodeProduit(t);
-  if (!codeProduit) return null;
-  const pret0 = Array.isArray(t?.prets) ? t.prets[0] : undefined;
-  return {
-    ...t,
-    codeProduit,
-    marque: marqueFromCode(codeProduit),
-    baseTarif: baseTarifFromCode(codeProduit),
-    type: t?.type || t?.statut || t?.etat || undefined,
-    message: String(t?.message || t?.motif || t?.libelleErreur || t?.erreur || "").trim() || undefined,
-    tarifTotalAssurance: t?.tarifTotalAssurance,
-    tarifTotalCotisations: t?.tarifTotalCotisations,
-    tarifCotisationsXPremieresAnnees: t?.tarifCotisationsXPremieresAnnees,
-    cotisationMensuelleMoyenne: t?.cotisationMensuelleMoyenne,
-    taea: pret0?.taea ?? t?.taea,
-    tauxMoyen: pret0?.tauxMoyen ?? t?.tauxMoyen,
-    reductionCouple: Boolean(t?.reductionCouple),
-  };
-}
-
-function normalizeTarifPayload(data: unknown): any[] {
-  if (Array.isArray(data)) return data;
-  if (data && typeof data === "object") {
-    const o = data as any;
-    if (Array.isArray(o.assures)) return o.assures;
-    if (Array.isArray(o.liste)) return o.liste;
-    if (Array.isArray(o.tarifs)) return [{ referenceAssure: "ASSURE001", tarifs: o.tarifs }];
-    if (Array.isArray(o.data)) return normalizeTarifPayload(o.data);
-  }
-  return [];
-}
-
-function extractByAssure(data: unknown, assures: AssureForm[]): AssureCol[] {
-  const list = normalizeTarifPayload(data);
-  if (!list.length) return [];
-  const looksLikeBlocks = list.some(
-    (b: any) => b && (Array.isArray(b.tarifs) || b.referenceAssure),
-  );
-  if (looksLikeBlocks) {
-    return list.map((block: any, i: number) => {
-      const ref = String(block?.referenceAssure || `ASSURE${String(i + 1).padStart(3, "0")}`);
-      const a = assures[i];
-      const who = [a?.prenom, a?.nom].filter(Boolean).join(" ").trim();
-      const propositions = (Array.isArray(block?.tarifs) ? block.tarifs : [])
-        .map(mapProp)
-        .filter((p: Proposition | null): p is Proposition => Boolean(p))
-        .sort(
-          (x, y) => (x.tarifTotalAssurance ?? Infinity) - (y.tarifTotalAssurance ?? Infinity),
-        );
-      return {
-        referenceAssure: ref,
-        label: who ? `Assuré ${i + 1} — ${who}` : `Assuré ${i + 1}`,
-        propositions,
-      };
-    });
-  }
-  const propositions = list
-    .map(mapProp)
-    .filter((p: Proposition | null): p is Proposition => Boolean(p))
-    .sort((a, b) => (a.tarifTotalAssurance ?? Infinity) - (b.tarifTotalAssurance ?? Infinity));
-  const a = assures[0];
-  const who = [a?.prenom, a?.nom].filter(Boolean).join(" ").trim();
-  return [
-    {
-      referenceAssure: "ASSURE001",
-      label: who ? `Assuré 1 — ${who}` : "Assuré 1",
-      propositions,
-    },
-  ];
-}
-
-function isTarifable(p: Proposition) {
-  return !p.type || p.type === "TARIFABLE";
-}
-
-function defaultSelections(cols: AssureCol[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const col of cols) {
-    const best = col.propositions.find(isTarifable);
-    if (best) out[col.referenceAssure] = best.codeProduit;
-  }
-  return out;
-}
-
-function fmtEur(n?: number | null) {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return `${n.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €`;
-}
-
-function fmtPct(n?: number | null) {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return `${Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 3 })} %`;
 }
 
 function FeasibilityBadge({ f, busy }: { f: Feasibility | null; busy?: boolean }) {
@@ -275,7 +139,7 @@ export default function AdminStudyWorkflowPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
-  const [cols, setCols] = useState<AssureCol[]>([]);
+  const [cols, setCols] = useState<SesameAssureColumn[]>([]);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<"tous" | "crd" | "capital_initial">("tous");
   const [forceGenerate, setForceGenerate] = useState(false);
@@ -426,7 +290,7 @@ export default function AdminStudyWorkflowPanel({
         setStep(3);
         return;
       }
-      const extracted = extractByAssure(data.data, assures);
+      const extracted = extractPropositionsByAssure(data.data, assures);
       const tarifable = extracted.reduce((n, c) => n + c.propositions.filter(isTarifable).length, 0);
       setCols(extracted);
       setSelected(defaultSelections(extracted));
@@ -503,14 +367,6 @@ export default function AdminStudyWorkflowPanel({
       setBusy(null);
     }
   };
-
-  const filteredCols = useMemo(() => {
-    return cols.map((c) => ({
-      ...c,
-      propositions:
-        filter === "tous" ? c.propositions : c.propositions.filter((p) => p.baseTarif === filter),
-    }));
-  }, [cols, filter]);
 
   const allSelected = cols.length > 0 && cols.every((c) => selected[c.referenceAssure]);
   const pret0 = prets[0] || EMPTY_PRET();
@@ -983,165 +839,40 @@ export default function AdminStudyWorkflowPanel({
       )}
 
       {cols.length > 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-sm font-bold text-slate-900">4. Choisir l&apos;assurance</p>
-              <p className="text-[11px] text-slate-500">
-                {simMeta?.tarifableCount != null
-                  ? `${simMeta.tarifableCount} tarifable(s) / ${simMeta.tarifCount ?? "?"} · comme Lab Sésame`
-                  : simMeta?.tarifCount != null
-                    ? `${simMeta.tarifCount} tarif(s) Sésame`
-                    : ""}
-                {simMeta?.durationMs != null ? ` · ${Math.round(simMeta.durationMs / 100) / 10}s` : ""}
-              </p>
-            </div>
-            <div className="flex gap-1">
-              {(
-                [
-                  ["tous", "Tous"],
-                  ["crd", "CRD"],
-                  ["capital_initial", "CI"],
-                ] as const
-              ).map(([k, label]) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setFilter(k)}
-                  className={`text-[11px] font-bold px-2 py-1 rounded-lg border ${
-                    filter === k
-                      ? "bg-indigo-700 text-white border-indigo-800"
-                      : "bg-white text-slate-700 border-slate-200"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          {filteredCols.map((col) => {
-            const filtered = col.propositions;
-            const visible = filtered.filter(isTarifable);
-            const rejected = filtered.filter((p) => !isTarifable(p));
-            return (
-              <div key={col.referenceAssure} className="space-y-2">
-                <p className="text-xs font-bold text-slate-700">{col.label}</p>
-                <ul className="max-h-[28rem] overflow-auto space-y-2 pr-0.5">
-                  {visible.length === 0 ? (
-                    <li className="text-xs text-slate-500">Aucune offre tarifable pour ce filtre.</li>
-                  ) : (
-                    visible.map((p) => {
-                      const active = selected[col.referenceAssure] === p.codeProduit;
-                      const baseLabel =
-                        p.baseTarif === "crd"
-                          ? "CRD"
-                          : p.baseTarif === "capital_initial"
-                            ? "Capital initial"
-                            : null;
-                      return (
-                        <li key={p.codeProduit}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelected((prev) => ({
-                                ...prev,
-                                [col.referenceAssure]: p.codeProduit,
-                              }))
-                            }
-                            className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
-                              active
-                                ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200"
-                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                            }`}
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-sm font-bold text-slate-900">
-                                    {p.marque || marqueFromCode(p.codeProduit)}
-                                  </span>
-                                  {baseLabel ? (
-                                    <span
-                                      className={`rounded-full text-[10px] font-bold px-1.5 py-0.5 border ${
-                                        p.baseTarif === "crd"
-                                          ? "bg-teal-50 text-teal-800 border-teal-200"
-                                          : "bg-violet-50 text-violet-800 border-violet-200"
-                                      }`}
-                                    >
-                                      {baseLabel}
-                                    </span>
-                                  ) : null}
-                                  {active ? (
-                                    <span className="rounded-full bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5">
-                                      OK
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <p className="text-[10px] font-mono text-slate-400 mt-0.5 truncate">
-                                  {p.codeProduit}
-                                </p>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-base font-bold text-slate-900">
-                                  {fmtEur(p.tarifTotalAssurance)}
-                                </p>
-                                <p className="text-[10px] text-slate-500">assurance</p>
-                              </div>
-                            </div>
-                            <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px]">
-                              <div className="rounded bg-slate-50 px-1.5 py-1">
-                                <p className="text-slate-500">8 ans</p>
-                                <p className="font-semibold text-slate-800">
-                                  {fmtEur(p.tarifCotisationsXPremieresAnnees)}
-                                </p>
-                              </div>
-                              <div className="rounded bg-slate-50 px-1.5 py-1">
-                                <p className="text-slate-500">TAEA</p>
-                                <p className="font-semibold text-slate-800">{fmtPct(p.taea)}</p>
-                              </div>
-                              <div className="rounded bg-slate-50 px-1.5 py-1">
-                                <p className="text-slate-500">Taux moy.</p>
-                                <p className="font-semibold text-slate-800">{fmtPct(p.tauxMoyen)}</p>
-                              </div>
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })
-                  )}
-                </ul>
-                {rejected.length > 0 ? (
-                  <details className="mt-1">
-                    <summary className="text-[11px] font-bold text-amber-800 cursor-pointer">
-                      {rejected.length} non tarifable(s)
-                    </summary>
-                    <ul className="mt-1 space-y-1">
-                      {rejected.slice(0, 12).map((p) => (
-                        <li
-                          key={`rej-${p.codeProduit}`}
-                          className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-950"
-                        >
-                          <span className="font-bold">{p.marque || p.codeProduit}</span>
-                          {p.type ? ` · ${p.type}` : ""}
-                          {p.message ? (
-                            <span className="block text-amber-800 mt-0.5">{p.message}</span>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                ) : null}
-              </div>
-            );
-          })}
-          {allSelected ? (
-            <p className="text-xs text-emerald-800 font-medium border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-2">
-              Sélection prête — cliquez « 5. Générer l&apos;étude »
-              {(feasibility?.score ?? 10) < 8
-                ? " (cochez « Forcer si score &lt; 8 » si le score reste bas)."
-                : "."}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">4. Propositions</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Même présentation que le Lab Sésame — filtre CRD / capital initial, choisis une offre, puis génère
+              l&apos;étude.
+              {simMeta?.tarifableCount != null
+                ? ` ${simMeta.tarifableCount} tarifable(s) / ${simMeta.tarifCount ?? "?"}.`
+                : ""}
+              {simMeta?.durationMs != null ? ` (${Math.round(simMeta.durationMs / 100) / 10}s)` : ""}
             </p>
-          ) : null}
+          </div>
+          <SesamePropositionsBoard
+            byAssure={cols}
+            selectedByAssure={selected}
+            onSelect={(ref, code) =>
+              setSelected((prev) => ({
+                ...prev,
+                [ref]: code,
+              }))
+            }
+            propFilter={filter}
+            onPropFilterChange={setFilter}
+            footerHint={
+              allSelected ? (
+                <p className="text-xs text-emerald-900 mt-2">
+                  Sélection prête — cliquez « 5. Générer l&apos;étude »
+                  {(feasibility?.score ?? 10) < 8
+                    ? " (cochez « Forcer si score &lt; 8 » si le score reste bas)."
+                    : "."}
+                </p>
+              ) : null
+            }
+          />
         </div>
       ) : null}
 

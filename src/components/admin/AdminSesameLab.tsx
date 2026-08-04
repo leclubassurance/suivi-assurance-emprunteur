@@ -20,6 +20,16 @@ import {
   STATUT_PRO_OPTIONS,
 } from "../../constants";
 import { Button } from "../ui/Button";
+import {
+  SesamePropositionsBoard,
+  defaultSelections,
+  euro,
+  extractPropositionsByAssure,
+  findProp,
+  isTarifable,
+  type SesameAssureColumn,
+  type SesameProposition,
+} from "./SesamePropositionsPanel";
 
 type LabStatus = {
   ok: boolean;
@@ -53,176 +63,8 @@ type TarifProduit = {
   prets?: Array<{ taea?: number; tauxMoyen?: number }>;
 };
 
-type Proposition = TarifProduit & {
-  marque: string;
-  taea?: number;
-  tauxMoyen?: number;
-  baseTarif: "crd" | "capital_initial" | "inconnu";
-};
-
-type AssurePropositions = {
-  referenceAssure: string;
-  label: string;
-  propositions: Proposition[];
-};
-
-/** Déduit CRD vs capital initial depuis le code produit (ex. CLEUICD / CLEUICI, …CRD… / …CI…). */
-function baseTarifFromCodeProduit(code: string): "crd" | "capital_initial" | "inconnu" {
-  const c = code.toUpperCase();
-  if (/CRD|CLEUICD|UICD|_CD($|[^A-Z])/.test(c)) return "crd";
-  if (/CLEUICI|INEOCI(?!RD)|UICI|_CI($|[^A-Z])/.test(c)) return "capital_initial";
-  // Heuristique : …CI… en fin de segment produit sans CRD
-  if (/\bCI\b|_CI_|CI$/.test(c) && !/CRD/.test(c)) return "capital_initial";
-  return "inconnu";
-}
-
-function euro(n?: number) {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 2,
-  }).format(n);
-}
-
-function pct(n?: number) {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return `${n.toFixed(3).replace(".", ",")} %`;
-}
-
-/** Préfixes codes Sésame → marques affichées comme dans Kérys. */
-function marqueFromCodeProduit(code: string): string {
-  const c = code.toUpperCase();
-  if (c.startsWith("AXA_") || c.startsWith("AXA")) return "AXA";
-  if (c.startsWith("CDI_") || c.includes("CARDIF") || c.includes("CLEU")) return "CARDIF";
-  if (c.startsWith("GLI_") || c.startsWith("GENERALI")) return "GENERALI VIE";
-  if (c.startsWith("HAMU_") || c.startsWith("HAM_")) return "Harmonie Mutuelle";
-  if (c.startsWith("MCP_")) return "MCP";
-  if (c.startsWith("MLF_") || c.startsWith("METLIFE")) return "MetLife";
-  if (c.startsWith("MUL_")) return "SwissLife / Multirisque";
-  if (c.startsWith("QTM_") || c.startsWith("QUATREM")) return "Quatrem / CNP";
-  if (c.startsWith("SL_") || c.startsWith("SWISSLIFE")) return "SwissLife";
-  if (c.startsWith("ALL_") || c.startsWith("ALLIANZ")) return "Allianz";
-  const head = code.split(/[_-]/)[0];
-  return head || code;
-}
-
-function mapTarifToProposition(t: any): Proposition | null {
-  if (!t?.codeProduit) return null;
-  const pret0 = Array.isArray(t.prets) ? t.prets[0] : undefined;
-  return {
-    ...t,
-    codeProduit: String(t.codeProduit),
-    marque: marqueFromCodeProduit(String(t.codeProduit)),
-    baseTarif: baseTarifFromCodeProduit(String(t.codeProduit)),
-    taea: pret0?.taea,
-    tauxMoyen: pret0?.tauxMoyen,
-  };
-}
-
-/** Réponse Sésame = 1 bloc par assuré (`referenceAssure` + `tarifs[]`). */
-function extractPropositionsByAssure(
-  data: unknown,
-  assureForms: Array<{ civilite?: string; prenom?: string; nom?: string }>,
-): AssurePropositions[] {
-  if (!Array.isArray(data)) return [];
-
-  // Si Sésame renvoie déjà des blocs { referenceAssure, tarifs }
-  const looksLikeAssureBlocks = data.some(
-    (block: any) => block && (Array.isArray(block.tarifs) || block.referenceAssure),
-  );
-
-  if (looksLikeAssureBlocks) {
-    return data.map((block: any, i: number) => {
-      const ref = String(block?.referenceAssure || `ASSURE${String(i + 1).padStart(3, "0")}`);
-      const form = assureForms[i];
-      const name = [form?.prenom, form?.nom].filter(Boolean).join(" ").trim();
-      const civilite = form?.civilite || "";
-      const who = [civilite, name].filter(Boolean).join(" ").trim();
-      const tarifs = Array.isArray(block?.tarifs) ? block.tarifs : [];
-      const propositions = tarifs
-        .map(mapTarifToProposition)
-        .filter((p: Proposition | null): p is Proposition => Boolean(p))
-        .sort(
-          (a: Proposition, b: Proposition) =>
-            (a.tarifTotalAssurance ?? Infinity) - (b.tarifTotalAssurance ?? Infinity),
-        );
-      return {
-        referenceAssure: ref,
-        label: who ? `Assuré ${i + 1} — ${who}` : `Assuré ${i + 1}`,
-        propositions,
-      };
-    });
-  }
-
-  // Fallback improbable : liste plate de tarifs → une seule colonne
-  const propositions = data
-    .map(mapTarifToProposition)
-    .filter((p: Proposition | null): p is Proposition => Boolean(p))
-    .sort(
-      (a: Proposition, b: Proposition) =>
-        (a.tarifTotalAssurance ?? Infinity) - (b.tarifTotalAssurance ?? Infinity),
-    );
-  const form = assureForms[0];
-  const name = [form?.prenom, form?.nom].filter(Boolean).join(" ").trim();
-  return [
-    {
-      referenceAssure: "ASSURE001",
-      label: name ? `Assuré 1 — ${name}` : "Assuré 1",
-      propositions,
-    },
-  ];
-}
-
-function isTarifable(p: Proposition) {
-  return !p.type || p.type === "TARIFABLE";
-}
-
-function filterProps(list: Proposition[], propFilter: "tous" | "crd" | "capital_initial") {
-  if (propFilter === "tous") return list;
-  return list.filter((p) => p.baseTarif === propFilter);
-}
-
-/** Même produit pour tous les assurés si possible (réduction couple), sinon moins cher par colonne. */
-function defaultSelections(byAssure: AssurePropositions[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!byAssure.length) return out;
-  if (byAssure.length === 1) {
-    const best = byAssure[0].propositions.find(isTarifable);
-    if (best) out[byAssure[0].referenceAssure] = best.codeProduit;
-    return out;
-  }
-  let bestCode: string | null = null;
-  let bestTotal = Infinity;
-  for (const p0 of byAssure[0].propositions.filter(isTarifable)) {
-    const matches = byAssure.slice(1).map((a) =>
-      a.propositions.find((p) => p.codeProduit === p0.codeProduit && isTarifable(p)),
-    );
-    if (matches.some((m) => !m)) continue;
-    const total =
-      (p0.tarifTotalAssurance ?? 0) +
-      matches.reduce((s, m) => s + (m!.tarifTotalAssurance ?? 0), 0);
-    if (total < bestTotal) {
-      bestTotal = total;
-      bestCode = p0.codeProduit;
-    }
-  }
-  if (bestCode) {
-    for (const a of byAssure) out[a.referenceAssure] = bestCode;
-    return out;
-  }
-  for (const a of byAssure) {
-    const best = a.propositions.find(isTarifable);
-    if (best) out[a.referenceAssure] = best.codeProduit;
-  }
-  return out;
-}
-
-function findProp(byAssure: AssurePropositions[], ref: string, code: string | undefined): Proposition | null {
-  if (!code) return null;
-  const col = byAssure.find((a) => a.referenceAssure === ref);
-  return col?.propositions.find((p) => p.codeProduit === code) || null;
-}
+type Proposition = SesameProposition;
+type AssurePropositions = SesameAssureColumn;
 
 type CallResult = {
   ok?: boolean;
@@ -1022,87 +864,6 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
     setParcoursLink(null);
   }
 
-  function PropositionCard({
-    p,
-    selected,
-    showCoupleBadge,
-    onSelect,
-  }: {
-    p: Proposition;
-    selected: boolean;
-    showCoupleBadge: boolean;
-    onSelect: () => void;
-  }) {
-    const nonAssurable = !isTarifable(p);
-    const baseLabel =
-      p.baseTarif === "crd" ? "CRD" : p.baseTarif === "capital_initial" ? "Capital initial" : null;
-    return (
-      <button
-        type="button"
-        disabled={Boolean(nonAssurable)}
-        onClick={onSelect}
-        className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
-          selected
-            ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200"
-            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-        } ${nonAssurable ? "opacity-60 cursor-not-allowed" : ""}`}
-      >
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-sm font-bold text-slate-900">{p.marque}</span>
-              {baseLabel ? (
-                <span
-                  className={`rounded-full text-[10px] font-bold px-1.5 py-0.5 border ${
-                    p.baseTarif === "crd"
-                      ? "bg-teal-50 text-teal-800 border-teal-200"
-                      : "bg-violet-50 text-violet-800 border-violet-200"
-                  }`}
-                >
-                  {baseLabel}
-                </span>
-              ) : null}
-              {selected ? (
-                <span className="rounded-full bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5">
-                  OK
-                </span>
-              ) : null}
-              {showCoupleBadge && p.reductionCouple ? (
-                <span className="rounded-full bg-blue-50 text-blue-700 text-[10px] font-semibold px-1.5 py-0.5 border border-blue-100">
-                  Couple
-                </span>
-              ) : null}
-              {nonAssurable ? (
-                <span className="rounded-full bg-amber-50 text-amber-800 text-[10px] font-semibold px-1.5 py-0.5 border border-amber-100">
-                  {p.type}
-                </span>
-              ) : null}
-            </div>
-            <p className="text-[10px] font-mono text-slate-400 mt-0.5 truncate">{p.codeProduit}</p>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="text-base font-bold text-slate-900">{euro(p.tarifTotalAssurance)}</p>
-            <p className="text-[10px] text-slate-500">assurance</p>
-          </div>
-        </div>
-        <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px]">
-          <div className="rounded bg-slate-50 px-1.5 py-1">
-            <p className="text-slate-500">8 ans</p>
-            <p className="font-semibold text-slate-800">{euro(p.tarifCotisationsXPremieresAnnees)}</p>
-          </div>
-          <div className="rounded bg-slate-50 px-1.5 py-1">
-            <p className="text-slate-500">TAEA</p>
-            <p className="font-semibold text-slate-800">{pct(p.taea)}</p>
-          </div>
-          <div className="rounded bg-slate-50 px-1.5 py-1">
-            <p className="text-slate-500">Taux moy.</p>
-            <p className="font-semibold text-slate-800">{pct(p.tauxMoyen)}</p>
-          </div>
-        </div>
-      </button>
-    );
-  }
-
   return (
     <div className="min-h-[100dvh] bg-slate-50">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -1817,28 +1578,6 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
             <Button type="button" size="sm" variant="ghost" onClick={resetLab}>
               Réinitialiser
             </Button>
-            <div className="flex flex-wrap gap-1.5 ml-auto">
-              {(
-                [
-                  { id: "tous", label: "Tous" },
-                  { id: "crd", label: "CRD" },
-                  { id: "capital_initial", label: "Capital initial" },
-                ] as const
-              ).map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setPropFilter(f.id)}
-                  className={`rounded-full px-3 py-1 text-[11px] font-semibold border ${
-                    propFilter === f.id
-                      ? "bg-slate-900 text-white border-slate-900"
-                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           {lastResult && !lastResult.ok && lastResult.error ? (
@@ -1846,140 +1585,46 @@ export default function AdminSesameLab({ onBack }: { onBack: () => void }) {
           ) : null}
 
           {activeByAssure.length > 0 ? (
-            <div className="space-y-3">
-              {hasCoupleColumns ? (
-                <div
-                  className={`rounded-lg border px-3 py-2 text-sm ${
-                    coupleApplies
-                      ? "border-blue-200 bg-blue-50 text-blue-900"
-                      : "border-amber-200 bg-amber-50 text-amber-950"
-                  }`}
-                >
-                  {coupleApplies ? (
-                    <p>
-                      <strong>Réduction couple active</strong> — même société ({selectedMarques[0]}). Tarifs issus de
-                      l’appel Sésame avec réduction couple.
-                      {economieCouple != null ? (
-                        <span className="ml-1">Économie couple estimée : {euro(economieCouple)}.</span>
-                      ) : null}
-                    </p>
-                  ) : (
-                    <p>
-                      <strong>Réduction couple inactive</strong> — sociétés différentes
-                      {selectedMarques.length
-                        ? ` (${selectedMarques.join(" ≠ ")})`
-                        : ""}. Tarifs hors réduction couple.
-                    </p>
-                  )}
-                </div>
-              ) : null}
-
-              <div
-                className={`grid gap-4 items-start ${
-                  activeByAssure.length >= 2 ? "md:grid-cols-2" : "grid-cols-1"
-                }`}
-              >
-                {activeByAssure.map((col, colIndex) => {
-                  const filtered = filterProps(col.propositions, propFilter);
-                  const selectedCode = selectedByAssure[col.referenceAssure];
-                  const accent =
-                    colIndex === 0
-                      ? {
-                          wrap: "border-sky-300 bg-sky-50/70",
-                          title: "text-sky-950",
-                          chip: "bg-sky-700 text-white",
-                        }
-                      : {
-                          wrap: "border-rose-300 bg-rose-50/70",
-                          title: "text-rose-950",
-                          chip: "bg-rose-700 text-white",
-                        };
-                  return (
-                    <div
-                      key={col.referenceAssure}
-                      className={`rounded-xl border-2 p-3 space-y-2 min-w-0 ${accent.wrap}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <span
-                            className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${accent.chip}`}
-                          >
-                            Colonne {colIndex + 1}
-                          </span>
-                          <h3 className={`text-base font-bold mt-1 ${accent.title}`}>{col.label}</h3>
-                          <p className="text-[11px] text-slate-600">
-                            Choisis l’assurance pour cette personne uniquement
-                          </p>
-                        </div>
-                        <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                          {col.referenceAssure}
-                        </span>
-                      </div>
-                      {selectedCode ? (
-                        <p className={`text-xs font-medium ${accent.title}`}>
-                          Sélection :{" "}
-                          <strong>
-                            {findProp(activeByAssure, col.referenceAssure, selectedCode)?.marque || "—"}
-                          </strong>{" "}
-                          <span className="font-mono opacity-70">{selectedCode}</span>
-                          {" · "}
-                          {euro(findProp(activeByAssure, col.referenceAssure, selectedCode)?.tarifTotalAssurance)}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-amber-800 font-medium">Sélectionne une proposition ci-dessous</p>
-                      )}
-                      <ul className="space-y-2 max-h-[32rem] overflow-auto pr-1">
-                        {filtered.map((p) => (
-                          <li key={`${col.referenceAssure}-${p.codeProduit}`}>
-                            <PropositionCard
-                              p={p}
-                              selected={p.codeProduit === selectedCode}
-                              showCoupleBadge={coupleApplies}
-                              onSelect={() =>
-                                setSelectedByAssure((prev) => ({
-                                  ...prev,
-                                  [col.referenceAssure]: p.codeProduit,
-                                }))
-                              }
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                      {filtered.length === 0 ? (
-                        <p className="text-sm text-slate-500">Aucune proposition pour ce filtre.</p>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {allSelected ? (
-                <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3">
-                  <div className="flex flex-wrap items-end justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
-                        Coût total sélection
+            <SesamePropositionsBoard
+              byAssure={activeByAssure}
+              selectedByAssure={selectedByAssure}
+              onSelect={(ref, code) =>
+                setSelectedByAssure((prev) => ({
+                  ...prev,
+                  [ref]: code,
+                }))
+              }
+              propFilter={propFilter}
+              onPropFilterChange={setPropFilter}
+              coupleApplies={coupleApplies}
+              coupleBanner={
+                hasCoupleColumns ? (
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-sm ${
+                      coupleApplies
+                        ? "border-blue-200 bg-blue-50 text-blue-900"
+                        : "border-amber-200 bg-amber-50 text-amber-950"
+                    }`}
+                  >
+                    {coupleApplies ? (
+                      <p>
+                        <strong>Réduction couple active</strong> — même société ({selectedMarques[0]}).
+                        Tarifs issus de l’appel Sésame avec réduction couple.
+                        {economieCouple != null ? (
+                          <span className="ml-1">Économie couple estimée : {euro(economieCouple)}.</span>
+                        ) : null}
                       </p>
-                      <p className="text-2xl font-bold text-emerald-950">{euro(totalAssurance)}</p>
-                      <p className="text-xs text-emerald-800/80 mt-0.5">
-                        Cotisations {euro(totalCotisations)}
-                        {" · "}8 premières années {euro(total8Ans)}
-                        {coupleApplies ? " · réduction couple incluse" : hasCoupleColumns ? " · hors couple" : ""}
+                    ) : (
+                      <p>
+                        <strong>Réduction couple inactive</strong> — sociétés différentes
+                        {selectedMarques.length ? ` (${selectedMarques.join(" ≠ ")})` : ""}. Tarifs hors
+                        réduction couple.
                       </p>
-                    </div>
-                    <div className="text-xs text-emerald-900 space-y-0.5">
-                      {selectedProps.map((p, i) =>
-                        p ? (
-                          <p key={activeByAssure[i]?.referenceAssure || i}>
-                            Assuré {i + 1} : <strong>{p.marque}</strong> {euro(p.tarifTotalAssurance)}
-                          </p>
-                        ) : null,
-                      )}
-                    </div>
+                    )}
                   </div>
-                </div>
-              ) : null}
-            </div>
+                ) : null
+              }
+            />
           ) : (
             <p className="text-sm text-slate-500">Aucune proposition pour l’instant — clique sur Simuler.</p>
           )}
