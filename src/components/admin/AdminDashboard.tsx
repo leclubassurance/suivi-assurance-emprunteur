@@ -2785,6 +2785,10 @@ export default function AdminDashboard({
                         initialFeasibility={(selectedDossier as any)?.adeStudyFeasibility || null}
                         initialDossier={selectedDossier}
                         adminFetch={adminFetch}
+                        onOpenLegacyAde={() => {
+                          setAdeAssistMode("study");
+                          setAdeAssistOpen(true);
+                        }}
                         onDossierUpdated={() => {
                           loadDossiers();
                           reloadMetrics();
@@ -2815,28 +2819,51 @@ export default function AdminDashboard({
                       />
                     ) : null}
 
-                    {adeAssistOpen && selectedDossier ? (
-                      <AdminAdeStudyAssistPanel
-                        dossierId={selectedDossier.id}
-                        open={adeAssistOpen}
-                        initialMode={adeAssistMode}
-                        onClose={() => setAdeAssistOpen(false)}
-                        adminFetch={adminFetch}
-                        onReady={(m) => {
-                          showToast(
-                            m === "kereis"
-                              ? "Fiche Kereis prête — vous pouvez copier"
-                              : "Ancrages ADE prêts — vous pouvez générer l'étude",
-                            "success",
-                          );
-                          loadDossiers();
-                        }}
-                        onDossierUpdated={() => loadDossiers()}
-                        onKereisDraft={(draft) => {
-                          if (draft) setKereisDraft(draft);
-                        }}
-                      />
-                    ) : null}
+                    <details className="rounded-xl border border-slate-200 bg-slate-50/80 text-sm">
+                      <summary className="cursor-pointer px-3 py-2.5 font-bold text-slate-700 select-none">
+                        Autre méthode — upload devis / ancien assistant
+                      </summary>
+                      <div className="px-3 pb-3 space-y-3 border-t border-slate-200 pt-3">
+                        <p className="text-xs text-slate-600">
+                          Utilisez le parcours Sésame ci-dessus en priorité. Cette section reste pour un devis
+                          PDF déjà obtenu hors parcours.
+                        </p>
+                        {adeAssistOpen && selectedDossier ? (
+                          <AdminAdeStudyAssistPanel
+                            dossierId={selectedDossier.id}
+                            open={adeAssistOpen}
+                            initialMode={adeAssistMode}
+                            onClose={() => setAdeAssistOpen(false)}
+                            adminFetch={adminFetch}
+                            onReady={(m) => {
+                              showToast(
+                                m === "kereis"
+                                  ? "Fiche Kereis prête — vous pouvez copier"
+                                  : "Ancrages ADE prêts — vous pouvez générer l'étude",
+                                "success",
+                              );
+                              loadDossiers();
+                            }}
+                            onDossierUpdated={() => loadDossiers()}
+                            onKereisDraft={(draft) => {
+                              if (draft) setKereisDraft(draft);
+                            }}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdeAssistMode("study");
+                              setAdeAssistOpen(true);
+                            }}
+                            className="border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            Ouvrir l&apos;assistant étude (legacy)
+                          </button>
+                        )}
+                      </div>
+                    </details>
 
                     {studyGenerateFeedback ? (
                       <div
@@ -2923,17 +2950,6 @@ export default function AdminDashboard({
                           >
                             <FileText className="w-4 h-4" />
                             {generateStudyBusy ? "Génération…" : "Générer depuis devis uploadé"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAdeAssistMode("study");
-                              setAdeAssistOpen(true);
-                            }}
-                            className="border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
-                          >
-                            <Sparkles className="w-4 h-4" />
-                            Assistant étude
                           </button>
                         </div>
                       </div>
