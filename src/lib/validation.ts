@@ -51,6 +51,8 @@ export const validateCoordonnees = (assures: any[]): FormErrors => {
 
     if (!assure.email) {
       errors[`${prefix}email`] = `Assuré ${idx + 1}: L'email est requis`;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(String(assure.email).trim())) {
+      errors[`${prefix}email`] = `Assuré ${idx + 1}: L'email n'est pas valide`;
     }
 
     if (!assure.telephone) {

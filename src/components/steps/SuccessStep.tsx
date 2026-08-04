@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { CheckCircle2, FilePlus, ExternalLink } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { showToast } from '../../lib/toast';
+import { CLIENT_PORTAL_URL_KEY } from '../../constants';
 
 export default function SuccessStep({ onReset, data }: { onReset: () => void, data?: { id?: string, name?: string, email?: string, portalUrl?: string } }) {
   const generatedId = useMemo(
@@ -19,6 +20,15 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
   }, [data?.id, generatedId]);
   const initialIdRef = useRef<string>(initialId);
   const dossierId = data?.id || initialIdRef.current;
+
+  const portalUrl = useMemo(() => {
+    if (data?.portalUrl) return data.portalUrl;
+    try {
+      return localStorage.getItem(CLIENT_PORTAL_URL_KEY) || undefined;
+    } catch {
+      return undefined;
+    }
+  }, [data?.portalUrl]);
 
   try {
     if (dossierId && /^LCIF-\d{6}$/.test(dossierId)) {
@@ -75,7 +85,7 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
         <div className="mb-6 rounded-[20px] border border-blue-100 bg-blue-50/90 px-5 py-4 text-left">
           <p className="text-[14px] font-bold text-[#1E3A8A] mb-1.5">Suivi de votre dossier</p>
           <p className="text-[13px] text-slate-600 leading-relaxed font-medium">
-            {data?.portalUrl ? (
+            {portalUrl ? (
               <>
                 Votre lien personnel de suivi est prêt — conservez-le pour revenir à tout moment.
                 Aucun mot de passe n&apos;est nécessaire.
@@ -93,9 +103,9 @@ export default function SuccessStep({ onReset, data }: { onReset: () => void, da
         </div>
 
         <div className="flex flex-col gap-3">
-          {data?.portalUrl && (
+          {portalUrl && (
             <a
-              href={data.portalUrl}
+              href={portalUrl}
               className="w-full py-4 bg-[#1E3A8A] hover:bg-[#172554] text-white rounded-[20px] font-bold text-[15px] transition-all flex items-center justify-center gap-2"
             >
               Accéder à mon suivi <ExternalLink className="w-[18px] h-[18px]" />

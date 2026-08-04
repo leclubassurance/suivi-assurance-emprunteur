@@ -101,6 +101,15 @@ function resolveLegalViewFromPath(path: string): LegalView {
   return null;
 }
 
+const SUCCESS_PAYLOAD_KEY = "lcif_success_payload";
+
+function hasUploadableDocument(doc: { rawFile?: unknown; base64Content?: string } | null | undefined): boolean {
+  if (!doc) return false;
+  if ((doc as any).rawFile) return true;
+  const b64 = typeof doc.base64Content === "string" ? doc.base64Content : "";
+  return b64.includes(",") || b64.length > 64;
+}
+
 export default function App() {
   const [legalView, setLegalView] = useState<LegalView>(() =>
     typeof window !== 'undefined' ? resolveLegalViewFromPath(window.location.pathname) : null,
@@ -135,6 +144,11 @@ export default function App() {
     setShowClientLandingPreview(false);
     setShowSesameLab(false);
     setCurrentStep(Step.LANDING);
+    try {
+      sessionStorage.removeItem(SUCCESS_PAYLOAD_KEY);
+    } catch {
+      /* ignore */
+    }
     window.history.pushState({}, '', '/');
   };
 
@@ -142,6 +156,14 @@ export default function App() {
     const path = view === 'mentions' ? '/mentions-legales' : '/politique-confidentialite';
     setLegalView(view);
     window.history.pushState({}, '', path);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /** Retour depuis mentions / privacy sans réinitialiser le parcours formulaire. */
+  const closeLegal = () => {
+    setLegalView(null);
+    const stayOnSuccess = currentStep === Step.SUCCESS;
+    window.history.pushState({}, '', stayOnSuccess ? '/merci' : '/');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -229,6 +251,20 @@ export default function App() {
       if (m) {
         setPortalToken(m[1]);
         setCurrentStep(Step.CLIENT_PORTAL);
+        return;
+      }
+      if (path === "/merci" || path === "/dossier-envoye") {
+        try {
+          const raw = sessionStorage.getItem(SUCCESS_PAYLOAD_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.id) setSubmitStatus(parsed);
+          }
+        } catch {
+          /* ignore */
+        }
+        setCurrentStep(Step.SUCCESS);
+        return;
       }
     };
     syncRoute();
@@ -291,14 +327,30 @@ export default function App() {
           }
         })
         .catch(() => setReferralProfile(null));
-    } else if (draftRef) {
-      // Reprise d'un formulaire commencé via lien ?ref= (brouillon).
-      persistApporteurRef(draftRef);
-      setFormData((prev) => ({ ...prev, apporteurRefToken: draftRef }));
     } else {
-      // Site principal / visite organique : aucun porteur d'affaires.
-      clearStoredApporteurRef();
-      setReferralProfile(null);
+      // Visite organique : ne jamais réactiver un ref uniquement présent dans le brouillon localStorage.
+      // Un ref en sessionStorage (même onglet, après ?ref=) reste valide.
+      const sessionRef = readStoredApporteurRef();
+      if (sessionRef) {
+        setFormData((prev) => ({ ...prev, apporteurRefToken: sessionRef }));
+      } else {
+        clearStoredApporteurRef();
+        setReferralProfile(null);
+        setFormData((prev) => ({ ...prev, apporteurRefToken: undefined }));
+        if (draftRef) {
+          // Purge le token fantôme du brouillon pour éviter une réattribution au prochain chargement.
+          try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              delete parsed.apporteurRefToken;
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
     }
     window.addEventListener('popstate', syncRoute);
     return () => window.removeEventListener('popstate', syncRoute);
@@ -315,7 +367,6 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed) {
-          const draftToken = String(parsed.apporteurRefToken || "").trim().toLowerCase() || undefined;
           let urlRef: string | undefined;
           try {
             const ref = new URLSearchParams(window.location.search).get("ref");
@@ -323,12 +374,23 @@ export default function App() {
           } catch {
             /* ignore */
           }
-          const token = urlRef || draftToken;
+          // Attribution : URL ou session uniquement — jamais le token figé dans le brouillon.
+          const token = urlRef || readStoredApporteurRef() || undefined;
+          const hadGhostDocs = Array.isArray(parsed.documents) && parsed.documents.length > 0;
           setFormData({
             ...parsed,
+            documents: [],
             assures: sanitizeAssuresDraft(parsed.assures || []),
             ...(token ? { apporteurRefToken: token } : { apporteurRefToken: undefined }),
           });
+          if (hadGhostDocs) {
+            setTimeout(() => {
+              setToast({
+                message: "Vos documents n'ont pas pu être conservés entre deux sessions. Merci de les déposer à nouveau.",
+                type: "info",
+              });
+            }, 400);
+          }
         }
       } catch (e) {
         console.error('Failed to parse draft from local storage');
@@ -352,11 +414,15 @@ export default function App() {
       dateNaissance: ''
     }));
     
-    const strippedDocuments = formData.documents.map(doc => {
-      const { base64Content, rawFile, ...rest } = doc as any;
-      return rest;
-    });
-    const formDataToSave = { ...formData, assures: assuresSanitized, documents: strippedDocuments };
+    // Ne jamais persister les binaires (ni métadonnées docs) : au rechargement ils seraient
+    // des « fantômes » sans rawFile et feraient échouer la soumission.
+    // Attribution : sessionStorage uniquement (pas le brouillon).
+    const formDataToSave = {
+      ...formData,
+      assures: assuresSanitized,
+      documents: [],
+    };
+    delete (formDataToSave as any).apporteurRefToken;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(formDataToSave));
     } catch (e) {
@@ -422,6 +488,15 @@ export default function App() {
       return;
     }
 
+    const ghostDocs = formData.documents.filter((d) => !hasUploadableDocument(d as any));
+    if (ghostDocs.length > 0) {
+      showToast(
+        "Certains documents doivent être déposés à nouveau (contenu non disponible après reprise). Supprimez-les puis rechargez-les.",
+        "error",
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitStatus("Initialisation...");
     
@@ -481,7 +556,8 @@ export default function App() {
 
       setSubmitStatus("Envoi en cours...");
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      // PDFs lourds + réseau mobile : 3 min (au lieu de 60s)
+      const timeoutId = setTimeout(() => controller.abort(), 180_000);
       
       const res = await fetch(getApiUrl("/api/dossiers"), {
         method: "POST",
@@ -503,12 +579,13 @@ export default function App() {
       }
       
       const result = await res.json();
-      setSubmitStatus({
+      const successPayload = {
         id: result.dossierId,
         name: formData.assures[0].prenom || formData.assures[0].nom,
         email: formData.assures[0].email,
         portalUrl: result.portalUrl,
-      } as any);
+      };
+      setSubmitStatus(successPayload as any);
 
       if (result.portalUrl) {
         try {
@@ -517,15 +594,21 @@ export default function App() {
           /* ignore quota */
         }
       }
+      try {
+        sessionStorage.setItem(SUCCESS_PAYLOAD_KEY, JSON.stringify(successPayload));
+      } catch {
+        /* ignore */
+      }
       
       goToStep(Step.SUCCESS);
+      window.history.pushState({}, '', '/merci');
       localStorage.removeItem(STORAGE_KEY);
       clearStoredApporteurRef();
       showToast("Votre dossier a été soumis avec succès !", "success");
     } catch (error: any) {
       console.error("Erreur critique soumission:", error);
       if (error.name === 'AbortError') {
-        showToast("L'envoi a pris trop de temps (délai dépassé). Veuillez réessayer avec des fichiers plus petits.", "error");
+        showToast("L'envoi a pris trop de temps (délai dépassé). Vérifiez votre connexion ou réduisez la taille des fichiers, puis réessayez.", "error");
       } else {
         showToast(`Erreur : ${error.message || "Une erreur est survenue"}. Vérifiez votre connexion et réessayez.`, "error");
       }
@@ -540,7 +623,13 @@ export default function App() {
     setFormData(INITIAL_FORM_DATA);
     clearStoredApporteurRef();
     setReferralProfile(null);
+    try {
+      sessionStorage.removeItem(SUCCESS_PAYLOAD_KEY);
+    } catch {
+      /* ignore */
+    }
     goToStep(Step.LANDING);
+    window.history.pushState({}, '', '/');
   }
 
   // Admin access function passed to LandingStep
@@ -695,11 +784,11 @@ export default function App() {
   }
 
   if (legalView === 'mentions') {
-    return <MentionsLegalesPage onBack={goHome} />;
+    return <MentionsLegalesPage onBack={closeLegal} />;
   }
 
   if (legalView === 'privacy') {
-    return <PolitiqueConfidentialitePage onBack={goHome} />;
+    return <PolitiqueConfidentialitePage onBack={closeLegal} />;
   }
 
   return (

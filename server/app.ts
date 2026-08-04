@@ -169,6 +169,29 @@ export function createApp() {
     },
   });
   const upload = multer({ storage });
+  /** Upload public dossier client : taille + types bornés (parcours ads). */
+  const PUBLIC_DOC_MAX_BYTES = 50 * 1024 * 1024;
+  const publicDossierUpload = multer({
+    storage,
+    limits: { fileSize: PUBLIC_DOC_MAX_BYTES, files: 20 },
+    fileFilter: (_req, file, cb) => {
+      const okMime =
+        /^application\/pdf$/i.test(file.mimetype) ||
+        /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.mimetype) ||
+        /^application\/msword$/i.test(file.mimetype) ||
+        /^application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet)$/i.test(
+          file.mimetype,
+        ) ||
+        file.mimetype === "application/octet-stream";
+      const okExt = /\.(pdf|jpe?g|png|webp|gif|docx?|xlsx?)$/i.test(file.originalname || "");
+      if (okMime || okExt) return cb(null, true);
+      // Multer typings n’acceptent que `null` en 1er arg ; l’Error est bien géré à l’exécution.
+      return (cb as (err: Error | null, accept?: boolean) => void)(
+        new Error("Formats acceptés : PDF, JPG, PNG, WEBP, DOC, DOCX, XLSX (max 50 Mo)."),
+        false,
+      );
+    },
+  });
   const quoteUpload = multer({ storage });
   const adminDocUpload = multer({ storage });
   const apporteurIdentityUpload = multer({
@@ -296,7 +319,19 @@ export function createApp() {
     });
   });
 
-  app.post("/api/dossiers", createDossierLimiter, upload.array("documents"), async (req, res) => {
+  app.post("/api/dossiers", createDossierLimiter, (req, res, next) => {
+    publicDossierUpload.array("documents")(req, res, (err) => {
+      if (!err) return next();
+      const msg = String((err as any)?.message || err || "");
+      if ((err as any)?.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "Fichier trop volumineux (max 50 Mo par fichier)." });
+      }
+      if ((err as any)?.code === "LIMIT_FILE_COUNT") {
+        return res.status(400).json({ error: "Trop de fichiers (maximum 20)." });
+      }
+      return res.status(400).json({ error: msg || "Upload de documents refusé." });
+    });
+  }, async (req, res) => {
     await ensureBackgroundServicesStarted();
     try {
       const formData = JSON.parse((req.body as any).formData);

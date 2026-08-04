@@ -109,7 +109,28 @@ export default function DocumentsStep({
   ];
 
   const isAnyFileUploading = formData.documents.some(d => d.status === 'uploading');
-  const requiredOk = ["offre", "tableau"].every((cat) => formData.documents.some((d) => d.id.startsWith(cat)));
+  const hasUploadable = (d: AppFile) =>
+    Boolean((d as any).rawFile) ||
+    (typeof d.base64Content === "string" && (d.base64Content.includes(",") || d.base64Content.length > 64));
+  const requiredOk = ["offre", "tableau"].every((cat) =>
+    formData.documents.some((d) => d.id.startsWith(cat) && hasUploadable(d)),
+  );
+  const hasIncompleteDocs = formData.documents.some((d) => !hasUploadable(d));
+
+  const previewSrc = (doc: AppFile): string | null => {
+    const b64 = doc.base64Content;
+    if (typeof b64 === "string" && b64.startsWith("data:")) return b64;
+    if (typeof b64 === "string" && b64.length > 0) return `data:${doc.type || "image/jpeg"};base64,${b64}`;
+    const raw = (doc as any).rawFile as File | undefined;
+    if (raw && /^image\//i.test(raw.type || doc.type || "")) {
+      try {
+        return URL.createObjectURL(raw);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-8 space-y-10 pb-20">
@@ -136,6 +157,14 @@ export default function DocumentsStep({
             />
           </div>
         </div>
+
+        {hasIncompleteDocs && (
+          <div className="bg-red-50 border border-red-200 rounded-[20px] p-4 mb-6 text-left">
+            <p className="text-red-800 text-[13px] font-semibold leading-relaxed">
+              Un ou plusieurs documents doivent être déposés à nouveau (contenu indisponible après reprise du formulaire). Supprimez-les puis rechargez-les avant de valider.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-5">
           {categories.map(category => {
@@ -206,20 +235,32 @@ export default function DocumentsStep({
                         className="flex flex-col sm:flex-row justify-between items-center rounded-[20px] p-4 bg-slate-50 border border-slate-200 max-w-full overflow-hidden"
                       >
                         <div className="flex items-center gap-3 overflow-hidden min-w-0 md:max-w-[70%]">
-                          {existingDoc.type.includes('image') && existingDoc.base64Content ? (
-                            <img src={`data:${existingDoc.type};base64,${existingDoc.base64Content}`} alt="preview" className="w-[38px] h-[38px] object-cover rounded-[12px] shadow-sm shrink-0" />
-                          ) : existingDoc.type.includes('pdf') ? (
-                            <div className="bg-red-50 p-2.5 rounded-[12px] text-red-600 shadow-sm shrink-0">
-                              <FileText className="w-[18px] h-[18px]" />
-                            </div>
-                          ) : (
-                            <div className="bg-white p-2.5 rounded-[12px] text-blue-600 shadow-sm shrink-0">
-                              <FileText className="w-[18px] h-[18px]" />
-                            </div>
-                          )}
+                          {(() => {
+                            const imgSrc = existingDoc.type?.includes("image") ? previewSrc(existingDoc) : null;
+                            if (imgSrc) {
+                              return (
+                                <img src={imgSrc} alt="preview" className="w-[38px] h-[38px] object-cover rounded-[12px] shadow-sm shrink-0" />
+                              );
+                            }
+                            if (existingDoc.type?.includes("pdf")) {
+                              return (
+                                <div className="bg-red-50 p-2.5 rounded-[12px] text-red-600 shadow-sm shrink-0">
+                                  <FileText className="w-[18px] h-[18px]" />
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="bg-white p-2.5 rounded-[12px] text-blue-600 shadow-sm shrink-0">
+                                <FileText className="w-[18px] h-[18px]" />
+                              </div>
+                            );
+                          })()}
                           <div className="min-w-0 text-left">
                             <p className="font-bold text-[13px] text-slate-800 truncate" title={existingDoc.name}>{existingDoc.name}</p>
                             <p className="text-[11px] font-bold text-slate-400">{(existingDoc.size / 1024 / 1024).toFixed(2)} MB</p>
+                            {!hasUploadable(existingDoc) && (
+                              <p className="text-[11px] font-semibold text-red-600 mt-0.5">À recharger</p>
+                            )}
                           </div>
                         </div>
                         
@@ -300,8 +341,8 @@ export default function DocumentsStep({
          </label>
          <button 
            onClick={onSubmit} 
-           disabled={!requiredOk || !privacyAccepted || isSubmitting || isAnyFileUploading} 
-           className={`flex items-center justify-center gap-3 px-10 py-5 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto ${!requiredOk || !privacyAccepted || isSubmitting || isAnyFileUploading ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-[#111318] text-white hover:bg-slate-800'}`}
+           disabled={!requiredOk || !privacyAccepted || isSubmitting || isAnyFileUploading || hasIncompleteDocs} 
+           className={`flex items-center justify-center gap-3 px-10 py-5 rounded-full font-bold text-[15px] transition-all shadow-sm w-full md:w-auto ${!requiredOk || !privacyAccepted || isSubmitting || isAnyFileUploading || hasIncompleteDocs ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-[#111318] text-white hover:bg-slate-800'}`}
          >
            {isSubmitting ? (submitStatus || 'Envoi en cours...') : isAnyFileUploading ? 'Lecture du fichier...' : 'Valider mon dossier'} 
            {!isSubmitting && !isAnyFileUploading && <ArrowRight className="w-[18px] h-[18px]" strokeWidth={2.5} />}
