@@ -100,6 +100,7 @@ export function registerSesameStudyWorkflowRoutes(
       return res.json({
         success: true,
         kereisDraft: (dossier as any).kereisDraft,
+        formData: (dossier as any).formData,
         overrides,
         warnings,
         feasibility,

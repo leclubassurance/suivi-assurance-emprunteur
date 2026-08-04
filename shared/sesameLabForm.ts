@@ -4,6 +4,14 @@
  * Ne jamais tarifrer depuis des libellés Kereis libres.
  */
 import type { KereisDraft, KereisField } from "./kereisDraftTypes";
+import {
+  extractTauxNominalFromText,
+  formatTauxForForm,
+  looksLikeLoanCapital,
+  looksLikeLoanDurationMonths,
+  looksLikeLoanRate,
+  parseLoanNumber,
+} from "./loanMetricsExtract";
 
 export type PalierForm = {
   duree: string;
@@ -119,14 +127,8 @@ export const EMPTY_LAB_FORM: LabForm = {
 };
 
 export function parseFrNumber(raw: unknown, fallback = 0): number {
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  const s = String(raw ?? "")
-    .trim()
-    .replace(/\s/g, "")
-    .replace(",", ".");
-  if (!s) return fallback;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : fallback;
+  const n = parseLoanNumber(raw);
+  return n != null ? n : fallback;
 }
 
 export const FORMULE_OPTIONS = [
@@ -457,19 +459,11 @@ function toIsoDate(raw: string): string {
 }
 
 function looksLikeMoney(raw: string): boolean {
-  const s = String(raw || "").trim();
-  if (!s || /[a-zA-Z]/.test(s)) return false;
-  if (/^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/.test(s.replace(/\s/g, ""))) return false;
-  const n = parseFrNumber(s, NaN);
-  return Number.isFinite(n) && n >= 1000;
+  return looksLikeLoanCapital(raw);
 }
 
 function looksLikeRate(raw: string): boolean {
-  const s = String(raw || "").trim();
-  if (!s || /[a-zA-Z]/.test(s)) return false;
-  if (/[/.-].*[/.-]/.test(s)) return false;
-  const n = parseFrNumber(s, NaN);
-  return Number.isFinite(n) && n > 0 && n <= 25;
+  return looksLikeLoanRate(raw);
 }
 
 function mapStatutToValue(raw: string): string {
@@ -603,24 +597,35 @@ export function seedLabFormFromDossier(dossier: any): {
     pretsFd[0]?.capitalRestantDu || pretsFd[0]?.capitalRestant || pretsFd[0]?.montant || "",
   );
   let capital = "";
-  if (looksLikeMoney(capitalDraft)) capital = String(parseFrNumber(capitalDraft, 0));
-  else if (looksLikeMoney(capitalForm)) capital = String(parseFrNumber(capitalForm, 0));
+  if (looksLikeMoney(capitalForm)) capital = String(Math.round(parseFrNumber(capitalForm, 0)));
+  else if (looksLikeMoney(capitalDraft)) capital = String(Math.round(parseFrNumber(capitalDraft, 0)));
   else if (capitalDraft) warnings.push(`CRD fiche ignoré (« ${capitalDraft} ») — saisissez le capital manuellement.`);
 
   const tauxDraft = draftField(loan0, "taux nominal");
-  const tauxForm = String(pretsFd[0]?.taux || "");
+  const tauxForm = String(pretsFd[0]?.taux ?? pretsFd[0]?.tauxNominal ?? "");
   let taux = "";
-  if (looksLikeRate(tauxDraft)) taux = String(parseFrNumber(tauxDraft, 0)).replace(".", ",");
-  else if (looksLikeRate(tauxForm)) taux = String(parseFrNumber(tauxForm, 0)).replace(".", ",");
-  else if (tauxDraft) warnings.push(`Taux fiche ignoré (« ${tauxDraft} ») — saisissez le taux manuellement.`);
+  // Préférer formData valide (souvent syncée après extraction) au brouillon corrompu.
+  if (looksLikeRate(tauxForm)) taux = formatTauxForForm(parseFrNumber(tauxForm, 0));
+  else if (looksLikeRate(tauxDraft)) taux = formatTauxForForm(parseFrNumber(tauxDraft, 0));
+  else {
+    const fromCopy = extractTauxNominalFromText(String(draft?.copyText || ""));
+    if (fromCopy != null) {
+      taux = formatTauxForForm(fromCopy);
+      warnings.push(`Taux repris du texte fiche : ${taux} %.`);
+    } else if (tauxDraft) {
+      warnings.push(`Taux fiche ignoré (« ${tauxDraft} ») — saisissez le taux manuellement.`);
+    } else {
+      warnings.push("Taux nominal manquant — lancez « Régénérer extraction » ou saisissez-le.");
+    }
+  }
 
   const dureeDraft = draftField(loan0, "duree restante");
-  const dureeForm = String(pretsFd[0]?.dureeMois || pretsFd[0]?.duree || "");
-  const dureeN = parseFrNumber(dureeDraft, NaN);
-  const duree =
-    Number.isFinite(dureeN) && dureeN >= 1 && dureeN <= 600
-      ? String(Math.round(dureeN))
-      : String(parseFrNumber(dureeForm, 0) || "");
+  const dureeForm = String(
+    pretsFd[0]?.dureeRestante || pretsFd[0]?.dureeMois || pretsFd[0]?.duree || "",
+  );
+  let duree = "";
+  if (looksLikeLoanDurationMonths(dureeForm)) duree = String(Math.round(parseFrNumber(dureeForm, 0)));
+  else if (looksLikeLoanDurationMonths(dureeDraft)) duree = String(Math.round(parseFrNumber(dureeDraft, 0)));
 
   const pret: PretForm = {
     ...EMPTY_PRET(),

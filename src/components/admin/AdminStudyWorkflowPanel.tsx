@@ -341,13 +341,13 @@ export default function AdminStudyWorkflowPanel({
       setFeasibility(data.feasibility || null);
       setSesameOk(data.sesameStatus?.labAllowed !== false && data.sesameStatus?.basicAuthConfigured);
       applySeed({
-        formData: initialDossier?.formData,
+        formData: data.formData || initialDossier?.formData,
         kereisDraft: data.kereisDraft,
       });
       setWarnings([
         ...(Array.isArray(data.warnings) ? data.warnings : []),
         ...seedLabFormFromDossier({
-          formData: initialDossier?.formData,
+          formData: data.formData || initialDossier?.formData,
           kereisDraft: data.kereisDraft,
         }).warnings,
       ]);
@@ -545,7 +545,7 @@ export default function AdminStudyWorkflowPanel({
         <button
           type="button"
           disabled={Boolean(busy)}
-          onClick={() => void prepare(!seeded)}
+          onClick={() => void prepare(true)}
           className="bg-slate-800 hover:bg-slate-900 disabled:opacity-60 text-white px-3 py-2 rounded-xl font-bold text-sm inline-flex items-center gap-2"
         >
           {busy === "prepare" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -805,9 +805,9 @@ export default function AdminStudyWorkflowPanel({
                   placeholder="ex. 185000"
                 />
               </Field>
-              <Field label="Taux nominal (%)" hint="Obligatoire — ex. 3,45">
+              <Field label="Taux nominal (%)" hint="Obligatoire — extrait des docs ou saisie manuelle (ex. 3,45)">
                 <input
-                  className={inputCls}
+                  className={`${inputCls} ${!pret0.taux.trim() ? "border-orange-400 ring-1 ring-orange-200 bg-orange-50/40" : ""}`}
                   value={pret0.taux}
                   onChange={(e) => setPret(0, "taux", e.target.value)}
                   inputMode="decimal"

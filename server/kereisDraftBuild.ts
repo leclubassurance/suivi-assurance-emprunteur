@@ -7,6 +7,13 @@ import type {
   KereisField,
   KereisFieldConfidence,
 } from "../shared/kereisDraftTypes";
+import {
+  extractLoanMetricsFromText,
+  looksLikeLoanCapital,
+  looksLikeLoanDurationMonths,
+  looksLikeLoanRate,
+  parseLoanNumber,
+} from "../shared/loanMetricsExtract";
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -50,9 +57,23 @@ function str(v: unknown): string {
 }
 
 function num(v: unknown): number | null {
-  if (v == null || v === "") return null;
-  const n = Number(String(v).replace(/\s/g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+  return parseLoanNumber(v);
+}
+
+/** Refuse noms / dates collés par erreur dans un champ numérique IA. */
+function numRate(v: unknown): number | null {
+  const n = parseLoanNumber(v);
+  return n != null && looksLikeLoanRate(n) ? n : null;
+}
+
+function numCapital(v: unknown): number | null {
+  const n = parseLoanNumber(v);
+  return n != null && looksLikeLoanCapital(n) ? n : null;
+}
+
+function numDuree(v: unknown): number | null {
+  const n = parseLoanNumber(v);
+  return n != null && looksLikeLoanDurationMonths(n) ? Math.round(n) : null;
 }
 
 function mapProfessionToKereis(raw: string): string {
@@ -242,7 +263,22 @@ export function applyKereisDraftPatches(
   const patchField = (f: KereisField): KereisField => {
     const hit = findPatch(f.label);
     if (!hit) return f;
-    const value = hit[1];
+    let value = hit[1];
+    const labelN = norm(f.label);
+    // Ne jamais coller un nom/date dans CRD / taux / durée.
+    if (/taux/.test(labelN) && !looksLikeLoanRate(value)) {
+      return f;
+    }
+    if (/capital\s+restant|crd/.test(labelN) && !looksLikeLoanCapital(value)) {
+      return f;
+    }
+    if (/duree\s+restante/.test(labelN) && !looksLikeLoanDurationMonths(value)) {
+      return f;
+    }
+    if (/taux|capital|duree|franchise|quotite/.test(labelN)) {
+      const n = parseLoanNumber(value);
+      if (n != null) value = n;
+    }
     return {
       ...f,
       value,
@@ -345,16 +381,45 @@ export async function buildKereisDraftForDossier(params: {
   const prenom = str(a0.prenom);
   const clientName = [civilite, prenom, nom].filter(Boolean).join(" ") || dossier.id;
 
+  const docsText = `${offreText}\n\n${tableauText}`;
+  const fromText = extractLoanMetricsFromText(docsText);
+
   const capital =
-    num(ai?.capitalRestantDu) ??
-    num(p0.capitalRestant) ??
-    num(p0.capitalRestantDu) ??
-    null;
+    numCapital(ai?.capitalRestantDu) ??
+    numCapital(p0.capitalRestant) ??
+    numCapital(p0.capitalRestantDu) ??
+    fromText.capitalRestantDu;
   const duree =
-    num(ai?.dureeRestanteMois) ??
-    num(p0.dureeRestante) ??
-    null;
-  const taux = num(ai?.tauxNominal) ?? num(p0.taux) ?? null;
+    numDuree(ai?.dureeRestanteMois) ??
+    numDuree(p0.dureeRestante) ??
+    numDuree(p0.dureeMois) ??
+    fromText.dureeRestanteMois;
+  const taux =
+    numRate(ai?.tauxNominal) ?? numRate(p0.taux) ?? fromText.tauxNominal;
+  if (ai?.tauxNominal != null && numRate(ai.tauxNominal) == null) {
+    warnings.push(`Taux IA ignoré (« ${String(ai.tauxNominal)} ») — valeur non numérique.`);
+  }
+  if (taux == null && (offreText || tableauText)) {
+    warnings.push("Taux nominal introuvable dans les documents — à saisir manuellement.");
+  } else if (taux != null && fromText.tauxNominal === taux && numRate(ai?.tauxNominal) == null) {
+    warnings.push(`Taux nominal extrait du texte docs : ${taux} %.`);
+  }
+  // Persiste dans formData pour les seeds suivants (parcours Lab).
+  if (taux != null || capital != null || duree != null) {
+    const fd = ((dossier as any).formData ||= {});
+    const pretsList = Array.isArray(fd.prets) ? fd.prets : [];
+    const pret0 = { ...(pretsList[0] || {}) };
+    if (taux != null) pret0.taux = taux;
+    if (capital != null) {
+      pret0.capitalRestant = capital;
+      pret0.capitalRestantDu = capital;
+    }
+    if (duree != null) {
+      pret0.dureeRestante = duree;
+      pret0.dureeMois = duree;
+    }
+    fd.prets = pretsList.length ? [pret0, ...pretsList.slice(1)] : [pret0];
+  }
   const banque = str(ai?.banque) || str(p0.banquePreteuse) || "";
   const nature =
     mapNaturePret(str(ai?.naturePret) || str(p0.naturePret) || str(p0.modaliteRemboursement)) ||
