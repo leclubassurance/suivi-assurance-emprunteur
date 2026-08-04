@@ -52,7 +52,12 @@ type Proposition = {
   type?: string;
   message?: string;
   tarifTotalAssurance?: number;
+  tarifTotalCotisations?: number;
+  tarifCotisationsXPremieresAnnees?: number;
   cotisationMensuelleMoyenne?: number;
+  taea?: number;
+  tauxMoyen?: number;
+  reductionCouple?: boolean;
 };
 
 type AssureCol = {
@@ -119,6 +124,7 @@ function pickCodeProduit(t: any): string {
 function mapProp(t: any): Proposition | null {
   const codeProduit = pickCodeProduit(t);
   if (!codeProduit) return null;
+  const pret0 = Array.isArray(t?.prets) ? t.prets[0] : undefined;
   return {
     ...t,
     codeProduit,
@@ -127,7 +133,12 @@ function mapProp(t: any): Proposition | null {
     type: t?.type || t?.statut || t?.etat || undefined,
     message: String(t?.message || t?.motif || t?.libelleErreur || t?.erreur || "").trim() || undefined,
     tarifTotalAssurance: t?.tarifTotalAssurance,
+    tarifTotalCotisations: t?.tarifTotalCotisations,
+    tarifCotisationsXPremieresAnnees: t?.tarifCotisationsXPremieresAnnees,
     cotisationMensuelleMoyenne: t?.cotisationMensuelleMoyenne,
+    taea: pret0?.taea ?? t?.taea,
+    tauxMoyen: pret0?.tauxMoyen ?? t?.tauxMoyen,
+    reductionCouple: Boolean(t?.reductionCouple),
   };
 }
 
@@ -200,6 +211,11 @@ function fmtEur(n?: number | null) {
   return `${n.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €`;
 }
 
+function fmtPct(n?: number | null) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 3 })} %`;
+}
+
 function FeasibilityBadge({ f, busy }: { f: Feasibility | null; busy?: boolean }) {
   if (busy) {
     return (
@@ -264,35 +280,53 @@ export default function AdminStudyWorkflowPanel({
   const [filter, setFilter] = useState<"tous" | "crd" | "capital_initial">("tous");
   const [forceGenerate, setForceGenerate] = useState(false);
   const [sesameOk, setSesameOk] = useState<boolean | null>(null);
-  const [simMeta, setSimMeta] = useState<{ tarifCount?: number; requestId?: string } | null>(null);
+  const [simMeta, setSimMeta] = useState<{
+    tarifCount?: number;
+    tarifableCount?: number;
+    requestId?: string;
+    durationMs?: number;
+  } | null>(null);
 
   const [form, setForm] = useState<LabForm>(EMPTY_LAB_FORM);
   const [assures, setAssures] = useState<AssureForm[]>([EMPTY_ASSURE()]);
   const [prets, setPrets] = useState<PretForm[]>([EMPTY_PRET()]);
   const [seeded, setSeeded] = useState(false);
 
-  const applySeed = useCallback((dossier: any) => {
+  const applySeed = useCallback((dossier: any, opts?: { keepStep?: boolean }) => {
     const seededState = seedLabFormFromDossier(dossier || {});
     setForm(seededState.form);
     setAssures(seededState.assures);
     setPrets(seededState.prets);
     setWarnings(seededState.warnings);
     setSeeded(true);
-    setStep(2);
+    if (!opts?.keepStep) setStep(2);
   }, []);
 
+  // Ne resetter que au changement de dossier — jamais après simulate/generate
+  // (sinon loadDossiers() efface les offres en 2 s et réécrit MARCHANDE dans le warning).
   useEffect(() => {
     setFeasibility(initialFeasibility || null);
     setCols([]);
     setSelected({});
     setSimMeta(null);
+    setError(null);
+    setHint(null);
+    setForceGenerate(false);
     if (initialDossier || initialDraft) {
-      applySeed({ ...(initialDossier || {}), kereisDraft: initialDraft || initialDossier?.kereisDraft });
+      applySeed({
+        ...(initialDossier || {}),
+        kereisDraft: initialDraft || initialDossier?.kereisDraft,
+      });
     } else {
       setSeeded(false);
       setStep(1);
     }
-  }, [dossierId, initialDraft, initialDossier, initialFeasibility, applySeed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: dossierId only
+  }, [dossierId]);
+
+  useEffect(() => {
+    if (initialFeasibility) setFeasibility(initialFeasibility);
+  }, [initialFeasibility]);
 
   const refreshScore = useCallback(async () => {
     setScoreBusy(true);
@@ -396,9 +430,19 @@ export default function AdminStudyWorkflowPanel({
       const tarifable = extracted.reduce((n, c) => n + c.propositions.filter(isTarifable).length, 0);
       setCols(extracted);
       setSelected(defaultSelections(extracted));
-      setSimMeta({ tarifCount: data.tarifCount, requestId: data.requestId });
+      setSimMeta({
+        tarifCount: data.tarifCount,
+        tarifableCount: data.tarifableCount,
+        requestId: data.requestId,
+        durationMs: data.durationMs,
+      });
       setFilter("tous");
-      if (Array.isArray(data.warnings)) setWarnings(data.warnings);
+      // Ne pas rappeler loadDossiers ici : ça remonterait le panel et effacerait les offres.
+      const nextWarnings = Array.isArray(data.warnings) ? data.warnings : [];
+      const tauxOk = parseFrNumber(prets[0]?.taux, 0) > 0;
+      setWarnings(
+        nextWarnings.filter((w) => !(tauxOk && /taux fiche ignoré|taux nominal manquant/i.test(w))),
+      );
       if (tarifable === 0) {
         setError(
           `Sésame : ${data.tarifCount ?? 0} tarif(s), 0 tarifable. Voir les motifs ci-dessous ou corrigez le formulaire Lab.`,
@@ -417,7 +461,6 @@ export default function AdminStudyWorkflowPanel({
         setHint(null);
       }
       setStep(4);
-      onDossierUpdated?.();
     } catch {
       setError("Erreur réseau (simulation)");
     } finally {
@@ -472,6 +515,10 @@ export default function AdminStudyWorkflowPanel({
   const allSelected = cols.length > 0 && cols.every((c) => selected[c.referenceAssure]);
   const pret0 = prets[0] || EMPTY_PRET();
   const assure0 = assures[0] || EMPTY_ASSURE();
+  const visibleWarnings = useMemo(() => {
+    const tauxOk = parseFrNumber(pret0.taux, 0) > 0;
+    return warnings.filter((w) => !(tauxOk && /taux fiche ignoré|taux nominal manquant/i.test(w)));
+  }, [warnings, pret0.taux]);
 
   return (
     <div className="rounded-xl border border-teal-200 bg-teal-50/40 px-4 py-4 space-y-4">
@@ -535,9 +582,9 @@ export default function AdminStudyWorkflowPanel({
         </div>
       ) : null}
 
-      {warnings.length ? (
+      {visibleWarnings.length ? (
         <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          {warnings.slice(0, 4).join(" · ")}
+          {visibleWarnings.slice(0, 4).join(" · ")}
         </p>
       ) : null}
 
@@ -941,7 +988,12 @@ export default function AdminStudyWorkflowPanel({
             <div>
               <p className="text-sm font-bold text-slate-900">4. Choisir l&apos;assurance</p>
               <p className="text-[11px] text-slate-500">
-                {simMeta?.tarifCount != null ? `${simMeta.tarifCount} tarif(s) Sésame` : ""}
+                {simMeta?.tarifableCount != null
+                  ? `${simMeta.tarifableCount} tarifable(s) / ${simMeta.tarifCount ?? "?"} · comme Lab Sésame`
+                  : simMeta?.tarifCount != null
+                    ? `${simMeta.tarifCount} tarif(s) Sésame`
+                    : ""}
+                {simMeta?.durationMs != null ? ` · ${Math.round(simMeta.durationMs / 100) / 10}s` : ""}
               </p>
             </div>
             <div className="flex gap-1">
@@ -968,78 +1020,128 @@ export default function AdminStudyWorkflowPanel({
             </div>
           </div>
           {filteredCols.map((col) => {
-            const visible = col.propositions.filter(isTarifable);
-            const rejected = col.propositions.filter((p) => !isTarifable(p));
+            const filtered = col.propositions;
+            const visible = filtered.filter(isTarifable);
+            const rejected = filtered.filter((p) => !isTarifable(p));
             return (
               <div key={col.referenceAssure} className="space-y-2">
                 <p className="text-xs font-bold text-slate-700">{col.label}</p>
-                <div className="max-h-72 overflow-auto space-y-1.5">
+                <ul className="max-h-[28rem] overflow-auto space-y-2 pr-0.5">
                   {visible.length === 0 ? (
-                    <p className="text-xs text-slate-500">Aucune offre tarifable.</p>
+                    <li className="text-xs text-slate-500">Aucune offre tarifable pour ce filtre.</li>
                   ) : (
                     visible.map((p) => {
                       const active = selected[col.referenceAssure] === p.codeProduit;
+                      const baseLabel =
+                        p.baseTarif === "crd"
+                          ? "CRD"
+                          : p.baseTarif === "capital_initial"
+                            ? "Capital initial"
+                            : null;
                       return (
-                        <button
-                          key={p.codeProduit}
-                          type="button"
-                          onClick={() =>
-                            setSelected((prev) => ({
-                              ...prev,
-                              [col.referenceAssure]: p.codeProduit,
-                            }))
-                          }
-                          className={`w-full text-left rounded-lg border px-2.5 py-2 text-xs ${
-                            active
-                              ? "border-teal-500 bg-teal-50 ring-1 ring-teal-400"
-                              : "border-slate-200 bg-white hover:bg-slate-50"
-                          }`}
-                        >
-                          <div className="flex justify-between gap-2">
-                            <span className="font-bold text-slate-900">
-                              {p.marque || marqueFromCode(p.codeProduit)}
-                              {p.baseTarif === "crd" || p.baseTarif === "capital_initial" ? (
-                                <span className="ml-1.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1 rounded">
-                                  {p.baseTarif === "crd" ? "CRD" : "CI"}
-                                </span>
-                              ) : null}
-                            </span>
-                            <span className="font-bold text-teal-800">
-                              {fmtEur(p.tarifTotalAssurance)}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-slate-500 mt-0.5 font-mono truncate">
-                            {p.codeProduit}
-                          </div>
-                        </button>
+                        <li key={p.codeProduit}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelected((prev) => ({
+                                ...prev,
+                                [col.referenceAssure]: p.codeProduit,
+                              }))
+                            }
+                            className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
+                              active
+                                ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200"
+                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-sm font-bold text-slate-900">
+                                    {p.marque || marqueFromCode(p.codeProduit)}
+                                  </span>
+                                  {baseLabel ? (
+                                    <span
+                                      className={`rounded-full text-[10px] font-bold px-1.5 py-0.5 border ${
+                                        p.baseTarif === "crd"
+                                          ? "bg-teal-50 text-teal-800 border-teal-200"
+                                          : "bg-violet-50 text-violet-800 border-violet-200"
+                                      }`}
+                                    >
+                                      {baseLabel}
+                                    </span>
+                                  ) : null}
+                                  {active ? (
+                                    <span className="rounded-full bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5">
+                                      OK
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="text-[10px] font-mono text-slate-400 mt-0.5 truncate">
+                                  {p.codeProduit}
+                                </p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-base font-bold text-slate-900">
+                                  {fmtEur(p.tarifTotalAssurance)}
+                                </p>
+                                <p className="text-[10px] text-slate-500">assurance</p>
+                              </div>
+                            </div>
+                            <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px]">
+                              <div className="rounded bg-slate-50 px-1.5 py-1">
+                                <p className="text-slate-500">8 ans</p>
+                                <p className="font-semibold text-slate-800">
+                                  {fmtEur(p.tarifCotisationsXPremieresAnnees)}
+                                </p>
+                              </div>
+                              <div className="rounded bg-slate-50 px-1.5 py-1">
+                                <p className="text-slate-500">TAEA</p>
+                                <p className="font-semibold text-slate-800">{fmtPct(p.taea)}</p>
+                              </div>
+                              <div className="rounded bg-slate-50 px-1.5 py-1">
+                                <p className="text-slate-500">Taux moy.</p>
+                                <p className="font-semibold text-slate-800">{fmtPct(p.tauxMoyen)}</p>
+                              </div>
+                            </div>
+                          </button>
+                        </li>
                       );
                     })
                   )}
-                  {rejected.length > 0 ? (
-                    <details className="mt-2">
-                      <summary className="text-[11px] font-bold text-amber-800 cursor-pointer">
-                        {rejected.length} non tarifable(s)
-                      </summary>
-                      <ul className="mt-1 space-y-1">
-                        {rejected.slice(0, 12).map((p) => (
-                          <li
-                            key={`rej-${p.codeProduit}`}
-                            className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-950"
-                          >
-                            <span className="font-bold">{p.marque || p.codeProduit}</span>
-                            {p.type ? ` · ${p.type}` : ""}
-                            {p.message ? (
-                              <span className="block text-amber-800 mt-0.5">{p.message}</span>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : null}
-                </div>
+                </ul>
+                {rejected.length > 0 ? (
+                  <details className="mt-1">
+                    <summary className="text-[11px] font-bold text-amber-800 cursor-pointer">
+                      {rejected.length} non tarifable(s)
+                    </summary>
+                    <ul className="mt-1 space-y-1">
+                      {rejected.slice(0, 12).map((p) => (
+                        <li
+                          key={`rej-${p.codeProduit}`}
+                          className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-950"
+                        >
+                          <span className="font-bold">{p.marque || p.codeProduit}</span>
+                          {p.type ? ` · ${p.type}` : ""}
+                          {p.message ? (
+                            <span className="block text-amber-800 mt-0.5">{p.message}</span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
               </div>
             );
           })}
+          {allSelected ? (
+            <p className="text-xs text-emerald-800 font-medium border border-emerald-200 bg-emerald-50 rounded-lg px-2.5 py-2">
+              Sélection prête — cliquez « 5. Générer l&apos;étude »
+              {(feasibility?.score ?? 10) < 8
+                ? " (cochez « Forcer si score &lt; 8 » si le score reste bas)."
+                : "."}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
