@@ -705,6 +705,54 @@ function isStudyDocCandidate(doc: any): boolean {
   return isStudyDocumentEntry(doc);
 }
 
+function isStudyPdfFileName(name: string): boolean {
+  const n = String(name || "").toLowerCase();
+  if (!n.endsWith(".pdf")) return false;
+  return /etude|étude|econom|économ|ade_study|study.?pdf|devis.?etude/.test(n);
+}
+
+function knownStudyPdfFileNames(dossier: Dossier): string[] {
+  const raw = [
+    (dossier as any).studyPdf?.fileName,
+    (dossier.studyDraft as any)?.extracted?.pdf?.fileName,
+    dossier.studyConseillerValidation?.studyPdfFileName,
+  ];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const n of raw) {
+    const s = String(n || "").trim();
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
+/** Retrouve un PDF d'étude encore présent sous uploads/<id>/ si le chemin méta est obsolète. */
+export function findLocalStudyPdfOnDisk(uploadsDir: string, dossierId: string): string | null {
+  const dir = path.join(uploadsDir, String(dossierId || "").trim());
+  if (!dir || !fs.existsSync(dir)) return null;
+  let best: { path: string; mtime: number } | null = null;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!isStudyPdfFileName(name)) continue;
+      const p = path.join(dir, name);
+      try {
+        const st = fs.statSync(p);
+        if (!st.isFile() || st.size < 80) continue;
+        if (!best || st.mtimeMs > best.mtime) best = { path: p, mtime: st.mtimeMs };
+      } catch {
+        /* next */
+      }
+    }
+  } catch {
+    return null;
+  }
+  return best?.path || null;
+}
+
 /** Enregistre / met à jour le PDF d'étude dans formData.documents (catégorie etude). */
 export function registerStudyPdfAsDocument(
   dossier: Dossier,
@@ -798,7 +846,17 @@ export async function ensureStudyPdfLocalFile(
     source: "drive" | "document",
   ): Promise<{ localPath: string; source: typeof source } | null> => {
     const { downloadDriveFileToBuffer } = await import("./gmailDriveUpload");
-    const buf = await downloadDriveFileToBuffer(fileId, null);
+    // Même auth que l'upload (OAuth serveur) — le compte de service seul échoue souvent.
+    let accessToken: string | null = null;
+    try {
+      const { getServerAccessToken } = await import("./googleOAuthServer");
+      accessToken = await getServerAccessToken().catch(() => null);
+    } catch {
+      accessToken = null;
+    }
+    const buf =
+      (await downloadDriveFileToBuffer(fileId, accessToken)) ||
+      (accessToken ? await downloadDriveFileToBuffer(fileId, null) : null);
     if (!buf?.length) return null;
     const dest = writeRestoredPdf(dossier, uploadsDir, buf, fileName);
     patchStudyPdfMeta(dossier, {
@@ -858,6 +916,82 @@ export async function ensureStudyPdfLocalFile(
       } catch {
         /* next */
       }
+    }
+  }
+
+  // 3) Volume local : fichier encore là malgré un localPath méta obsolète (redéploi partiel)
+  const localCandidate = findLocalStudyPdfOnDisk(uploadsDir, dossier.id);
+  if (localCandidate) {
+    const fileName =
+      knownStudyPdfFileNames(dossier)[0] || path.basename(localCandidate);
+    let size: number | undefined;
+    try {
+      size = fs.statSync(localCandidate).size;
+    } catch {
+      /* ignore */
+    }
+    patchStudyPdfMeta(dossier, {
+      localPath: localCandidate,
+      fileName,
+      size,
+      mimeType: "application/pdf",
+    });
+    registerStudyPdfAsDocument(dossier, {
+      localPath: localCandidate,
+      fileName,
+      size,
+    });
+    return { localPath: localCandidate, source: "disk" };
+  }
+
+  // 4) Dossier Drive client : retrouver par nom exact ou motif « étude / économies »
+  // (cas fréquent : upload OK, driveFileId perdu, disque Railway vidé au redéploiement)
+  const folderId = String((dossier as any).workspaceFolderId || "").trim();
+  if (folderId) {
+    try {
+      const { findDriveFileIdInFolder, listDriveFilesInFolder } = await import("./gmailDriveUpload");
+      let accessToken: string | null = null;
+      try {
+        const { getServerAccessToken } = await import("./googleOAuthServer");
+        accessToken = await getServerAccessToken().catch(() => null);
+      } catch {
+        accessToken = null;
+      }
+      const knownNames = knownStudyPdfFileNames(dossier);
+      for (const name of knownNames) {
+        const id =
+          (await findDriveFileIdInFolder(folderId, name, accessToken)) ||
+          (accessToken ? await findDriveFileIdInFolder(folderId, name, null) : null);
+        if (!id) continue;
+        const got = await tryDownloadDriveId(id, name, "drive");
+        if (got) return got;
+      }
+      const listed =
+        (await listDriveFilesInFolder(folderId, accessToken)) ||
+        new Map();
+      if (listed.size === 0 && accessToken) {
+        const listedSa = await listDriveFilesInFolder(folderId, null);
+        for (const [k, v] of listedSa) listed.set(k, v);
+      }
+      const knownLower = new Set(knownNames.map((n) => n.toLowerCase()));
+      const candidates = [...listed.values()]
+        .filter((f) => f.fileId && f.name && isStudyPdfFileName(f.name))
+        .sort((a, b) => {
+          const aKnown = knownLower.has(String(a.name).toLowerCase());
+          const bKnown = knownLower.has(String(b.name).toLowerCase());
+          if (aKnown !== bKnown) return aKnown ? -1 : 1;
+          return String(b.name || "").localeCompare(String(a.name || ""), "fr");
+        });
+      for (const c of candidates) {
+        const got = await tryDownloadDriveId(
+          c.fileId,
+          String(c.name || `etude-${dossier.id}.pdf`),
+          "drive",
+        );
+        if (got) return got;
+      }
+    } catch (e: any) {
+      console.warn("[study-pdf] Drive folder restore failed:", e?.message || e);
     }
   }
 

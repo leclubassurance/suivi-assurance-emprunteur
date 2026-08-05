@@ -138,6 +138,20 @@ async function main() {
   assert.equal(mergedFresh.studyPdfSuppressed, undefined);
   assert.equal(mergedFresh.studyPdf?.fileName, "new.pdf");
 
+  const os = await import("node:os");
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const { findLocalStudyPdfOnDisk } = await import("../server/studyPdfFlow");
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lcif-study-pdf-"));
+  const dossierDir = path.join(tmpRoot, "LCIF-LOCAL");
+  fs.mkdirSync(dossierDir, { recursive: true });
+  const pdfPath = path.join(dossierDir, "etude-economies-demo.pdf");
+  fs.writeFileSync(pdfPath, "%PDF-1.4\n" + "x".repeat(200) + "\nfake study content for restore test");
+  fs.writeFileSync(path.join(dossierDir, "offre-pret.pdf"), "%PDF other");
+  assert.equal(findLocalStudyPdfOnDisk(tmpRoot, "LCIF-LOCAL"), pdfPath);
+  assert.equal(findLocalStudyPdfOnDisk(tmpRoot, "LCIF-MISSING"), null);
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+
   console.log("verify-study-pdf-clear: OK");
 }
 
