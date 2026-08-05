@@ -80,7 +80,11 @@ export default function PartnerHeroSection({
 
           <button
             type="button"
-            onClick={onNewReferral}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onNewReferral();
+            }}
             className="lcif-card p-4 text-left hover:border-emerald-200 hover:shadow-md transition-all group"
           >
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 mb-3 group-hover:bg-emerald-100">

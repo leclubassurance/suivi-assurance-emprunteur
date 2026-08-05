@@ -211,6 +211,7 @@ export default function ApporteurPortalPage({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [referralListMode, setReferralListMode] = useState<"active" | "archived">("active");
   const [refusingId, setRefusingId] = useState<string | null>(null);
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
@@ -385,13 +386,23 @@ export default function ApporteurPortalPage({
   };
 
   const openNewReferral = () => {
+    setFormError(null);
     setShowForm(true);
+    // Formulaire inline sous le hero (évite la modale iOS qui s'ouvre/ferme au même tap).
+    window.setTimeout(() => {
+      document.getElementById("ap-new-referral")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      const first = document.getElementById("ap-new-referral-prenom") as HTMLInputElement | null;
+      first?.focus({ preventScroll: true });
+    }, 80);
   };
 
   useEffect(() => {
     if (!showForm) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowForm(false);
+      if (e.key === "Escape") {
+        setShowForm(false);
+        setFormError(null);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -434,6 +445,7 @@ export default function ApporteurPortalPage({
     e.preventDefault();
     setSubmitting(true);
     setSubmitMsg(null);
+    setFormError(null);
     try {
       const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}/referrals`, {
         method: "POST",
@@ -441,13 +453,19 @@ export default function ApporteurPortalPage({
         body: JSON.stringify({ contact: form }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Enregistrement impossible");
+      if (!res.ok) {
+        throw new Error(
+          json.message ||
+            json.error ||
+            (res.status === 401 ? "Session expirée — reconnectez-vous." : "Enregistrement impossible"),
+        );
+      }
       setForm({ prenom: "", nom: "", email: "", phone: "", notes: "" });
       setShowForm(false);
       setSubmitMsg("Recommandation enregistrée — notre équipe va prendre contact.");
       await load();
     } catch (err: any) {
-      setSubmitMsg(err?.message || "Erreur");
+      setFormError(err?.message || "Erreur");
     } finally {
       setSubmitting(false);
     }
@@ -706,7 +724,7 @@ export default function ApporteurPortalPage({
               </p>
             ) : null}
 
-            <div id="ap-hero" className="scroll-mt-24 lg:scroll-mt-28">
+            <div id="ap-hero" className="scroll-mt-24 lg:scroll-mt-28 space-y-4">
               <PartnerHeroSection
                 apporteurType={data.apporteur.type}
                 referralLink={data.referralLink}
@@ -722,6 +740,112 @@ export default function ApporteurPortalPage({
                 onNewReferral={openNewReferral}
                 onGoReferrals={() => scrollToAnchor("ap-referrals")}
               />
+
+              {showForm && unlocked ? (
+                <div
+                  id="ap-new-referral"
+                  className="lcif-card p-5 sm:p-6 border-emerald-200 ring-1 ring-emerald-100 scroll-mt-28"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-4">
+                    <div>
+                      <h3 className="text-base font-black text-slate-900">Nouvelle recommandation</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Déclarez un client orienté vers LCIF
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowForm(false);
+                        setFormError(null);
+                      }}
+                      className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                      aria-label="Fermer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <form onSubmit={submitReferral} className="space-y-3">
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <label className="block text-xs font-bold text-slate-600">
+                        Prénom
+                        <input
+                          id="ap-new-referral-prenom"
+                          type="text"
+                          autoComplete="given-name"
+                          className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
+                          value={form.prenom}
+                          onChange={(e) => setForm((s) => ({ ...s, prenom: e.target.value }))}
+                          required
+                        />
+                      </label>
+                      <label className="block text-xs font-bold text-slate-600">
+                        Nom
+                        <input
+                          type="text"
+                          autoComplete="family-name"
+                          className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
+                          value={form.nom}
+                          onChange={(e) => setForm((s) => ({ ...s, nom: e.target.value }))}
+                          required
+                        />
+                      </label>
+                    </div>
+                    <label className="block text-xs font-bold text-slate-600">
+                      Email
+                      <input
+                        type="email"
+                        autoComplete="email"
+                        className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
+                        value={form.email}
+                        onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
+                      />
+                    </label>
+                    <label className="block text-xs font-bold text-slate-600">
+                      Téléphone
+                      <input
+                        type="tel"
+                        autoComplete="tel"
+                        className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
+                        value={form.phone}
+                        onChange={(e) => setForm((s) => ({ ...s, phone: e.target.value }))}
+                      />
+                    </label>
+                    <p className="text-[11px] text-slate-500">Email ou téléphone requis.</p>
+                    <label className="block text-xs font-bold text-slate-600">
+                      Contexte (optionnel)
+                      <textarea
+                        className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-normal min-h-[72px] bento-input h-auto"
+                        value={form.notes}
+                        onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
+                      />
+                    </label>
+                    {formError ? (
+                      <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 font-medium">
+                        {formError}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                      <Button type="submit" disabled={submitting} className="w-full sm:flex-1">
+                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        Envoyer la recommandation
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={submitting}
+                        className="w-full sm:w-auto"
+                        onClick={() => {
+                          setShowForm(false);
+                          setFormError(null);
+                        }}
+                      >
+                        Annuler
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              ) : null}
             </div>
 
         {isConseillerClub && data.conseillerClub ? (
@@ -1223,69 +1347,6 @@ export default function ApporteurPortalPage({
         </div>
       </div>
       <PortalMobileNav items={navItems} activeId={activeAnchor} onJump={scrollToAnchor} />
-
-      {showForm && unlocked ? (
-        <div
-          className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-[2px]"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="new-referral-title"
-          onClick={() => setShowForm(false)}
-        >
-          <div
-            className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 max-h-[92dvh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 bg-white/95 backdrop-blur">
-              <div>
-                <h3 id="new-referral-title" className="text-base font-black text-slate-900">
-                  Nouvelle recommandation
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Déclarez un client orienté vers LCIF
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                aria-label="Fermer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={submitReferral} className="p-5 space-y-3">
-              <div className="grid sm:grid-cols-2 gap-3">
-                <Field label="Prénom" value={form.prenom} onChange={(v) => setForm((s) => ({ ...s, prenom: v }))} />
-                <Field label="Nom" value={form.nom} onChange={(v) => setForm((s) => ({ ...s, nom: v }))} />
-              </div>
-              <Field
-                label="Email"
-                value={form.email}
-                onChange={(v) => setForm((s) => ({ ...s, email: v }))}
-                type="email"
-              />
-              <Field
-                label="Téléphone"
-                value={form.phone}
-                onChange={(v) => setForm((s) => ({ ...s, phone: v }))}
-              />
-              <label className="block text-xs font-bold text-slate-600">
-                Contexte (optionnel)
-                <textarea
-                  className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-normal min-h-[72px] bento-input h-auto"
-                  value={form.notes}
-                  onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
-                />
-              </label>
-              <Button type="submit" disabled={submitting} className="w-full">
-                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Envoyer la recommandation
-              </Button>
-            </form>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
