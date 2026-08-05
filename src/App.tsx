@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { Step, InsuranceFormData, FormErrors, Dossier, UserInfo } from './types';
 import {
@@ -221,7 +221,8 @@ export default function App() {
       }
       setPortalDemo(false);
       const conseillerConnexionMatch = path.match(/^\/conseiller\/connexion\/([a-f0-9]{32,128})$/i);
-      if (path === "/conseiller/espace") {
+      // Accepte /conseiller/espace et sous-routes (/conseiller/espace/recommandation, trailing slash, etc.)
+      if (path === "/conseiller/espace" || path.startsWith("/conseiller/espace/")) {
         setShowConseillerEspace(true);
         setShowConseillerLogin(false);
         setConseillerLoginToken(null);
@@ -709,14 +710,14 @@ export default function App() {
     goToStep(Step.LANDING);
   };
 
-  const openConseillerLogin = () => {
+  const openConseillerLogin = useCallback(() => {
     clearConseillerSessionToken();
     setShowConseillerEspace(false);
     setShowConseillerLogin(true);
     setConseillerLoginToken(null);
     setApporteurPortalToken(null);
     window.history.pushState({}, '', '/conseiller');
-  };
+  }, []);
 
   if (showConseillerEspace) {
     return (

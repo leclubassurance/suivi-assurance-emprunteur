@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, Send, UserPlus, Users, X } from "lucide-react";
+import { Loader2, Plus, UserPlus, Users } from "lucide-react";
 import { getApiUrl, apiFetch, clearConseillerSessionToken } from "../../lib/utils";
 import type { ReferralStatus, PartnerRecruitStatus } from "../../../shared/apporteurTypes";
 import {
@@ -30,6 +30,7 @@ import ConseillerReferralCommunications from "./ConseillerReferralCommunications
 import ConseillerStudyValidation, { type StudyValidationPending } from "./ConseillerStudyValidation";
 import ConseillerFormationSection from "./ConseillerFormationSection";
 import ConseillerCommunicationDriveSection from "./ConseillerCommunicationDriveSection";
+import NewReferralForm from "./NewReferralForm";
 import { CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC, CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
 import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
@@ -173,6 +174,10 @@ function scrollToAnchor(id: string) {
   const el = document.getElementById(id);
   if (!el) return;
   el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function isNewReferralPath(pathname = window.location.pathname): boolean {
+  return /\/conseiller\/espace\/recommandation\/?$/i.test(pathname);
 }
 
 const FILLEUL_STATUS: Record<
@@ -388,25 +393,38 @@ export default function ApporteurPortalPage({
   const openNewReferral = () => {
     setFormError(null);
     setShowForm(true);
-    // Formulaire inline sous le hero (évite la modale iOS qui s'ouvre/ferme au même tap).
-    window.setTimeout(() => {
-      document.getElementById("ap-new-referral")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      const first = document.getElementById("ap-new-referral-prenom") as HTMLInputElement | null;
-      first?.focus({ preventScroll: true });
-    }, 80);
+    if (conseillerSession) {
+      window.history.pushState({}, "", "/conseiller/espace/recommandation");
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
+
+  const closeNewReferral = () => {
+    setShowForm(false);
+    setFormError(null);
+    if (conseillerSession && isNewReferralPath()) {
+      window.history.pushState({}, "", "/conseiller/espace");
+    }
+  };
+
+  useEffect(() => {
+    const syncFromUrl = () => {
+      if (conseillerSession && isNewReferralPath()) setShowForm(true);
+    };
+    syncFromUrl();
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, [conseillerSession]);
 
   useEffect(() => {
     if (!showForm) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setShowForm(false);
-        setFormError(null);
-      }
+      if (e.key === "Escape") closeNewReferral();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showForm]);
+  }, [showForm, conseillerSession]);
 
   const submitPartnerRecruit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -462,6 +480,9 @@ export default function ApporteurPortalPage({
       }
       setForm({ prenom: "", nom: "", email: "", phone: "", notes: "" });
       setShowForm(false);
+      if (conseillerSession && isNewReferralPath()) {
+        window.history.pushState({}, "", "/conseiller/espace");
+      }
       setSubmitMsg("Recommandation enregistrée — notre équipe va prendre contact.");
       await load();
     } catch (err: any) {
@@ -682,6 +703,46 @@ export default function ApporteurPortalPage({
     );
   }
 
+  // Page dédiée : remplace tout le tableau de bord (évite page blanche / scroll fantôme).
+  if (showForm) {
+    return (
+      <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
+        <LcifPartnerHeader
+          subtitle={adminViewMode ? "Consultation admin" : conseillerSession ? "Espace conseiller" : "Espace partenaire"}
+          partnerName={data.apporteur.companyName}
+          partnerContact={data.apporteur.contactName}
+          partnerTypeLabel={typeLabel}
+          onLogout={conseillerSession && !adminViewMode ? handleConseillerLogout : undefined}
+        />
+        <main className="max-w-lg mx-auto px-4 sm:px-5 py-8 space-y-5">
+          <button
+            type="button"
+            onClick={closeNewReferral}
+            className="text-sm font-bold text-slate-600 hover:text-slate-900"
+          >
+            ← Retour à mon espace
+          </button>
+          <div className="lcif-card p-5 sm:p-6 border-emerald-200 ring-1 ring-emerald-100">
+            <h2 className="text-xl font-black text-slate-900">Nouvelle recommandation</h2>
+            <p className="text-sm text-slate-500 mt-1 mb-5">
+              Déclarez un client orienté vers LCIF. Notre équipe le recontactera rapidement.
+            </p>
+            <NewReferralForm
+              values={form}
+              onChange={setForm}
+              onSubmit={submitReferral}
+              submitting={submitting}
+              error={formError}
+              onCancel={closeNewReferral}
+              cancelLabel="Retour"
+            />
+          </div>
+          <LcifPartnerFooter />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
       <LcifPartnerHeader
@@ -724,7 +785,7 @@ export default function ApporteurPortalPage({
               </p>
             ) : null}
 
-            <div id="ap-hero" className="scroll-mt-24 lg:scroll-mt-28 space-y-4">
+            <div id="ap-hero" className="scroll-mt-24 lg:scroll-mt-28">
               <PartnerHeroSection
                 apporteurType={data.apporteur.type}
                 referralLink={data.referralLink}
@@ -740,112 +801,6 @@ export default function ApporteurPortalPage({
                 onNewReferral={openNewReferral}
                 onGoReferrals={() => scrollToAnchor("ap-referrals")}
               />
-
-              {showForm && unlocked ? (
-                <div
-                  id="ap-new-referral"
-                  className="lcif-card p-5 sm:p-6 border-emerald-200 ring-1 ring-emerald-100 scroll-mt-28"
-                >
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <div>
-                      <h3 className="text-base font-black text-slate-900">Nouvelle recommandation</h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Déclarez un client orienté vers LCIF
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowForm(false);
-                        setFormError(null);
-                      }}
-                      className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                      aria-label="Fermer"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <form onSubmit={submitReferral} className="space-y-3">
-                    <div className="grid sm:grid-cols-2 gap-3">
-                      <label className="block text-xs font-bold text-slate-600">
-                        Prénom
-                        <input
-                          id="ap-new-referral-prenom"
-                          type="text"
-                          autoComplete="given-name"
-                          className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
-                          value={form.prenom}
-                          onChange={(e) => setForm((s) => ({ ...s, prenom: e.target.value }))}
-                          required
-                        />
-                      </label>
-                      <label className="block text-xs font-bold text-slate-600">
-                        Nom
-                        <input
-                          type="text"
-                          autoComplete="family-name"
-                          className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
-                          value={form.nom}
-                          onChange={(e) => setForm((s) => ({ ...s, nom: e.target.value }))}
-                          required
-                        />
-                      </label>
-                    </div>
-                    <label className="block text-xs font-bold text-slate-600">
-                      Email
-                      <input
-                        type="email"
-                        autoComplete="email"
-                        className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
-                        value={form.email}
-                        onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
-                      />
-                    </label>
-                    <label className="block text-xs font-bold text-slate-600">
-                      Téléphone
-                      <input
-                        type="tel"
-                        autoComplete="tel"
-                        className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
-                        value={form.phone}
-                        onChange={(e) => setForm((s) => ({ ...s, phone: e.target.value }))}
-                      />
-                    </label>
-                    <p className="text-[11px] text-slate-500">Email ou téléphone requis.</p>
-                    <label className="block text-xs font-bold text-slate-600">
-                      Contexte (optionnel)
-                      <textarea
-                        className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-normal min-h-[72px] bento-input h-auto"
-                        value={form.notes}
-                        onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))}
-                      />
-                    </label>
-                    {formError ? (
-                      <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 font-medium">
-                        {formError}
-                      </p>
-                    ) : null}
-                    <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                      <Button type="submit" disabled={submitting} className="w-full sm:flex-1">
-                        {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                        Envoyer la recommandation
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={submitting}
-                        className="w-full sm:w-auto"
-                        onClick={() => {
-                          setShowForm(false);
-                          setFormError(null);
-                        }}
-                      >
-                        Annuler
-                      </Button>
-                    </div>
-                  </form>
-                </div>
-              ) : null}
             </div>
 
         {isConseillerClub && data.conseillerClub ? (
