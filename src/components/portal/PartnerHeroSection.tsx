@@ -74,7 +74,9 @@ export default function PartnerHeroSection({
             <p className="text-sm font-black text-slate-900">Copier mon lien client</p>
             <p className="text-xs text-slate-500 mt-1">À partager par SMS, email ou WhatsApp</p>
             {referralLink ? (
-              <p className="mt-2 text-[10px] text-slate-400 font-mono truncate">{referralLink}</p>
+              <p className="mt-2 text-[10px] text-slate-400 font-mono truncate pointer-events-none" aria-hidden>
+                {referralLink}
+              </p>
             ) : null}
           </button>
 

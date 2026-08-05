@@ -31,6 +31,7 @@ import ConseillerStudyValidation, { type StudyValidationPending } from "./Consei
 import ConseillerFormationSection from "./ConseillerFormationSection";
 import ConseillerCommunicationDriveSection from "./ConseillerCommunicationDriveSection";
 import NewReferralForm from "./NewReferralForm";
+import PortalErrorBoundary from "./PortalErrorBoundary";
 import { CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC, CONSEILLER_IMMO_CLUB_TYPE } from "../../../shared/conseillerImmoClub";
 import type { ConseillerOperatingPhase } from "../../../shared/conseillerImmoClub";
 import type { ConseillerSubscriptionPackage } from "../../../shared/conseillerSubscription";
@@ -176,10 +177,6 @@ function scrollToAnchor(id: string) {
   el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function isNewReferralPath(pathname = window.location.pathname): boolean {
-  return /\/conseiller\/espace\/recommandation\/?$/i.test(pathname);
-}
-
 const FILLEUL_STATUS: Record<
   DownlineMember["activityLabel"],
   { label: string; className: string; hint: string }
@@ -240,8 +237,9 @@ export default function ApporteurPortalPage({
   const referralsRef = useRef<HTMLElement>(null);
   const [activeAnchor, setActiveAnchor] = useState<string | null>(null);
 
-  // IntersectionObserver for sticky nav — kept before early returns to respect rules of hooks.
+  // IntersectionObserver for sticky nav — only when the dashboard sections are mounted.
   useEffect(() => {
+    if (loading || !data || showForm) return;
     const ids = [
       "ap-hero", "ap-phase", "ap-formation", "ap-ranking", "ap-contract", "ap-benefits",
       "ap-script", "ap-journey", "ap-earnings", "ap-recruit", "ap-team", "ap-referrals", "ap-guide",
@@ -259,7 +257,7 @@ export default function ApporteurPortalPage({
     );
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  });
+  }, [loading, data, showForm]);
 
   const highlightDossierId = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -393,29 +391,15 @@ export default function ApporteurPortalPage({
   const openNewReferral = () => {
     setFormError(null);
     setShowForm(true);
-    if (conseillerSession) {
-      window.history.pushState({}, "", "/conseiller/espace/recommandation");
-    } else {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    // Ne jamais changer l'URL ici : en preview admin (?lcif_preview=) pushState
+    // cassait la session et provoquait un écran blanc.
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const closeNewReferral = () => {
     setShowForm(false);
     setFormError(null);
-    if (conseillerSession && isNewReferralPath()) {
-      window.history.pushState({}, "", "/conseiller/espace");
-    }
   };
-
-  useEffect(() => {
-    const syncFromUrl = () => {
-      if (conseillerSession && isNewReferralPath()) setShowForm(true);
-    };
-    syncFromUrl();
-    window.addEventListener("popstate", syncFromUrl);
-    return () => window.removeEventListener("popstate", syncFromUrl);
-  }, [conseillerSession]);
 
   useEffect(() => {
     if (!showForm) return;
@@ -424,7 +408,7 @@ export default function ApporteurPortalPage({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showForm, conseillerSession]);
+  }, [showForm]);
 
   const submitPartnerRecruit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -480,9 +464,6 @@ export default function ApporteurPortalPage({
       }
       setForm({ prenom: "", nom: "", email: "", phone: "", notes: "" });
       setShowForm(false);
-      if (conseillerSession && isNewReferralPath()) {
-        window.history.pushState({}, "", "/conseiller/espace");
-      }
       setSubmitMsg("Recommandation enregistrée — notre équipe va prendre contact.");
       await load();
     } catch (err: any) {
@@ -550,6 +531,10 @@ export default function ApporteurPortalPage({
     APPORTEUR_TYPE_LABELS[data.apporteur.type as keyof typeof APPORTEUR_TYPE_LABELS] || data.apporteur.type;
   const isConseillerClub = data.apporteur.type === CONSEILLER_IMMO_CLUB_TYPE;
   const unlocked = Boolean(data.portalUnlocked);
+  const partnerDisplayName =
+    String(data.apporteur.companyName || "").trim() ||
+    String(data.apporteur.contactName || "").trim() ||
+    "Espace partenaire";
 
   const navItems: PortalNavItem[] = [
     {
@@ -649,9 +634,9 @@ export default function ApporteurPortalPage({
       <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
         <LcifPartnerHeader
           subtitle={adminViewMode ? "Consultation admin" : conseillerSession ? "Espace conseiller" : "Espace partenaire"}
-          partnerName={data.apporteur.companyName}
-          partnerContact={data.apporteur.contactName}
-          partnerTypeLabel={typeLabel}
+          partnerName={partnerDisplayName}
+          partnerContact={String(data.apporteur.contactName || "").trim() || "—"}
+          partnerTypeLabel={String(typeLabel || "")}
           onLogout={conseillerSession && !adminViewMode ? handleConseillerLogout : undefined}
         />
         <main className="max-w-3xl mx-auto px-4 sm:px-5 py-8 space-y-6">
@@ -703,40 +688,46 @@ export default function ApporteurPortalPage({
     );
   }
 
-  // Page dédiée : remplace tout le tableau de bord (évite page blanche / scroll fantôme).
+  const header = (
+    <LcifPartnerHeader
+      subtitle={adminViewMode ? "Consultation admin" : conseillerSession ? "Espace conseiller" : "Espace partenaire"}
+      partnerName={partnerDisplayName}
+      partnerContact={String(data.apporteur.contactName || "").trim() || "—"}
+      partnerTypeLabel={String(typeLabel || "")}
+      onLogout={conseillerSession && !adminViewMode ? handleConseillerLogout : undefined}
+    />
+  );
+
+  // Formulaire plein écran dans le même shell (pas de pushState — compatible preview admin).
   if (showForm) {
     return (
-      <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
-        <LcifPartnerHeader
-          subtitle={adminViewMode ? "Consultation admin" : conseillerSession ? "Espace conseiller" : "Espace partenaire"}
-          partnerName={data.apporteur.companyName}
-          partnerContact={data.apporteur.contactName}
-          partnerTypeLabel={typeLabel}
-          onLogout={conseillerSession && !adminViewMode ? handleConseillerLogout : undefined}
-        />
+      <div className="min-h-[100dvh] bg-[var(--lcif-bg,#f4f6fb)]">
+        {header}
         <main className="max-w-lg mx-auto px-4 sm:px-5 py-8 space-y-5">
-          <button
-            type="button"
-            onClick={closeNewReferral}
-            className="text-sm font-bold text-slate-600 hover:text-slate-900"
-          >
-            ← Retour à mon espace
-          </button>
-          <div className="lcif-card p-5 sm:p-6 border-emerald-200 ring-1 ring-emerald-100">
-            <h2 className="text-xl font-black text-slate-900">Nouvelle recommandation</h2>
-            <p className="text-sm text-slate-500 mt-1 mb-5">
-              Déclarez un client orienté vers LCIF. Notre équipe le recontactera rapidement.
-            </p>
-            <NewReferralForm
-              values={form}
-              onChange={setForm}
-              onSubmit={submitReferral}
-              submitting={submitting}
-              error={formError}
-              onCancel={closeNewReferral}
-              cancelLabel="Retour"
-            />
-          </div>
+          <PortalErrorBoundary onReset={closeNewReferral}>
+            <button
+              type="button"
+              onClick={closeNewReferral}
+              className="text-sm font-bold text-slate-600 hover:text-slate-900"
+            >
+              ← Retour à mon espace
+            </button>
+            <div className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-5 sm:p-6 ring-1 ring-emerald-100">
+              <h2 className="text-xl font-black text-slate-900">Nouvelle recommandation</h2>
+              <p className="text-sm text-slate-500 mt-1 mb-5">
+                Déclarez un client orienté vers LCIF. Notre équipe le recontactera rapidement.
+              </p>
+              <NewReferralForm
+                values={form}
+                onChange={(next) => setForm(next)}
+                onSubmit={submitReferral}
+                submitting={submitting}
+                error={formError}
+                onCancel={closeNewReferral}
+                cancelLabel="Retour"
+              />
+            </div>
+          </PortalErrorBoundary>
           <LcifPartnerFooter />
         </main>
       </div>
@@ -744,14 +735,8 @@ export default function ApporteurPortalPage({
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
-      <LcifPartnerHeader
-        subtitle={adminViewMode ? "Consultation admin" : conseillerSession ? "Espace conseiller" : "Espace partenaire"}
-        partnerName={data.apporteur.companyName}
-        partnerContact={data.apporteur.contactName}
-        partnerTypeLabel={typeLabel}
-        onLogout={conseillerSession && !adminViewMode ? handleConseillerLogout : undefined}
-      />
+    <div className="min-h-[100dvh] bg-[var(--lcif-bg,#f4f6fb)]">
+      {header}
       <div className="max-w-6xl mx-auto px-4 sm:px-5 py-6 pb-28 lg:pb-10">
         <div className="grid lg:grid-cols-[240px_1fr] gap-6 items-start">
           <aside className="hidden lg:block sticky top-28">
