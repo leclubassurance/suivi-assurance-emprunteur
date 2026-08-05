@@ -216,6 +216,7 @@ export default function ApporteurPortalPage({
   const [formError, setFormError] = useState<string | null>(null);
   const [referralListMode, setReferralListMode] = useState<"active" | "archived">("active");
   const [refusingId, setRefusingId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
   const [form, setForm] = useState({ prenom: "", nom: "", email: "", phone: "", notes: "" });
   const [showPartnerForm, setShowPartnerForm] = useState(false);
