@@ -13,12 +13,11 @@ import {
 import {
   CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC,
   CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
-  CONSEILLER_PLATFORM_FEE_WAIVER_UNTIL,
 } from "./conseillerImmoClub";
 import { LCIF_LEGAL } from "./lcifLegalIdentity";
 
 /** Incrémenter à chaque révision substantielle du contrat conseiller assurance. */
-export const CONSEILLER_ASSURANCE_CONTRACT_VERSION = "2026-07-conseiller-v3";
+export const CONSEILLER_ASSURANCE_CONTRACT_VERSION = "2026-08-conseiller-v4";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -103,7 +102,7 @@ L'accès à l'espace conseiller est créé par ${CLUB} (pas d'auto-inscription).
 Le Conseiller s'engage à préserver la confidentialité de ses identifiants, à n'utiliser l'espace qu'aux fins du Contrat et à ne pas communiquer ses accès à des tiers.
 
 2.3 — Suspension
-${CLUB} peut suspendre l'accès en cas de manquement grave, d'impayé de la cotisation plateforme (à compter du 1er janvier 2027) ou de cessation du Contrat.`,
+${CLUB} peut suspendre l'accès en cas de manquement grave, d'impayé de la cotisation annuelle plateforme ou de cessation du Contrat.`,
     },
     {
       heading: "3. Phases opérationnelles — accompagnement puis autonomie commerciale",
@@ -174,14 +173,14 @@ La rétrocession ne concerne que les dossiers clients apportés directement par 
     },
     {
       heading: "6. Cotisation plateforme",
-      body: `6.1 — Franchise
-Jusqu'au ${CONSEILLER_PLATFORM_FEE_WAIVER_UNTIL} inclus, l'accès à l'espace conseiller assurance emprunteur est fourni sans cotisation annuelle.
+      body: `6.1 — Principe
+L'accès à l'espace conseiller assurance emprunteur, aux outils associés et au parcours d'accompagnement est soumis au paiement d'une cotisation annuelle de ${CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC} euros toutes taxes comprises.
 
-6.2 — À compter du 1er janvier 2027
-À compter du 1er janvier 2027, le Conseiller s'acquitte d'une cotisation annuelle de ${CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC} euros toutes taxes comprises pour l'utilisation de l'espace et des outils associés. Le paiement est annuel, payable à réception de facture.
+6.2 — Durée et renouvellement
+La cotisation ouvre droit à l'accès au service pour une période de douze (12) mois à compter de la date de validation du paiement par ${CLUB}. Elle est renouvelable chaque année à la date anniversaire de cette validation, pour une nouvelle période de douze (12) mois, sous réserve du paiement de la cotisation annuelle en vigueur.
 
 6.3 — Suspension
-En cas de non-paiement après mise en demeure, ${CLUB} peut suspendre l'accès à l'espace sans préjudice des sommes dues.`,
+En cas de non-paiement à l'échéance annuelle ou après relance restée sans effet, ${CLUB} peut suspendre l'accès à l'espace sans préjudice des sommes dues.`,
     },
     {
       heading: "7. Facturation — TVA — paiement des rétrocessions",

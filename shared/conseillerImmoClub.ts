@@ -5,11 +5,8 @@ export const CONSEILLER_IMMO_CLUB_TYPE = "conseiller_immo_club" as const;
 /** Dossiers clients effectivement signés (changement d'assurance) — seuil autonomie. */
 export const CONSEILLER_AUTONOMY_SIGNED_THRESHOLD = 10;
 
-/** Cotisation annuelle espace (TTC) à partir du 1er janvier 2027. */
+/** Cotisation annuelle espace conseiller assurance (TTC), renouvelée à date anniversaire. */
 export const CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC = 390;
-
-/** Franchise cotisation plateforme (inclus dans le contrat). */
-export const CONSEILLER_PLATFORM_FEE_WAIVER_UNTIL = "2026-12-31";
 
 /** Kit communication conseillers (réseaux sociaux, visuels, modèles). */
 export const CONSEILLER_COMMUNICATION_DRIVE_URL =
