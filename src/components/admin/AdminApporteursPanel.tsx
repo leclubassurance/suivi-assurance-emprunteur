@@ -488,6 +488,43 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
     setSuccessMsg("Lien de signature du contrat envoyé par email.");
   };
 
+  const resendContractForSignature = async (apporteurId: string) => {
+    if (
+      !window.confirm(
+        "Renvoyer une nouvelle version du contrat ? L'ancienne signature sera remplacée après nouvelle signature.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setSuccessMsg(null);
+    const reset = await adminFetch(`/api/admin/apporteurs/${apporteurId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contractStatus: "sent",
+        contractSignedAt: "",
+        contractSignature: null,
+      }),
+    });
+    const resetData = await reset.json().catch(() => ({}));
+    if (!reset.ok) {
+      setError(resetData.error || "Réinitialisation du contrat impossible");
+      return;
+    }
+    const send = await adminFetch(`/api/admin/apporteurs/${apporteurId}/send-contract-signing-invite`, {
+      method: "POST",
+    });
+    const sendData = await send.json().catch(() => ({}));
+    if (!send.ok) {
+      setError(sendData.error || "Contrat remis à signer, mais email impossible");
+      await load();
+      return;
+    }
+    setSuccessMsg("Nouvelle version du contrat envoyée pour signature.");
+    await load();
+  };
+
   const updatePartnerRecruitStatus = async (recruitId: string, status: PartnerRecruitStatus) => {
     setError(null);
     const res = await adminFetch(`/api/admin/partner-recruits/${recruitId}`, {
@@ -903,6 +940,13 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                                   Voir sur Google Drive
                                 </a>
                               ) : null}
+                              <button
+                                type="button"
+                                onClick={() => resendContractForSignature(a.id)}
+                                className="mt-2 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                              >
+                                Renvoyer nouvelle version du contrat
+                              </button>
                             </div>
                           )}
                         </div>
