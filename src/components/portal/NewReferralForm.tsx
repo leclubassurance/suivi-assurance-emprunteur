@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { Button } from "../ui/Button";
 
@@ -10,30 +10,59 @@ export type NewReferralFormValues = {
   notes: string;
 };
 
-type Props = {
-  values: NewReferralFormValues;
-  onChange: (next: NewReferralFormValues) => void;
-  onSubmit: (e: React.FormEvent) => void;
-  submitting?: boolean;
-  error?: string | null;
-  onCancel?: () => void;
-  cancelLabel?: string;
+export const EMPTY_NEW_REFERRAL_FORM: NewReferralFormValues = {
+  prenom: "",
+  nom: "",
+  email: "",
+  phone: "",
+  notes: "",
 };
 
-/** Formulaire isolé — utilisé en page dédiée pour éviter les bugs de scroll/modale. */
+type Props = {
+  /** Envoi async — le formulaire gère lui-même l'état submitting (évite les écrans blancs). */
+  onSubmit: (values: NewReferralFormValues) => Promise<void>;
+  onCancel?: () => void;
+  cancelLabel?: string;
+  initialValues?: Partial<NewReferralFormValues>;
+};
+
+/** Formulaire isolé et autonome : état local + submitting interne. */
 export default function NewReferralForm({
-  values,
-  onChange,
   onSubmit,
-  submitting,
-  error,
   onCancel,
   cancelLabel = "Annuler",
+  initialValues,
 }: Props) {
-  const set = (patch: Partial<NewReferralFormValues>) => onChange({ ...values, ...patch });
+  const [values, setValues] = useState<NewReferralFormValues>({
+    ...EMPTY_NEW_REFERRAL_FORM,
+    ...initialValues,
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const set = (patch: Partial<NewReferralFormValues>) =>
+    setValues((prev) => ({ ...prev, ...patch }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onSubmit(values);
+      setValues({ ...EMPTY_NEW_REFERRAL_FORM });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : typeof err === "string" ? err : "Erreur";
+      setError(message || "Erreur");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <form onSubmit={onSubmit} className="space-y-3">
+    <form onSubmit={handleSubmit} className="space-y-3" noValidate={false}>
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="block text-xs font-bold text-slate-600">
           Prénom
@@ -45,6 +74,7 @@ export default function NewReferralForm({
             value={values.prenom}
             onChange={(e) => set({ prenom: e.target.value })}
             required
+            disabled={submitting}
           />
         </label>
         <label className="block text-xs font-bold text-slate-600">
@@ -56,6 +86,7 @@ export default function NewReferralForm({
             value={values.nom}
             onChange={(e) => set({ nom: e.target.value })}
             required
+            disabled={submitting}
           />
         </label>
       </div>
@@ -67,6 +98,7 @@ export default function NewReferralForm({
           className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
           value={values.email}
           onChange={(e) => set({ email: e.target.value })}
+          disabled={submitting}
         />
       </label>
       <label className="block text-xs font-bold text-slate-600">
@@ -77,6 +109,7 @@ export default function NewReferralForm({
           className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-normal"
           value={values.phone}
           onChange={(e) => set({ phone: e.target.value })}
+          disabled={submitting}
         />
       </label>
       <p className="text-[11px] text-slate-500">Email ou téléphone requis.</p>
@@ -86,6 +119,7 @@ export default function NewReferralForm({
           className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-normal min-h-[72px] bento-input h-auto"
           value={values.notes}
           onChange={(e) => set({ notes: e.target.value })}
+          disabled={submitting}
         />
       </label>
       {error ? (

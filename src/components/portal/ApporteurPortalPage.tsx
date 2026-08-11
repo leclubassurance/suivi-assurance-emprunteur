@@ -213,12 +213,10 @@ export default function ApporteurPortalPage({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
   const [referralListMode, setReferralListMode] = useState<"active" | "archived">("active");
   const [refusingId, setRefusingId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [partnerSubmitting, setPartnerSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
-  const [form, setForm] = useState({ prenom: "", nom: "", email: "", phone: "", notes: "" });
   const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [partnerForm, setPartnerForm] = useState({
     contactPrenom: "",
@@ -390,7 +388,6 @@ export default function ApporteurPortalPage({
   };
 
   const openNewReferral = () => {
-    setFormError(null);
     setShowForm(true);
     // Ne jamais changer l'URL ici : en preview admin (?lcif_preview=) pushState
     // cassait la session et provoquait un écran blanc.
@@ -399,7 +396,6 @@ export default function ApporteurPortalPage({
 
   const closeNewReferral = () => {
     setShowForm(false);
-    setFormError(null);
   };
 
   useEffect(() => {
@@ -413,7 +409,7 @@ export default function ApporteurPortalPage({
 
   const submitPartnerRecruit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
+    setPartnerSubmitting(true);
     setSubmitMsg(null);
     try {
       const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}/partner-recruits`, {
@@ -440,38 +436,34 @@ export default function ApporteurPortalPage({
     } catch (err: any) {
       setSubmitMsg(err?.message || "Erreur");
     } finally {
-      setSubmitting(false);
+      setPartnerSubmitting(false);
     }
   };
 
-  const submitReferral = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
+  const submitReferral = async (contact: {
+    prenom: string;
+    nom: string;
+    email: string;
+    phone: string;
+    notes: string;
+  }) => {
     setSubmitMsg(null);
-    setFormError(null);
-    try {
-      const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}/referrals`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contact: form }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          json.message ||
-            json.error ||
-            (res.status === 401 ? "Session expirée — reconnectez-vous." : "Enregistrement impossible"),
-        );
-      }
-      setForm({ prenom: "", nom: "", email: "", phone: "", notes: "" });
-      setShowForm(false);
-      setSubmitMsg("Recommandation enregistrée — notre équipe va prendre contact.");
-      await load();
-    } catch (err: any) {
-      setFormError(err?.message || "Erreur");
-    } finally {
-      setSubmitting(false);
+    const res = await fetchPortal(`/api/apporteur-portal/${encodeURIComponent(token)}/referrals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contact }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(
+        json.message ||
+          json.error ||
+          (res.status === 401 ? "Session expirée — reconnectez-vous." : "Enregistrement impossible"),
+      );
     }
+    setShowForm(false);
+    setSubmitMsg("Recommandation enregistrée — notre équipe va prendre contact.");
+    await load();
   };
 
   const refuseSubstitution = async (referral: PortalReferral) => {
@@ -719,11 +711,7 @@ export default function ApporteurPortalPage({
                 Déclarez un client orienté vers LCIF. Notre équipe le recontactera rapidement.
               </p>
               <NewReferralForm
-                values={form}
-                onChange={(next) => setForm(next)}
                 onSubmit={submitReferral}
-                submitting={submitting}
-                error={formError}
                 onCancel={closeNewReferral}
                 cancelLabel="Retour"
               />
@@ -1038,7 +1026,7 @@ export default function ApporteurPortalPage({
                 />
               ) : null}
               <Field label="Notes (optionnel)" value={partnerForm.notes} onChange={(v) => setPartnerForm((s) => ({ ...s, notes: v }))} />
-              <button type="submit" disabled={submitting} className="w-full py-2.5 rounded-lg bg-slate-900 text-white font-bold text-sm disabled:opacity-60">
+              <button type="submit" disabled={partnerSubmitting} className="w-full py-2.5 rounded-lg bg-slate-900 text-white font-bold text-sm disabled:opacity-60">
                 Envoyer la candidature à LCIF
               </button>
             </form>

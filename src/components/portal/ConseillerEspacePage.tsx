@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { apiFetch, clearConseillerSessionToken } from "../../lib/utils";
 import ApporteurPortalPage from "./ApporteurPortalPage";
 import LcifPartnerHeader, { LcifPartnerFooter } from "./LcifPartnerHeader";
+import PortalErrorBoundary from "./PortalErrorBoundary";
 
 export default function ConseillerEspacePage({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [portalToken, setPortalToken] = useState<string | null>(null);
@@ -94,5 +95,9 @@ export default function ConseillerEspacePage({ onSessionExpired }: { onSessionEx
     );
   }
 
-  return <ApporteurPortalPage token={portalToken} conseillerSession />;
+  return (
+    <PortalErrorBoundary>
+      <ApporteurPortalPage token={portalToken} conseillerSession />
+    </PortalErrorBoundary>
+  );
 }
