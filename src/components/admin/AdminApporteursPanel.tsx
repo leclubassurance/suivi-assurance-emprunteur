@@ -48,6 +48,7 @@ import ApporteurProfileFormFields, {
   type ApporteurProfileFormState,
 } from "../portal/ApporteurProfileFormFields";
 import { buildContactNameFromParts, resolveApporteurTypeLabel } from "../../../shared/apporteurProfile";
+import { preferredReferralTokenSlug, shouldResyncReferralToken } from "../../../shared/apporteurReferralToken";
 import { formatReferralGeoDetail } from "../../../shared/referralGeo";
 import AdminApporteurPublicProfileEditor from "./AdminApporteurPublicProfileEditor";
 
@@ -1373,6 +1374,41 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
               hideTypeField={ui.allowedTypes.length === 1}
               emailHint={ui.emailHint}
             />
+            {(() => {
+              const existing = apporteurs.find((a) => a.id === editingApporteurId);
+              if (!existing) return null;
+              const nextContactName = buildContactNameFromParts(
+                editApporteurForm.contactPrenom,
+                editApporteurForm.contactNom,
+              );
+              const nextCompany =
+                editApporteurForm.companyName.trim() || String(existing.companyName || "").trim();
+              const expectedRef = preferredReferralTokenSlug(nextContactName, nextCompany);
+              const willUpdate = shouldResyncReferralToken(
+                existing.referralToken,
+                nextContactName,
+                nextCompany,
+              );
+              return (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2.5 text-xs text-indigo-950">
+                  <p className="font-bold">Lien client (?ref=)</p>
+                  <p className="mt-1 font-mono text-[11px]">
+                    Actuel : <span className="font-semibold">{existing.referralToken}</span>
+                    {willUpdate ? (
+                      <>
+                        {" "}
+                        → après enregistrement :{" "}
+                        <span className="font-semibold text-emerald-800">{expectedRef}</span>
+                      </>
+                    ) : null}
+                  </p>
+                  <p className="mt-1 text-[10px] text-indigo-800/90">
+                    Le slug se met à jour automatiquement quand vous corrigez le prénom/nom. L&apos;ancien
+                    lien reste actif pour ne pas casser les messages déjà envoyés.
+                  </p>
+                </div>
+              );
+            })()}
             {segment === "conseiller_club" ? (
               <div className="space-y-3">
                 <label className="text-xs font-bold text-slate-600 block">

@@ -12,6 +12,12 @@ import type {
   ReferralStatus,
 } from "../shared/apporteurTypes";
 import { buildContactNameFromParts, normalizeApporteurProfileInput, validateApporteurProfileForContract, type ApporteurProfileInput } from "../shared/apporteurProfile";
+import {
+  buildReferralTokenCandidates,
+  isReferralTokenDerivedFromIdentity,
+  shouldResyncReferralToken,
+  slugifyReferralToken,
+} from "../shared/apporteurReferralToken";
 import { extractSirenFromSiret } from "../shared/siret";
 import { REFERRAL_STATUS_ORDER } from "../shared/apporteurTypes";
 import { computeAdminApporteurKpis, computeReferralKpis } from "../shared/apporteurKpis";
@@ -44,6 +50,7 @@ export type ApporteurStore = {
   kereisMiaSettings?: import("../shared/kereisMiaRemuneration").KereisMiaSettings;
   migrations?: {
     conseillerFormationDefaultV1?: string;
+    referralTokenResyncV1?: string;
   };
   updatedAt: string;
 };
@@ -64,13 +71,20 @@ function newId(prefix: string): string {
 }
 
 function slugifyToken(input: string): string {
-  return String(input || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 28);
+  return slugifyReferralToken(input);
+}
+
+function apporteurMatchesReferralToken(apporteur: Apporteur, token: string): boolean {
+  if (apporteur.referralToken === token) return true;
+  return (apporteur.referralTokenAliases || []).includes(token);
+}
+
+function referralTokenTakenByOther(store: ApporteurStore, token: string, excludeApporteurId?: string): boolean {
+  return store.apporteurs.some(
+    (a) =>
+      a.id !== excludeApporteurId &&
+      (a.referralToken === token || (a.referralTokenAliases || []).includes(token)),
+  );
 }
 
 function getStoreFilePath(): string {
@@ -206,6 +220,23 @@ async function ensureApporteurFields(store: ApporteurStore): Promise<void> {
     };
     changed = true;
   }
+  if (!store.migrations?.referralTokenResyncV1) {
+    for (const apporteur of store.apporteurs) {
+      const contactName =
+        buildContactNameFromParts(apporteur.contactPrenom, apporteur.contactNom) ||
+        String(apporteur.contactName || "").trim();
+      const companyName = String(apporteur.companyName || "").trim();
+      if (shouldResyncReferralToken(apporteur.referralToken, contactName, companyName)) {
+        syncReferralTokenFromIdentity(store, apporteur);
+        changed = true;
+      }
+    }
+    store.migrations = {
+      ...(store.migrations || {}),
+      referralTokenResyncV1: new Date().toISOString(),
+    };
+    changed = true;
+  }
   if (changed) await persistStore(store);
 }
 
@@ -263,37 +294,37 @@ async function persistStore(store: ApporteurStore) {
   cachedAt = Date.now();
 }
 
-function uniqueReferralToken(store: ApporteurStore, base: string): string {
+function uniqueReferralToken(store: ApporteurStore, base: string, excludeApporteurId?: string): string {
   const root = slugifyToken(base) || "partenaire";
   let token = root;
   let n = 2;
-  while (store.apporteurs.some((a) => a.referralToken === token)) {
+  while (referralTokenTakenByOther(store, token, excludeApporteurId)) {
     token = `${root}-${n}`;
     n += 1;
   }
   return token;
 }
 
-/** Candidats ?ref= : contact en priorité (évite les conflits même société), puis contact+société. */
-function buildReferralTokenCandidates(contactName: string, companyName: string): string[] {
-  const contact = slugifyToken(contactName);
-  const company = slugifyToken(companyName);
-  const candidates: string[] = [];
-  if (contact) candidates.push(contact);
-  if (contact && company) {
-    const combined = slugifyToken(`${contactName} ${companyName}`) || `${contact}-${company}`.slice(0, 48);
-    if (combined && combined !== contact) candidates.push(combined);
-  }
-  if (company) candidates.push(company);
-  return [...new Set(candidates.filter(Boolean))];
-}
-
-function pickReferralToken(store: ApporteurStore, candidates: string[]): string {
+function pickReferralToken(store: ApporteurStore, candidates: string[], excludeApporteurId?: string): string {
   for (const base of candidates) {
     const root = slugifyToken(base) || base;
-    if (root && !store.apporteurs.some((a) => a.referralToken === root)) return root;
+    if (root && !referralTokenTakenByOther(store, root, excludeApporteurId)) return root;
   }
-  return uniqueReferralToken(store, candidates[0] || "partenaire");
+  return uniqueReferralToken(store, candidates[0] || "partenaire", excludeApporteurId);
+}
+
+function syncReferralTokenFromIdentity(store: ApporteurStore, apporteur: Apporteur): void {
+  const contactName =
+    buildContactNameFromParts(apporteur.contactPrenom, apporteur.contactNom) ||
+    String(apporteur.contactName || "").trim();
+  const companyName = String(apporteur.companyName || "").trim();
+  const candidates = buildReferralTokenCandidates(contactName, companyName);
+  const next = pickReferralToken(store, candidates.filter(Boolean), apporteur.id);
+  if (!next || next === apporteur.referralToken) return;
+  const aliases = new Set(apporteur.referralTokenAliases || []);
+  aliases.add(apporteur.referralToken);
+  apporteur.referralTokenAliases = [...aliases];
+  apporteur.referralToken = next;
 }
 
 function pushReferralEvent(referral: Referral, status: ReferralStatus, message?: string, actor?: string) {
@@ -336,7 +367,7 @@ export async function findApporteurByToken(token: string): Promise<Apporteur | n
   const t = slugifyToken(token);
   if (!t) return null;
   const store = await loadApporteurStore();
-  return store.apporteurs.find((a) => a.active && a.referralToken === t) || null;
+  return store.apporteurs.find((a) => a.active && apporteurMatchesReferralToken(a, t)) || null;
 }
 
 /** Comptabilise une visite via lien ?ref= (clics + sessions uniques approximatives). */
@@ -348,7 +379,7 @@ export async function recordReferralLinkClick(
   const token = slugifyToken(refToken);
   if (!token) return { ok: false };
   const store = await loadApporteurStore();
-  const apporteur = store.apporteurs.find((a) => a.active && a.referralToken === token);
+  const apporteur = store.apporteurs.find((a) => a.active && apporteurMatchesReferralToken(a, token));
   if (!apporteur) return { ok: false };
 
   const stats = apporteur.referralStats || { linkClicks: 0, uniqueSessions: 0 };
@@ -544,6 +575,11 @@ export async function updateApporteur(
     if (store.apporteurs.some((a) => a.id !== id && a.referralToken === next)) {
       throw new Error("Ce lien ?ref= est déjà utilisé par un autre apporteur.");
     }
+    if (!apporteur.referralTokenAliases?.includes(apporteur.referralToken)) {
+      const aliases = new Set(apporteur.referralTokenAliases || []);
+      aliases.add(apporteur.referralToken);
+      apporteur.referralTokenAliases = [...aliases];
+    }
     apporteur.referralToken = next;
   }
   if (patch.companyName != null) apporteur.companyName = String(patch.companyName).trim();
@@ -651,6 +687,25 @@ export async function updateApporteur(
   }
   if (patch.identityDocument !== undefined) {
     apporteur.identityDocument = patch.identityDocument || undefined;
+  }
+  if (patch.referralToken == null) {
+    const contactName =
+      buildContactNameFromParts(apporteur.contactPrenom, apporteur.contactNom) ||
+      String(apporteur.contactName || "").trim();
+    const companyName = String(apporteur.companyName || "").trim();
+    const identityTouched =
+      patch.contactPrenom != null ||
+      patch.contactNom != null ||
+      patch.contactName != null ||
+      patch.companyName != null;
+    if (
+      identityTouched ||
+      shouldResyncReferralToken(apporteur.referralToken, contactName, companyName)
+    ) {
+      if (shouldResyncReferralToken(apporteur.referralToken, contactName, companyName)) {
+        syncReferralTokenFromIdentity(store, apporteur);
+      }
+    }
   }
   apporteur.updatedAt = new Date().toISOString();
   await persistStore(store);

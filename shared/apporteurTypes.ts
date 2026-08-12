@@ -43,6 +43,8 @@ export type Apporteur = {
   typeCustomLabel?: string;
   /** Slug pour ?ref= sur le formulaire */
   referralToken: string;
+  /** Anciens slugs ?ref= — restent actifs après correction du nom. */
+  referralTokenAliases?: string[];
   /** Accès espace apporteur (lien privé, ne pas partager publiquement). */
   portalToken: string;
   notes?: string;
