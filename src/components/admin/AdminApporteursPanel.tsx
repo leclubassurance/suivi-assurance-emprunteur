@@ -110,7 +110,7 @@ function emptyApporteurForm(segment: AdminPartnersSegment) {
     stripeCheckoutUrl: "",
     companyInCreation: false,
     brokerageSharePercent: "",
-    formationAccessGranted: false,
+    formationAccessGranted: segment === "conseiller_club",
   };
 }
 
@@ -313,14 +313,16 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
           ...editApporteurForm,
           companyName: nextCompanyName,
           notes: editApporteurNotes,
+          companyInCreation: editCompanyInCreation,
+          formationAccessGranted: editFormationAccessGranted,
           ...(segment === "conseiller_club"
-            ? { stripeCheckoutUrl: editStripeCheckoutUrl.trim() || null }
+            ? {
+                stripeCheckoutUrl: editStripeCheckoutUrl.trim() || null,
+              }
             : {
-                companyInCreation: editCompanyInCreation,
                 brokerageSharePercent: editBrokerageSharePercent.trim()
                   ? Number(editBrokerageSharePercent)
                   : null,
-                formationAccessGranted: editFormationAccessGranted,
               }),
         }),
       });
@@ -1236,19 +1238,54 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
               emailHint={ui.emailHint}
             />
             {segment === "conseiller_club" ? (
-              <label className="text-xs font-bold text-slate-600 block">
-                Lien Stripe cotisation (optionnel)
-                <input
-                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
-                  placeholder="https://buy.stripe.com/..."
-                  value={newApporteur.stripeCheckoutUrl}
-                  onChange={(e) => setNewApporteur((s) => ({ ...s, stripeCheckoutUrl: e.target.value }))}
-                />
-                <span className="mt-1 block text-[10px] font-normal text-slate-500">
-                  Si renseigné : après signature du contrat, le conseiller paie puis vous validez manuellement (accès 1 an).
-                  Laissez vide pour ouvrir l&apos;espace dès la signature.
-                </span>
-              </label>
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-600 block">
+                  Lien Stripe cotisation (optionnel)
+                  <input
+                    className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
+                    placeholder="https://buy.stripe.com/..."
+                    value={newApporteur.stripeCheckoutUrl}
+                    onChange={(e) => setNewApporteur((s) => ({ ...s, stripeCheckoutUrl: e.target.value }))}
+                  />
+                  <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                    Si renseigné : après signature du contrat, le conseiller paie puis vous validez manuellement (accès 1 an).
+                    Laissez vide pour ouvrir l&apos;espace dès la signature.
+                  </span>
+                </label>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
+                  <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={Boolean(newApporteur.companyInCreation)}
+                      onChange={(e) => setNewApporteur((s) => ({ ...s, companyInCreation: e.target.checked }))}
+                    />
+                    <span>
+                      Société / activité en cours de création (sans Kbis)
+                      <span className="block text-[10px] font-normal text-slate-500">
+                        Signature sans SIRET. Rétrocession due une fois la société immatriculée.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={Boolean(newApporteur.formationAccessGranted)}
+                      onChange={(e) =>
+                        setNewApporteur((s) => ({ ...s, formationAccessGranted: e.target.checked }))
+                      }
+                    />
+                    <span>
+                      Accès formation Coassemble
+                      <span className="block text-[10px] font-normal text-slate-500">
+                        Activé par défaut pour les conseillers du club.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
             ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
@@ -1337,16 +1374,51 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
               emailHint={ui.emailHint}
             />
             {segment === "conseiller_club" ? (
-              <label className="text-xs font-bold text-slate-600 block">
-                Lien Stripe cotisation (optionnel)
-                <input
-                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
-                  placeholder="https://buy.stripe.com/..."
-                  value={editStripeCheckoutUrl}
-                  onChange={(e) => setEditStripeCheckoutUrl(e.target.value)}
-                  disabled={savingApporteur}
-                />
-              </label>
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-600 block">
+                  Lien Stripe cotisation (optionnel)
+                  <input
+                    className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal"
+                    placeholder="https://buy.stripe.com/..."
+                    value={editStripeCheckoutUrl}
+                    onChange={(e) => setEditStripeCheckoutUrl(e.target.value)}
+                    disabled={savingApporteur}
+                  />
+                </label>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
+                  <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={editCompanyInCreation}
+                      onChange={(e) => setEditCompanyInCreation(e.target.checked)}
+                      disabled={savingApporteur}
+                    />
+                    <span>
+                      Société / activité en cours de création (sans Kbis)
+                      <span className="block text-[10px] font-normal text-slate-500">
+                        Signature sans SIRET. Rétrocession due une fois la société immatriculée.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={editFormationAccessGranted}
+                      onChange={(e) => setEditFormationAccessGranted(e.target.checked)}
+                      disabled={savingApporteur}
+                    />
+                    <span>
+                      Accès formation Coassemble
+                      <span className="block text-[10px] font-normal text-slate-500">
+                        Affiche le parcours formation dans l&apos;espace conseiller.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
             ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>

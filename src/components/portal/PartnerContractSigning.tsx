@@ -36,17 +36,22 @@ type Step = "blocked" | "profile" | "identity" | "contract";
 function ProfileReadonlySummary({
   profile,
   hideAddress = false,
+  companyInCreation = false,
 }: {
   profile: ApporteurProfileFormState;
   hideAddress?: boolean;
+  companyInCreation?: boolean;
 }) {
+  const siretDisplay =
+    String(profile.siret || "").trim() ||
+    (companyInCreation ? "En cours de création (sans SIRET)" : "");
   const rows: [string, string][] = [
     ["Prénom", profile.contactPrenom],
     ["Nom", profile.contactNom],
     ["Email", profile.email],
     ["Téléphone", profile.phone],
     ["Société / enseigne", profile.companyName],
-    ["SIRET / SIREN", profile.siret],
+    ["SIRET / SIREN", siretDisplay],
     ...(hideAddress
       ? []
       : ([
@@ -448,7 +453,10 @@ export default function PartnerContractSigning({
           </p>
         </div>
         <div className="px-5 py-4 space-y-4">
-          <ProfileReadonlySummary profile={payload.profile} />
+          <ProfileReadonlySummary
+            profile={payload.profile}
+            companyInCreation={payload.companyInCreation}
+          />
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
             Le dossier n&apos;est pas encore complet côté administration. Contactez LCIF pour
             finaliser vos informations, puis revenez signer.
@@ -486,7 +494,11 @@ export default function PartnerContractSigning({
             <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 mb-2">
               Identité au contrat (lecture seule)
             </p>
-            <ProfileReadonlySummary profile={payload.profile} hideAddress={canEditAddress} />
+            <ProfileReadonlySummary
+              profile={payload.profile}
+              hideAddress={canEditAddress}
+              companyInCreation={payload.companyInCreation}
+            />
           </div>
 
           {canEditAddress ? (
@@ -626,6 +638,13 @@ export default function PartnerContractSigning({
       <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
         <h3 className="font-black text-slate-900 text-base">{doc.title}</h3>
         <p className="text-xs text-slate-500 mt-1">{doc.preamble}</p>
+        {payload.companyInCreation ? (
+          <p className="text-[11px] text-amber-900 mt-2 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2">
+            Société / activité en cours de création : vous pouvez signer sans SIRET. La rémunération
+            (rétrocession) n&apos;est due qu&apos;une fois la société immatriculée et le numéro communiqué
+            à LCIF.
+          </p>
+        ) : null}
         {payload.identityDocumentRequired && payload.identityDocument?.fileName ? (
           <p className="text-[11px] text-emerald-700 mt-2 font-medium">
             Pièce d&apos;identité : {payload.identityDocument.fileName}

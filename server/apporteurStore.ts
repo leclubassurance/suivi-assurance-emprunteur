@@ -42,6 +42,9 @@ export type ApporteurStore = {
   camilleSchedule?: import("../shared/camilleSchedule").CamilleSchedule;
   /** Taux commission linéaire Kereis par défaut (%). */
   kereisMiaSettings?: import("../shared/kereisMiaRemuneration").KereisMiaSettings;
+  migrations?: {
+    conseillerFormationDefaultV1?: string;
+  };
   updatedAt: string;
 };
 
@@ -109,6 +112,9 @@ function normalizeStore(raw: unknown): ApporteurStore {
   }
   if ((data as ApporteurStore | null)?.kereisMiaSettings) {
     store.kereisMiaSettings = normalizeKereisMiaSettings((data as ApporteurStore).kereisMiaSettings);
+  }
+  if ((data as ApporteurStore | null)?.migrations) {
+    store.migrations = { ...(data as ApporteurStore).migrations };
   }
   return store;
 }
@@ -185,6 +191,20 @@ async function ensureApporteurFields(store: ApporteurStore): Promise<void> {
       apporteur.notifyEmailEnabled = true;
       changed = true;
     }
+  }
+  if (!store.migrations?.conseillerFormationDefaultV1) {
+    const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
+    for (const apporteur of store.apporteurs) {
+      if (isConseillerImmoClubType(apporteur.type) && apporteur.formationAccessGranted === false) {
+        apporteur.formationAccessGranted = true;
+        changed = true;
+      }
+    }
+    store.migrations = {
+      ...(store.migrations || {}),
+      conseillerFormationDefaultV1: new Date().toISOString(),
+    };
+    changed = true;
   }
   if (changed) await persistStore(store);
 }
@@ -449,9 +469,11 @@ export async function createApporteur(input: ApporteurProfileInput & {
       : undefined,
     companyInCreation: Boolean(input.companyInCreation) || undefined,
     brokerageSharePercent: sharePercent ?? undefined,
-    // Formation : opt-in admin (conseillers comme apporteurs). Les fiches conseiller
-    // historiques sans champ restent accessibles via canAccessConseillerFormation.
-    formationAccessGranted: input.formationAccessGranted === true ? true : false,
+    formationAccessGranted: (await import("../shared/conseillerImmoClub")).isConseillerImmoClubType(
+      normalized.type,
+    )
+      ? input.formationAccessGranted !== false
+      : input.formationAccessGranted === true,
   };
   store.apporteurs.push(apporteur);
   await persistStore(store);

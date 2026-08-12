@@ -2229,15 +2229,18 @@ export function createApp() {
         referralToken: body.referralToken,
         sponsorId: segment === "conseiller_club" ? undefined : body.sponsorId,
         stripeCheckoutUrl: segment === "conseiller_club" ? body.stripeCheckoutUrl : undefined,
+        companyInCreation: Boolean(body.companyInCreation),
+        formationAccessGranted:
+          segment === "conseiller_club"
+            ? body.formationAccessGranted !== false
+            : Boolean(body.formationAccessGranted),
         ...(segment === "conseiller_club"
           ? {}
           : {
-              companyInCreation: Boolean(body.companyInCreation),
               brokerageSharePercent:
                 body.brokerageSharePercent == null || body.brokerageSharePercent === ""
                   ? null
                   : Number(body.brokerageSharePercent),
-              formationAccessGranted: Boolean(body.formationAccessGranted),
             }),
       });
       res.json({ success: true, apporteur });

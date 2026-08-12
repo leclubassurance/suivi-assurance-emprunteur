@@ -4,6 +4,7 @@ import { LCIF_LEGAL } from "./lcifLegalIdentity";
 import type { Apporteur } from "./apporteurTypes";
 import {
   apporteurProfileToContractPartyBlock,
+  companyInCreationRemunerationClause,
   formatApporteurDisplayName,
   resolveApporteurTypeLabel,
 } from "./apporteurProfile";
@@ -15,7 +16,7 @@ import { buildConseillerAssuranceContractDocument } from "./conseillerAssuranceC
 import { isConseillerImmoClubType } from "./conseillerImmoClub";
 
 /** Incrémenter à chaque révision substantielle du contrat affiché en ligne. */
-export const APPORTEUR_CONTRACT_VERSION = "2026-07-v2";
+export const APPORTEUR_CONTRACT_VERSION = "2026-08-v3";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -166,7 +167,14 @@ Aucune rémunération n'est due tant que :
 En cas d'annulation, de rétractation légale ou de remboursement de commission par l'assureur, la rémunération correspondante pourra être annulée ou faire l'objet d'une régularisation sur les sommes ultérieurement dues.
 
 5.5 — Révision à la hausse en fonction du volume
-En fonction du volume de contrats effectivement conclus et de l'engagement du Partenaire, le mandant (Le Club Immobilier Français) se réserve la faculté de réviser à la hausse les taux ou montants de rémunération prévus au présent article, à titre de gratification de l'engagement de l'apporteur d'affaires. Toute révision favorable fera l'objet d'une information écrite au Partenaire et ne s'appliquera qu'aux dossiers conclus postérieurement à cette information, sauf mention contraire expresse du mandant.`,
+En fonction du volume de contrats effectivement conclus et de l'engagement du Partenaire, le mandant (Le Club Immobilier Français) se réserve la faculté de réviser à la hausse les taux ou montants de rémunération prévus au présent article, à titre de gratification de l'engagement de l'apporteur d'affaires. Toute révision favorable fera l'objet d'une information écrite au Partenaire et ne s'appliquera qu'aux dossiers conclus postérieurement à cette information, sauf mention contraire expresse du mandant.${
+        apporteur.companyInCreation
+          ? `\n\n5.6 — Société en cours de création\n${companyInCreationRemunerationClause({
+              partyLabel: "Partenaire",
+              remunerationLabel: "rémunération",
+            })}`
+          : ""
+      }`,
     },
     {
       heading: "6. Facturation — TVA — paiement",

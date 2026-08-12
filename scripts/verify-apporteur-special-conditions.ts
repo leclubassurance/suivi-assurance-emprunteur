@@ -11,6 +11,7 @@ import {
 } from "../shared/apporteurBrokerageShare";
 import { validateApporteurProfileForContract } from "../shared/apporteurProfile";
 import { buildPartnerContractDocument } from "../shared/apporteurContract";
+import { CONSEILLER_ASSURANCE_CONTRACT_VERSION } from "../shared/conseillerAssuranceContract";
 
 const baseProfile = {
   contactPrenom: "Marie",
@@ -63,8 +64,13 @@ const doc = buildPartnerContractDocument({
   companyInCreation: true,
   brokerageSharePercent: 55,
 });
+assert.equal(doc.version, CONSEILLER_ASSURANCE_CONTRACT_VERSION);
 const remSection = doc.sections.find((s) => s.heading.startsWith("5."));
 assert.ok(remSection?.body.includes("cinquante-cinq pour cent (55 %)"));
-assert.ok(doc.preamble.includes("Marie Dupont") || remSection);
+assert.ok(remSection?.body.includes("5.6 — Société en cours de création"));
+assert.ok(remSection?.body.includes("aucune rétrocession n'est due"));
+
+const partySection = doc.sections.find((s) => s.heading.startsWith("1."));
+assert.ok(partySection?.body.includes("aucune rémunération n'est due"));
 
 console.log("verify-apporteur-special-conditions: OK");

@@ -3,6 +3,7 @@ import type { ApporteurContractDocument, ApporteurContractSection } from "./appo
 import type { Apporteur } from "./apporteurTypes";
 import {
   apporteurProfileToContractPartyBlock,
+  companyInCreationRemunerationClause,
   formatApporteurDisplayName,
   resolveApporteurTypeLabel,
 } from "./apporteurProfile";
@@ -17,7 +18,7 @@ import {
 import { LCIF_LEGAL } from "./lcifLegalIdentity";
 
 /** Incrémenter à chaque révision substantielle du contrat conseiller assurance. */
-export const CONSEILLER_ASSURANCE_CONTRACT_VERSION = "2026-08-conseiller-v4";
+export const CONSEILLER_ASSURANCE_CONTRACT_VERSION = "2026-08-conseiller-v5";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -169,7 +170,14 @@ Aucune rétrocession n'est due tant que :
 En cas d'annulation, de rétractation légale ou de remboursement de commission ou de frais par l'assureur ou le client, la rétrocession correspondante pourra être annulée ou faire l'objet d'une régularisation sur les sommes ultérieurement dues.
 
 5.5 — Absence de rémunération de réseau
-La rétrocession ne concerne que les dossiers clients apportés directement par le Conseiller. Aucune commission de parrainage, override ou rémunération de réseau n'est due au titre d'autres partenaires.`,
+La rétrocession ne concerne que les dossiers clients apportés directement par le Conseiller. Aucune commission de parrainage, override ou rémunération de réseau n'est due au titre d'autres partenaires.${
+        conseiller.companyInCreation
+          ? `\n\n5.6 — Société en cours de création\n${companyInCreationRemunerationClause({
+              partyLabel: "Conseiller",
+              remunerationLabel: "rétrocession",
+            })}`
+          : ""
+      }`,
     },
     {
       heading: "6. Cotisation plateforme",

@@ -252,10 +252,26 @@ export function apporteurProfileToContractPartyBlock(
     apporteur.siren ? `SIREN : ${formatSirenDisplay(apporteur.siren)}` : undefined,
     apporteur.siret ? `SIRET : ${formatSiretDisplay(apporteur.siret)}` : undefined,
     inCreation && !apporteur.siret && !apporteur.siren
-      ? "SIREN / SIRET : société ou activité en cours de création — justificatif (Kbis) à communiquer dès disponibilité"
+      ? "SIREN / SIRET : société ou activité en cours de création — aucune rémunération n'est due tant que la société n'est pas immatriculée et le numéro communiqué à la Société (Kbis à transmettre dès disponibilité)"
       : undefined,
     legal ? `Forme juridique : ${legal}` : undefined,
     `Statut professionnel déclaré : ${typeLabel}`,
   ].filter(Boolean);
   return lines.join("\n");
+}
+
+export function companyInCreationRemunerationClause(opts: {
+  partyLabel: "Partenaire" | "Conseiller";
+  remunerationLabel: "rémunération" | "rétrocession";
+}): string {
+  const { partyLabel, remunerationLabel } = opts;
+  return (
+    `Lorsque le ${partyLabel} déclare que sa société ou son activité est en cours de création ` +
+    `(absence de numéro SIRET / SIREN au moment de la signature), aucune ${remunerationLabel} n'est due ` +
+    `tant que la société n'est pas régulièrement immatriculée et que le ${partyLabel} n'a pas communiqué ` +
+    `à la Société un numéro SIRET ou SIREN valide. Dès immatriculation, le ${partyLabel} s'engage à mettre ` +
+    `à jour sans délai ses informations contractuelles et à transmettre le justificatif (Kbis). ` +
+    `Les dossiers déjà conclus restent soumis aux autres conditions du présent article, sous réserve ` +
+    `de cette condition d'existence et d'immatriculation de la société.`
+  );
 }
