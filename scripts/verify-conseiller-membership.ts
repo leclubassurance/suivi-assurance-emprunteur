@@ -1,5 +1,5 @@
 /**
- * Verify conseiller membership unlock: contract → Stripe → admin validate → 1 year.
+ * Verify partner membership unlock: contract → Stripe → admin validate → 1 year.
  * Run: npx tsx scripts/verify-conseiller-membership.ts
  */
 import assert from "node:assert/strict";
@@ -79,14 +79,37 @@ function main() {
   assert.equal(expiredGate.gate, "expired");
   assert.equal(expiredGate.portalUnlocked, false);
 
-  // Business apporteur ignores membership fields
-  const business = base({
+  // Business apporteur WITHOUT stripe → unlock after contract
+  const businessOpen = base({
     type: "apporteur_affaires",
+    email: "alex@example.com",
     contractStatus: "signed",
-    stripeCheckoutUrl: "https://buy.stripe.com/test",
   });
-  assert.equal(isConseillerMembershipRequired(business), false);
-  assert.equal(isApporteurPortalUnlocked(business), true);
+  assert.equal(isConseillerMembershipRequired(businessOpen), false);
+  assert.equal(isApporteurPortalUnlocked(businessOpen), true);
+
+  // Business apporteur WITH stripe → locked until admin validates payment
+  const businessStripe = base({
+    type: "apporteur_affaires",
+    email: "alex@example.com",
+    contractStatus: "signed",
+    stripeCheckoutUrl: "https://buy.stripe.com/apporteur",
+    membershipPaymentStatus: "none",
+  });
+  assert.equal(isConseillerMembershipRequired(businessStripe), true);
+  assert.equal(isApporteurPortalUnlocked(businessStripe), false);
+  assert.equal(resolveConseillerMembershipAccess(businessStripe).gate, "payment");
+
+  const businessValidated = base({
+    type: "apporteur_affaires",
+    email: "alex@example.com",
+    contractStatus: "signed",
+    stripeCheckoutUrl: "https://buy.stripe.com/apporteur",
+    membershipPaymentStatus: "validated",
+    membershipValidatedAt: validatedAt,
+    membershipValidUntil: validUntil,
+  });
+  assert.equal(isApporteurPortalUnlocked(businessValidated, new Date("2026-12-01T00:00:00.000Z")), true);
 
   console.log("verify-conseiller-membership: OK");
 }

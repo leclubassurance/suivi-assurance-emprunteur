@@ -2228,7 +2228,7 @@ export function createApp() {
         notes: body.notes,
         referralToken: body.referralToken,
         sponsorId: segment === "conseiller_club" ? undefined : body.sponsorId,
-        stripeCheckoutUrl: segment === "conseiller_club" ? body.stripeCheckoutUrl : undefined,
+        stripeCheckoutUrl: body.stripeCheckoutUrl,
         companyInCreation: Boolean(body.companyInCreation),
         formationAccessGranted:
           segment === "conseiller_club"
@@ -3060,9 +3060,7 @@ export function createApp() {
       const { isApporteurPortalUnlocked, resolveConseillerMembershipAccess } = await import(
         "../shared/conseillerMembership"
       );
-      const membership = isConseillerClub
-        ? resolveConseillerMembershipAccess(apporteur)
-        : null;
+      const membership = resolveConseillerMembershipAccess(apporteur);
       const portalUnlocked = isApporteurPortalUnlocked(apporteur);
       const { enrichReferralsForApporteurPortal } = await import("./apporteurPortalEnrich");
       const enrichedReferrals = isConseillerClub
@@ -3451,13 +3449,10 @@ export function createApp() {
           const { isApporteurPortalUnlocked, resolveConseillerMembershipAccess } = await import(
             "../shared/conseillerMembership"
           );
-          const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
           if (!isApporteurPortalUnlocked(apporteur)) {
-            const membership = isConseillerImmoClubType(apporteur.type)
-              ? resolveConseillerMembershipAccess(apporteur)
-              : null;
+            const membership = resolveConseillerMembershipAccess(apporteur);
             const needsPayment =
-              membership &&
+              membership.membershipRequired &&
               (membership.gate === "payment" ||
                 membership.gate === "pending_validation" ||
                 membership.gate === "expired");
@@ -3465,7 +3460,7 @@ export function createApp() {
               ok: false,
               error: needsPayment ? "membership_required" : "contract_required",
               message: needsPayment
-                ? "Finalisez votre cotisation annuelle pour accéder à l'espace conseiller."
+                ? "Finalisez votre adhésion / cotisation pour accéder à votre espace."
                 : "Le contrat partenaire doit être signé avant d'enregistrer une recommandation.",
             });
           }

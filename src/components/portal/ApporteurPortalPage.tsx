@@ -621,7 +621,7 @@ export default function ApporteurPortalPage({
     const contractSigned = Boolean(data.contract?.signed);
     const membership = data.membership;
     const showMembership =
-      Boolean(isConseillerClub && contractSigned && membership?.required && membership.gate !== "open");
+      Boolean(contractSigned && membership?.required && membership.gate !== "open");
 
     return (
       <div className="min-h-[100dvh] bg-[var(--lcif-bg)]">
@@ -647,8 +647,8 @@ export default function ApporteurPortalPage({
             </PortalSection>
           ) : showMembership && membership ? (
             <PortalSection
-              title="Cotisation annuelle"
-              description="Dernière étape avant l'ouverture de votre espace assurance."
+              title={isConseillerClub ? "Cotisation annuelle" : "Adhésion partenaire"}
+              description="Dernière étape avant l'ouverture de votre espace."
             >
               <PartnerConseillerMembership
                 membership={membership}
@@ -742,9 +742,9 @@ export default function ApporteurPortalPage({
                 l&apos;administration.
               </p>
             ) : null}
-            {isConseillerClub && data.membership?.validUntil && data.membership.paymentStatus === "validated" ? (
+            {data.membership?.validUntil && data.membership.paymentStatus === "validated" ? (
               <p className="text-xs font-medium text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-center">
-                Cotisation active jusqu&apos;au{" "}
+                {isConseillerClub ? "Cotisation" : "Adhésion"} active jusqu&apos;au{" "}
                 {new Date(data.membership.validUntil).toLocaleDateString("fr-FR", {
                   day: "numeric",
                   month: "long",

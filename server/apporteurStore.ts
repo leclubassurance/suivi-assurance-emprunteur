@@ -712,19 +712,15 @@ export async function updateApporteur(
   return apporteur;
 }
 
-/** Conseiller déclare avoir payé via Stripe → attente validation admin. */
+/** Partenaire déclare avoir payé via Stripe → attente validation admin. */
 export async function declareConseillerMembershipPayment(portalToken: string): Promise<Apporteur> {
   const store = await loadApporteurStore();
   const apporteur = store.apporteurs.find((a) => a.portalToken === portalToken);
   if (!apporteur) throw new Error("Lien portail invalide.");
-  const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
   const {
     isConseillerMembershipRequired,
     resolveConseillerMembershipAccess,
   } = await import("../shared/conseillerMembership");
-  if (!isConseillerImmoClubType(apporteur.type)) {
-    throw new Error("Cotisation réservée aux conseillers du club.");
-  }
   if ((apporteur.contractStatus || "none") !== "signed") {
     throw new Error("Signez d'abord le contrat.");
   }
@@ -757,13 +753,8 @@ export async function validateConseillerMembershipPayment(
   const store = await loadApporteurStore();
   const apporteur = store.apporteurs.find((a) => a.id === id);
   if (!apporteur) throw new Error("Apporteur introuvable.");
-  const { isConseillerImmoClubType, CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC } = await import(
-    "../shared/conseillerImmoClub"
-  );
+  const { CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC } = await import("../shared/conseillerImmoClub");
   const { addOneCalendarYearIso } = await import("../shared/conseillerMembership");
-  if (!isConseillerImmoClubType(apporteur.type)) {
-    throw new Error("Cotisation réservée aux conseillers du club.");
-  }
   if ((apporteur.contractStatus || "none") !== "signed") {
     throw new Error("Le contrat doit être signé avant de valider la cotisation.");
   }
@@ -771,7 +762,7 @@ export async function validateConseillerMembershipPayment(
   const fee =
     typeof opts?.feeEur === "number" && Number.isFinite(opts.feeEur)
       ? opts.feeEur
-      : CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC;
+      : apporteur.membershipFeeEur ?? CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC;
   apporteur.membershipPaymentStatus = "validated";
   apporteur.membershipValidatedAt = now;
   apporteur.membershipValidatedBy = String(opts?.validatedBy || "admin").trim() || "admin";
@@ -790,10 +781,6 @@ export async function expireConseillerMembershipPayment(id: string): Promise<App
   const store = await loadApporteurStore();
   const apporteur = store.apporteurs.find((a) => a.id === id);
   if (!apporteur) throw new Error("Apporteur introuvable.");
-  const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
-  if (!isConseillerImmoClubType(apporteur.type)) {
-    throw new Error("Cotisation réservée aux conseillers du club.");
-  }
   const now = new Date().toISOString();
   apporteur.membershipPaymentStatus = "expired";
   apporteur.updatedAt = now;

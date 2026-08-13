@@ -1,8 +1,5 @@
 import type { Apporteur } from "./apporteurTypes";
-import {
-  CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC,
-  isConseillerImmoClubType,
-} from "./conseillerImmoClub";
+import { CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC } from "./conseillerImmoClub";
 
 /** Statut cotisation plateforme (espace assurance conseiller). */
 export type ConseillerMembershipPaymentStatus =
@@ -59,14 +56,16 @@ export function normalizeStripeCheckoutUrl(raw: unknown): string | undefined {
   }
 }
 
-/** Cotisation requise si un lien Stripe est configuré, ou si un cycle de paiement a déjà démarré. */
+/**
+ * Cotisation / adhésion requise si un lien Stripe est configuré,
+ * ou si un cycle de paiement a déjà démarré (conseillers ou apporteurs).
+ */
 export function isConseillerMembershipRequired(
   apporteur: Pick<
     Apporteur,
     "type" | "stripeCheckoutUrl" | "membershipPaymentStatus" | "membershipValidUntil"
   >,
 ): boolean {
-  if (!isConseillerImmoClubType(apporteur.type)) return false;
   if (trimUrl(apporteur.stripeCheckoutUrl)) return true;
   const status = apporteur.membershipPaymentStatus || "none";
   if (status === "pending_validation" || status === "validated" || status === "expired") {
@@ -109,7 +108,7 @@ export function resolveEffectiveMembershipPaymentStatus(
 }
 
 /**
- * Débloque l'espace conseiller uniquement si :
+ * Débloque l'espace partenaire / conseiller uniquement si :
  * - contrat signé, et
  * - soit aucune cotisation n'est requise (pas de lien Stripe),
  * - soit cotisation validée et encore dans la période d'1 an.
@@ -203,7 +202,7 @@ export function resolveConseillerMembershipAccess(
   };
 }
 
-/** Accès portail (apporteurs business = contrat seul ; conseillers = contrat + cotisation si configurée). */
+/** Accès portail : contrat signé + adhésion Stripe validée si un lien est configuré. */
 export function isApporteurPortalUnlocked(
   apporteur: Pick<
     Apporteur,
@@ -215,8 +214,5 @@ export function isApporteurPortalUnlocked(
   >,
   now: Date = new Date(),
 ): boolean {
-  if (!isConseillerImmoClubType(apporteur.type)) {
-    return (apporteur.contractStatus || "none") === "signed";
-  }
   return resolveConseillerMembershipAccess(apporteur, now).portalUnlocked;
 }

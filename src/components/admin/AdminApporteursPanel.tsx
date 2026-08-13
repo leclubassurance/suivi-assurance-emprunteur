@@ -316,10 +316,9 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
           notes: editApporteurNotes,
           companyInCreation: editCompanyInCreation,
           formationAccessGranted: editFormationAccessGranted,
+          stripeCheckoutUrl: editStripeCheckoutUrl.trim() || null,
           ...(segment === "conseiller_club"
-            ? {
-                stripeCheckoutUrl: editStripeCheckoutUrl.trim() || null,
-              }
+            ? {}
             : {
                 brokerageSharePercent: editBrokerageSharePercent.trim()
                   ? Number(editBrokerageSharePercent)
@@ -784,7 +783,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 ) : null}
               </div>
               <div className="text-xs text-slate-500 mt-1">{a.contactName} · {resolveApporteurTypeLabel(a)}</div>
-              {segment === "conseiller_club" ? (() => {
+              {(() => {
                 const m = resolveConseillerMembershipAccess(a);
                 if (m.paymentStatus === "pending_validation") {
                   return (
@@ -796,7 +795,14 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                 if (m.gate === "expired") {
                   return (
                     <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wide text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded">
-                      Cotisation expirée
+                      Adhésion expirée
+                    </span>
+                  );
+                }
+                if (m.membershipRequired && m.gate === "payment") {
+                  return (
+                    <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-700 bg-slate-200 px-1.5 py-0.5 rounded">
+                      Adhésion à régler
                     </span>
                   );
                 }
@@ -808,7 +814,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                   );
                 }
                 return null;
-              })() : null}
+              })()}
               <div className="text-[11px] text-slate-400 mt-1 font-mono">ref={a.referralToken}</div>
               <div className="text-[10px] text-slate-400 mt-0.5">
                 {a.referralStats?.linkClicks ?? 0} visite{(a.referralStats?.linkClicks ?? 0) !== 1 ? "s" : ""} lien
@@ -957,20 +963,22 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                           Le partenaire signe depuis son espace privé — le portail se débloque automatiquement.
                         </p>
                       </div>
-                      {segment === "conseiller_club" ? (() => {
+                      {(() => {
                         const membership = resolveConseillerMembershipAccess(a);
                         const busy = membershipBusyId === a.id;
                         const statusLabel =
                           CONSEILLER_MEMBERSHIP_STATUS_LABELS[membership.paymentStatus] ||
                           membership.paymentStatus;
+                        const label = segment === "conseiller_club" ? "Cotisation" : "Adhésion";
                         return (
                           <div className="border border-indigo-100 rounded-xl p-4 bg-indigo-50/50 space-y-3">
                             <p className="text-[11px] font-black uppercase text-indigo-400">
-                              Cotisation Stripe ({CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC} € TTC / an)
+                              {label} Stripe ({CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC} € TTC / an)
                             </p>
                             <p className="text-xs text-slate-600">
-                              Lien Stripe optionnel : s&apos;il est renseigné, le conseiller doit payer après signature,
+                              Lien Stripe optionnel : s&apos;il est renseigné, le partenaire doit payer après signature,
                               puis vous validez manuellement pour ouvrir l&apos;accès 1 an jour pour jour.
+                              Sans lien Stripe, l&apos;espace s&apos;ouvre dès la signature du contrat.
                             </p>
                             <label className="text-xs font-bold text-slate-600 block">
                               Lien Stripe (Payment Link)
@@ -993,7 +1001,7 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                                     setError(data.error || "Lien Stripe non enregistré");
                                     return;
                                   }
-                                  setSuccessMsg(next ? "Lien Stripe enregistré." : "Lien Stripe retiré.");
+                                  setSuccessMsg(next ? "Lien Stripe enregistré — espace bloqué jusqu'au paiement validé." : "Lien Stripe retiré.");
                                   await load();
                                 }}
                               />
@@ -1036,13 +1044,13 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                                   onClick={() => expireMembership(a.id)}
                                   className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
                                 >
-                                  Marquer expiré / à renouveler
+                                  Marquer expiré / bloquer
                                 </button>
                               ) : null}
                             </div>
                           </div>
                         );
-                      })() : null}
+                      })()}
                       </div>
                       ) : (
                       <div className="space-y-4">
@@ -1290,6 +1298,19 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
             ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
+              <label className="text-xs font-bold text-slate-600 block">
+                Lien Stripe adhésion (optionnel)
+                <input
+                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal bg-white"
+                  placeholder="https://buy.stripe.com/..."
+                  value={newApporteur.stripeCheckoutUrl}
+                  onChange={(e) => setNewApporteur((s) => ({ ...s, stripeCheckoutUrl: e.target.value }))}
+                />
+                <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                  Si renseigné : après signature du contrat, l&apos;apporteur paie puis vous validez manuellement
+                  (accès 1 an). Laissez vide pour ouvrir l&apos;espace dès la signature.
+                </span>
+              </label>
               <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                 <input
                   type="checkbox"
@@ -1458,6 +1479,19 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
             ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Conditions spéciales</p>
+              <label className="text-xs font-bold text-slate-600 block">
+                Lien Stripe adhésion (optionnel)
+                <input
+                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal bg-white"
+                  placeholder="https://buy.stripe.com/..."
+                  value={editStripeCheckoutUrl}
+                  onChange={(e) => setEditStripeCheckoutUrl(e.target.value)}
+                  disabled={savingApporteur}
+                />
+                <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                  Bloque l&apos;espace jusqu&apos;au paiement validé en admin.
+                </span>
+              </label>
               <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                 <input
                   type="checkbox"
