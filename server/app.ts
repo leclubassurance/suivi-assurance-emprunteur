@@ -3720,7 +3720,6 @@ export function createApp() {
       try {
         const { findApporteurByPortalToken, listReferrals, getRemunerationForApporteur } =
           await import("./apporteurStore");
-        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
         const { validateFeesPerAssuredEur, resolveGrossSavingsForStudyValidation } = await import(
           "./studyConseillerValidation"
         );
@@ -3728,9 +3727,6 @@ export function createApp() {
 
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
-        if (!isConseillerImmoClubType(apporteur.type)) {
-          return res.status(403).json({ ok: false, error: "not_conseiller" });
-        }
         {
           const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
           if (!isApporteurPortalUnlocked(apporteur)) {
@@ -3832,12 +3828,8 @@ export function createApp() {
     async (req, res) => {
       try {
         const { findApporteurByPortalToken, listReferrals } = await import("./apporteurStore");
-        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
-        if (!isConseillerImmoClubType(apporteur.type)) {
-          return res.status(403).json({ ok: false, error: "not_conseiller" });
-        }
         {
           const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
           if (!isApporteurPortalUnlocked(apporteur)) {
@@ -3902,14 +3894,10 @@ export function createApp() {
       try {
         const { findApporteurByPortalToken, listReferrals, getRemunerationForApporteur } =
           await import("./apporteurStore");
-        const { isConseillerImmoClubType } = await import("../shared/conseillerImmoClub");
         const { approveConseillerStudyCourtage } = await import("./studyConseillerValidation");
 
         const apporteur = await findApporteurByPortalToken(req.params.token);
         if (!apporteur) return res.status(404).json({ ok: false, error: "portal_invalid" });
-        if (!isConseillerImmoClubType(apporteur.type)) {
-          return res.status(403).json({ ok: false, error: "not_conseiller" });
-        }
         {
           const { isApporteurPortalUnlocked } = await import("../shared/conseillerMembership");
           if (!isApporteurPortalUnlocked(apporteur)) {

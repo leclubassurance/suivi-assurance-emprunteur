@@ -3077,10 +3077,10 @@ export default function AdminDashboard({
 
                   {conseillerStudyFlow?.requiresConseillerValidation ? (
                     <div className="mb-1 p-4 rounded-xl border border-indigo-200 bg-indigo-50 text-sm text-indigo-950">
-                      <p className="font-bold mb-1">Dossier conseiller LCIF</p>
+                      <p className="font-bold mb-1">Dossier partenaire LCIF</p>
                       <p className="text-xs text-indigo-800 leading-relaxed">
                         Importez le PDF d&apos;étude (recommandé) ou collez un HTML, ajoutez un débrief
-                        optionnel, puis soumettez au conseiller pour validation du courtage. Après
+                        optionnel, puis soumettez au partenaire pour validation du courtage. Après
                         validation, le mail type + PDF joint sont prêts à l&apos;envoi.
                       </p>
                       {conseillerStudyFlow.validation?.status === "pending" ? (
@@ -3136,11 +3136,11 @@ export default function AdminDashboard({
                   conseillerStudyFlow.validation?.status !== "pending" ? (
                     <div className="flex flex-col gap-1.5 mb-1">
                       <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
-                        Débrief conseiller (optionnel)
+                        Débrief partenaire (optionnel)
                       </label>
                       <textarea
                         className="border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 min-h-[72px]"
-                        placeholder="Contexte pour le conseiller : points clés, négociation, particularités du dossier…"
+                        placeholder="Contexte pour le partenaire : points clés, négociation, particularités du dossier…"
                         value={debriefNote}
                         onChange={(e) => setDebriefNote(e.target.value)}
                       />

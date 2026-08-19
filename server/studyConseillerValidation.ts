@@ -3,6 +3,7 @@ import { addEvent } from "./dossierModel";
 import { findApporteurById } from "./apporteurStore";
 import { isConseillerImmoClubType } from "../shared/conseillerImmoClub";
 import { formatApporteurDisplayName } from "../shared/apporteurProfile";
+import type { Apporteur } from "../shared/apporteurTypes";
 import {
   computeBrokerageFeeEur,
   getRemunerationConfig,
@@ -103,6 +104,7 @@ export function extractStudyValidationContext(
   html: string,
   dossier: Dossier,
   subject = "",
+  config: RemunerationConfig = getRemunerationConfig("conseiller_immo_club"),
 ): StudyValidationContext {
   const raw = decodeHtmlEntities(String(html || ""));
   const blob = stripHtml(raw);
@@ -116,8 +118,6 @@ export function extractStudyValidationContext(
   const feesAssureur =
     firstAmountAfter(/frais de dossier de la nouvelle assurance/i, blob) ??
     firstAmountAfter(/frais de dossier/i, blob);
-
-  const config = getRemunerationConfig("conseiller_immo_club");
   const yearsHint = 15;
   const annualSavings = gross != null && gross > 0 ? gross / yearsHint : config.defaultAnnualSavingsEur;
   const suggestedFeePerAssuredEur = Math.round(
@@ -136,12 +136,17 @@ export function extractStudyValidationContext(
   };
 }
 
-export async function resolveDossierConseillerApporteur(dossier: Dossier) {
+/** Partenaire LCIF (conseiller ou apporteur d'affaires) rattaché au dossier. */
+export async function resolveDossierConseillerApporteur(dossier: Dossier): Promise<Apporteur | null> {
   const apporteurId = String(dossier.apporteur?.apporteurId || "").trim();
   if (!apporteurId) return null;
   const apporteur = await findApporteurById(apporteurId);
-  if (!apporteur || !isConseillerImmoClubType(apporteur.type)) return null;
+  if (!apporteur || apporteur.active === false) return null;
   return apporteur;
+}
+
+function partnerRoleLabel(apporteur: Pick<Apporteur, "type">): string {
+  return isConseillerImmoClubType(apporteur.type) ? "conseiller" : "partenaire";
 }
 
 export async function dossierRequiresConseillerStudyValidation(dossier: Dossier): Promise<boolean> {
@@ -159,7 +164,7 @@ export async function getConseillerStudySendGate(
   if (v?.status === "pending") {
     return {
       blocked: true,
-      reason: "En attente de validation du courtage par le conseiller.",
+      reason: "En attente de validation du courtage par le partenaire.",
     };
   }
   if (v?.status === "approved") {
@@ -168,7 +173,7 @@ export async function getConseillerStudySendGate(
   return {
     blocked: true,
     reason:
-      "Soumettez d'abord le débrief au conseiller pour validation du courtage, puis envoyez l'étude après sa validation.",
+      "Soumettez d'abord le débrief au partenaire pour validation du courtage, puis envoyez l'étude après sa validation.",
   };
 }
 
@@ -250,6 +255,36 @@ export function buildStudyValidationSummaryForPortal(
   };
 }
 
+export function buildPortalStudyValidationPending(
+  dossier: Dossier,
+  remuneration: RemunerationConfig,
+): (ReturnType<typeof buildStudyValidationSummaryForPortal> & {
+  dossierId: string;
+  subject: string;
+  submittedAt: string;
+  debriefNote?: string;
+}) | null {
+  const studyValidationRaw = dossier.studyConseillerValidation;
+  if (studyValidationRaw?.status !== "pending") return null;
+  return {
+    dossierId: dossier.id,
+    subject: studyValidationRaw.subject,
+    submittedAt: studyValidationRaw.submittedAt,
+    debriefNote: studyValidationRaw.debriefNote,
+    ...buildStudyValidationSummaryForPortal(
+      {
+        ...studyValidationRaw,
+        grossSavingsEur:
+          studyValidationRaw.grossSavingsEur ??
+          resolveGrossSavingsForStudyValidation(dossier, studyValidationRaw) ??
+          undefined,
+      },
+      remuneration,
+      dossier,
+    ),
+  };
+}
+
 export async function notifyConseillerStudyPending(params: {
   dossier: Dossier;
   apporteur: NonNullable<Awaited<ReturnType<typeof findApporteurById>>>;
@@ -308,16 +343,18 @@ export async function notifyAdminStudyCourtageApproved(params: {
   ]
     .filter(Boolean)
     .join(" ");
-  const conseillerName = formatApporteurDisplayName(apporteur);
+  const partnerName = formatApporteurDisplayName(apporteur);
   const perAssured = validation.feesPerAssuredEur ?? 0;
   const total = validation.feesCourtageTotalEur ?? 0;
+  const { getRemunerationForApporteur } = await import("./apporteurStore");
+  const retroPercent = Math.round(getRemunerationForApporteur(apporteur).apporteurShareOfBrokerage * 100);
   const subject = `[${dossier.id}] Courtage validé — envoyer l'étude au client`;
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.55;color:#334155">
-    <p><strong>${conseillerName}</strong> a validé le courtage pour le dossier <strong>${dossier.id}</strong>${clientName ? ` (${clientName})` : ""}.</p>
+    <p><strong>${partnerName}</strong> a validé le courtage pour le dossier <strong>${dossier.id}</strong>${clientName ? ` (${clientName})` : ""}.</p>
     <ul>
       <li>Courtage : <strong>${perAssured} €</strong> / assuré × ${validation.assuredCount} = <strong>${total} €</strong></li>
       ${validation.grossSavingsEur != null ? `<li>Économie affichée : <strong>${Math.round(validation.grossSavingsEur).toLocaleString("fr-FR")} €</strong></li>` : ""}
-      <li>Rétro conseiller (70 %) : <strong>${validation.conseillerRetroEur ?? 0} €</strong></li>
+      <li>Rétro ${partnerRoleLabel(apporteur)} (${retroPercent} %) : <strong>${validation.conseillerRetroEur ?? 0} €</strong></li>
     </ul>
     <p>Les frais de courtage validés seront appliqués automatiquement à l&apos;aperçu admin et à l&apos;envoi client.</p>
   </div>`;
@@ -378,10 +415,10 @@ export async function submitStudyToConseiller(params: {
 
   const apporteur = await resolveDossierConseillerApporteur(dossier);
   if (!apporteur) {
-    return { ok: false, error: "Ce dossier n'est pas rattaché à un conseiller LCIF." };
+    return { ok: false, error: "Ce dossier n'est pas rattaché à un partenaire LCIF." };
   }
   if (!apporteur.portalToken) {
-    return { ok: false, error: "Le conseiller n'a pas de lien portail actif." };
+    return { ok: false, error: "Le partenaire n'a pas de lien portail actif." };
   }
 
   const existing = dossier.studyConseillerValidation;
@@ -390,7 +427,9 @@ export async function submitStudyToConseiller(params: {
   }
   // approved / cancelled : on autorise une nouvelle soumission (nouvelle étude / nouveau courtage).
 
-  const ctx = extractStudyValidationContext(trimmedHtml, dossier, trimmedSubject);
+  const { getRemunerationForApporteur } = await import("./apporteurStore");
+  const remuneration = getRemunerationForApporteur(apporteur);
+  const ctx = extractStudyValidationContext(trimmedHtml, dossier, trimmedSubject, remuneration);
   const resolvedGross = resolveGrossSavingsForStudyValidation(dossier, {
     grossSavingsEur: ctx.grossSavingsEur ?? undefined,
     html: trimmedHtml,
@@ -463,8 +502,8 @@ export async function submitStudyToConseiller(params: {
     type: "NOTE_ADDED",
     actor: { kind: "ADMIN", label: submittedBy || "Admin" },
     message: hasPdf && !trimmedHtml
-      ? "PDF d'étude soumis au conseiller pour validation du courtage."
-      : "Débrief soumis au conseiller pour validation du courtage.",
+      ? `PDF d'étude soumis au ${partnerRoleLabel(apporteur)} pour validation du courtage.`
+      : `Débrief soumis au ${partnerRoleLabel(apporteur)} pour validation du courtage.`,
     meta: {
       template: "STUDY_CONSEILLER_SUBMIT",
       grossSavingsEur: resolvedGross,
@@ -598,7 +637,7 @@ export async function approveConseillerStudyCourtage(params: {
   addEvent(dossier, {
     type: "NOTE_ADDED",
     actor: { kind: "APPORTEUR", label: apporteur.companyName || "Conseiller" },
-    message: `Courtage validé par le conseiller : ${feesPerAssuredEur} €/assuré (${total} € total). Envoi étude à faire par l'admin.`,
+    message: `Courtage validé par le ${partnerRoleLabel(apporteur)} : ${feesPerAssuredEur} €/assuré (${total} € total). Envoi étude à faire par l'admin.`,
     meta: {
       template: "STUDY_CONSEILLER_APPROVED",
       feesPerAssuredEur,
