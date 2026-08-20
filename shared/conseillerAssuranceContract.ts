@@ -1,4 +1,4 @@
-import { APPORTEUR_PROSPECTION_DISCLAIMER } from "./apporteurCompliance";
+import { CONSEILLER_PROSPECTION_DISCLAIMER } from "./apporteurCompliance";
 import type { ApporteurContractDocument, ApporteurContractSection } from "./apporteurContract";
 import type { Apporteur } from "./apporteurTypes";
 import {
@@ -11,14 +11,11 @@ import {
   formatBrokerageShareForContract,
   resolveBrokerageSharePercent,
 } from "./apporteurBrokerageShare";
-import {
-  CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC,
-  CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
-} from "./conseillerImmoClub";
+import { CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC } from "./conseillerImmoClub";
 import { LCIF_LEGAL } from "./lcifLegalIdentity";
 
 /** Incrémenter à chaque révision substantielle du contrat conseiller assurance. */
-export const CONSEILLER_ASSURANCE_CONTRACT_VERSION = "2026-08-conseiller-v5";
+export const CONSEILLER_ASSURANCE_CONTRACT_VERSION = "2026-08-conseiller-v6";
 
 const CLUB = "Le Club Immobilier Français";
 const SOCIETE = LCIF_LEGAL.companyName;
@@ -35,6 +32,35 @@ function clubIdentityBlock(): string {
     `titulaire de la carte professionnelle d'agent immobilier ${LCIF_LEGAL.cpiNumber}, délivrée le ${LCIF_LEGAL.cpiIssuedAt} par ${LCIF_LEGAL.cpiAuthority},`,
     `assurée en responsabilité civile professionnelle auprès de ${LCIF_LEGAL.professionalInsurance.insurer}, ${LCIF_LEGAL.professionalInsurance.address}, police n° ${LCIF_LEGAL.professionalInsurance.policyNumber}.`,
   ].join("\n");
+}
+
+function buildPlatformFeeArticleBody(): string {
+  return `6.1 — Nature et objet
+L'accès à l'espace conseiller assurance emprunteur, aux outils associés (lien de recommandation, suivi des dossiers, validation des frais de courtage le cas échéant) est soumis au paiement d'une cotisation annuelle de ${CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC} euros toutes taxes comprises.
+
+Cette cotisation constitue une redevance B2B d'accès à la plateforme et aux services associés ; elle ne constitue pas une prestation de formation au sens du Code de la consommation.
+
+6.2 — Modalités de paiement et prise d'effet
+Le paiement s'effectue selon les modalités indiquées par la Société (lien de paiement sécurisé). L'accès est ouvert après validation du paiement par ${CLUB}, qui en accuse réception sur l'espace ou par email.
+
+6.3 — Durée et renouvellement
+La cotisation couvre une période de douze (12) mois à compter de la date de validation du paiement. Elle se renouvelle tacitement chaque année à la date anniversaire, sous réserve du paiement de la cotisation en vigueur et de la non-résiliation du Contrat.
+
+6.4 — Absence de droit de rétractation (B2B)
+Le Contrat est conclu entre professionnels. Le Conseiller reconnaît que le droit de rétractation de quatorze (14) jours prévu pour les contrats de prestation de services conclus à distance avec des consommateurs ne lui est pas applicable au titre de la cotisation plateforme.
+
+6.5 — Résiliation et remboursement
+En cas de résiliation par le Conseiller (article 11), aucun remboursement au prorata de la cotisation en cours n'est dû : la période déjà payée reste acquise jusqu'à son terme, sous réserve de la suspension d'accès en cas de manquement grave.
+
+En cas de résiliation par la Société sans manquement grave du Conseiller, un remboursement au prorata des mois non écoulés de la période en cours pourra être accordé, sur demande écrite adressée à ${LCIF_LEGAL.contactEmail} dans les trente (30) jours suivant la prise d'effet de la résiliation.
+
+En cas de suspension ou de résiliation pour manquement grave, fraude ou impayé, aucun remboursement n'est dû.
+
+6.6 — Société ou activité en cours de création
+Si le Conseiller a déclaré une société ou activité en cours de création au moment de la signature et qu'aucune immatriculation valide (SIRET ou SIREN) n'a été communiquée à la Société dans un délai de six (6) mois suivant la signature, le Conseiller peut demander par email le remboursement intégral de la dernière cotisation plateforme versée, dans un délai de trente (30) jours à compter de l'expiration de ce délai de six mois, sous réserve qu'aucune rétrocession n'ait été due au titre de l'article 5 sur un dossier conclu entre-temps. ${CLUB} procède au remboursement sous trente (30) jours ouvrés si la demande est fondée.
+
+6.7 — Suspension pour impayé
+En cas de non-paiement à l'échéance annuelle ou après relance restée sans effet dans un délai de quinze (15) jours, ${CLUB} peut suspendre l'accès sans préjudice des sommes dues et sans remboursement de la période expirée.`;
 }
 
 export function buildConseillerAssuranceContractDocument(
@@ -81,7 +107,7 @@ ${partnerBlock}
 (ci-après le « Conseiller »).
 
 1.1 — Objet
-Le Contrat encadre l'activité de recommandation commerciale en assurance emprunteur exercée par le Conseiller, mandataire ou collaborateur immobilier du réseau ${CLUB}, dans le respect de la réglementation applicable et des deux phases opérationnelles définies à l'article 3.
+Le Contrat encadre l'activité de recommandation commerciale en assurance emprunteur exercée par le Conseiller, mandataire ou collaborateur immobilier du réseau ${CLUB}, dans le respect de la réglementation applicable et des modalités opérationnelles définies à l'article 3.
 
 1.2 — Mission du Conseiller
 Le Conseiller recommande des contacts susceptibles de bénéficier d'une étude comparative d'assurance emprunteur (loi n° 2022-270 du 28 février 2022 — « loi Lemoine »). Il informe ses contacts de l'existence d'un service d'étude gratuite et sans engagement, sans préqualifier médicalement, sans analyser les garanties, sans comparer les contrats et sans conseiller en investissement ou en crédit au-delà de la stricte orientation vers ${CLUB}.
@@ -103,27 +129,21 @@ L'accès à l'espace conseiller est créé par ${CLUB} (pas d'auto-inscription).
 Le Conseiller s'engage à préserver la confidentialité de ses identifiants, à n'utiliser l'espace qu'aux fins du Contrat et à ne pas communiquer ses accès à des tiers.
 
 2.3 — Suspension
-${CLUB} peut suspendre l'accès en cas de manquement grave, d'impayé de la cotisation annuelle plateforme ou de cessation du Contrat.`,
+${CLUB} peut suspendre l'accès en cas de manquement grave, d'impayé de la cotisation annuelle plateforme (article 6) ou de cessation du Contrat.`,
     },
     {
-      heading: "3. Phases opérationnelles — accompagnement puis autonomie commerciale",
-      body: `3.1 — Phase accompagnée (démarrage)
-Tant que le Conseiller n'a pas atteint le seuil de ${CONSEILLER_AUTONOMY_SIGNED_THRESHOLD} dossiers clients d'assurance emprunteur effectivement signés (changement d'assurance réalisé) comptabilisés à vie sur son espace, il est en « phase accompagnée » :
-— le Conseiller recommande des contacts via son lien personnel ;
-— ${CLUB} assure l'instruction complète du dossier, les échanges opérationnels avec le client par email (adresse assurance@leclubimmobilier.fr) et la préparation de la souscription ;
-— le Conseiller suit l'avancement dans son espace.
+      heading: "3. Modalités opérationnelles",
+      body: `3.1 — Recommandation
+Le Conseiller recommande des contacts via son lien personnel ou le formulaire en ligne mis à disposition.
 
-3.2 — Phase autonome commerciale
-À compter de ${CONSEILLER_AUTONOMY_SIGNED_THRESHOLD} dossiers au statut signé (compteur à vie), le Conseiller passe en « phase autonome commerciale » :
-— ${CLUB} génère l'étude personnalisée et l'adresse au client et au Conseiller (copie) ;
-— le Conseiller devient l'interlocuteur commercial principal du client pour la présentation de l'étude et la décision de poursuivre ;
-— lorsque le client accepte, le Conseiller transmet via l'espace les informations personnelles et pièces nécessaires à la souscription (identité, adresse, RIB, CNI de chaque emprunteur, référence de l'offre de crédit) ;
-— ${CLUB} procède seule à la souscription du contrat d'assurance auprès de l'assureur partenaire et informe le Conseiller des étapes (informations reçues, souscription en cours, souscription finalisée) ;
-— le Conseiller ne peut pas réaliser la souscription sur un portail assureur : il transmet uniquement les éléments via l'espace ;
-— les emails adressés à assurance@leclubimmobilier.fr concernant un dossier du Conseiller en phase autonome font l'objet d'un accusé indiquant que le Conseiller reprendra le client ; le Conseiller est informé du message (transfert opérationnel selon les outils en vigueur).
+3.2 — Instruction par la Société
+${CLUB} assure l'instruction complète des dossiers, les échanges opérationnels avec les clients (notamment via assurance@leclubimmobilier.fr), l'établissement et l'envoi des études personnalisées, la validation des frais de courtage avec le Conseiller lorsque applicable, ainsi que la souscription des contrats d'assurance emprunteur auprès des assureurs partenaires.
 
-3.3 — Compteur
-Seuls les dossiers effectivement signés et conformes sont pris en compte pour le seuil. Le compteur n'est pas réinitialisé.`,
+3.3 — Suivi
+Le Conseiller suit l'avancement des dossiers qu'il a apportés dans son espace en ligne. Il n'est pas l'interlocuteur réglementaire du client pour la distribution d'assurance et ne présente pas les propositions au nom de la Société.
+
+3.4 — Interdictions
+Le Conseiller ne souscrit pas de contrats d'assurance, n'accède pas aux portails ou extranets des compagnies d'assurance et ne collecte pas de questionnaires de santé ni de données médicales hors les canaux ${CLUB}.`,
     },
     {
       heading: "4. Obligations du Conseiller",
@@ -131,8 +151,7 @@ Seuls les dossiers effectivement signés et conformes sont pris en compte pour l
 — recommander ${CLUB} avec loyauté et transparence (script de rémunération en cas de changement effectif, sans surcoût pour le client) ;
 — orienter les contacts vers le formulaire en ligne ou le lien personnel ;
 — ne pas promettre de résultat (montant d'économies, acceptation, délai garanti) ;
-— respecter la prospection : ${APPORTEUR_PROSPECTION_DISCLAIMER}
-— en phase autonome : répondre au client dans des délais professionnels et transmettre sans délai les éléments de souscription via l'espace ;
+— respecter la prospection : ${CONSEILLER_PROSPECTION_DISCLAIMER}
 — ne pas accéder aux portails de souscription des compagnies d'assurance ni conclure de contrat d'assurance au nom du client ou de la Société ;
 — ne pas collecter de questionnaires de santé ni de données médicales hors canaux ${CLUB} ;
 — ne pas percevoir de fonds pour le compte de la Société ou des clients ;
@@ -181,14 +200,7 @@ La rétrocession ne concerne que les dossiers clients apportés directement par 
     },
     {
       heading: "6. Cotisation plateforme",
-      body: `6.1 — Principe
-L'accès à l'espace conseiller assurance emprunteur, aux outils associés et au parcours d'accompagnement est soumis au paiement d'une cotisation annuelle de ${CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC} euros toutes taxes comprises.
-
-6.2 — Durée et renouvellement
-La cotisation ouvre droit à l'accès au service pour une période de douze (12) mois à compter de la date de validation du paiement par ${CLUB}. Elle est renouvelable chaque année à la date anniversaire de cette validation, pour une nouvelle période de douze (12) mois, sous réserve du paiement de la cotisation annuelle en vigueur.
-
-6.3 — Suspension
-En cas de non-paiement à l'échéance annuelle ou après relance restée sans effet, ${CLUB} peut suspendre l'accès à l'espace sans préjudice des sommes dues.`,
+      body: buildPlatformFeeArticleBody(),
     },
     {
       heading: "7. Facturation — TVA — paiement des rétrocessions",
@@ -218,7 +230,11 @@ La Société pourra procéder à des retenues ou compensations en cas de trop-pe
     },
     {
       heading: "11. Durée — résiliation",
-      body: `Contrat à durée indéterminée à compter de la signature électronique. Résiliation par chaque partie avec préavis de quinze (15) jours par email avec accusé de réception. Les commissions sur dossiers signés avant résiliation restent exigibles selon l'article 5.`,
+      body: `Contrat à durée indéterminée à compter de la signature électronique. Résiliation par chaque partie avec préavis de quinze (15) jours par email avec accusé de réception.
+
+La résiliation met fin à l'accès à l'espace ; les conséquences sur la cotisation plateforme en cours sont définies à l'article 6.5.
+
+Les rétrocessions sur dossiers signés avant résiliation restent exigibles selon l'article 5.`,
     },
     {
       heading: "12. Médiation — réclamations — droit applicable",

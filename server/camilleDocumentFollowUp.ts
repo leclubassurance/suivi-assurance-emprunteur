@@ -20,20 +20,10 @@ import {
   registerScheduledDocFollowUp,
   releaseCamilleClientEmailLock,
 } from "./camilleClientEmailGuard";
-import { isCamilleProductionSafeMode } from "./camilleClientSafety";
 
 export { assessCertainLoanDocProblems } from "./loanDocCertainty";
 
-function isProactiveDocFollowUpEnabled() {
-  const configured = process.env.AI_PROACTIVE_DOC_FOLLOWUP_ENABLED;
-  const v = String(configured ?? (isCamilleProductionSafeMode() ? "false" : "true")).toLowerCase();
-  return v !== "false" && v !== "0" && v !== "no";
-}
-
-function isAiAutoReplyEnabled() {
-  const v = (process.env.AI_AUTO_REPLY_ENABLED || "true").toLowerCase();
-  return v !== "false" && v !== "0" && v !== "no";
-}
+import { isCamilleProactiveDocFollowUpEnabled } from "./camilleEnabled";
 
 function problemsSummaryForPrompt(assessment: LoanDocProblemAssessment): string {
   return assessment.problems
@@ -192,7 +182,7 @@ function sleep(ms: number) {
  * Sinon log interne — traitement manuel par Rémi.
  */
 export function scheduleCamilleDocumentFollowUpIfNeeded(dossier: any) {
-  if (!isProactiveDocFollowUpEnabled() || !isAiAutoReplyEnabled()) return;
+  if (!isCamilleProactiveDocFollowUpEnabled()) return;
 
   const scheduleCheck = shouldScheduleLoanDocFollowUp(dossier);
   if (!scheduleCheck.allowed) {

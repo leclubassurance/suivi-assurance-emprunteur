@@ -120,9 +120,10 @@ function markProcessed(dossier: any, gmailId: string): boolean {
   return false;
 }
 
+import { isCamilleClientAutomationEnabled } from "./camilleEnabled";
+
 function isAiAutoReplyEnabled() {
-  const v = (process.env.AI_AUTO_REPLY_ENABLED || 'true').toLowerCase();
-  return v !== 'false' && v !== '0' && v !== 'no';
+  return isCamilleClientAutomationEnabled();
 }
 
 function sleep(ms: number) {

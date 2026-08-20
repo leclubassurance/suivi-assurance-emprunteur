@@ -72,6 +72,11 @@ export async function processIncomingClientEmail(
     gmailThreadId?: string;
   },
 ) {
+  const { isCamilleClientAutomationEnabled } = await import("./camilleEnabled");
+  if (!isCamilleClientAutomationEnabled()) {
+    return { status: "skipped", reason: "Camille désactivée (automation client coupée)." };
+  }
+
   if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes("MY_GEMINI")) {
     console.warn("[AI] GEMINI_API_KEY manquante sur Railway — pas de réponse automatique.");
     return { status: "escalated", reason: "Clé Gemini non configurée sur le serveur." };

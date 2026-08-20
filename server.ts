@@ -61,7 +61,8 @@ async function startServer() {
       .then(async ([{ isCamilleTestMode, getCamilleTestModeUntilParisH }, telegram, playbooks]) => {
         const testModeActive = isCamilleTestMode();
         const untilH = getCamilleTestModeUntilParisH();
-        const aiReply = String(process.env.AI_AUTO_REPLY_ENABLED ?? "true").toLowerCase();
+        const { camilleAutomationStatusLabel } = await import("./server/camilleEnabled");
+        const aiReply = camilleAutomationStatusLabel();
         const untilLabel = untilH == null ? "aucune" : `${String(untilH).padStart(2, "0")}h Paris`;
         const safeMode = String(process.env.CAMILLE_PRODUCTION_SAFE_MODE ?? "true").toLowerCase();
         const tgOk = telegram.isTelegramEnabled();

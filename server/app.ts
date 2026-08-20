@@ -308,6 +308,8 @@ export function createApp() {
         operational: (await import("./telegramCamille")).isTelegramEnabled(),
       },
       camille: {
+        clientAutomation: (await import("./camilleEnabled")).camilleAutomationStatusLabel(),
+        clientAutomationEnabled: (await import("./camilleEnabled")).isCamilleClientAutomationEnabled(),
         productionSafeMode:
           String(process.env.CAMILLE_PRODUCTION_SAFE_MODE ?? "true").toLowerCase() !== "false",
         playbookSeedVersion: (await import("./camillePlaybooks")).getPlaybookSeedVersion(),

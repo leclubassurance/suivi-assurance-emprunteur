@@ -29,7 +29,7 @@ export const CAMILLE_WEEKDAY_LABELS = [
 export const CAMILLE_WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export const DEFAULT_CAMILLE_SCHEDULE: CamilleSchedule = {
-  enabled: true,
+  enabled: false,
   daysOfWeek: [1, 2, 3, 4, 5],
   startHour: 8,
   endHour: 20,

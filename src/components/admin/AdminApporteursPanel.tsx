@@ -16,10 +16,8 @@ import { adminFetch } from "../../lib/adminApi";
 import type { Apporteur, ApporteurType, PartnerRecruitRequest, PartnerRecruitStatus, Referral, ReferralStatus } from "../../../shared/apporteurTypes";
 import {
   CONSEILLER_ANNUAL_PLATFORM_FEE_EUR_TTC,
-  CONSEILLER_AUTONOMY_SIGNED_THRESHOLD,
   countSignedClientReferrals,
   isConseillerImmoClubType,
-  resolveConseillerOperatingPhase,
   type AdminPartnersSegment,
 } from "../../../shared/conseillerImmoClub";
 import {
@@ -878,17 +876,13 @@ export default function AdminApporteursPanel({ onBack, segment = "business" }: P
                     {segment === "conseiller_club" ? (() => {
                       const conseillerReferrals = referrals.filter((r) => r.apporteurId === a.id);
                       const signedCount = countSignedClientReferrals(conseillerReferrals);
-                      const phase = resolveConseillerOperatingPhase(signedCount);
                       return (
                         <div className="mb-3 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
-                          <strong>
-                            {phase === "autonomous" ? "Phase B — autonome" : "Phase A — accompagnée"}
-                          </strong>
+                          <strong>Accompagnement LCIF</strong>
                           {" · "}
-                          {signedCount}/{CONSEILLER_AUTONOMY_SIGNED_THRESHOLD} dossiers clients signés
-                          {phase === "autonomous"
-                            ? " — relation client gérée par le conseiller"
-                            : " — Club + Camille actifs sur les dossiers"}
+                          {signedCount} dossier{signedCount !== 1 ? "s" : ""} client
+                          {signedCount !== 1 ? "s" : ""} signé{signedCount !== 1 ? "s" : ""}
+                          {" — Club + Camille actifs sur les dossiers"}
                         </div>
                       );
                     })() : null}

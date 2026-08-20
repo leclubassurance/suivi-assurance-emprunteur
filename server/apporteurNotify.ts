@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import type { Apporteur, Referral, ReferralStatus } from "../shared/apporteurTypes";
 import { APPORTEUR_TYPE_LABELS, REFERRAL_STATUS_LABELS } from "../shared/apporteurTypes";
-import { isConseillerImmoClubType, CONSEILLER_AUTONOMY_SIGNED_THRESHOLD } from "../shared/conseillerImmoClub";
+import { isConseillerImmoClubType } from "../shared/conseillerImmoClub";
 import { LCIF_EMAIL_LOGO_HEADER_IMG } from "../shared/emailBrand";
 import { ASSURANCE_PLATFORM_PRODUCTION_URL } from "../shared/platformUrls";
 import { resolvePublicAppBaseUrl } from "./clientPortal";
@@ -212,8 +212,8 @@ export function buildConseillerContractSigningInviteEmail(params: {
         </p>
         <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:14px;color:#334155;">
           <tr><td style="padding:0 0 10px 0;vertical-align:top;width:28px;">✓</td><td style="padding:0 0 10px 0;"><strong>70&nbsp;% des frais de courtage</strong> sur chaque dossier signé — parmi les meilleures conditions du marché pour un conseiller immo.</td></tr>
-          <tr><td style="padding:0 0 10px 0;vertical-align:top;">✓</td><td style="padding:0 0 10px 0;"><strong>Accompagnement LCIF en phase assistée</strong> : études, débriefs et relation client pris en charge avec vous.</td></tr>
-          <tr><td style="padding:0 0 10px 0;vertical-align:top;">✓</td><td style="padding:0 0 10px 0;"><strong>Autonomie progressive</strong> après ${CONSEILLER_AUTONOMY_SIGNED_THRESHOLD} dossiers signés — vous pilotez vos souscriptions en toute sérénité.</td></tr>
+          <tr><td style="padding:0 0 10px 0;vertical-align:top;">✓</td><td style="padding:0 0 10px 0;"><strong>Accompagnement LCIF</strong> : études, débriefs et relation client pris en charge avec vous.</td></tr>
+          <tr><td style="padding:0 0 10px 0;vertical-align:top;">✓</td><td style="padding:0 0 10px 0;"><strong>Validation du courtage</strong> dans votre espace avant envoi de l&apos;étude au client.</td></tr>
           <tr><td style="padding:0;vertical-align:top;">✓</td><td style="padding:0;"><strong>Un lien client dédié</strong> à partager en 2 minutes — zéro paperasse, suivi en temps réel dans votre espace.</td></tr>
         </table>
       </div>

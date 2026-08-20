@@ -13,5 +13,8 @@ export const LCIF_COURTAGE_BARME_DISCLOSURE =
 export const APPORTEUR_PROSPECTION_DISCLAIMER =
   "Toute prise de contact par WhatsApp, SMS ou téléphone doit respecter la réglementation applicable : consentement ou relation préexistante, information loyale, respect des listes d'opposition au démarchage téléphonique (notamment Bloctel) le cas échéant, et droit d'opposition de vos contacts. Le Partenaire demeure seul responsable de sa prospection.";
 
+export const CONSEILLER_PROSPECTION_DISCLAIMER =
+  "Toute prise de contact par WhatsApp, SMS ou téléphone doit respecter la réglementation applicable : consentement ou relation préexistante, information loyale, respect des listes d'opposition au démarchage téléphonique (notamment Bloctel) le cas échéant, et droit d'opposition de vos contacts. Le Conseiller demeure seul responsable de sa prospection.";
+
 export const APPORTEUR_PROSPECTION_DISCLAIMER_SHORT =
   "Prospection : respectez le consentement de vos contacts, Bloctel pour le téléphone, et le droit d'opposition. Vous restez responsable de vos messages.";

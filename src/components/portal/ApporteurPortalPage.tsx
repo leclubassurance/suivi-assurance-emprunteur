@@ -779,11 +779,7 @@ export default function ApporteurPortalPage({
 
         {isConseillerClub && data.conseillerClub ? (
           <div id="ap-phase" className="scroll-mt-28">
-            <ConseillerPhaseBanner
-              operatingPhase={data.conseillerClub.operatingPhase}
-              signedCount={data.conseillerClub.signedCount}
-              autonomyThreshold={data.conseillerClub.autonomyThreshold}
-            />
+            <ConseillerPhaseBanner signedCount={data.conseillerClub.signedCount} />
           </div>
         ) : null}
 

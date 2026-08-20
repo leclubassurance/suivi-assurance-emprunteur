@@ -22,8 +22,9 @@ export function countSignedClientReferrals(referrals: Referral[] | undefined): n
   return (referrals || []).filter((r) => r.status === "SIGNE").length;
 }
 
-export function resolveConseillerOperatingPhase(signedCount: number): ConseillerOperatingPhase {
-  return signedCount >= CONSEILLER_AUTONOMY_SIGNED_THRESHOLD ? "autonomous" : "assisted";
+/** Toujours « accompagnée » depuis le contrat v6 (phases A/B supprimées). */
+export function resolveConseillerOperatingPhase(_signedCount?: number): ConseillerOperatingPhase {
+  return "assisted";
 }
 
 export function isLcifStaffEmail(email: unknown): boolean {
